@@ -77,6 +77,21 @@ test('run: a job that throws rejects with its message (not as a part failure), t
   }
 });
 
+test('run: a job limited on CPU time is stopped at the first progress past it, naming it; one waiting with little '
+  + 'CPU runs past that limit in wall time', async () => {
+  const t = await pool({ workers: 1 });
+  try {
+    await assert.rejects(t.run(job, { mode: 'spin', ms: 5000 }, { cpuTimeoutMs: 150, timeoutMs: 10_000 }),
+      (e) => !(e instanceof TessellationError)
+        && /^job fakeJob timed out after 150 ms of CPU time \(last: spin \d+\)$/.test((e as Error).message));
+    assert.equal((await t.run<JobOut>(job, { mode: 'idle', ms: 400 }, { cpuTimeoutMs: 150 })).input.mode, 'idle');
+    // Without one, the same spin finishes.
+    assert.equal((await t.run<JobOut>(job, { mode: 'spin', ms: 300 })).input.mode, 'spin');
+  } finally {
+    t.dispose();
+  }
+});
+
 test("serve's outputBuffers: each typed array's buffer once, in plain objects and arrays, not in other objects",
   async () => {
   const { outputBuffers } = await import('../src/serve.ts');

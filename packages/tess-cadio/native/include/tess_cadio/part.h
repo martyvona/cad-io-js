@@ -69,7 +69,15 @@ struct PartOptions {
    * and a cause saying so, as one past its deflection does: wrong output however rare.
    */
   bool failTurnedOver = true;
+  /**
+   * Count each face's mesher insertions by what queued them (FaceMesh::inserted). Off by default: it evaluates the
+   * criteria again on every refused triangle the mesher queues (up to 2 x the time); the mesh is the same either way.
+   */
+  bool countInsertions = false;
 };
+
+/** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */
+constexpr int kInsertionKinds = 10;
 
 struct FaceMesh {
   /**
@@ -102,6 +110,11 @@ struct FaceMesh {
   int deviationMeasured = 0;
   /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
   int refusedBy[kRefusalKinds] = {};
+  /**
+   * With PartOptions::countInsertions, its final mesh's Steiner points by what queued the triangle each broke:
+   * [0] its size in the metric, [1] its thinness alone, [2 + k] refused by its criteria, k criteria.h's Refusal.
+   */
+  int inserted[kInsertionKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /**

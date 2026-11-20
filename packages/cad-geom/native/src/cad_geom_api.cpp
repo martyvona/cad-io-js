@@ -6,8 +6,9 @@
 // valid until the next call that writes it (cg_scratch, cg_scratch_size). A projection (projectCurve: cg_project,
 // cg_coedge_project) goes there as a header (status, method, certainty, seamU, seamV, offSurface, error, the
 // ambiguous parameters' count, the pieces' count, the seam twin's, whether the use takes the twin, the range's
-// parameters at its start and end, offSpan's lo and hi, then stopped, stopAt, stopDistance, stopWhy: 19), those
-// parameters, then the pieces and the twin's, each 21 (t lo, t hi, kind, poleLine, from u, v, to u, v, certainty,
+// parameters at its start and end, offSpan's lo and hi, then stopped, stopAt, stopDistance, stopWhy, the start's and
+// end's EndCheck and their alternatives' counts: 23), those parameters, the alternatives ((u, v) each, the start's
+// then the end's), then the pieces and the twin's, each 21 (t lo, t hi, kind, poleLine, from u, v, to u, v, certainty,
 // error, the reals' count, the ints', affine 9) and its reals and ints, then the (u, v) at each sample parameter asked
 // (NaN where no piece covers it), and the twin's, where it's on a seam.
 #include <algorithm>
@@ -766,7 +767,16 @@ void projectCoedge(int32_t h, int c, double tol, Projection& out) {
     return;
   }
   const PcurveSource source{&m, ci, m.faceSurface(face)};
-  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), nullptr,
+  // A traced result's ends checked against its vertices' feet (the model's end search): the curve's lower
+  // parameter's vertex is the edge's start where its parameters run start to end.
+  PcurveEnds ends;
+  const int vlo = t0 <= t1 ? m.edgeStart(e) : m.edgeEnd(e), vhi = t0 <= t1 ? m.edgeEnd(e) : m.edgeStart(e);
+  auto key = [&](int v) { return (uint64_t(uint32_t(v)) << 32) | uint32_t(face); };
+  ends.cache = &entry(h)->ends;
+  ends.checkStart = vlo >= 0, ends.checkEnd = vhi >= 0;
+  if (vlo >= 0) ends.startKey = key(vlo), ends.startPoint = m.vertexPoint(vlo);
+  if (vhi >= 0) ends.endKey = key(vhi), ends.endPoint = m.vertexPoint(vhi);
+  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), &ends,
     &source);
   out.t0 = t0, out.t1 = t1, out.made = 0;
   // The use runs start to end forward, end to start reversed.
@@ -797,8 +807,11 @@ void putProjection(const Pcurve& p, bool twin, double t0, double t1, const doubl
   scratch.insert(scratch.end(), {double(p.status), double(p.method), double(p.certainty), p.seamU ? 1.0 : 0.0,
     p.seamV ? 1.0 : 0.0, p.offSurface, p.error, double(p.tAmbiguous.size()), double(p.pieces.size()),
     double(p.seamTwin.size()), twin ? 1.0 : 0.0, t0, t1, p.offSpan.lo, p.offSpan.hi, p.stopped ? 1.0 : 0.0, p.stopAt,
-    p.stopDistance, double(p.stopWhy)});
+    p.stopDistance, double(p.stopWhy), double(p.endCheck[0]), double(p.endCheck[1]),
+    double(p.endAlternatives[0].size()), double(p.endAlternatives[1].size())});
   scratch.insert(scratch.end(), p.tAmbiguous.begin(), p.tAmbiguous.end());
+  for (const std::vector<Vec2>& a : p.endAlternatives)
+    for (Vec2 uv : a) scratch.push_back(uv.x), scratch.push_back(uv.y);
   for (const std::vector<PcurvePiece>* v : {&p.pieces, &p.seamTwin})
     for (const PcurvePiece& q : *v) {
       scratch.insert(scratch.end(), {q.t.lo, q.t.hi, double(q.kind), q.poleLine ? 1.0 : 0.0, q.from.x, q.from.y,

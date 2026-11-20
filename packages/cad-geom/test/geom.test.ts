@@ -865,6 +865,14 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
       coedges: [{ edge: e, orientation: 'forward' }] }] });
     b.addItem({ kind: 'face', ref: f });
   }
+  // A face on the cylinder bounded by the tilted ellipse, closed at its vertex (0, 1, tan 0.5): coedge 2, traced.
+  {
+    const v = b.addVertex({ point: [0, 1, Math.tan(tilt)] });
+    const e = b.addEdge({ curve: ellipse, start: v, end: v, sameSense: true });
+    const f = b.addFace({ surface: cylinder, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward' }] }] });
+    b.addItem({ kind: 'face', ref: f });
+  }
   using g = new Geometry(module, new Uint8Array(b.finish().buffer));
   const close = (a: ArrayLike<number>, want: number[], at: string) =>
     want.forEach((w, i) => assert.ok(Math.abs(a[i]! - w) <= 1e-12 * (1 + Math.abs(w)), `${at} [${i}]: ${a[i]}`));
@@ -922,6 +930,13 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   // At a tolerance the gap is within, it's made.
   const c2 = g.projectCoedge(1, 2e-3);
   assert.ok('pieces' in c2 && c2.status === 'ok');
+  // Not traced: unchecked. The ellipse's coedge, traced once round: its start the vertex's foot, its end the same a
+  // period over.
+  assert.deepEqual([c0.endCheck, c0.endAlternatives.map((a) => a.length)], [['unchecked', 'unchecked'], [0, 0]]);
+  const c3 = g.projectCoedge(2);
+  assert.ok('pieces' in c3);
+  assert.deepEqual([c3.status, c3.method, c3.certainty, c3.endCheck], ['ok', 'traced', 'unique', ['same', 'periods']]);
+  assert.deepEqual(c3.endAlternatives.map((a) => a.length), [0, 0]);
   g.setProjectMissingPcurves(false);
   assert.equal(g.faceInfo(0).status, 'noPcurve');
   assert.equal(g.evalCoedge(0, [0]).status, 'noPcurve');

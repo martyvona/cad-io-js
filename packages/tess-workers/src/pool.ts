@@ -38,10 +38,16 @@ export interface WorkerTessellatorOptions extends PoolOptions {
   backend?: BackendSpec;
 }
 
-/** A job's options: progress, and its own timeout (ms; 0, the default, none: unlike a part's meshing). */
+/**
+ * A job's options: progress, and its own limits (ms; 0, the default, none: unlike a part's meshing): `timeoutMs` on
+ * wall time, `cpuTimeoutMs` on the worker thread's CPU time, checked at each progress message the job sends (so it
+ * applies only to jobs that send them, and only where the host gives thread CPU time: keep `timeoutMs` as the
+ * backstop).
+ */
 export interface RunOptions {
   onProgress?: (message: string) => void;
   timeoutMs?: number;
+  cpuTimeoutMs?: number;
 }
 
 interface Job {
@@ -55,6 +61,8 @@ interface Job {
   /** The last progress (the backend's, or a job's message), for a timeout to say how far it got. */
   last?: string;
   timeoutMs: number;
+  /** A job's limit on CPU time (RunOptions'); requests use the pool's. */
+  cpuTimeoutMs?: number;
 }
 
 /**
@@ -152,7 +160,8 @@ export class PoolTessellator implements Tessellator {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.queue.push({ id, msg: { type: 'run', id, job, input }, resolve: resolve as (r: never) => void, reject,
-        ...(opts.onProgress ? { onJobProgress: opts.onProgress } : {}), timeoutMs: opts.timeoutMs ?? 0 });
+        ...(opts.onProgress ? { onJobProgress: opts.onProgress } : {}), timeoutMs: opts.timeoutMs ?? 0,
+        cpuTimeoutMs: opts.cpuTimeoutMs ?? 0 });
       this.pump();
     });
   }
@@ -209,8 +218,15 @@ export class PoolTessellator implements Tessellator {
       }
       case 'jobProgress': {
         if (s.job && s.job.id === msg.id) {
-          s.job.last = msg.message;
-          s.job.onJobProgress?.(msg.message);
+          const job = s.job;
+          job.last = msg.message;
+          job.onJobProgress?.(msg.message);
+          if (job.cpuTimeoutMs && msg.cpuMs !== undefined && msg.cpuMs > job.cpuTimeoutMs) {
+            const what = job.msg.type === 'run' ? job.msg.job.export : '';
+            this.kill(s, new Error(`job ${what} timed out after ${job.cpuTimeoutMs} ms of CPU time (last: `
+              + `${msg.message})`));
+            this.pump();
+          }
         }
         return;
       }

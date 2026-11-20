@@ -14,6 +14,7 @@
 #include <tuple>
 
 #include "cad_geom/surface.h"
+#include "mesh2d_impl.h"
 #include "poles.h"
 
 namespace tesscadio {
@@ -464,7 +465,10 @@ struct PartMesher::Impl {
     mo.maxPoints = o.maxPointsPerFace;
     mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
-    Mesh2 mesh = mesh2(d, *criteria[f], mo);
+    static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
+    Mesh2Detail detail;
+    Mesh2 mesh = o.countInsertions ? mesh2Detailed(d, *criteria[f], mo, &detail) : mesh2(d, *criteria[f], mo);
+    if (o.countInsertions) std::copy(detail.inserted, detail.inserted + kInsertionKinds, out.inserted);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;

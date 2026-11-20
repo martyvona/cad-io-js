@@ -79,7 +79,9 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
       try {
         const f = (await load(msg.job))[msg.job.export] as JobFunction | undefined;
         if (typeof f !== 'function') throw new Error(`${msg.job.module} has no function '${msg.job.export}'`);
-        const output = await f(msg.input, (message) => port.post({ type: 'jobProgress', id, message }, []));
+        const t0 = threadCpu?.();
+        const output = await f(msg.input, (message) => port.post({ type: 'jobProgress', id, message,
+          ...(t0 === undefined ? {} : { cpuMs: threadCpu!() - t0 }) }, []));
         port.post({ type: 'output', id, output }, outputBuffers(output));
       } catch (e) {
         port.post({ type: 'error', id, message: message(e), part: false }, []);

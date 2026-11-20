@@ -27,6 +27,10 @@
 //                deflection listed; with PLANT=survey, ours given a needle and a copy of its largest triangle lifted
 //                3 x the deflection off it on the planted face, which must show as its worst angle under 0.1 degrees
 //                and deviation past 1.5 x (3 x less what the face itself strays)
+//   INSERTIONS=1 ours counts its mesher's insertions by what queued them (tess-cadio's countInsertions), tallied over
+//                the parts it meshes: the same meshes, but up to 2 x its CPU time, so its times and the parts over
+//                CPU_MS aren't comparable with a run without it; with PLANT=insertions, ours's count by size said a
+//                million more on the planted part, which must show in the tally
 //   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
 //                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
 //                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
@@ -49,6 +53,7 @@ import { type BrepData, decode } from '../packages/cad-brep/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
+import { INSERTED_HEAD, INSERTED_KINDS } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
 import { addInto, division, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
@@ -61,8 +66,9 @@ import {
 const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 const PLANT = process.env.PLANT ?? '';
-const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'survey'];
+const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'survey', 'insertions'];
 const SURVEY = process.env.SURVEY === '1';
+const INSERTIONS = process.env.INSERTIONS === '1';
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
 const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
@@ -74,6 +80,7 @@ const TIMES = [1, 10, 60, 120, Infinity];
 const timeBin = (ms: number) => TIMES.findIndex((t) => ms / 1000 <= t);
 if (PLANT && !PLANTS.includes(PLANT)) throw new Error(`PLANT=${PLANT}: one of ${PLANTS.join(', ')}`);
 if (PLANT === 'survey' && !SURVEY) throw new Error('PLANT=survey needs SURVEY=1');
+if (PLANT === 'insertions' && !INSERTIONS) throw new Error('PLANT=insertions needs INSERTIONS=1');
 const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
 /** What our failures are, until the user decides what counts as beyond repair. */
 const UNCLASSIFIED = 'unclassified';
@@ -169,6 +176,21 @@ function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
     return { expect: 'planted: cause 3', face: id };
   }
   if (PLANT === 'survey') return plantSurvey(o);
+  if (PLANT === 'insertions') {
+    // Ours's insertions said with a million more by size, the last kind's count moved to the front.
+    const r = o.cadio;
+    if (r instanceof Error) return undefined;
+    const k = r.diagnostics.findIndex((x) => x.message.startsWith(INSERTED_HEAD));
+    if (k < 0) return undefined;
+    const n = r.diagnostics[k]!.message.slice(INSERTED_HEAD.length).split(', ')
+      .map((x) => Number(x.slice(x.lastIndexOf(' ') + 1)));
+    n[0]! += 1e6;
+    const diagnostics = [...r.diagnostics];
+    diagnostics[k] = { ...diagnostics[k]!, message: INSERTED_HEAD + INSERTED_KINDS.map((x, i) => `${x} ${n[i]}`)
+      .join(', ') };
+    o.cadio = { ...r, diagnostics };
+    return { expect: 'insertions: a million more by size' };
+  }
   return undefined;
 }
 
@@ -253,6 +275,9 @@ const fresh = () => ({
     over: [] as string[],
     deviationMs: 0,
   },
+  // INSERTIONS: ours's points inserted over the parts it meshes, by INSERTED_KINDS, and the parts that said none.
+  inserted: INSERTED_KINDS.map(() => 0),
+  insertedUnsaid: 0,
 });
 type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
@@ -320,7 +345,8 @@ export const check: FileCheck<string, Tallies> = {
   async setup({ meshWorkers }) {
     const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
     const pool = (pkg: string, cls: string, cpu: boolean) => new WorkerTessellator({
-      backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls }, workers,
+      backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls,
+        ...(cpu && INSERTIONS ? { options: { countInsertions: true } } : {}) }, workers,
       ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS } : { timeoutMs: TIMEOUT_MS }) });
     pools = { cadio: pool('tess-cadio', 'CadioTessellator', true), occt: pool('tess-occt', 'OcctTessellator', false),
       smlib: pool('tess-smlib', 'SmlibTessellator', false) };
@@ -368,9 +394,19 @@ export const check: FileCheck<string, Tallies> = {
           where);
       }
       const ours = o.cadio;
+      let insertionPlantSeen = false;
       if (ours.result) {
         for (const x of ours.result.diagnostics) {
           if (x.severity === 'warning') bump(T.warnings, generic(x.message));
+        }
+        if (INSERTIONS) {
+          const said = ours.result.diagnostics.find((x) => x.message.startsWith(INSERTED_HEAD));
+          if (!said) T.insertedUnsaid++;
+          else said.message.slice(INSERTED_HEAD.length).split(', ').forEach((x, k) => {
+            const n = Number(x.slice(x.lastIndexOf(' ') + 1));
+            T.inserted[k]! += n;
+            if (planted && PLANT === 'insertions' && k === 0 && n >= 1e6) insertionPlantSeen = true;
+          });
         }
       }
       const partFailed = !fine(ours.status) && ours.status !== 'partial';
@@ -388,7 +424,7 @@ export const check: FileCheck<string, Tallies> = {
       const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids) : undefined;
       const modelIds = new Set(ids);
       for (const id of ours.meshed) if (!modelIds.has(id)) T.foreign++;
-      let meshedHere = 0, failedHere = 0, plantSeen = false;
+      let meshedHere = 0, failedHere = 0, plantSeen = insertionPlantSeen;
       let plantGot = '';
       if (planted && PLANT === 'survey') {
         const x = surveyed!.get(planted.face!);
@@ -518,6 +554,12 @@ function report(label: string, T: Tallies): void {
   console.log(`  our warnings: ${[...T.warnings].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${n} x "${k}"`)
     .join('; ') || 'none'}`);
   if (SURVEY) surveyReport(T);
+  if (INSERTIONS) {
+    const all = T.inserted.reduce((a, x) => a + x, 0);
+    console.log(`  our points inserted, by what queued their triangle (${all}): ${INSERTED_KINDS.map((k, i) =>
+      `${k} ${T.inserted[i]} (${all ? ((100 * T.inserted[i]!) / all).toFixed(1) : '0'}%)`).join(', ')}; parts `
+      + `that said none ${T.insertedUnsaid}`);
+  }
   if (PLANT) {
     console.log(`  planted: ${T.planted.cases} cases, ${T.planted.seen} seen as expected, ${T.planted.missed.length} `
       + 'missed');

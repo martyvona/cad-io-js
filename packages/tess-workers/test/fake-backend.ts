@@ -69,7 +69,8 @@ export class FakeTessellator implements Tessellator {
 /**
  * A job for the pool's `run`: `input.mode` 'echo' gives back its input with a Float64Array of its `n`, after
  * `input.progress` progress messages; 'throw' throws; 'hang' never ends (after its progress); 'wait' waits
- * `input.ms`. Every output names the worker's instance of this module.
+ * `input.ms`; 'spin' keeps its thread busy for `input.ms`, saying 'spin k' every 5 ms; 'idle' waits `input.ms` with
+ * little CPU, saying 'idle k' every 20 ms. Every output names the worker's instance of this module.
  */
 const jobInstance = Math.random().toString(36).slice(2);
 export async function fakeJob(input: { mode: string; n?: number; progress?: number; ms?: number },
@@ -78,5 +79,17 @@ export async function fakeJob(input: { mode: string; n?: number; progress?: numb
   for (let k = 1; k <= (input.progress ?? 0); k++) progress(`step ${k}`);
   if (input.mode === 'hang') for (;;);
   if (input.mode === 'wait') await new Promise((r) => setTimeout(r, input.ms));
+  if (input.mode === 'spin') {
+    const t0 = performance.now();
+    for (let k = 1, next = t0 + 5; performance.now() - t0 < input.ms!;) {
+      if (performance.now() >= next) progress(`spin ${k++}`), next += 5;
+    }
+  }
+  if (input.mode === 'idle') {
+    for (let k = 1; k * 20 <= input.ms!; k++) {
+      await new Promise((r) => setTimeout(r, 20));
+      progress(`idle ${k}`);
+    }
+  }
   return { input, values: Float64Array.from({ length: input.n ?? 0 }, (_, i) => i), instance: jobInstance };
 }
