@@ -316,14 +316,17 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
   double best = norm(q.p - p);
   bool converged = false;
   int it = 0;
-  // The surface's breaks inside its domain (knots, a profile's): on a C0 one (a crease) the partials jump, and the
-  // evaluation gives one side's.
+  // The surface's breaks inside its domain (knots, a profile's) and a periodic direction's seam: on a C0 one (a
+  // crease) the partials jump, and the evaluation gives one side's.
   std::vector<double> bu, bv;
   s.breaks(dom.u, dom.v, bu, bv);
   auto interior = [](std::vector<double>& b, Range r) {
     b.erase(std::remove_if(b.begin(), b.end(), [&](double x) { return !(x > r.lo && x < r.hi); }), b.end());
   };
   interior(bu, dom.u), interior(bv, dom.v);
+  // (A periodic direction's seam is one too: a closed profile's corner can be there.)
+  if (perU) bu.insert(bu.begin(), dom.u.lo);
+  if (perV) bv.insert(bv.begin(), dom.v.lo);
   // The Newton step from x with the partials sq; false where the normal matrix degenerates. Held against a side of
   // the domain (a direction that isn't periodic): along that side instead, the other coordinate's Newton step alone;
   // in a corner, held there.
@@ -358,10 +361,12 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
       if (bs.empty()) continue;
       const Range r = k ? dom.v : dom.u;
       const double period = k ? dom.vPeriod : dom.uPeriod, xk = k ? x.y : x.x;
-      const double xr = period > 0 ? r.lo + std::fmod(std::fmod(xk - r.lo, period) + period, period) : xk;
+      double xr = period > 0 ? r.lo + std::fmod(std::fmod(xk - r.lo, period) + period, period) : xk;
+      if (period > 0 && xr >= r.hi - 1e-12 * (1 + std::fabs(r.hi))) xr -= period;  // just below the seam
       auto at = std::lower_bound(bs.begin(), bs.end(), xr - 1e-12 * (1 + std::fabs(xr)));
       if (at == bs.end() || std::fabs(*at - xr) > 1e-12 * (1 + std::fabs(xr))) continue;
-      const double lo = at == bs.begin() ? r.lo : *(at - 1), hi = at + 1 == bs.end() ? r.hi : *(at + 1);
+      const double lo = at != bs.begin() ? *(at - 1) : period > 0 ? (bs.size() > 1 ? bs.back() : *at) - period : r.lo;
+      const double hi = at + 1 != bs.end() ? *(at + 1) : period > 0 ? bs.front() + period : r.hi;
       const double step = std::fmin(1e-9 * (r.hi - r.lo), 0.25 * std::fmin(*at - lo, hi - *at));
       Vec2 xb = x, xa = x;
       (k ? xb.y : xb.x) = xk + (*at - xr) - step, (k ? xa.y : xa.x) = xk + (*at - xr) + step;

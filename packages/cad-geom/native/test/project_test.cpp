@@ -1240,6 +1240,51 @@ TEST_CASE("a trace from a crease leaves along the span it goes into; beside a po
     if (!(p.status == Status::ok) || !(std::fabs(mid.x - 0.5 * (g.u0 + g.u1)) < 1e-6))
       std::printf("    %s: status %d error %g mid (%g, %g)\n", g.name, int(p.status), p.error, mid.x, mid.y);
   }
+  // A closed square's extrusion (degree 1, its corners at u = 0, 1, 2, 3; z 0 to 3), closed in fact so u is periodic,
+  // a corner on its seam u = 0 (as trj3_s1-al #6704 face #1306's coedges 87 and 89): from that corner along the last
+  // leg (u from 4, or 0, down), seeded there; and a local foot from it. The seam is a break too.
+  {
+    const int32_t qi[] = {1, 1, 5, 2, 5, 2, 0, 0, 0, 0, 0, 2, 1, 1, 1, 2, 2, 2};
+    const double qr[] = {0, 1, 2, 3, 4, 0, 1, 0, 0, 0, 0, 0, 3, 10, 0, 0, 10, 0, 3, 10, 10, 0, 10, 10, 3, 0, 10, 0, 0,
+      10, 3, 0, 0, 0, 0, 0, 3};
+    std::unique_ptr<Surface> box = closeInFact(surfaces::makeBSpline(qr, qi, st), tol);
+    REQUIRE(box);
+    REQUIRE(box->domain().uPeriod == 4);
+    const double down[7] = {0, 0, 1, 0, 1, 0, 10};
+    std::unique_ptr<Curve> leg = curves::makeLine(down, 3);
+    // (From the seam's value itself and from a hair below its other end, which reduces to just under the period.)
+    for (double u0 : {0.0, 4 - 1e-14}) {
+      PcurveEnds e;
+      e.hasStart = true, e.start = {u0, 1.0 / 3};
+      Pcurve p = projectCurve(*leg, {0, 1}, *box, tol, &e);
+      CHECK(p.status == Status::ok);
+      CHECK(p.error <= tol);
+      REQUIRE(!p.pieces.empty());
+      const double mid = project::at(p.pieces.front(), 0.5).x;
+      CHECK(std::fabs(std::remainder(mid - 3.5, 4.0)) < 1e-6);
+      if (!(p.status == Status::ok) || !(std::fabs(std::remainder(mid - 3.5, 4.0)) < 1e-6))
+        std::printf("    seam corner from %.17g: status %d error %g mid u %g\n", u0, int(p.status), p.error, mid);
+    }
+    for (double start : {0.0, 4.0, 4 - 1e-14}) {
+      LocalFoot f = localFoot(*box, {0, 2, 1}, {start, 1.0 / 3});
+      CHECK(f.status == Status::ok);
+      CHECK(std::fabs(std::remainder(f.uv.x - 3.8, 4.0)) < 1e-9);
+      CHECK(f.distance < 1e-9);
+    }
+    // Along the first leg from a hair below the seam's other end: the evaluation there gives the last leg's S_u,
+    // across the first, so the seam is found as a break from below.
+    const double along[7] = {0, 0, 1, 1, 0, 0, 10};
+    std::unique_ptr<Curve> first = curves::makeLine(along, 3);
+    PcurveEnds ea;
+    ea.hasStart = true, ea.start = {4 - 1e-14, 1.0 / 3};
+    Pcurve pa = projectCurve(*first, {0, 1}, *box, tol, &ea);
+    CHECK(pa.status == Status::ok);
+    CHECK(pa.error <= tol);
+    LocalFoot fa = localFoot(*box, {2, 0, 1}, {4 - 1e-14, 1.0 / 3});
+    CHECK(fa.status == Status::ok);
+    CHECK(std::fabs(std::remainder(fa.uv.x - 0.2, 4.0)) < 1e-9);
+    CHECK(fa.distance < 1e-9);
+  }
   // A great circle of a sphere of radius 10 passing 3e-3 beside its north pole (tilted 3e-4 from a meridian), from
   // (0, -10, 0) over the top, seeded at its start: the feet's u swings by pi beside the pole, where Newton's steps in
   // u are huge and could land whole turns on (the same point in 3D).

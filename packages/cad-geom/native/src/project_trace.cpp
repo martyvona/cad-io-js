@@ -95,11 +95,14 @@ Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold, double dir = 0) {
     if (bs.empty()) continue;
     const Range dom = k ? job.dom.v : job.dom.u;
     const double period = k ? job.dom.vPeriod : job.dom.uPeriod, x = k ? uv.y : uv.x;
-    const double xr = period > 0 ? dom.lo + std::fmod(std::fmod(x - dom.lo, period) + period, period) : x;
+    double xr = period > 0 ? dom.lo + std::fmod(std::fmod(x - dom.lo, period) + period, period) : x;
+    if (period > 0 && xr >= dom.hi - 1e-12 * (1 + std::fabs(dom.hi))) xr -= period;  // just below the seam
     auto it = std::lower_bound(bs.begin(), bs.end(), xr - 1e-12 * (1 + std::fabs(xr)));
     if (it == bs.end() || std::fabs(*it - xr) > 1e-12 * (1 + std::fabs(xr))) continue;
-    // Beside it by a little of the narrower neighbouring span, in uv's own (unreduced) coordinates.
-    const double lo = it == bs.begin() ? dom.lo : *(it - 1), hi = it + 1 == bs.end() ? dom.hi : *(it + 1);
+    // Beside it by a little of the narrower neighbouring span, in uv's own (unreduced) coordinates (round the period
+    // from the seam).
+    const double lo = it != bs.begin() ? *(it - 1) : period > 0 ? (bs.size() > 1 ? bs.back() : *it) - period : dom.lo;
+    const double hi = it + 1 != bs.end() ? *(it + 1) : period > 0 ? bs.front() + period : dom.hi;
     const double step = std::fmin(1e-9 * (dom.hi - dom.lo), 0.25 * std::fmin(*it - lo, hi - *it));
     const double base = x + (*it - xr);
     Vec2 below = uv, above = uv;

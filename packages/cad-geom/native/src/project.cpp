@@ -502,8 +502,11 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   {
     std::vector<double> us, vs;
     s.breaks(job.dom.u, job.dom.v, us, vs);
+    // (A periodic direction's seam is one too: a closed profile's corner can be there.)
+    if (job.dom.uPeriod > 0) job.uBreaks.push_back(job.dom.u.lo);
     for (double x : us)
       if (x > job.dom.u.lo && x < job.dom.u.hi) job.uBreaks.push_back(x);
+    if (job.dom.vPeriod > 0) job.vBreaks.push_back(job.dom.v.lo);
     for (double x : vs)
       if (x > job.dom.v.lo && x < job.dom.v.hi) job.vBreaks.push_back(x);
   }
