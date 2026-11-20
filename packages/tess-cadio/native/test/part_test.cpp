@@ -2400,6 +2400,35 @@ TEST_CASE("creases crossing, and one curved in 3D: the hip roof's two ridges sha
   }
 }
 
+TEST_CASE("inexact boundaries, as within a coarse tolerance: a crease's end at a corner the loop reaches along the "
+  "ridge (roofNotch: its sample found by its point, the loop labelling it the edge before); an end whose sample's "
+  "(u, v) is off the line (roofBent's bowed p-curves, the part's uncertainty 0.05 mm: put on it)") {
+  {
+    cadgeom::Model m = load("roofNotch");
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofNotch: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    CHECK_EQ(c.across, 0);
+    CHECK_EQ(c.refused, 0);
+  }
+  {
+    const tessfixtures::Model* t = tessfixtures::model("roofBent");
+    REQUIRE(t);
+    std::vector<uint8_t> b(t->data, t->data + t->size);
+    cadgeom::Model m(b.data(), b.size());
+    const_cast<double*>(m.f64(CBR_PART_UNCERTAINTY))[0] = 0.05;
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofBent: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    CHECK_EQ(c.turned, 0);
+    CHECK_EQ(c.refused, 0);
+  }
+}
+
 TEST_CASE("a crease within the face's tolerance of its edge (roofNear's ridge 0.2 mm from it, the part's "
   "uncertainty 0.5 mm): a constraint still, the strip beyond meshed") {
   const tessfixtures::Model* t = tessfixtures::model("roofNear");
