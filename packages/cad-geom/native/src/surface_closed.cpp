@@ -60,6 +60,12 @@ public:
     newU_ = u, newV_ = v;
   }
   SurfaceDomain domain() const override { return dom_; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override {
+    s_->c0Lines(ru, rv, out);
+    // The seam a closing made: its basis's ends meet there, often at an angle.
+    if (newU_) out.push_back({true, dom_.u.lo});
+    if (newV_) out.push_back({false, dom_.v.lo});
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     return s_->derivs(ru(u), rv(v), order, out);
   }
