@@ -431,13 +431,17 @@ struct PartMesher::Impl {
             if ((i == 4) || (j == 4) || (i + j == 0)) continue;  // (the corners: on the surface)
             const Vec3 x = (i / 4.0) * fm.points[fm.triangles[3 * t]] + (j / 4.0) * fm.points[fm.triangles[3 * t + 1]]
               + ((4 - i - j) / 4.0) * fm.points[fm.triangles[3 * t + 2]];
+            Vec2 uv{0, 0};
             if (haveUv) {
-              const Vec2 uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
+              uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
               SurfacePoint q;
               const bool inside = uv.x >= D.u.lo && uv.x <= D.u.hi && uv.y >= D.v.lo && uv.y <= D.v.hi;
               if (inside && s.eval(uv.x, uv.y, 0, q) == Status::ok && norm(x - q.p) <= limit) continue;
             }
-            const SurfaceInversion inv = invertSurface(s, x, D.u, D.v, 1e-3 * o.d.linear);
+            // (The distance alone, within 1e-3 d of the nearest: invertSurface's distanceOnly, the lattice point's
+            // barycentric (u, v) its seed.)
+            const SurfaceInversion inv =
+              invertSurface(s, x, D.u, D.v, o.d.linear, haveUv ? &uv : nullptr, nullptr, true);
             if (inv.status != Status::ok) continue;
             worst = std::fmax(worst, inv.distance);
             past = worst > limit;
