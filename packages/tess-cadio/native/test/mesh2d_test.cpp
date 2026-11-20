@@ -1164,3 +1164,34 @@ TEST_CASE("points inserted counted by what queued their triangle: size, thinness
   CHECK(t.inserted[1] > 0);
   CHECK_EQ(t.inserted[0], 0);
 }
+
+TEST_CASE("a point inserted exactly on an interior edge splits both triangles beside it, none flat") {
+  // The unit square's two triangles, its sides boundary segments: the diagonal's middle (on the shared edge, also
+  // both triangles' circumcentre), then points on the new edges from it to the corners, (0.25, 0.25) and
+  // (0.75, 0.25), the latter on whichever diagonal the build didn't make (inside a triangle or on its edge).
+  cdt::Triangulation T({{0, 0}, {1, 0}, {1, 1}, {0, 1}});
+  int32_t dup[2], other[2];
+  REQUIRE(T.build(dup));
+  for (int k = 0; k < 4; k++) REQUIRE(T.insertSegment(k, (k + 1) % 4, cdt::kBoundary, other));
+  T.label();
+  auto check = [&](size_t want) {
+    size_t live = 0, flat = 0;
+    for (const cdt::Tri& t : T.tris()) {
+      if (t.dead || t.v[2] == cdt::kGhost) continue;
+      live++;
+      const Vec2 a = T.points()[t.v[0]], b = T.points()[t.v[1]], c = T.points()[t.v[2]];
+      flat += !((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y) > 0);
+    }
+    CHECK_EQ(live, want);
+    CHECK_EQ(flat, 0u);
+  };
+  check(2);
+  std::vector<int32_t> created;
+  size_t want = 2;
+  for (Vec2 p : {Vec2{0.5, 0.5}, Vec2{0.25, 0.25}, Vec2{0.75, 0.25}}) {
+    REQUIRE(T.insertPoint(p, T.locate(p, 0), created) >= 0);
+    CHECK(created.size() >= 3u);
+    want += 2;
+    check(want);
+  }
+}
