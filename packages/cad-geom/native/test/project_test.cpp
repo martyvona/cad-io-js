@@ -1314,6 +1314,50 @@ TEST_CASE("a trace from a crease leaves along the span it goes into; beside a po
     std::printf("    near pass: status %d error %g farthest u from the start %g\n", int(q.status), q.error, far);
 }
 
+// OCC623 #11 face #4146 coedge 52 (the corpus): its edge curve, a cubic of 20 poles 2e-5 off its cylinder in places
+// (radius 0.75 about z through (3.875, 3.25)), at its part's uncertainty 2e-5.
+const double kOccCurveR[] = {
+    -0.303208896236, -0.278878014744, -0.254610299193, -0.228042987796, -0.201227543758, -0.174231696996,
+    -0.146601120314, -0.117858203202, -0.06111724993026, -0.004376296658798, 4.273668147854, 2.61473335686,
+    0.599930816178, 4.273668147854, 2.61473335686, 0.585678885322, 4.276483920208, 2.616490337827, 0.569020678578,
+    4.284685710114, 2.621763320389, 0.542925538101, 4.291386018135, 2.626154874126, 0.528656109, 4.304794518204,
+    2.63530605132, 0.505678614342, 4.314190060928, 2.641956344567, 0.492702509032, 4.330714481677, 2.654238908481,
+    0.47268342009, 4.341073714597, 2.662289577048, 0.461683842704, 4.358664537856, 2.676677582059, 0.444637546827,
+    4.36937060298, 2.685870313988, 0.43520154296, 4.387410925922, 2.702198468266, 0.420437052211, 4.398320586842,
+    2.712600190261, 0.412194772147, 4.416669879027, 2.731087558666, 0.399275651131, 4.427741656551, 2.742887336575,
+    0.392077098592, 4.454656447688, 2.773318182885, 0.375926909209, 4.47345911437, 2.796922328222, 0.366396836028,
+    4.508315273001, 2.847080090812, 0.353372503209, 4.524363531453, 2.873650980944, 0.349930816072, 4.537702742171,
+    2.898823298724, 0.349930816178};
+const int32_t kOccCurveI[] = {3, 20, 10, 0, 0, 0, 0, 4, 2, 2, 2, 2, 2, 2, 2, 2, 4};
+const double kOccCylR[10] = {3.875, 3.25, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.75};
+
+TEST_CASE("offSurface where the error is worst: OCC623's curve off its cylinder, however the trace is seeded") {
+  // Traced from its central sample its nodes fall where the curve is farthest off; seeded at its start they don't
+  // (offSurface 1.9e-5 from them, under tol), while the error (2.2e-5) is the curve's own distance: invalidModel
+  // both ways, offSurface the distance where the error is worst.
+  const double tol = 2e-5;
+  Status st;
+  std::unique_ptr<Curve> cv = curves::makeBSpline(kOccCurveR, kOccCurveI, 3, st);
+  REQUIRE(cv);
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(kOccCylR, kOccCylR[9], 0), tol);
+  REQUIRE(cyl);
+  const Range cd = cv->domain().range;
+  Pcurve central = projectCurve(*cv, {cd.lo, cd.hi}, *cyl, tol);
+  REQUIRE(!central.pieces.empty());
+  PcurveEnds e;
+  e.hasStart = true, e.start = project::at(central.pieces.front(), cd.lo);
+  Pcurve seeded = projectCurve(*cv, {cd.lo, cd.hi}, *cyl, tol, &e);
+  for (const Pcurve* p : {&central, &seeded}) {
+    CHECK(p->status == Status::invalidModel);
+    CHECK(p->error > tol);
+    CHECK(p->offSurface > tol);
+    CHECK(p->offSurface <= p->error * (1 + 1e-6));
+    if (!(p->status == Status::invalidModel))
+      std::printf("    occ623 %s: status %d error %g offSurface %g\n", p == &central ? "central" : "seeded",
+        int(p->status), p->error, p->offSurface);
+  }
+}
+
 // The corpus's stopped traces (pcurve_corpus), as fixtures: bug25287_bad_tess_face_plus #2134's coedge 750 (its curve
 // a cubic 18 poles, its face #5924 a 28 x 3 B-spline) and bug24383_224013 #11's coedge 7966 (the curve with a stray
 // pole in its first knot span, 61 poles; its face #11346 a 3 x 3 B-spline).
