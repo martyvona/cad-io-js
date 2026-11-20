@@ -1378,6 +1378,25 @@ export function torusWide(): BrepBuilder {
   return b;
 }
 
+/**
+ * A double cone: the line from (2, 0, 0) towards (0, 0, 2) revolved about z, an unbounded profile (v over all reals,
+ * its apex (0, 0, 2) inside that range, at v = 2 sqrt 2). The face from the circle at z = 1 (radius 1, its vertex at
+ * (1, 0, 1)) up to the apex: area pi sqrt 2.
+ */
+export function revolvedLineCone(): BrepBuilder {
+  const b = new BrepBuilder();
+  const s = Math.SQRT1_2;
+  const profile = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [-s, 0, s], magnitude: 1 });
+  const surface = b.addSurface({ kind: 'revolution', curve: profile, axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  const v = b.addVertex({ point: [1, 0, 1] });
+  const circle = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 1], axis: [0, 0, 1], xDir: [1, 0, 0] },
+    radius: 1 });
+  const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true });
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1754,5 +1773,6 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldFlat: () => uFold(0),
   uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
+  revolvedLineCone,
   arcChord,
   bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
