@@ -873,6 +873,13 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
       coedges: [{ edge: e, orientation: 'forward' }] }] });
     b.addItem({ kind: 'face', ref: f });
   }
+  // A degree-1 square tube about z (its first and last rows of poles one), closed in fact in u only: face 3, unbounded.
+  const ring = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 0]];
+  const tube = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
+    uMultiplicities: [2, 1, 1, 1, 2], vMultiplicities: [2, 2],
+    poles: ring.map(([x, y]) => [[x!, y!, 0], [x!, y!, 1]]), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: tube, sameSense: true, loops: [] }) });
   using g = new Geometry(module, new Uint8Array(b.finish().buffer));
   const close = (a: ArrayLike<number>, want: number[], at: string) =>
     want.forEach((w, i) => assert.ok(Math.abs(a[i]! - w) <= 1e-12 * (1 + Math.abs(w)), `${at} [${i}]: ${a[i]}`));
@@ -933,6 +940,17 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   // Not traced: unchecked. The ellipse's coedge, traced once round: its start the vertex's foot, its end the same a
   // period over.
   assert.deepEqual([c0.endCheck, c0.endAlternatives.map((a) => a.length)], [['unchecked', 'unchecked'], [0, 0]]);
+  // The face's own surface, closed in fact: the cylinder at u and a period on is one point; past its face, invalid.
+  const fe = g.faceEval(2, [0.5, 0.3, 0.5 + 2 * Math.PI, 0.3], 0);
+  assert.equal(fe.status, 'ok');
+  close(fe.values.slice(3, 6), Array.from(fe.values.slice(0, 3)), 'a period on');
+  close(fe.values.slice(0, 3), Array.from(g.evalSurface(cylinder, [0.5, 0.3], 0).values), 'the raw surface');
+  assert.equal(g.faceEval(99, [0, 0]).status, 'invalidModel');
+  // The tube a period past its u domain: the face's surface reduces it (the raw row is out of its domain there).
+  const te = g.faceEval(3, [0.5, 0.5, 4.5, 0.5], 0);
+  assert.deepEqual([te.status, [...te.statuses]], ['ok', [0, 0]]);
+  close(te.values.slice(3, 6), Array.from(te.values.slice(0, 3)), 'the tube a period on');
+  assert.equal(g.evalSurface(tube, [4.5, 0.5], 0).statuses[0], STATUS.indexOf('outOfDomain'));
   const c3 = g.projectCoedge(2);
   assert.ok('pieces' in c3);
   assert.deepEqual([c3.status, c3.method, c3.certainty, c3.endCheck], ['ok', 'traced', 'unique', ['same', 'periods']]);
