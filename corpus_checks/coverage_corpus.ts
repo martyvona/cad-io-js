@@ -48,8 +48,7 @@
 //                progress (a performance worklist), and run again alone at the end, the host otherwise as it is,
 //                both verdicts reported (on this host's efficiency cores a thread's CPU time runs about 2 x, so a
 //                part can pass the limit under load only)
-//   TIMEOUT_MS=<ms> OCCT's and SMLib's limit per part, in wall time (they report no progress to check CPU time at;
-//                default 600000)
+//   TIMEOUT_MS=<ms> OCCT's and SMLib's limit per part, in wall time (default 600000)
 //   SLOW_MS=<ms>    ours slower than this in CPU time on a part it meshes is listed as slow (default 120000)
 //   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 0, none: every request has
 //                   TIMEOUT_MS, but a file of many slow parts at a worker per backend passes any fixed watchdog, 1 h
