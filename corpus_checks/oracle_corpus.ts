@@ -22,6 +22,9 @@
 // 1 + 1e-5 (against today's oracle's perimeter, within 1e-6, where both trust a face and its vertices are on its
 // curves), PLANT=free a free-form face's area by 1 + 1e-5 (each planted face a measure agreed with within 1e-6 must
 // no longer agree within 1e-6).
+// HEAL=1 heals each part's model at import (cad-heal's healScene, in a pool of MESH_WORKERS workers, each part within
+// HEAL_CPU_TIMEOUT_MS of CPU time), so the oracle measures the healed models; run with IDLE_MS=0 (a part's healing
+// says nothing to the runner for minutes).
 // Usage: node --max-old-space-size=8192 corpus_checks/oracle_corpus.ts [file-list.txt] [max MB, default 1000]
 import fs from 'node:fs';
 import { type BrepData, curveEvaluator, decode, edgeParams, rowCount, SURFACE_KIND } from
@@ -29,6 +32,7 @@ import { type BrepData, curveEvaluator, decode, edgeParams, rowCount, SURFACE_KI
 import { meshDeflections, tessellateScene, type Mesh } from '../packages/cad-scene/src/index.ts';
 import { modelFaceArea, trustedArea } from '../packages/cad-scene/src/area-oracle.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
+import { poolHealer } from '../packages/cad-heal/src/index.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { type FaceMeasure, init, Oracle, type OracleModule, trusted } from '../packages/cad-oracle/src/index.ts';
@@ -175,7 +179,9 @@ function freeFace(R: Result, m: FaceMeasure, at: string, om: { area: number; val
   }
 }
 
-let pool: WorkerTessellator, smlib: WorkerTessellator | undefined, module: OracleModule, maxBytes = 1e9;
+let pool: WorkerTessellator, smlib: WorkerTessellator | undefined, healPool: WorkerTessellator | undefined;
+let module: OracleModule, maxBytes = 1e9, healWorkers = 1;
+const heal = process.env.HEAL === '1';
 
 export const check: FileCheck<undefined, Result> = {
   async setup({ meshWorkers, args }) {
@@ -183,6 +189,11 @@ export const check: FileCheck<undefined, Result> = {
     pool = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
       export: 'OcctTessellator' }, workers: meshWorkers });
     await pool.init();
+    if (heal) {
+      healPool = new WorkerTessellator({ workers: meshWorkers });
+      await healPool.init();
+      healWorkers = meshWorkers;
+    }
     if (useSmlib) {
       smlib = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-smlib/src/index.ts'),
         export: 'SmlibTessellator' }, workers: meshWorkers });
@@ -194,7 +205,8 @@ export const check: FileCheck<undefined, Result> = {
     const R = fresh(), name = shortName(path);
     const bytes = fs.readFileSync(path);
     if (bytes.length > maxBytes) { R.skipped++; return R; }
-    const { scene } = await importStep(new Uint8Array(bytes));
+    const { scene } = await importStep(new Uint8Array(bytes), heal ? { heal: { heal: true, concurrency: healWorkers,
+      healer: poolHealer(healPool!, import.meta.resolve('../packages/cad-heal/src/index.ts')) } } : {});
     R.files++;
     const meshes = new Map<number, Mesh | undefined>();
     await tessellateScene(scene, new StepTessellator(pool), { linearDeflection: LINEAR_MM, angularDeflection: ANGULAR,
@@ -308,6 +320,7 @@ export const check: FileCheck<undefined, Result> = {
   async teardown() {
     await pool?.dispose?.();
     await smlib?.dispose?.();
+    await healPool?.dispose?.();
   },
 };
 
