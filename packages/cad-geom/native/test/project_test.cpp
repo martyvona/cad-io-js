@@ -410,11 +410,11 @@ public:
 
 } // namespace
 
-TEST_CASE("a curve farther off its surface between the samples: the fit stops when tightening gains too little") {
+TEST_CASE("a curve farther off its surface between the samples: offSurface where the error is worst, one fit") {
   // A helix round a cylinder whose radius has a narrow bump (1e-5 high, 0.01 wide in t): its feet don't move with
-  // it, and it falls between the samples offSurface is taken at, so the error measured (its peak, 2e-5) stays over
-  // offSurface (1e-5) + a quarter of the fit's tolerance. The angle's wiggle makes the second fit differ from the
-  // first, nearer by about 3e-8 (over 0, under a quarter of the fit's tolerance), and that ends it.
+  // it, and it falls between the trace's nodes (1e-5 off), so the error measured is its peak (2e-5). The curve's
+  // distance there from its foot is that peak too, so offSurface is, and the fit stops at its first round (no
+  // tightening can beat the curve's own distance).
   const double tol = 1e-7;
   const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, Bump::kR};
   std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, Bump::kR, 0), tol);
@@ -423,11 +423,10 @@ TEST_CASE("a curve farther off its surface between the samples: the fit stops wh
   Pcurve p = project::projectForms(w, {0, 1}, *cyl, tol, nullptr, {}, {});
   const long fits = project::traceFits - before;
   CHECK(p.status == Status::invalidModel);
-  CHECK(p.offSurface > 1e-5 && p.offSurface < 1.1e-5);
-  CHECK(p.error > p.offSurface + 0.25 * (0.25 * p.offSurface));
   CHECK(p.error > 1.99e-5 && p.error < 2.01e-5);
-  CHECK_EQ(fits, 2);
-  if (fits != 2) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
+  CHECK(p.offSurface > 0.99 * p.error && p.offSurface <= p.error * (1 + 1e-9));
+  CHECK_EQ(fits, 1);
+  if (fits != 1) std::printf("    fits %ld error %g offSurface %g\n", fits, p.error, p.offSurface);
 }
 
 namespace {
@@ -1382,6 +1381,7 @@ TEST_CASE("offSurface where the error is worst: OCC623's curve off its cylinder,
     CHECK(p->error > tol);
     CHECK(p->offSurface > tol);
     CHECK(p->offSurface <= p->error * (1 + 1e-6));
+    CHECK(p->offSurface >= 0.95 * p->error);
     if (!(p->status == Status::invalidModel))
       std::printf("    occ623 %s: status %d error %g offSurface %g\n", p == &central ? "central" : "seeded",
         int(p->status), p->error, p->offSurface);

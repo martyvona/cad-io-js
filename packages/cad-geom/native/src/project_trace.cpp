@@ -504,7 +504,14 @@ void trace(const Job& job, Pcurve& out) {
       if (st != Status::ok && st != Status::noConvergence) break;
       PcurvePiece p = fromBSpline(bs, sg.t);
       if (!p.curve) break;
-      const double e = measure(job, p), before = bestErr;
+      double worstT = NAN;
+      const double e = measure(job, p, &worstT), before = bestErr;
+      if (e > job.tol && !(out.offSurface + 0.25 * fitTol >= e)) {
+        // The curve's own distance from its foot where the fit is worst (projectForms' offSurface does the same):
+        // a curve off the surface there by about the error stops the tightening now, not a round later.
+        const LocalFoot lf = localFoot(job.s, curveAt(job.c, worstT), at(p, worstT));
+        if (lf.status == Status::ok) out.offSurface = std::max(out.offSurface, lf.distance);
+      }
       if (e < bestErr) bestErr = e, best = std::move(p);
       if (bestErr <= job.tol || bestErr <= out.offSurface + 0.25 * fitTol || st != Status::ok) break;
       // Tightening that gains less than a quarter of it: the curve is off the surface between the samples too.

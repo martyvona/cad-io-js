@@ -172,8 +172,12 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
     const double det = a * c - b * b;
     if (!(det > 0)) break;
     Vec2 step{-(c * gu - b * gv) / det, -(a * gv - b * gu) / det};
+    // A step that doesn't come nearer is halved only while it is more than rounding in 3D (a few ulps of p's
+    // coordinates) or 1e-7 of the distance (where the curve is off the surface the distance is flat at its foot, and
+    // a fit there is to a quarter of it at least): past that, halving only re-evaluates.
+    const double s3 = norm(step.x * sp.du + step.y * sp.dv), floor = 1e-15 * (1 + norm(p)) + 1e-7 * best;
     bool moved = false;
-    for (int h = 0; h < 30; h++) {
+    for (int h = 0; h < 30 && (h == 0 || std::ldexp(s3, -h) > floor); h++) {
       const Vec2 q = clampIn(uv + step);
       SurfacePoint sq;
       s.eval(q.x, q.y, 2, sq);
