@@ -331,11 +331,21 @@ TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsett
     PartOptions o = options(1e-3, 0.26);
     o.maxPointsPerFace = 20;
     o.maxDeviationFactor = 0;  // (kept, however far: the cap's mesh is past d)
+    o.failCapped = false;
     PartMesher pm(m, o);
     const FaceMesh& fm = pm.face(1);
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(fm.capped);
     CHECK(!fm.seamUnsettled);
+    // By default it fails, said so, its triangles dropped.
+    o.failCapped = true;
+    PartMesher failed(m, o);
+    const FaceMesh& ff = failed.face(1);
+    CHECK(ff.status == cadgeom::Status::noConvergence);
+    CHECK(ff.capped);
+    CHECK(ff.cause.rfind("refinement stopped at its point cap, ", 0) == 0);
+    CHECK(ff.triangles.empty());
+    CHECK(ff.points.empty());
   }
   {
     cadgeom::Model m = load("luneOnSeam");
@@ -398,6 +408,7 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
     REQUIRE(m.ok());
     PartOptions o = options(c.d, 0.26);
     o.maxPointsPerFace = 0;
+    o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
     o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
     o.maxSplitRounds = 0;
     o.maxDeviationFactor = 0;
@@ -509,6 +520,7 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
   };
   PartOptions o = options(0.1, 0.26);
   o.maxPointsPerFace = 0;
+  o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
   o.maxSplitRounds = 0;
   o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
   const double F = PartOptions{}.maxDeviationFactor;
@@ -641,6 +653,7 @@ TEST_CASE("a face meshed with a triangle turned against its surface fails, said 
   REQUIRE(m.ok());
   PartOptions o = options(0.1, 0.26);
   o.maxPointsPerFace = 0;
+  o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
   o.maxSplitRounds = 0;
   o.maxDeviationFactor = 0;
   PartMesher failing(m, o);

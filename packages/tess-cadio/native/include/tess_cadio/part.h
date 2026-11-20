@@ -72,6 +72,12 @@ struct PartOptions {
    */
   bool failTurnedOver = true;
   /**
+   * A face whose refinement reached its point cap (maxPointsPerFace) when the rounds end fails with
+   * Status::noConvergence and a cause saying so, its triangles dropped: a capped mesh isn't the one asked for. False
+   * keeps it, noted (FaceMesh::capped), for tests.
+   */
+  bool failCapped = true;
+  /**
    * Count each face's mesher insertions by what queued them (FaceMesh::inserted). Off by default: it evaluates the
    * criteria again on every refused triangle the mesher queues (up to 2 x the time); the mesh is the same either way.
    */
@@ -146,7 +152,7 @@ struct FaceMesh {
   std::string note;
   /** Whether a seam's side in (u, v) wasn't settled by its neighbours (FaceBoundary's Status::singular), meshed. */
   bool seamUnsettled = false;
-  /** Whether refinement stopped at the point cap (maxPointsPerFace), the mesh kept as it was. */
+  /** Whether refinement stopped at the point cap (maxPointsPerFace): the face failed, or kept (failCapped false). */
   bool capped = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
