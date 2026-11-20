@@ -74,6 +74,13 @@ struct PartOptions {
    * criteria again on every refused triangle the mesher queues (up to 2 x the time); the mesh is the same either way.
    */
   bool countInsertions = false;
+  /**
+   * Keep each face's criteria verdicts (accept, belowFloor, the metric) from its last two meshings and answer the
+   * same question again from them: a face meshed again after a split round asks mostly about the triangles it asked
+   * about before. The mesh is the same bits either way (the criteria are functions of a triangle's corners as given);
+   * off to compare, at the cost of evaluating them all again.
+   */
+  bool reuseVerdicts = true;
 };
 
 /** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */

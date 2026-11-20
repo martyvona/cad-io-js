@@ -9,9 +9,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 
 #include "cad_geom/surface.h"
 #include "mesh2d_impl.h"
@@ -24,11 +26,89 @@ constexpr int kDeviationReport = 64;
 
 using namespace cadgeom;
 
+namespace {
+
+/**
+ * A face's criteria answering from its verdicts of its last two meshings where it can (PartOptions::reuseVerdicts):
+ * keyed by the corners' exact bits in the order given, so an answer is the one the criteria would give. Their one
+ * state, whether any deviation was sampled (SurfaceCriteria::bounded), only ever turns true, and did on the first
+ * asking. Two generations, the older dropped as each meshing starts: the memory of about two meshes' questions.
+ */
+class VerdictMemo final : public SizeField {
+public:
+  explicit VerdictMemo(const SizeField& field) : field_(field) {}
+  /** A meshing starts: the last one's verdicts kept, the one before's dropped. */
+  void next() {
+    old_ = std::move(cur_), cur_.clear();
+    oldMetric_ = std::move(curMetric_), curMetric_.clear();
+  }
+  Metric2 metric(Vec2 p) const override {
+    const PointKey k{bits(p.x), bits(p.y)};
+    if (auto it = curMetric_.find(k); it != curMetric_.end()) return it->second;
+    auto it = oldMetric_.find(k);
+    const Metric2 M = it != oldMetric_.end() ? it->second : field_.metric(p);
+    curMetric_.emplace(k, M);
+    return M;
+  }
+  bool accept(const Vec2 t[3]) const override { return ask(t, kAccept, [&] { return field_.accept(t); }); }
+  bool belowFloor(const Vec2 t[3]) const override { return ask(t, kFloor, [&] { return field_.belowFloor(t); }); }
+  int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+
+private:
+  struct TriKey {
+    uint64_t b[6];
+    bool operator==(const TriKey& o) const { return std::equal(b, b + 6, o.b); }
+  };
+  struct PointKey {
+    uint64_t x, y;
+    bool operator==(const PointKey& o) const { return x == o.x && y == o.y; }
+  };
+  static uint64_t mix(uint64_t h, uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h * 0xff51afd7ed558ccdull;
+  }
+  struct TriHash {
+    size_t operator()(const TriKey& k) const {
+      uint64_t h = 0;
+      for (uint64_t v : k.b) h = mix(h, v);
+      return static_cast<size_t>(h ^ (h >> 33));
+    }
+  };
+  struct PointHash {
+    size_t operator()(const PointKey& k) const {
+      const uint64_t h = mix(mix(0, k.x), k.y);
+      return static_cast<size_t>(h ^ (h >> 33));
+    }
+  };
+  static uint64_t bits(double x) {
+    uint64_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return u;
+  }
+  // Per triangle, two bits per question: known, then the answer.
+  enum : uint8_t { kAccept = 0, kFloor = 2 };
+  template <class F> bool ask(const Vec2 t[3], uint8_t q, F evaluate) const {
+    const TriKey k{{bits(t[0].x), bits(t[0].y), bits(t[1].x), bits(t[1].y), bits(t[2].x), bits(t[2].y)}};
+    auto [it, added] = cur_.try_emplace(k, uint8_t{0});
+    if (added)
+      if (auto o = old_.find(k); o != old_.end()) it->second = o->second;
+    if (!(it->second >> q & 1)) it->second |= static_cast<uint8_t>((1 | (evaluate() ? 2 : 0)) << q);
+    return it->second >> (q + 1) & 1;
+  }
+  const SizeField& field_;
+  mutable std::unordered_map<TriKey, uint8_t, TriHash> cur_, old_;
+  mutable std::unordered_map<PointKey, Metric2, PointHash> curMetric_, oldMetric_;
+};
+
+} // namespace
+
 struct PartMesher::Impl {
   const Model& m;
   PartOptions o;
   std::vector<std::unique_ptr<Surface>> surfaces;
   std::vector<std::unique_ptr<SurfaceCriteria>> criteria;
+  /** Per face, its criteria's verdicts kept across its meshings (PartOptions::reuseVerdicts), made as first meshed. */
+  std::vector<std::unique_ptr<VerdictMemo>> memos;
   std::vector<Status> criteriaStatus;
   std::vector<std::string> criteriaWhy;
   std::unique_ptr<EdgeMesh> em;
@@ -467,7 +547,13 @@ struct PartMesher::Impl {
     if (o.progress) mo.onWork = [this] { o.progress(at); };
     static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
     Mesh2Detail detail;
-    Mesh2 mesh = o.countInsertions ? mesh2Detailed(d, *criteria[f], mo, &detail) : mesh2(d, *criteria[f], mo);
+    const SizeField* field = criteria[f].get();
+    if (o.reuseVerdicts) {
+      if (!memos[f]) memos[f] = std::make_unique<VerdictMemo>(*criteria[f]);
+      memos[f]->next();
+      field = memos[f].get();
+    }
+    Mesh2 mesh = o.countInsertions ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
     if (o.countInsertions) std::copy(detail.inserted, detail.inserted + kInsertionKinds, out.inserted);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
@@ -620,6 +706,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   int nf = m.faces();
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
+  I.memos.resize(nf);
   I.criteriaStatus.assign(nf, Status::unsupported);
   I.criteriaWhy.assign(nf, "");
   I.faces.resize(nf);
@@ -715,6 +802,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       I.at.facesDone++;
     }
   }
+  I.memos.clear();
   I.checkDeviation();
   I.checkFacing();
 }

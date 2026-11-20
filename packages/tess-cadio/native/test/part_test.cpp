@@ -2219,6 +2219,35 @@ TEST_CASE("an edge off its surface, its feet nearly affine (Iron.step #47's kind
   }
 }
 
+TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit for bit as asking the criteria again") {
+  // Parts whose faces are meshed again in split rounds (edges 4 times coarser than the faces want, a band's hole, a
+  // cusp), and some meshed once.
+  struct Case {
+    const char* name;
+    double d, angle, scale;
+  };
+  const Case cases[] = {{"seamCylinder", 0.01, 0.26, 4}, {"band", 0.01, 0.26, 4}, {"spheres", 0.01, 0.26, 4},
+    {"twisted", 0.01, 0.26, 4}, {"bandHoleAtVertex", 0.01, 0.26, 1}, {"cuspPocket", 0.3, 0.12, 1},
+    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}};
+  for (const Case& c : cases) {
+    cadgeom::Model m = load(c.name);
+    PartOptions o = options(c.d, c.angle), fresh = o;
+    o.edgeSpacingScale = fresh.edgeSpacingScale = c.scale;
+    fresh.reuseVerdicts = false;
+    PartMesher a(m, o), b(m, fresh);
+    CHECK_EQ(a.rounds(), b.rounds());
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &x = a.face(f), &y = b.face(f);
+      bool same = x.status == y.status && x.triangles == y.triangles && x.rejected == y.rejected &&
+        x.splitsWanted == y.splitsWanted && x.sampled == y.sampled && x.points.size() == y.points.size();
+      for (size_t i = 0; same && i < x.points.size(); i++)
+        same = key(x.points[i]) == key(y.points[i]) && key(x.normals[i]) == key(y.normals[i]);
+      if (!same) std::printf("  %s face %d differs (rounds %d)\n", c.name, f, a.rounds());
+      CHECK(same);
+    }
+  }
+}
+
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
   for (const char* name : {"cube", "seamCylinder", "spheres", "band"}) {
     cadgeom::Model m = load(name);
