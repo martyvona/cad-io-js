@@ -498,7 +498,8 @@ private:
    * A cone's or a torus's deviation bound over the flat triangle p (its corners on the surface), from a distance
    * function g (an upper bound on the distance to the surface, positive inside the solid) at the centroid c: g concave
    * over the triangle, g(x) <= g(c) + grad g(c) . (x - c), the most at a corner. False where the form doesn't hold
-   * (on a cone's axis, a torus's inner half or near its core), the deviation then sampled.
+   * (on a cone's axis, a torus's inner half or near its core, a spindle torus): a torus's deviation then bounded by
+   * its derivatives (makeCriteria), a cone's sampled.
    * Cone: g = -((rho - r0) - k h) / sqrt(1 + k^2) in its meridian plane (rho the distance to the axis, h the height,
    * k = tan of the semi-angle), concave as rho is convex; the facet lies in the solid nappe (convex: rho <= r0 + k h)
    * and from inside it the foot on the generator is outward, rho growing by |g| / sqrt(1 + k^2), so on the nappe's
@@ -537,7 +538,8 @@ private:
         if (!(rc - L > 0) || !(rho - L > 0)) continue;
         // Only where the triangle stays on the outer half (t >= L at the anchor): on the inner half a bound with
         // the Hessian's terms (|x - c|^2 / (2 s_min) above, (1 / rho_min + 1 / s_min) |x - c|^2 / 2 below, the facet
-        // leaving the tube there) runs 5 x past a chord round the axis and doubled the triangles; sampled there.
+        // leaving the tube there) runs 5 x past a chord round the axis and doubled the triangles; the derivatives'
+        // bound there.
         if (t - L < 0) continue;
         double g = r - rc;
         Vec3 grad = (-1 / rc) * (t * rad + h * axis_);
@@ -742,13 +744,15 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   double extent = std::hypot(box.x.hi - box.x.lo, box.y.hi - box.y.lo, box.z.hi - box.z.lo);
   if (!(extent > 0) || !std::isfinite(extent)) extent = 1;
   status = Status::ok;
-  // Bounded by derivBound on planes and cylinders, where it's exact; a sphere's deviation exact. Elsewhere sampled:
-  // a B-spline's derivBound is its knot span's whatever the box (15 x too loose on a rational dome), and on cones and
-  // tori |S(x) - L(x)| through the derivatives' magnitudes counts S'''s tangential parts (a cone's S_uv round it),
-  // which don't take a point off the surface: loose on the long triangles along a cone's lines the metric asks for,
-  // and in (u, v) near an apex or a pole.
+  // Bounded by derivBound on planes, cylinders, B-splines (each box's own sub-net) and tori; a sphere's deviation
+  // exact, a cone's and a torus's closed form first where it holds (distanceBound). A torus's derivative bound covers
+  // where its closed form doesn't, its inner half and a spindle torus (whose closed form never holds), so they keep a
+  // proof rather than a sample. Elsewhere sampled: on cones |S(x) - L(x)| through the derivatives' magnitudes counts
+  // S'''s tangential parts (S_uv round it), which don't take a point off the surface: loose on the long triangles
+  // along its lines the metric asks for, and in (u, v) near the apex.
   int kind = m.surfaceKind(m.faceSurface(f));
-  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_BSPLINE;
+  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_BSPLINE ||
+    kind == CBR_SURFACE_TORUS;
   const double* r = m.surfaceReals(m.faceSurface(f));
   Local::Kind closed = kind == CBR_SURFACE_SPHERE ? Local::Kind::sphere : kind == CBR_SURFACE_CONE ? Local::Kind::cone
     : kind == CBR_SURFACE_TORUS ? Local::Kind::torus : Local::Kind::none;

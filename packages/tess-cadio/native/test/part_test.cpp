@@ -979,10 +979,10 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
   CHECK(criteria("torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 0.26, s)->bounded());
-  // Random triangles on a cylinder, a sphere, a torus and two B-splines: none accepted on the bounded ones (all but
-  // the torus)
-  // whose deviation, sampled densely (its barycentric grid against the surface's nearest point), is over the
-  // deflection.
+  // Random triangles on a cylinder, a sphere, two B-splines, a cone and both halves of a torus: none accepted on the
+  // bounded ones whose deviation, sampled densely (its barycentric grid against the surface's nearest point), is over
+  // the deflection. The torus's inner half, where its closed form doesn't hold, is bounded by its derivatives, so it
+  // stays bounded once judged.
   {
     std::mt19937 rng(11);
     std::uniform_real_distribution<double> u01(0, 1);
@@ -1024,6 +1024,7 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
           CHECK(!ok);
         }
       }
+      if (fc.box.y.lo > 1) CHECK(c->bounded());
     }
     CHECK(over > 100);
     CHECK(accepted > 100);
