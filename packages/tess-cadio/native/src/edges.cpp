@@ -454,7 +454,8 @@ struct EdgeMesh::Impl {
    * neighbours is convex (the loops counterclockwise) while its 3D turn about S_u x S_v there is the other way, both
    * past rounding, its (u, v) onto their chord at its share of their 3D distance where the surface is within the
    * face's tolerance of its 3D point, and from there a step towards that point where it keeps the turn its 3D one.
-   * One pass in loop order, each point judged with its neighbours as they stand.
+   * Not judged where a neighbour is within rounding of it in 3D. One pass in loop order, each point judged with its
+   * neighbours as they stand.
    */
   int repairFolds(int f, std::vector<std::vector<BoundaryPoint>>& loops) const {
     const Face& F = faces[f];
@@ -475,6 +476,11 @@ struct EdgeMesh::Impl {
         const Vec3 nn = cross(q.du, q.dv);
         if (!(norm(nn) > 0)) continue;
         const double l1 = norm(B.point - A.point), l2 = norm(C.point - B.point);
+        // (A turn against a point within rounding of it is no fold: a sample at a pole beside its pole line's first
+        // point, one 3D point but for 1e-12, whose repair would put it onto that point's (u, v). Not the tolerance:
+        // a fold's neighbours can be within it, cornerFold's 0.0085 at 0.01.)
+        const double rounding = 1e-9 * (1 + norm(B.point));
+        if (!(l1 > rounding && l2 > rounding)) continue;
         const double s3 = dot(cross(B.point - A.point, C.point - B.point), (1 / norm(nn)) * nn);
         if (!(s3 < -1e-9 * l1 * l2)) continue;
         Vec2 to = A.uv + (l1 / (l1 + l2)) * (C.uv - A.uv);

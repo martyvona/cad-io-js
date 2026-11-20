@@ -586,6 +586,22 @@ TEST_CASE("a vertex's foot per use: a seam vertex's copy on its next sample's si
   }
 }
 
+TEST_CASE("no fold judged between points within the tolerance: a meridian's sample at the pole beside its pole line") {
+  // The south vertex 1e-11 off the pole either way across either meridian, so the 3D turn at a meridian's sample
+  // beside the pole line's point (after it, or before) is rounding of either sign: no fold.
+  for (const char* name : {"luneOffPole", "luneOffPoleBack", "luneOffPoleC", "luneOffPoleCBack"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    EdgeMesh em(m, o);
+    const FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    if (fb.foldsRepaired) std::printf("  %s: %d folds repaired\n", name, fb.foldsRepaired);
+    CHECK_EQ(fb.foldsRepaired, 0);
+  }
+}
+
 TEST_CASE("a band with no seam edge: one cut, a pseudo-edge used both ways, away from the circles' vertex") {
   for (const char* name : {"band", "bandByInversion"}) {
     cadgeom::Model m = load(name);
