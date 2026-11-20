@@ -42,6 +42,8 @@ bool project = true;
 // PartOptions::maxDeviationFactor and maxPointsPerFace for the next calls.
 double deviationFactor = 1.0;
 int maxPoints = PartOptions{}.maxPointsPerFace;
+// PartOptions::minAngle for the next calls (radians).
+double minAngle = PartOptions{}.minAngle;
 // PartOptions::countInsertions for the next calls.
 bool countInsertions = false;
 
@@ -61,7 +63,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 5; }
+int tc_api_version() { return 6; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -75,6 +77,11 @@ void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 
 /** The next calls' PartOptions::maxPointsPerFace (default 100,000; under 1: the default). */
 void tc_set_max_points(int points) { maxPoints = points > 0 ? points : PartOptions{}.maxPointsPerFace; }
+
+/** The next calls' PartOptions::minAngle in radians (default 0.35; negative or not finite: the default). */
+void tc_set_min_angle(double radians) {
+  minAngle = std::isfinite(radians) && radians >= 0 ? radians : PartOptions{}.minAngle;
+}
 
 /**
  * Whether the next calls count the mesher's insertions by what queued them (PartOptions::countInsertions; default
@@ -100,6 +107,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.projectMissingPcurves = project;
   opts.maxDeviationFactor = deviationFactor;
   opts.maxPointsPerFace = maxPoints;
+  opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {

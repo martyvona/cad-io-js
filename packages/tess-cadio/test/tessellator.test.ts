@@ -197,6 +197,16 @@ test('init({maxPointsPerFace}): a face that reaches it said as capped, not as an
   assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
 });
 
+test('init({minAngle}): the mesher\'s target smallest angle, fewer triangles without one', { skip }, async () => {
+  const count = async (minAngle?: number) => {
+    const t = new CadioTessellator();
+    await t.init(minAngle === undefined ? {} : { minAngle });
+    return (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01 })).indices.length / 3;
+  };
+  const [none, byDefault, shaped] = [await count(0), await count(), await count(0.5)];
+  assert.ok(none < byDefault && byDefault < shaped, `${none}, ${byDefault}, ${shaped}`);
+});
+
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
   'not at 0.05', { skip }, async () => {
   const t = new CadioTessellator();

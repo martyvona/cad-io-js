@@ -463,6 +463,7 @@ struct PartMesher::Impl {
       for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
     MeshOptions mo;
     mo.maxPoints = o.maxPointsPerFace;
+    mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
     static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
     Mesh2Detail detail;

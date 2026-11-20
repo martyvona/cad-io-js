@@ -293,6 +293,37 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("PartOptions::minAngle shapes the mesher's triangles: spheres' at 0.5 rad, fewer and thinner at 0") {
+  // On the spheres model at d 0.01 the triangles' smallest 3D angle follows the target (0.20 rad at none, 0.26 at
+  // 0.5), at the cost of a few more triangles.
+  cadgeom::Model m = load("spheres");
+  auto run = [&](double a, size_t& tris) {
+    PartOptions o = options(0.01, 0.26);
+    o.minAngle = a;
+    PartMesher pm(m, o);
+    double least = 10;
+    tris = 0;
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& fm = pm.face(f);
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+        const Vec3 p[3] = {fm.points[fm.triangles[t]], fm.points[fm.triangles[t + 1]], fm.points[fm.triangles[t + 2]]};
+        for (int k = 0; k < 3; k++) {
+          const Vec3 u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+          least = std::min(least, std::atan2(cadgeom::norm(cadgeom::cross(u, v)), cadgeom::dot(u, v)));
+        }
+      }
+      tris += fm.triangles.size() / 3;
+    }
+    return least;
+  };
+  size_t none = 0, shaped = 0;
+  const double leastNone = run(0, none), leastShaped = run(0.5, shaped);
+  CHECK(leastShaped > leastNone + 0.03);
+  CHECK(leastShaped > 0.25);
+  CHECK(shaped > none);
+}
+
 TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsettled seam; luneOnSeam's by inversion") {
   {
     cadgeom::Model m = load("spheres");
