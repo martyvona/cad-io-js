@@ -1,6 +1,6 @@
 // Coverage: every face of every B-rep part through our own tessellator (tess-cadio), with OCCT (its native route) and
-// SMLib run beside it as references, each in a tess-workers pool at the medium profile. Nothing is skipped for a
-// reference failing: the parts and faces where OCCT or SMLib fail are where ours must succeed without one.
+// SMLib run beside it as references, each in a tess-workers pool at the medium profile (PROFILE). Nothing is skipped
+// for a reference failing: the parts and faces where OCCT or SMLib fail are where ours must succeed without one.
 //   - each backend's status per part: ok, partial (some faces without triangles), no triangles, error (thrown),
 //     timeout, crash;
 //   - every face of every model accounted for once: meshed by ours, or failed by ours with its cause (our part's
@@ -33,6 +33,11 @@
 //                deflection off it, and that triangle with its third corner raised to tilt it 75 degrees, on the
 //                planted face, which must show as its worst angle under 0.1 degrees, deviation past 1.5 x (3 x less
 //                what the face itself strays) and the tilted triangle judged past 30 degrees
+//   DENSITY=<prefix> with SURVEY, a line per face all three mesh into <prefix>.<pid>.tsv (one file per process, for
+//                face_density.ts): the part, face id, surface kind, the deflection, its smallest radius of curvature
+//                at ours's vertices' feet (shape_survey.ts's minRadius; Infinity if flat), and per backend (ours, OCCT,
+//                SMLib) its triangles, mesh area, mesh extent (box diagonal) and worst sampled deviation
+//   PROFILE=<name> the meshing profile (default medium; the angle check's limit is its angle)
 //   INSERTIONS=1 ours counts its mesher's insertions by what queued them (tess-cadio's countInsertions), tallied over
 //                the parts it meshes: the same meshes, but up to 2 x its CPU time, so its times and the parts over
 //                CPU_MS aren't comparable with a run without it; with PLANT=insertions, ours's count by size said a
@@ -66,12 +71,15 @@ import { hostLine } from '../scripts/host.ts';
 import { Geometry } from '../packages/cad-geom/src/index.ts';
 import {
   AREA_BOUNDS, ASPECT_PER_DECADE, DEVIATION_BOUNDS, EXCESS_BOUNDS, RATIO_BINS, addShapes, angleEdge, areaBin,
-  addAngles, aspectEdge, deviationBin, faceAngles, faceDeviation, faceTriangles, freshAngles, freshShapes, quantile,
-  ratioBin, triangleShape, type Angles, type FaceAngles,
+  addAngles, aspectEdge, deviationBin, faceAngles, faceDeviation, faceTriangles, freshAngles, freshShapes, meshExtent,
+  minRadius, quantile, ratioBin, triangleShape, type Angles, type FaceAngles,
 } from './shape_survey.ts';
 
 const EXAMPLES = 4;
-const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
+const PROFILE = (process.env.PROFILE ?? 'medium') as keyof typeof MESH_PROFILES;
+if (!MESH_PROFILES[PROFILE]) throw new Error(`PROFILE=${PROFILE}: one of ${Object.keys(MESH_PROFILES).join(', ')}`);
+const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES[PROFILE];
+const DENSITY = process.env.DENSITY ?? '';
 /** The profile's angle in degrees, the normals' check's limit. */
 const ANG_DEG = (ANG * 180) / Math.PI;
 const PLANT = process.env.PLANT ?? '';
@@ -89,6 +97,7 @@ const TIMES = [1, 10, 60, 120, Infinity];
 const timeBin = (ms: number) => TIMES.findIndex((t) => ms / 1000 <= t);
 if (PLANT && !PLANTS.includes(PLANT)) throw new Error(`PLANT=${PLANT}: one of ${PLANTS.join(', ')}`);
 if (PLANT === 'survey' && !SURVEY) throw new Error('PLANT=survey needs SURVEY=1');
+if (DENSITY && !SURVEY) throw new Error('DENSITY needs SURVEY=1');
 if (PLANT === 'insertions' && !INSERTIONS) throw new Error('PLANT=insertions needs INSERTIONS=1');
 const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
 /** What our failures are, until the user decides what counts as beyond repair. */
@@ -353,12 +362,18 @@ async function surveyPart(T: Tallies, where: string, d: BrepData, buffer: ArrayB
     }
     S.deviationMs += performance.now() - t0;
     t0 = performance.now();
+    const lines: string[] = [];
     for (const id of [...all, ...oursOnly]) {
       const row = rowOf.get(id)!, surface = d.face.surface[row]!, both = common.has(id);
-      let tiltedAt = NaN;
+      let tiltedAt = NaN, radius = NaN;
       const fa = BACKENDS.map((b, i) => (i > 0 && !both ? undefined
         : faceAngles(g, surface, rs[i]!, tris[i]!.get(id)!, 1e-6 * LIN, ANG_DEG,
-          i === 0 && tilted !== undefined ? (k, deg) => { if (k === tilted) tiltedAt = deg; } : undefined)));
+          i === 0 && tilted !== undefined ? (k, deg) => { if (k === tilted) tiltedAt = deg; } : undefined,
+          i === 0 && DENSITY && both ? (uv, judged) => { radius = minRadius(g, surface, uv, judged); } : undefined)));
+      if (DENSITY && both) {
+        lines.push([where, id, kindOf(row), LIN, radius, ...BACKENDS.flatMap((b, i) => [tris[i]!.get(id)!.length,
+          fa[i]!.area, meshExtent(rs[i]!, tris[i]!.get(id)!), worsts.get(id)![i]!])].join('\t'));
+      }
       addAngles(S.oursAngles, fa[0]!, ANG_DEG);
       if (both) {
         const worst = worsts.get(id)!;
@@ -381,6 +396,7 @@ async function surveyPart(T: Tallies, where: string, d: BrepData, buffer: ArrayB
       }
     }
     S.anglesMs += performance.now() - t0;
+    if (lines.length) fs.appendFileSync(`${DENSITY}.${process.pid}.tsv`, lines.join('\n') + '\n');
   } finally {
     g.dispose();
   }
@@ -695,7 +711,7 @@ if (import.meta.main) {
   });
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
-  console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, medium profile (${LIN} mm, ${ANG} rad), `
+  console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, ${PROFILE} profile (${LIN} mm, ${ANG} rad), `
     + `ours's limit ${CPU_MS / 1000} s of CPU (${4 * CPU_MS / 1000} s of wall the backstop), the references' `
     + `${TIMEOUT_MS / 1000} s of wall, slow over ${SLOW_MS / 1000} s of CPU; `
     + `${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${workers} workers per backend`);

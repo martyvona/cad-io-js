@@ -6,7 +6,7 @@ import type { TessellationResult } from '../packages/cad-scene/src/index.ts';
 import {
   ANGLE_BINS, ASPECT_BINS, DEVIATION_TRIANGLES, RATIO_BINS, addAngles, addShapes, angleBetween, angleBin, angleEdge,
   areaBin, aspectBin, aspectEdge, deviationBin, excessBin, faceAngles, faceDeviation, faceTriangles, freshAngles,
-  freshShapes, quantile, ratioBin, triangleShape, type Inverter,
+  freshShapes, meshExtent, minRadius, quantile, ratioBin, triangleShape, type Evaluator, type Inverter,
 } from '../corpus_checks/shape_survey.ts';
 
 const near = (a: number, b: number, tol = 1e-9) => assert.ok(Math.abs(a - b) <= tol, `${a} vs ${b}`);
@@ -299,4 +299,65 @@ test('addAngles: the sums, faces by worst excess and by area share, a face past 
   // (Excess 2.5 in the bin to 5, 85 in the bin to 90; shares 5% and, of no area, 100%.)
   assert.deepEqual(A.excess, [0, 0, 1, 0, 0, 0, 0, 1, 0]), assert.deepEqual(A.share, [0, 0, 1, 0, 0, 0, 1]);
   assert.equal(A.within, 0), assert.equal(A.withinMissed, 0);
+});
+
+/** A surface's point and partials to order 2 at (u, v), as evalSurface's 18 values; a status 3 where `bad` (the
+ * values left as they are). */
+const evaluator = (f: (u: number, v: number) => number[][], bad = (_u: number, _v: number) => false): Evaluator => ({
+  evalSurface(_row, uv) {
+    const n = uv.length / 2, values = new Float64Array(18 * n), statuses = new Uint8Array(n);
+    for (let q = 0; q < n; q++) {
+      values.set(f(uv[2 * q]!, uv[2 * q + 1]!).flat(), 18 * q);
+      if (bad(uv[2 * q]!, uv[2 * q + 1]!)) statuses[q] = 3;
+    }
+    return { status: 'ok', values, statuses };
+  },
+});
+
+test('minRadius: a sphere, a cylinder, a plane, a torus whose inner side bends tighter than its tube', () => {
+  const R = 7, c = Math.cos, s = Math.sin;
+  // Sphere by longitude u and latitude v.
+  const sph = evaluator((u, v) => [[R * c(v) * c(u), R * c(v) * s(u), R * s(v)], [-R * c(v) * s(u), R * c(v) * c(u), 0],
+    [-R * s(v) * c(u), -R * s(v) * s(u), R * c(v)], [-R * c(v) * c(u), -R * c(v) * s(u), 0],
+    [R * s(v) * s(u), -R * s(v) * c(u), 0], [-R * c(v) * c(u), -R * c(v) * s(u), -R * s(v)]]);
+  const uv = [0.1, 0.2, 1, -0.5, 3, 1.2];
+  // (Umbilic: sqrt(H^2 - K) of a rounding-sized difference costs about 1e-8 relative.)
+  near(minRadius(sph, 0, uv, [1, 1, 1]), R, 1e-6);
+  // Cylinder radius 2 along z, v the height.
+  const cyl = evaluator((u, v) => [[2 * c(u), 2 * s(u), v], [-2 * s(u), 2 * c(u), 0], [0, 0, 1],
+    [-2 * c(u), -2 * s(u), 0], [0, 0, 0], [0, 0, 0]]);
+  near(minRadius(cyl, 0, uv, [1, 1, 1]), 2, 1e-9);
+  // The same cylinder sheared, (u + v, v): F and M not zero.
+  const sh = evaluator((u, v) => [[2 * c(u + v), 2 * s(u + v), v], [-2 * s(u + v), 2 * c(u + v), 0],
+    [-2 * s(u + v), 2 * c(u + v), 1], [-2 * c(u + v), -2 * s(u + v), 0], [-2 * c(u + v), -2 * s(u + v), 0],
+    [-2 * c(u + v), -2 * s(u + v), 0]]);
+  near(minRadius(sh, 0, uv, [1, 1, 1]), 2, 1e-9);
+  const pl = evaluator((u, v) => [[u, v, 0], [1, 0, 0], [0, 1, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]);
+  assert.equal(minRadius(pl, 0, uv, [1, 1, 1]), Infinity);
+  // Torus, major 1.5, minor 1: the tube's radius 1, but at the inner equator (v = pi) the other principal radius is
+  // (1.5 - 1) / 1 = 0.5; at the outer (v = 0) it's 2.5.
+  const A = 1.5, B = 1;
+  const tor = evaluator((u, v) => {
+    const w = A + B * c(v);
+    return [[w * c(u), w * s(u), B * s(v)], [-w * s(u), w * c(u), 0], [-B * s(v) * c(u), -B * s(v) * s(u), B * c(v)],
+      [-w * c(u), -w * s(u), 0], [B * s(v) * s(u), -B * s(v) * c(u), 0], [-B * c(v) * c(u), -B * c(v) * s(u),
+        -B * s(v)]];
+  });
+  near(minRadius(tor, 0, [0.3, 0], [1]), 1, 1e-9);
+  near(minRadius(tor, 0, [0.3, 0, 0.7, Math.PI], [1, 1]), 0.5, 1e-9);
+  near(minRadius(tor, 0, [0.7, Math.PI, 0.3, 0], [1, 1]), 0.5, 1e-9);
+  // Points not used, or with a status, are left out; none usable is Infinity.
+  near(minRadius(tor, 0, [0.3, 0, 0.7, Math.PI], [1, 0]), 1, 1e-9);
+  assert.equal(minRadius(tor, 0, [0.3, 0], [0]), Infinity);
+  const torBad = evaluator((u, v) => {
+    const x = Array.from(tor.evalSurface(0, [u, v], 2).values);
+    return [0, 1, 2, 3, 4, 5].map((k) => x.slice(3 * k, 3 * k + 3));
+  }, (_u, v) => v > 3);
+  near(minRadius(torBad, 0, [0.3, 0, 0.7, Math.PI], [1, 1]), 1, 1e-9);
+});
+
+test('meshExtent: the box diagonal of a face\'s corners only', () => {
+  const r = result([5, 5, 5, 8, 5, 5, 5, 9, 5, 100, 100, 100, 5, 5, 17], [0, 1, 2, 0, 1, 4, 3, 3, 3],
+    [[1, 0, 2], [2, 2, 1]]);
+  near(meshExtent(r, faceTriangles(r).get(1)!), 13), assert.equal(meshExtent(r, []), 0);
 });
