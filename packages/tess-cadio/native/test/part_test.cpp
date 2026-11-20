@@ -1937,6 +1937,32 @@ TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's
   CHECK(pm.face(0).ringBlocked <= pm.rounds() + 1);
 }
 
+TEST_CASE("a pole inside the fixed coordinate's range: revolvedLineCone's ring on the face's side, up to the apex") {
+  // The revolved line's apex is at v = 2 sqrt 2 in an infinite v range, the surface on both sides of it: the ring on
+  // the face's side (towards the circle at z = 1), not towards the other nappe. Meshed with the default checks, none
+  // refused, every point between z = 1 and the apex, one at it, the area within the deflection's worth of pi sqrt 2.
+  cadgeom::Model m = load("revolvedLineCone");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.01, 10 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  revolvedLineCone: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.rejected.empty());
+  double zlo = INFINITY, zhi = -INFINITY, apex = INFINITY, area = 0;
+  for (const Vec3& q : fm.points)
+    zlo = std::min(zlo, q.z), zhi = std::max(zhi, q.z), apex = std::min(apex, cadgeom::norm(q - Vec3{0, 0, 2}));
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+    const Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+    area += 0.5 * cadgeom::norm(cadgeom::cross(b - a, c - a));
+  }
+  CHECK(zlo > 1 - 1e-9);
+  CHECK(zhi < 2 + 1e-9);
+  CHECK(apex < 1e-9);
+  // (A chordal mesh's area is a little under the surface's: by about d over the perimeter, 2 pi x 0.01.)
+  CHECK(area < M_PI * M_SQRT2 + 1e-9);
+  CHECK(area > M_PI * M_SQRT2 - 2 * M_PI * 0.01);
+}
+
 TEST_CASE("one ring per pole across faces: poleLunes' two lunes meet at a pole, both rings at the smaller's reach") {
   // The unit sphere's lune and a radius 3 sphere's meet at (0, 0, 1). Each face's fan corners other than the pole,
   // those nearest it (its ring): the same distance from the pole in both faces, the unit lune's own reach (a lune on

@@ -109,7 +109,19 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
     ring.singularity = static_cast<int>(g);
     ring.isoU = S.isoU, ring.at = S.at, ring.pole = S.point;
     const Range fixedR = S.isoU ? dom.u : dom.v;
+    // The face's side of the row: its boundary's, by the point nearest the row off it (an apex inside the fixed
+    // coordinate's range, a revolved line's, has the surface on both sides: by the domain's nearer end it would be
+    // whichever end the infinite range happens to give). The domain's nearer end where no point says.
     ring.side = std::fabs(S.at - fixedR.lo) <= std::fabs(S.at - fixedR.hi) ? 1 : -1;
+    {
+      double nearest = kInf;
+      for (const auto& L : fb.loops)
+        for (const BoundaryPoint& p : L) {
+          const double off = fixedOf(p.uv, S.isoU) - S.at;
+          if (std::fabs(off) > 1e-9 * (1 + std::fabs(S.at)) && std::fabs(off) < nearest)
+            nearest = std::fabs(off), ring.side = off > 0 ? 1 : -1;
+        }
+    }
     const double period = S.isoU ? dom.vPeriod : dom.uPeriod;
     auto onRow = [&](const BoundaryPoint& p) {
       return std::fabs(fixedOf(p.uv, S.isoU) - S.at) <= 1e-12 * (1 + std::fabs(S.at));
