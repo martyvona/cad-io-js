@@ -89,6 +89,11 @@ struct MeshOptions {
   double minAngle = 10 * M_PI / 180;
   /** Called every 1024 triangles refinement takes up, if set: a long refinement's heartbeat (progress reports). */
   std::function<void()> onWork;
+  /**
+   * With a Mesh2Detail (mesh2d_impl.h), the insertions counted by the caller's refusal kinds (SizeField::refusalKind:
+   * the criteria evaluated again on each refused triangle queued); false counts them all as refused alike.
+   */
+  bool refusalKinds = true;
 };
 
 /**

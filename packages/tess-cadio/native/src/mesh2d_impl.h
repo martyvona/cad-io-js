@@ -7,6 +7,8 @@
 
 namespace tesscadio {
 
+enum : uint8_t { kThinBoundary = 1, kThinFrozen = 2, kThinFloor = 4 };
+
 struct Mesh2Detail {
   /** Steiner points refused (encroaching, outside the domain, too near a vertex), the triangles left final. */
   int refused = 0;
@@ -20,6 +22,15 @@ struct Mesh2Detail {
    * [2 + k] refused by the caller's criteria, k its SizeField::refusalKind (0 to 7, others counted at 7).
    */
   int inserted[10] = {};
+  /**
+   * The final triangles whose smallest angle in the metric is under MeshOptions::minAngle (clamped), by index into
+   * Mesh2::triangles; that angle (radians: the arcsine of the least corner sine, for counts only); and each one's
+   * flags: kThinBoundary every corner a domain point, kThinFrozen an edge a frozen segment, kThinFloor within the
+   * refinement floor (SizeField::belowFloor).
+   */
+  std::vector<int32_t> thin;
+  std::vector<double> thinAngle;
+  std::vector<uint8_t> thinFlags;
 };
 
 Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOptions& options, Mesh2Detail* detail);

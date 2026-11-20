@@ -15,6 +15,7 @@
 #include <random>
 #include <map>
 #include <memory>
+#include <array>
 #include <set>
 #include <string>
 #include <tuple>
@@ -2458,6 +2459,98 @@ TEST_CASE("a face's side on a C0 line of a surface going on past it (roofBeyond 
   CHECK_EQ(c.right, 0);
   CHECK_EQ(c.turned, 0);
   CHECK_EQ(c.refused, 0);
+}
+
+TEST_CASE("countAngles: each face's triangles under minAngle, as counted on the mesh itself in 3D on planes (where "
+  "the metric is uniform), by angle, their area; the same mesh") {
+  // (On a plane the criteria's metric is isotropic and (u, v) an isometry: the metric's angles are the 3D ones.)
+  // (And with a coarse part uncertainty, so short spans are frozen: thin triangles on them.)
+  int faces = 0, thin = 0, nearAngle = 0, onFrozenAll = 0, floorAll = 0;
+  struct Case {
+    const char* name;
+    double uncertainty, angle;
+  };
+  for (const Case c : {Case{"cuspPocket", 0, 0.4}, Case{"cube", 0, 0.4}, Case{"flowerHole", 0, 0.4},
+         Case{"cuspPocket", 0.1, 0.3}}) {
+    const tessfixtures::Model* t = tessfixtures::model(c.name);
+    const fixtures::Model* fx = t ? nullptr : fixtures::model(c.name);
+    std::vector<uint8_t> bytes(t ? t->data : fx->data, (t ? t->data : fx->data) + (t ? t->size : fx->size));
+    cadgeom::Model m(bytes.data(), bytes.size());
+    REQUIRE(m.ok());
+    if (c.uncertainty > 0) const_cast<double*>(m.f64(CBR_PART_UNCERTAINTY))[0] = c.uncertainty;
+    const char* name = c.name;
+    PartOptions o = options(0.01, 0.26), plain = o;
+    o.minAngle = plain.minAngle = c.angle;
+    o.countAngles = true;
+    PartMesher a(m, o), b(m, plain);
+    // The edges' samples, and their spans within the refinement floor (frozen), by 3D point.
+    std::set<std::array<double, 3>> onEdge;
+    std::set<std::pair<std::array<double, 3>, std::array<double, 3>>> frozen;
+    const double floor = refinementFloor(cadgeom::Tolerances(m).part(), o.d.linear);
+    auto key3 = [](Vec3 p) { return std::array<double, 3>{p.x, p.y, p.z}; };
+    for (int e = 0; e < a.edges().edgeCount(); e++) {
+      const std::vector<Vec3>& q = a.edges().edge(e).points;
+      for (size_t j = 0; j < q.size(); j++) {
+        onEdge.insert(key3(q[j]));
+        if (j + 1 < q.size() && cadgeom::norm(q[j + 1] - q[j]) <= floor)
+          frozen.insert({key3(q[j]), key3(q[j + 1])}), frozen.insert({key3(q[j + 1]), key3(q[j])});
+      }
+    }
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &x = a.face(f), &y = b.face(f);
+      CHECK(x.triangles == y.triangles);
+      CHECK_EQ(y.thin, 0);
+      if (x.status != cadgeom::Status::ok || m.surfaceKind(m.faceSurface(f)) != CBR_SURFACE_PLANE) continue;
+      faces++, thin += x.thin;
+      int count = 0, bins[kThinBins] = {}, boundary = 0, onFrozen = 0, atAngle = 0, floorSure = 0, floorMaybe = 0;
+      double area = 0, atArea = 0;
+      for (size_t t = 0; t + 2 < x.triangles.size(); t += 3) {
+        const Vec3 p[3] = {x.points[x.triangles[t]], x.points[x.triangles[t + 1]], x.points[x.triangles[t + 2]]};
+        double least = M_PI;
+        for (int k = 0; k < 3; k++) {
+          const Vec3 u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+          least = std::min(least, std::atan2(cadgeom::norm(cadgeom::cross(u, v)), cadgeom::dot(u, v)));
+        }
+        // (At the angle within rounding, as off-centres place them: the mesher's arcsine of a sine against this
+        // atan2, either way; their area too.)
+        if (std::fabs(least - c.angle) <= 1e-9 * c.angle)
+          atAngle++, atArea += 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
+        if (!(least < c.angle)) continue;
+        nearAngle += least >= 0.9 * c.angle;
+        boundary += onEdge.count(key3(p[0])) && onEdge.count(key3(p[1])) && onEdge.count(key3(p[2]));
+        // (Within the floor: surely where its box's diagonal is, its longest side within floor / sqrt 2 (a plane's
+        // box over the triangle in its own plane); surely not where a side is past it.)
+        const double longest = std::max({cadgeom::norm(p[1] - p[0]), cadgeom::norm(p[2] - p[1]),
+          cadgeom::norm(p[0] - p[2])});
+        floorSure += longest <= floor / std::sqrt(2.0), floorMaybe += longest <= floor;
+        bool fz = false;
+        for (int k = 0; k < 3; k++) fz = fz || frozen.count({key3(p[k]), key3(p[(k + 1) % 3])});
+        onFrozen += fz;
+        const double deg = least * 180 / M_PI;
+        count++, bins[deg < 1 ? 0 : deg < 2 ? 1 : deg < 5 ? 2 : deg < 8 ? 3 : deg < 10 ? 4 : 5]++;
+        area += 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
+      }
+      if (std::abs(count - x.thin) > atAngle)
+        std::printf("  %s face %d: %d under the angle, counted %d, %d at it\n", name, f, count, x.thin, atAngle);
+      CHECK(std::abs(x.thin - count) <= atAngle);
+      for (int k = 0; k + 1 < kThinBins; k++) CHECK_EQ(x.thinByAngle[k], bins[k]);  // (the angles at most 0.4 rad)
+      CHECK(std::abs(x.thinByAngle[kThinBins - 1] - bins[kThinBins - 1]) <= atAngle);
+      CHECK(std::fabs(x.thinArea - area) <= atArea + 1e-9 * (1 + area));
+      CHECK_EQ(x.thinBoundary, boundary);
+      CHECK_EQ(x.thinFrozen, onFrozen);
+      onFrozenAll += onFrozen;
+      CHECK(x.thinFloor >= floorSure);
+      CHECK(x.thinFloor <= floorMaybe);
+      floorAll += floorSure;
+    }
+  }
+  CHECK(faces > 0);
+  CHECK(thin > 0);
+  CHECK(nearAngle > 0);  // (some just under the angle: the threshold itself checked)
+  CHECK(onFrozenAll > 0);
+  CHECK(floorAll > 0);
+  if (!nearAngle || !onFrozenAll) std::printf("  countAngles: %d near the angle, %d on frozen spans\n", nearAngle,
+    onFrozenAll);
 }
 
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
