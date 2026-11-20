@@ -4,11 +4,13 @@
 // out), since the corpus checks call it millions of times. Statuses and certainties are result.h's codes, one byte
 // each. Lists of varying length (breaks, singular parameters, alternatives) go to one scratch array of doubles,
 // valid until the next call that writes it (cg_scratch, cg_scratch_size). A projection (projectCurve: cg_project,
-// cg_coedge_project) goes there as a header of 13 (status, method, certainty, seamU, seamV, offSurface, error, the
+// cg_coedge_project) goes there as a header (status, method, certainty, seamU, seamV, offSurface, error, the
 // ambiguous parameters' count, the pieces' count, the seam twin's, whether the use takes the twin, the range's
-// parameters at its start and end), those parameters, then the pieces and the twin's, each 21 (t lo, t hi, kind,
-// poleLine, from u, v, to u, v, certainty, error, the reals' count, the ints', affine 9) and its reals and ints, then
-// the (u, v) at each sample parameter asked (NaN where no piece covers it), and the twin's, where it's on a seam.
+// parameters at its start and end, offSpan's lo and hi, then stopped, stopAt, stopDistance, stopWhy, the start's and
+// end's EndCheck and their alternatives' counts: 23), those parameters, the alternatives ((u, v) each, the start's
+// then the end's), then the pieces and the twin's, each 21 (t lo, t hi, kind, poleLine, from u, v, to u, v, certainty,
+// error, the reals' count, the ints', affine 9) and its reals and ints, then the (u, v) at each sample parameter asked
+// (NaN where no piece covers it), and the twin's, where it's on a seam.
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -17,6 +19,7 @@
 
 #include <cmath>
 
+#include "cad_geom/creases.h"
 #include "cad_geom/curve.h"
 #include "cad_geom/geom2d.h"
 #include "cad_geom/project.h"
@@ -54,6 +57,8 @@ struct Entry {
   bool project = true;
   /** The tolerances its edges and faces are judged by (tolerance.h): made once with the model. */
   Tolerances tols;
+  /** The end search's feet by (vertex, face), for cg_face_end_feet. */
+  EndSearchCache ends;
   Entry(uint8_t* b, uint32_t size) : buffer(b), model(b, size), tols(model) {}
   ~Entry() { std::free(buffer); }
 };
@@ -763,7 +768,16 @@ void projectCoedge(int32_t h, int c, double tol, Projection& out) {
     return;
   }
   const PcurveSource source{&m, ci, m.faceSurface(face)};
-  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), nullptr,
+  // A traced result's ends checked against its vertices' feet (the model's end search): the curve's lower
+  // parameter's vertex is the edge's start where its parameters run start to end.
+  PcurveEnds ends;
+  const int vlo = t0 <= t1 ? m.edgeStart(e) : m.edgeEnd(e), vhi = t0 <= t1 ? m.edgeEnd(e) : m.edgeStart(e);
+  auto key = [&](int v) { return (uint64_t(uint32_t(v)) << 32) | uint32_t(face); };
+  ends.cache = &entry(h)->ends;
+  ends.checkStart = vlo >= 0, ends.checkEnd = vhi >= 0;
+  if (vlo >= 0) ends.startKey = key(vlo), ends.startPoint = m.vertexPoint(vlo);
+  if (vhi >= 0) ends.endKey = key(vhi), ends.endPoint = m.vertexPoint(vhi);
+  out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), &ends,
     &source);
   out.t0 = t0, out.t1 = t1, out.made = 0;
   // The use runs start to end forward, end to start reversed.
@@ -793,8 +807,12 @@ void putProjection(const Pcurve& p, bool twin, double t0, double t1, const doubl
   scratch.clear();
   scratch.insert(scratch.end(), {double(p.status), double(p.method), double(p.certainty), p.seamU ? 1.0 : 0.0,
     p.seamV ? 1.0 : 0.0, p.offSurface, p.error, double(p.tAmbiguous.size()), double(p.pieces.size()),
-    double(p.seamTwin.size()), twin ? 1.0 : 0.0, t0, t1});
+    double(p.seamTwin.size()), twin ? 1.0 : 0.0, t0, t1, p.offSpan.lo, p.offSpan.hi, p.stopped ? 1.0 : 0.0, p.stopAt,
+    p.stopDistance, double(p.stopWhy), double(p.endCheck[0]), double(p.endCheck[1]),
+    double(p.endAlternatives[0].size()), double(p.endAlternatives[1].size())});
   scratch.insert(scratch.end(), p.tAmbiguous.begin(), p.tAmbiguous.end());
+  for (const std::vector<Vec2>& a : p.endAlternatives)
+    for (Vec2 uv : a) scratch.push_back(uv.x), scratch.push_back(uv.y);
   for (const std::vector<PcurvePiece>* v : {&p.pieces, &p.seamTwin})
     for (const PcurvePiece& q : *v) {
       scratch.insert(scratch.end(), {q.t.lo, q.t.hi, double(q.kind), q.poleLine ? 1.0 : 0.0, q.from.x, q.from.y,
@@ -1031,6 +1049,43 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
 }
 
 /**
+ * The face's C0 creases (creases.h's findCreases) where the normals jump by more than minAngle (radians), over its
+ * loops' (u, v) box, clipped to the face by classify2, its ends to the face's (u, v) tolerance: their count (minus the
+ * face's status), into the scratch 7 each: isoU (1: u = at), at, lo, hi, the largest jump, and whether lo and hi are
+ * on the boundary (1) or inside the face.
+ */
+int32_t cg_face_creases(int32_t h, int32_t face, double minAngle, double tol3d) {
+  FaceLoops f = faceLoops(h, face, tol3d);
+  scratch.clear();
+  if (f.status) return -f.status;
+  // The loops' box in (u, v), from their pieces at 17 points each.
+  Range ru{INFINITY, -INFINITY}, rv{INFINITY, -INFINITY};
+  for (const Loop2& l : f.loops)
+    for (const LoopPiece& p : l.pieces)
+      for (int i = 0; i <= 16; i++) {
+        CurvePoint q;
+        if (p.curve->eval(p.range.lo + (p.range.hi - p.range.lo) * i / 16, 0, q) != Status::ok) continue;
+        ru = {std::fmin(ru.lo, q.p.x), std::fmax(ru.hi, q.p.x)};
+        rv = {std::fmin(rv.lo, q.p.y), std::fmax(rv.hi, q.p.y)};
+      }
+  if (!(ru.lo < ru.hi) || !(rv.lo < rv.hi)) return 0;
+  auto inside = [&](const Vec2* p, int n, int* out) {
+    std::vector<double> t(n);
+    std::vector<Side> side(n);
+    std::vector<Status> st(n);
+    for (int i = 0; i < n; i++) t[i] = uvTolerance(f, p[i]);
+    classify2(f.loops, p, t.data(), n, f.periods, side.data(), st.data());
+    for (int i = 0; i < n; i++)
+      out[i] = st[i] != Status::ok || side[i] == Side::out ? 1 : side[i] == Side::in ? 0 : 2;
+  };
+  auto tol = [&](Vec2 p) { return uvTolerance(f, p); };
+  for (const Crease& c : findCreases(*f.surface, ru, rv, minAngle, inside, tol))
+    scratch.insert(scratch.end(),
+      {c.isoU ? 1.0 : 0.0, c.at, c.lo, c.hi, c.jump, c.loOnBoundary ? 1.0 : 0.0, c.hiOnBoundary ? 1.0 : 0.0});
+  return static_cast<int32_t>(scratch.size() / 7);
+}
+
+/**
  * The pieces as geom2d takes them, the face's edge loops' coedges in order (reversed, and each piece too, where the
  * face's sense isn't its surface's; a coedge two pieces where its use crosses its p-curve's ends): per piece its
  * coedge, the p-curve's parameters where it starts and ends (3 each) into the scratch; their count, or minus the
@@ -1117,6 +1172,85 @@ int32_t cg_project(int32_t h, int32_t row, int32_t surfaceRow, double lo, double
   Pcurve p = projectCurve(*c, {lo, hi}, *f, tol, ends ? &known : nullptr, &source);
   putProjection(p, false, lo, hi, t, n);
   return 0;
+}
+
+/** localFoot at n points from n starts on s: uv n x 2, point n x 3, distance n, status n, side n (-1 none). */
+void localFeet(const Surface& s, const double* points, const double* starts, int32_t n, double* uv, double* point,
+  double* distance, uint8_t* status, int32_t* side) {
+  for (int32_t i = 0; i < n; i++) {
+    const LocalFoot f = localFoot(s, {points[3 * i], points[3 * i + 1], points[3 * i + 2]},
+      {starts[2 * i], starts[2 * i + 1]});
+    uv[2 * i] = f.uv.x, uv[2 * i + 1] = f.uv.y;
+    put(point + 3 * i, f.point);
+    distance[i] = f.distance, status[i] = static_cast<uint8_t>(f.status), side[i] = f.side;
+  }
+}
+
+/** Surface row's local feet (localFoot, surface.h) at n points from n starts: 0, or why the surface isn't made. */
+int32_t cg_surface_local_foot(int32_t h, int32_t row, const double* points, const double* starts, int32_t n,
+  double* uv, double* point, double* distance, uint8_t* status, int32_t* side) {
+  Status s;
+  const Surface* f = surface(h, row, s);
+  if (!f) return static_cast<int32_t>(s);
+  localFeet(*f, points, starts, n, uv, point, distance, status, side);
+  return 0;
+}
+
+/**
+ * Face `face`'s surface as it closes in fact (its periods the face's: (u, v) past a period reduced, as projections'
+ * p-curves unwrapped past one need) at n (u, v) pairs, as cg_surface_eval.
+ */
+int32_t cg_face_eval(int32_t h, int32_t face, const double* uv, int32_t n, int32_t order, double* out,
+  uint8_t* status) {
+  Entry* e = entry(h);
+  if (!e || face < 0 || face >= e->model.faces()) return static_cast<int32_t>(Status::invalidModel);
+  Status s;
+  const Surface* f = faceSurface(h, face, s);
+  if (!f) return static_cast<int32_t>(s);
+  const int w = order == 0 ? 1 : order == 1 ? 3 : 6;
+  for (int32_t i = 0; i < n; i++) {
+    SurfacePoint q;
+    status[i] = static_cast<uint8_t>(f->eval(uv[2 * i], uv[2 * i + 1], order, q));
+    double* o = out + 3 * w * i;
+    put(o, q.p);
+    if (order >= 1) put(o + 3, q.du), put(o + 6, q.dv);
+    if (order >= 2) put(o + 9, q.duu), put(o + 12, q.duv), put(o + 15, q.dvv);
+  }
+  return 0;
+}
+
+/** As cg_surface_local_foot on face `face`'s surface as it closes in fact (its periods the face's). */
+int32_t cg_face_local_foot(int32_t h, int32_t face, const double* points, const double* starts, int32_t n,
+  double* uv, double* point, double* distance, uint8_t* status, int32_t* side) {
+  Entry* e = entry(h);
+  if (!e || face < 0 || face >= e->model.faces()) return static_cast<int32_t>(Status::invalidModel);
+  Status s;
+  const Surface* f = faceSurface(h, face, s);
+  if (!f) return static_cast<int32_t>(s);
+  localFeet(*f, points, starts, n, uv, point, distance, status, side);
+  return 0;
+}
+
+/**
+ * The feet of vertex `vertex`'s point on face `face`'s surface (as it closes in fact) within tol of the nearest, as the
+ * end search gives them (EndSearchCache, the model's): their count (a status's negation where there's no surface),
+ * into the scratch 10 each: kind (0 point, 1 seamPair, 2 pole), u, v, the twin's u, v, poleU, the free interval's lo,
+ * hi, distance, certainty.
+ */
+int32_t cg_face_end_feet(int32_t h, int32_t face, int32_t vertex, double tol) {
+  Entry* e = entry(h);
+  scratch.clear();
+  if (!e || face < 0 || face >= e->model.faces() || vertex < 0 || vertex >= e->model.vertices())
+    return -static_cast<int32_t>(Status::invalidModel);
+  Status s;
+  const Surface* f = faceSurface(h, face, s);
+  if (!f) return -static_cast<int32_t>(s);
+  const uint64_t key = (uint64_t(uint32_t(vertex)) << 32) | uint32_t(face);
+  const std::vector<EndFoot>& feet = e->ends.feet(key, *f, e->model.vertexPoint(vertex), tol);
+  for (const EndFoot& k : feet)
+    scratch.insert(scratch.end(), {double(k.kind), k.uv.x, k.uv.y, k.twin.x, k.twin.y, k.poleU ? 1.0 : 0.0, k.freeLo,
+      k.freeHi, k.distance, double(k.certainty)});
+  return static_cast<int32_t>(feet.size());
 }
 
 /**

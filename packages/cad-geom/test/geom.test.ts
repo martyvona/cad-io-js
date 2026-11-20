@@ -170,6 +170,21 @@ test('batches: shapes, statuses per item and per row, alternatives from the scra
     const r = sp.invertSurface(0, q, [si.u[0], si.u[1], si.v[0], si.v[1]], 1e-9);
     assert.equal(STATUS[r.statuses[0]!], 'ok');
     assert.ok(r.distance[0]! < 1e-9);
+    // A local foot from nearby, by the surface's row and by its face; the end search at a vertex; a projection's
+    // stop fields.
+    for (const f of [sp.localFoot(0, q, [0.25, 0.15]), sp.faceLocalFoot(0, q, [0.25, 0.15])]) {
+      assert.equal(f.status, 'ok');
+      assert.equal(STATUS[f.statuses[0]!], 'ok');
+      assert.equal(f.side[0], -1);
+      assert.ok(Math.abs(f.uv[0]! - 0.3) < 1e-9 && Math.abs(f.uv[1]! - 0.2) < 1e-9);
+      assert.ok(f.distance[0]! < 1e-9 && len([f.point[0]! - q[0]!, f.point[1]! - q[1]!, f.point[2]! - q[2]!]) < 1e-9);
+    }
+    const ends = sp.endFeet(0, 0, 1e-6);
+    assert.equal(ends.status, 'ok');
+    assert.ok(ends.feet.length >= 1 && ends.feet[0]!.distance < 1e-6);
+    assert.deepEqual(sp.endFeet(0, 1e6, 1e-6), { status: 'invalidModel', feet: [] });
+    const pc = sp.projectCoedge(0);
+    if ('pieces' in pc && pc.status === 'ok') assert.equal(pc.stopped, false);
   }
 });
 
@@ -383,6 +398,66 @@ test('faces: p-curves periods from the surface\'s domain (u from -pi/4 - 4 pi to
   const r0 = g.classifyOnFace(0, [-0.4, 0.5, -0.4 + tau, 0.5, 0.4, 0.5, -1, 0.5, -0.4, 1.5, -0.4, -0.5, 0, 0.5]);
   assert.equal(r0.status, 'ok');
   assert.deepEqual([...r0.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'out', 'out', 'on']);
+});
+
+test('faces: a C0 crease inside a face, split by a hole, its ends on the loops', { skip }, async () => {
+  // A quadratic in u with a double knot at u = 1, folding by 90 degrees there across a cross-section z = 0, 1, 2, 1, 0
+  // (control points at x = 0..4), linear in v over y in [0, 1]. The face is its (u, v) square [0, 2] x [0, 1] less a
+  // hole [0.8, 1.2] x [0.4, 0.6], the edges without 3D curves, their p-curves lines. The fold's line u = 1 crosses it
+  // in two pieces, each end past a loop. Then an L-shaped face and a disk on the same surface.
+  const b = new BrepBuilder();
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2], vKnots: [0, 1],
+    uMultiplicities: [3, 2, 3], vMultiplicities: [2, 2],
+    poles: [0, 1, 2, 1, 0].map((z, i) => [[i, 0, z], [i, 1, z]]), uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const at = (u: number, v: number): [number, number, number] =>
+    u <= 1 ? [2 * u, v, 2 * u] : [2 * u, v, 4 - 2 * u];
+  const loop = (uv: number[][], bound: 'outer' | 'inner') => {
+    const vs = uv.map(([u, v]) => b.addVertex({ point: at(u!, v!) }));
+    const coedges = uv.map(([u, v], k) => {
+      const [nu, nv] = uv[(k + 1) % uv.length]!;
+      const pcurve = b.addCurve({ kind: 'line', point: [u!, v!], direction: [nu! - u!, nv! - v!], magnitude: 1 });
+      const edge = b.addEdge({ start: vs[k]!, end: vs[(k + 1) % uv.length]!, sameSense: true, range: [0, 1] });
+      return { edge, orientation: 'forward' as const, pcurve };
+    });
+    return { kind: 'edge' as const, bound, sense: true, coedges };
+  };
+  const f = b.addFace({ surface, sameSense: true, loops: [loop([[0, 0], [2, 0], [2, 1], [0, 1]], 'outer'),
+    loop([[0.8, 0.4], [0.8, 0.6], [1.2, 0.6], [1.2, 0.4]], 'inner')] });
+  b.addItem({ kind: 'face', ref: f });
+  // An L: u = 1 inside it for v < 0.5, its edge above.
+  const l = b.addFace({ surface, sameSense: true,
+    loops: [loop([[0, 0], [2, 0], [2, 0.5], [1, 0.5], [1, 1], [0, 1]], 'outer')] });
+  b.addItem({ kind: 'face', ref: l });
+  // A disk: one edge without vertices or a 3D curve, its p-curve a circle of radius 0.4 about (1, 0.5).
+  const circle = b.addCurve({ kind: 'circle', position: { origin: [1, 0.5], xDir: [1, 0] }, radius: 0.4 });
+  const rim = b.addEdge({ sameSense: true, range: [0, 2 * Math.PI] });
+  const disk = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: rim, orientation: 'forward', pcurve: circle }] }] });
+  b.addItem({ kind: 'face', ref: disk });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  assert.equal(g.faceInfo(0).status, 'ok');
+  const r = g.faceCreases(0, 15 * Math.PI / 180);
+  assert.equal(r.status, 'ok');
+  assert.equal(r.creases.length, 2, JSON.stringify(r));
+  const [a, c] = r.creases;
+  const tol = 1e-4;  // well past three (u, v) tolerances (1e-5 over a stretch of about 2.8)
+  assert.ok(a!.isoU && a!.at === 1 && c!.isoU && c!.at === 1, JSON.stringify(r));
+  assert.ok(a!.lo < 0 && a!.lo > -tol && a!.hi > 0.4 && a!.hi < 0.4 + tol, JSON.stringify(a));
+  assert.ok(c!.lo < 0.6 && c!.lo > 0.6 - tol && c!.hi > 1 && c!.hi < 1 + tol, JSON.stringify(c));
+  assert.ok(r.creases.every((x) => x.loOnBoundary && x.hiOnBoundary && Math.abs(x.jump - Math.PI / 2) < 1e-6));
+  const el = g.faceCreases(1, 15 * Math.PI / 180);
+  assert.equal(el.creases.length, 1, JSON.stringify(el));
+  const e = el.creases[0]!;
+  assert.ok(e.lo < 0 && e.hi > 0.5 && e.hi < 0.5 + 2 * tol && e.loOnBoundary && e.hiOnBoundary, JSON.stringify(e));
+  // The disk's box is its circle's, not its one point where it starts: the line u = 1 across it, v in [0.1, 0.9].
+  const dk = g.faceCreases(2, 15 * Math.PI / 180);
+  assert.equal(dk.creases.length, 1, JSON.stringify(dk));
+  const k = dk.creases[0]!;
+  assert.ok(k.lo < 0.1 && k.lo > 0.1 - tol && k.hi > 0.9 && k.hi < 0.9 + tol, JSON.stringify(k));
+  // Past its jump, none; a face that isn't one, its status.
+  assert.deepEqual(g.faceCreases(0, 91 * Math.PI / 180).creases, []);
+  assert.equal(g.faceCreases(5, 0.1).status, 'invalidModel');
 });
 
 test('faces: line p-curves scaled otherwise than their 3D lines get their own ranges', { skip }, async () => {
@@ -850,6 +925,21 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
       coedges: [{ edge: e, orientation: 'forward' }] }] });
     b.addItem({ kind: 'face', ref: f });
   }
+  // A face on the cylinder bounded by the tilted ellipse, closed at its vertex (0, 1, tan 0.5): coedge 2, traced.
+  {
+    const v = b.addVertex({ point: [0, 1, Math.tan(tilt)] });
+    const e = b.addEdge({ curve: ellipse, start: v, end: v, sameSense: true });
+    const f = b.addFace({ surface: cylinder, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward' }] }] });
+    b.addItem({ kind: 'face', ref: f });
+  }
+  // A degree-1 square tube about z (its first and last rows of poles one), closed in fact in u only: face 3, unbounded.
+  const ring = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 0]];
+  const tube = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1],
+    uMultiplicities: [2, 1, 1, 1, 2], vMultiplicities: [2, 2],
+    poles: ring.map(([x, y]) => [[x!, y!, 0], [x!, y!, 1]]), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  b.addItem({ kind: 'face', ref: b.addFace({ surface: tube, sameSense: true, loops: [] }) });
   using g = new Geometry(module, new Uint8Array(b.finish().buffer));
   const close = (a: ArrayLike<number>, want: number[], at: string) =>
     want.forEach((w, i) => assert.ok(Math.abs(a[i]! - w) <= 1e-12 * (1 + Math.abs(w)), `${at} [${i}]: ${a[i]}`));
@@ -907,6 +997,24 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   // At a tolerance the gap is within, it's made.
   const c2 = g.projectCoedge(1, 2e-3);
   assert.ok('pieces' in c2 && c2.status === 'ok');
+  // Not traced: unchecked. The ellipse's coedge, traced once round: its start the vertex's foot, its end the same a
+  // period over.
+  assert.deepEqual([c0.endCheck, c0.endAlternatives.map((a) => a.length)], [['unchecked', 'unchecked'], [0, 0]]);
+  // The face's own surface, closed in fact: the cylinder at u and a period on is one point; past its face, invalid.
+  const fe = g.faceEval(2, [0.5, 0.3, 0.5 + 2 * Math.PI, 0.3], 0);
+  assert.equal(fe.status, 'ok');
+  close(fe.values.slice(3, 6), Array.from(fe.values.slice(0, 3)), 'a period on');
+  close(fe.values.slice(0, 3), Array.from(g.evalSurface(cylinder, [0.5, 0.3], 0).values), 'the raw surface');
+  assert.equal(g.faceEval(99, [0, 0]).status, 'invalidModel');
+  // The tube a period past its u domain: the face's surface reduces it (the raw row is out of its domain there).
+  const te = g.faceEval(3, [0.5, 0.5, 4.5, 0.5], 0);
+  assert.deepEqual([te.status, [...te.statuses]], ['ok', [0, 0]]);
+  close(te.values.slice(3, 6), Array.from(te.values.slice(0, 3)), 'the tube a period on');
+  assert.equal(g.evalSurface(tube, [4.5, 0.5], 0).statuses[0], STATUS.indexOf('outOfDomain'));
+  const c3 = g.projectCoedge(2);
+  assert.ok('pieces' in c3);
+  assert.deepEqual([c3.status, c3.method, c3.certainty, c3.endCheck], ['ok', 'traced', 'unique', ['same', 'periods']]);
+  assert.deepEqual(c3.endAlternatives.map((a) => a.length), [0, 0]);
   g.setProjectMissingPcurves(false);
   assert.equal(g.faceInfo(0).status, 'noPcurve');
   assert.equal(g.evalCoedge(0, [0]).status, 'noPcurve');
@@ -938,4 +1046,40 @@ test('projection: a use against its curve through a sphere\'s pole (pieces in th
   assert.deepEqual([...r.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'out', 'out', 'in']);
   const self = g.selfIntersectFace(0, 0);
   assert.deepEqual([self.status, self.crossings, self.touches, self.overlaps], ['ok', 0, 0, 0]);
+});
+
+test('a revolution of a line crossing its axis: the apex a pole, and a curve through it traced across it', { skip },
+  async () => {
+  // The line from (2, 0, 0) toward (0, 0, 2), revolved about z: a double cone, its apex (0, 0, 2) at the line's
+  // parameter 2 sqrt 2 (an unbounded profile, its crossing found in closed form). A degree-1 B-spline along the
+  // line from (1, 0, 1) to (-1, 0, 3) runs through the apex onto the other nappe, which is the profile's own
+  // continuation past the axis (u = 0 still, v past 2 sqrt 2): traced, the range split at the apex.
+  const b = new BrepBuilder();
+  const s = Math.SQRT1_2;
+  const profile = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [-s, 0, s], magnitude: 1 });
+  const rev = b.addSurface({ kind: 'revolution', curve: profile, axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  const across = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1], multiplicities: [2, 2],
+    poles: [[1, 0, 1], [-1, 0, 3]], closed: false, selfIntersect: false, form: 'polyline_form' });
+  // A line 1 off the axis at its nearest (a hyperboloid of one sheet), and one parallel to it (a cylinder): no pole.
+  const skew = b.addSurface({ kind: 'revolution', curve: b.addCurve({ kind: 'line', point: [2, 1, 0],
+    direction: [-s, 0, s], magnitude: 1 }), axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  const parallel = b.addSurface({ kind: 'revolution', curve: b.addCurve({ kind: 'line', point: [2, 0, 0],
+    direction: [0, 0, 1], magnitude: 1 }), axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  for (const row of [skew, parallel])
+    assert.deepEqual(g.surfaceSingularities(row), { status: 'ok', singularities: [] });
+  const sing = g.surfaceSingularities(rev);
+  assert.equal(sing.status, 'ok');
+  assert.equal(sing.singularities.length, 1);
+  const pole = sing.singularities[0]!;
+  assert.equal(pole.kind, 'pole');
+  assert.ok(Math.abs(pole.at - 2 / s) < 1e-12, `${pole.at}`);
+  assert.ok(Math.hypot(pole.point[0]!, pole.point[1]!, pole.point[2]! - 2) < 1e-12);
+  const p = g.project(across, rev, 0, 1, 1e-7, { samples: [0.25, 0.75] });
+  assert.ok('pieces' in p);
+  assert.equal(p.status, 'ok');
+  assert.ok(p.method === 'traced' || p.method === 'affineFeet', p.method);
+  assert.deepEqual(p.pieces.map((q) => q.t), [[0, 0.5], [0.5, 1]]);
+  const want = [0, 1.5 / s, 0, 2.5 / s];
+  want.forEach((w, i) => assert.ok(Math.abs(p.uv[i]! - w) < 1e-9, `uv[${i}] ${p.uv[i]}`));
 });

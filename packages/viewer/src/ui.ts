@@ -20,6 +20,7 @@ import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLev
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
+import { HEAL_FIXES } from 'cad-heal/options';
 import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
@@ -669,7 +670,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   const step = gui.addFolder('B-Rep Meshing');
   const settings = viewer.settings;
-  const shown = () => step.controllers.forEach((c) => c.updateDisplay());
+  const shown = () => step.controllersRecursive().forEach((c) => c.updateDisplay());
+  // Settings set at once: the fixes' values into the object their checkboxes are bound to.
+  const assign = (m: Partial<TessellationSettings>) => {
+    const { healFixes, ...rest } = m;
+    Object.assign(settings, rest);
+    if (healFixes) Object.assign(settings.healFixes, healFixes);
+    shown();
+  };
   // The device's class (device.ts), detected or chosen: choosing one also sets its profile.
   const device = { choice: (viewer.device === viewer.detectedDevice ? 'auto' : viewer.device) as DeviceClass | 'auto' };
   step.add(device, 'choice', { [`Auto (${viewer.detectedDevice})`]: 'auto', Phone: 'phone', Tablet: 'tablet',
@@ -696,11 +704,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add(settings, 'angularDeflection', 1, 90).name('Angle (degrees)').onChange(custom);
   step.add(settings, 'timeout', 0, 600, 1).name('Timeout (s, 0: none)');
   step.add(settings, 'cache').name('Cache (IndexedDB)');
+  // Healing (cad-heal), before meshing; its fixes under a disclosure, closed.
+  step.add(settings, 'heal').name('Heal B-reps');
+  const fixes = step.addFolder('Healing fixes').close();
+  for (const f of HEAL_FIXES) fixes.add(settings.healFixes, f);
   step.add({ reload: () => meshAgain() }, 'reload').name('Mesh again');
-  step.add({ defaults: () => {
-    Object.assign(settings, defaultSettings(DEVICE_PROFILES[viewer.device]));
-    shown();
-  } }, 'defaults').name('Defaults');
+  step.add({ defaults: () => assign(defaultSettings(DEVICE_PROFILES[viewer.device])) }, 'defaults').name('Defaults');
   step.add({ clear: () => viewer.clearCache().then(() => say('cache cleared'),
     (e: Error) => say(`cache: ${e.message}`, true)) }, 'clear').name('Clear cache');
 
@@ -1006,10 +1015,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       for (const c of sectionFolder.controllersRecursive()) c.updateDisplay();
       recut();
     },
-    setMeshing: (m) => {
-      Object.assign(settings, m);
-      shown();
-    },
+    setMeshing: (m) => assign(m),
     setRender: (r) => {
       Object.assign(look, r);
       for (const c of rendering.controllersRecursive()) c.updateDisplay();

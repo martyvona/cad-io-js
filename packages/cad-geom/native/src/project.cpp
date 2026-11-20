@@ -172,8 +172,12 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
     const double det = a * c - b * b;
     if (!(det > 0)) break;
     Vec2 step{-(c * gu - b * gv) / det, -(a * gv - b * gu) / det};
+    // A step that doesn't come nearer is halved only while it is more than rounding in 3D (a few ulps of p's
+    // coordinates) or 1e-7 of the distance (where the curve is off the surface the distance is flat at its foot, and
+    // a fit there is to a quarter of it at least): past that, halving only re-evaluates.
+    const double s3 = norm(step.x * sp.du + step.y * sp.dv), floor = 1e-15 * (1 + norm(p)) + 1e-7 * best;
     bool moved = false;
-    for (int h = 0; h < 30; h++) {
+    for (int h = 0; h < 30 && (h == 0 || std::ldexp(s3, -h) > floor); h++) {
       const Vec2 q = clampIn(uv + step);
       SurfacePoint sq;
       s.eval(q.x, q.y, 2, sq);
@@ -195,7 +199,7 @@ double footFrom(const Surface& s, const SurfaceDomain& dom, Vec3 p, Vec2& uv, in
   return best;
 }
 
-double measure(const Job& job, const PcurvePiece& p) {
+double measure(const Job& job, const PcurvePiece& p, double* worstT) {
   if (p.poleLine || !p.curve) return 0;
   std::vector<double> br, pb;
   for (double b : job.breaks)
@@ -214,8 +218,15 @@ double measure(const Job& job, const PcurvePiece& p) {
     const double e = norm(sp.p - c.p);
     return std::isfinite(e) ? e : kInf;
   };
-  constexpr int N = 16;
-  double worst = 0;
+  // 64 samples a smooth span (a deviation that oscillates, a line's against a curve's wiggle, has bumps a few
+  // hundredths of the span wide), then a golden-section search for the largest error around every sample that is a
+  // local maximum within half of the worst, between its neighbours (the worst sample's bump needn't be the
+  // highest).
+  constexpr int N = 64;
+  double worst = 0, at = p.t.lo;
+  auto keep = [&](double e, double t) {
+    if (e > worst) worst = e, at = t;
+  };
   for (size_t k = 0; k + 1 < br.size(); k++) {
     const double a = br[k], b = br[k + 1];
     if (!(b > a)) continue;
@@ -225,17 +236,20 @@ double measure(const Job& job, const PcurvePiece& p) {
       e[i] = err(a + (b - a) * i / N);
       if (e[i] > e[w]) w = i;
     }
-    worst = std::max(worst, e[w]);
-    // Golden-section search for the largest error between the worst sample's neighbours.
-    double lo = a + (b - a) * std::max(0, w - 1) / N, hi = a + (b - a) * std::min(N, w + 1) / N;
-    const double g = 0.6180339887498949;
-    double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = err(x1), f2 = err(x2);
-    for (int it = 0; it < 40 && hi - lo > 1e-14 * (std::fabs(lo) + std::fabs(hi) + 1e-300); it++) {
-      if (f1 > f2) hi = x2, x2 = x1, f2 = f1, x1 = hi - g * (hi - lo), f1 = err(x1);
-      else lo = x1, x1 = x2, f1 = f2, x2 = lo + g * (hi - lo), f2 = err(x2);
+    keep(e[w], a + (b - a) * w / N);
+    for (int c = 0; c <= N; c++) {
+      if (!(e[c] >= 0.5 * e[w]) || (c > 0 && e[c - 1] > e[c]) || (c < N && e[c + 1] > e[c])) continue;
+      double lo = a + (b - a) * std::max(0, c - 1) / N, hi = a + (b - a) * std::min(N, c + 1) / N;
+      const double g = 0.6180339887498949;
+      double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), f1 = err(x1), f2 = err(x2);
+      for (int it = 0; it < 40 && hi - lo > 1e-14 * (std::fabs(lo) + std::fabs(hi) + 1e-300); it++) {
+        if (f1 > f2) hi = x2, x2 = x1, f2 = f1, x1 = hi - g * (hi - lo), f1 = err(x1);
+        else lo = x1, x1 = x2, f1 = f2, x2 = lo + g * (hi - lo), f2 = err(x2);
+      }
+      keep(f1, x1), keep(f2, x2);
     }
-    worst = std::max({worst, f1, f2});
   }
+  if (worstT) *worstT = at;
   return worst;
 }
 
@@ -362,6 +376,67 @@ void seams(const Job& job, Pcurve& out) {
   }
 }
 
+namespace {
+
+/**
+ * How far the curve leaves the surface's box over r, found from its spans' control hulls (bound()): its samples can
+ * all lie on the surface while it leaves it within a span narrower than their spacing (a stray pole in a knot span a
+ * millionth of the range wide). The box (bound() over the domain) holds every point of the surface, so a point's
+ * distance from it is a lower bound on its distance from the surface; branch and bound on the spans' hulls finds the
+ * largest. 0 where every hull is within tol of the box, or the domain is unbounded; `span` the break-to-break span
+ * holding the farthest point found.
+ */
+double beyondSurface(const Job& job, Range& span) {
+  span = {NAN, NAN};
+  const SurfaceDomain& d = job.dom;
+  Box3 sb;
+  if (!(std::isfinite(d.u.lo) && std::isfinite(d.u.hi) && std::isfinite(d.v.lo) && std::isfinite(d.v.hi))
+    || job.s.bound(d.u, d.v, sb) != Status::ok)
+    return 0;
+  auto excess = [](Interval a, Interval b) { return std::max({0.0, a.hi - b.hi, b.lo - a.lo}); };
+  auto boxOff = [&](const Box3& b) { return std::hypot(excess(b.x, sb.x), excess(b.y, sb.y), excess(b.z, sb.z)); };
+  auto pointOff = [&](double t) {
+    CurvePoint q;
+    if (job.c.eval(t, 0, q) != Status::ok) return 0.0;
+    return boxOff({Interval::point(q.p.x), Interval::point(q.p.y), Interval::point(q.p.z)});
+  };
+  struct Node {
+    double ub;
+    Range t;
+    bool operator<(const Node& o) const { return ub < o.ub; }
+  };
+  double best = 0;
+  for (size_t k = 1; k < job.breaks.size(); k++) {
+    const Range r{std::max(job.breaks[k - 1], job.r.lo), std::min(job.breaks[k], job.r.hi)};
+    Box3 cb;
+    if (!(r.lo < r.hi) || job.c.bound(r, cb) != Status::ok) continue;
+    const double ub0 = boxOff(cb);
+    if (!(ub0 > job.tol && ub0 > best)) continue;
+    // Largest upper bound first; done once the largest is within 1% of the best found, or within tol.
+    std::vector<Node> heap{{ub0, r}};
+    double here = std::max(pointOff(r.lo), pointOff(r.hi));
+    for (int nodes = 0; !heap.empty() && nodes < 200; nodes++) {
+      std::pop_heap(heap.begin(), heap.end());
+      const Node n = heap.back();
+      heap.pop_back();
+      if (n.ub <= std::max(job.tol, 1.01 * std::max(here, best))) break;
+      const double m = 0.5 * (n.t.lo + n.t.hi);
+      here = std::max(here, pointOff(m));
+      for (Range h : {Range{n.t.lo, m}, Range{m, n.t.hi}}) {
+        if (!(h.lo < h.hi) || job.c.bound(h, cb) != Status::ok) continue;
+        heap.push_back({boxOff(cb), h});
+        std::push_heap(heap.begin(), heap.end());
+      }
+    }
+    if (here > best) best = here, span = r;
+  }
+  if (best > job.tol) return best;
+  span = {NAN, NAN};
+  return 0;
+}
+
+} // namespace
+
 Form curveForm(const Model& m, int row) {
   for (int depth = 0; depth < 8 && row >= 0 && row < m.curves(); depth++) {
     if (m.curveKind(row) != CBR_CURVE_TRIMMED || m.curveInts(row)[1] == 0)
@@ -376,6 +451,58 @@ Form surfaceForm(const Model& m, int row) {
   return {m.surfaceKind(row), 3, m.surfaceReals(row), m.surfaceInts(row)};
 }
 
+/**
+ * A traced result's ends against the end search's feet (PcurveEnds' cache): a vertex farther than tol from the
+ * curve's end isn't its end (vertexOff, the feet given); else the nearest foot in 3D, if the end is that one, then by
+ * (u, v) the same, a whole number of periods over, or a seam pair's other copy; else different, the end ambiguous with
+ * the feet as its alternatives.
+ */
+void checkEnds(const Job& job, Pcurve& out) {
+  const PcurveEnds* e = job.ends;
+  if (!e || !e->cache || out.pieces.empty()) return;
+  auto point = [&](Vec2 uv) {
+    SurfacePoint q;
+    job.s.eval(uv.x, uv.y, 0, q);
+    return q.p;
+  };
+  // Whether a and b, one place in 3D, are whole periods apart (rounded: the feet are only that accurate).
+  auto shifted = [&](Vec2 a, Vec2 b) {
+    const double pu = job.dom.uPeriod, pv = job.dom.vPeriod;
+    return (pu > 0 && std::round((a.x - b.x) / pu) != 0) || (pv > 0 && std::round((a.y - b.y) / pv) != 0);
+  };
+  for (int side = 0; side < 2; side++) {
+    if (!(side ? e->checkEnd : e->checkStart)) continue;
+    const double t = side ? job.r.hi : job.r.lo;
+    const PcurvePiece& q = side ? out.pieces.back() : out.pieces.front();
+    const Vec2 uv = q.poleLine ? (side ? q.to : q.from) : at(q, t);
+    const Vec3 vp = side ? e->endPoint : e->startPoint;
+    CurvePoint cp;
+    job.c.eval(t, 0, cp);
+    const std::vector<EndFoot>& feet = e->cache->feet(side ? e->endKey : e->startKey, job.s, vp, job.tol);
+    if (feet.empty()) continue;
+    const Vec3 here = point(uv);
+    // The nearest foot, if the end is that one: the end within tol of the curve's point, the feet within tol of the
+    // vertex's, which is within tol of it (else vertexOff), so 3 tol (feet more than tol apart are separate ones).
+    const EndFoot* k = nullptr;
+    double best = kInf;
+    for (const EndFoot& f : feet)
+      if (const double d = norm(here - point(f.uv)); d < best) best = d, k = &f;
+    EndCheck c = norm(vp - cp.p) > job.tol ? EndCheck::vertexOff : EndCheck::different;
+    if (c == EndCheck::different && best <= 3 * job.tol) {
+      if (k->kind == EndFoot::Kind::pole || !shifted(uv, k->uv)) c = EndCheck::same;
+      else if (k->kind == EndFoot::Kind::seamPair && !shifted(uv, k->twin)) c = EndCheck::seamOther;
+      else c = EndCheck::periods;
+    }
+    out.endCheck[side] = c;
+    if (c == EndCheck::different || c == EndCheck::vertexOff)
+      for (const EndFoot& k : feet) out.endAlternatives[side].push_back(k.uv);
+    if (c == EndCheck::different) {
+      out.certainty = Certainty::ambiguous;
+      out.tAmbiguous.push_back(t);
+    }
+  }
+}
+
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,
   Form surface) {
   Pcurve out;
@@ -386,21 +513,55 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   Job job{c, r, s, tol, ends, curve, surface, s.domain(), {}, {}};
   s.singularities(job.sing);
   c.breaks(r, job.breaks);
+  {
+    std::vector<double> us, vs;
+    s.breaks(job.dom.u, job.dom.v, us, vs);
+    // (A periodic direction's seam is one too: a closed profile's corner can be there.)
+    if (job.dom.uPeriod > 0) job.uBreaks.push_back(job.dom.u.lo);
+    for (double x : us)
+      if (x > job.dom.u.lo && x < job.dom.u.hi) job.uBreaks.push_back(x);
+    if (job.dom.vPeriod > 0) job.vBreaks.push_back(job.dom.v.lo);
+    for (double x : vs)
+      if (x > job.dom.v.lo && x < job.dom.v.hi) job.vBreaks.push_back(x);
+  }
   if (!exact(job, out)) trace(job, out);
+  // A curve leaving the surface within a span its samples miss: no p-curve is within tol, whatever the trace found.
+  const double beyond = beyondSurface(job, out.offSpan);
+  out.offSurface = std::max(out.offSurface, beyond);
   if (out.pieces.empty()) return out;
   align(job, out);
   seams(job, out);
+  if (out.method == PcurveMethod::traced || out.method == PcurveMethod::affineFeet) checkEnds(job, out);
   // The result's error and certainty from its pieces'.
   out.error = 0;
   bool allUnique = true;
+  const PcurvePiece* worstPiece = nullptr;
+  double worstT = NAN;
   for (PcurvePiece& p : out.pieces) {
-    if (!p.poleLine) p.error = measure(job, p);
-    out.error = std::max(out.error, p.error);
+    double t = NAN;
+    if (!p.poleLine) p.error = measure(job, p, &t);
+    if (p.error > out.error || !worstPiece) out.error = std::max(out.error, p.error), worstPiece = &p, worstT = t;
     allUnique = allUnique && p.certainty == Certainty::unique;
   }
   if (out.certainty != Certainty::ambiguous) out.certainty = allUnique ? Certainty::unique : Certainty::ambiguous;
+  if (out.status == Status::ok && !(out.error <= tol) && !(out.offSurface > tol) && worstPiece
+    && !worstPiece->poleLine) {
+    // offSurface is the farthest the feet the result was made from are; where the error is worst they may not be
+    // (the nodes fall where they do): the curve's distance there from its foot on the result's branch (a local foot
+    // from the result's (u, v), else the nearest anywhere), so whether the curve is off the surface (invalidModel) or
+    // the p-curve misses it (noConvergence) doesn't hang on where the nodes fell.
+    CurvePoint c;
+    job.c.eval(worstT, 0, c);
+    const LocalFoot f = localFoot(job.s, c.p, at(*worstPiece, worstT));
+    double d = f.status == Status::ok ? f.distance : NAN;
+    if (!(d >= 0)) d = invertSurface(job.s, c.p, job.dom.u, job.dom.v, tol).distance;
+    if (d >= 0) out.offSurface = std::max(out.offSurface, d);
+  }
   if (out.status == Status::ok && !(out.error <= tol))
     out.status = out.offSurface > tol ? Status::invalidModel : Status::noConvergence;
+  // Whatever the trace or the fit said (where the trace gave up, noConvergence; measure samples each of the curve's
+  // spans, so the error has the spike).
+  if (beyond > 0) out.status = Status::invalidModel;
   return out;
 }
 
@@ -412,6 +573,60 @@ Pcurve projectCurve(const Curve& c, Range r, const Surface& s, double tol, const
   if (source && source->model) cf = project::curveForm(*source->model, source->curve),
     sf = project::surfaceForm(*source->model, source->surface);
   return project::projectForms(c, r, s, tol, ends, cf, sf);
+}
+
+const std::vector<EndFoot>& EndSearchCache::feet(uint64_t key, const Surface& s, Vec3 p, double tol) {
+  Entry& e = entries_[key];
+  if (!(tol <= e.searched)) {
+    const SurfaceDomain dom = s.domain();
+    invertSurface(s, p, dom.u, dom.v, tol, nullptr, &e.raw);
+    e.searched = tol, e.clustered = -1, searches_++;
+  }
+  if (e.clustered == tol) return e.feet;
+  e.feet.clear(), e.clustered = tol;
+  if (e.raw.empty()) return e.feet;
+  const SurfaceDomain dom = s.domain();
+  std::vector<Singularity> sing;
+  s.singularities(sing);
+  auto at = [&](double u, double v) {
+    SurfacePoint q;
+    s.eval(u, v, 0, q);
+    return q.p;
+  };
+  const double best = e.raw.front().distance;
+  for (const SurfaceFoot& f : e.raw) {
+    if (f.distance - best > tol) break;
+    bool same = false;
+    for (const EndFoot& k : e.feet) same = same || norm(at(k.uv.x, k.uv.y) - f.foot) <= tol;
+    if (same) continue;
+    EndFoot k;
+    k.uv = f.uv, k.distance = f.distance;
+    for (const Singularity& g : sing) {
+      if (g.kind == Singularity::normalVanishes || norm(g.point - f.foot) > tol) continue;
+      // A pole line u = at runs along v: v is free there.
+      k.kind = EndFoot::Kind::pole, k.poleU = !g.isoU;
+      k.freeLo = g.isoU ? dom.v.lo : dom.u.lo, k.freeHi = g.isoU ? dom.v.hi : dom.u.hi;
+      break;
+    }
+    if (k.kind == EndFoot::Kind::point) {
+      if (dom.uPeriod > 0) {
+        const double lo = dom.u.lo, hi = lo + dom.uPeriod;
+        if (norm(at(lo, f.uv.y) - f.foot) <= tol || norm(at(hi, f.uv.y) - f.foot) <= tol)
+          k.kind = EndFoot::Kind::seamPair, k.twin = {f.uv.x - lo < hi - f.uv.x ? f.uv.x + dom.uPeriod
+            : f.uv.x - dom.uPeriod, f.uv.y};
+      }
+      if (k.kind == EndFoot::Kind::point && dom.vPeriod > 0) {
+        const double lo = dom.v.lo, hi = lo + dom.vPeriod;
+        if (norm(at(f.uv.x, lo) - f.foot) <= tol || norm(at(f.uv.x, hi) - f.foot) <= tol)
+          k.kind = EndFoot::Kind::seamPair, k.twin = {f.uv.x, f.uv.y - lo < hi - f.uv.y ? f.uv.y + dom.vPeriod
+            : f.uv.y - dom.vPeriod};
+      }
+    }
+    e.feet.push_back(k);
+  }
+  const Certainty c = e.feet.size() == 1 ? Certainty::unique : Certainty::ambiguous;
+  for (EndFoot& k : e.feet) k.certainty = c;
+  return e.feet;
 }
 
 bool seamUseTakesTwin(const Pcurve& p, bool useForward, bool faceSameSense) {

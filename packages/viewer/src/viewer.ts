@@ -85,6 +85,16 @@ export interface MeshedWith {
   angularDeflection: number;
   /** Seconds a part could take (which decides which parts time out). */
   timeout: number;
+  /** Whether the models were healed, and with which fixes. */
+  heal: boolean;
+  healFixes: TessellationSettings['healFixes'];
+}
+
+/** The settings' MeshedWith (copies). */
+export function meshedWithOf(s: TessellationSettings): MeshedWith {
+  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes } = s;
+  return { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal,
+    healFixes: { ...healFixes } };
 }
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
@@ -105,13 +115,17 @@ const drawable = (o: THREE.Object3D): o is THREE.Mesh | THREE.Line | THREE.Point
   (o as THREE.Mesh).isMesh === true || (o as THREE.Line).isLine === true || (o as THREE.Points).isPoints === true;
 
 /** The world box of what's drawn: visible objects whose ancestors are visible too. */
-/** An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`. */
+/**
+ * An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`,
+ * `healing 3 of 12 parts`.
+ */
 export function importPhase(p: ImportProgress): string {
   switch (p.phase) {
     case 'reading': return 'reading';
     case 'structure': return 'reading its structure';
     case 'parts': return `making parts${p.total ? `, ${Math.floor(100 * (p.done ?? 0) / p.total)} %` : ''}`;
     case 'assembly': return 'assembling';
+    case 'healing': return `healing${p.total ? ` ${p.done ?? 0} of ${p.total} parts` : ''}`;
   }
 }
 
@@ -941,8 +955,7 @@ export class Viewer {
     const input = await modelInput(src, format);
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
-    const { backend, fallback, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    const meshedWith: MeshedWith = { backend, fallback, profile, linearDeflection, angularDeflection, timeout };
+    const meshedWith = meshedWithOf(this.settings);
     // (The deflection the worker meshes with, in mm: faces are judged by it against their measures.)
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;
@@ -972,8 +985,9 @@ export class Viewer {
         ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
         if (gen !== this.generation) return;
         if (ev.type === 'importing') {
-          // STEP's phases (a large file said only "importing" for seconds).
-          this.onStatus?.(`${importing}: ${importPhase(ev.progress)}...`);
+          // STEP's phases (a large file said only "importing" for seconds), and healing's after the scene.
+          this.onStatus?.(ev.progress.phase === 'healing' && model ? `${src.name}: ${importPhase(ev.progress)}...`
+            : `${importing}: ${importPhase(ev.progress)}...`);
           continue;
         }
         if (ev.type === 'scene') {
@@ -1080,8 +1094,7 @@ export class Viewer {
       this.meshing = false;
       this.abortLoad?.();
     }
-    const { backend, fallback, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    model.meshedWith = { backend, fallback, profile, linearDeflection, angularDeflection, timeout };
+    model.meshedWith = meshedWithOf(this.settings);
     const wanted = meshDeflections(deflectionsOf(this.settings));
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
@@ -1098,7 +1111,10 @@ export class Viewer {
         workers: workerCount(this.device) };
       for await (const ev of this.events(gen, msg)) {
         if (gen !== this.generation) return true;
-        if (ev.type === 'mesh') {
+        if (ev.type === 'importing') {
+          // Healing again, with other settings.
+          this.onStatus?.(`${model.name}: meshing again: ${importPhase(ev.progress)}...`);
+        } else if (ev.type === 'mesh') {
           parts.done++;
           const mesh = ev.mesh, part = graph.scene.parts[ev.part]!;
           const drawn = !!mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) +

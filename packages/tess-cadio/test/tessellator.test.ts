@@ -8,9 +8,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
-import { affineFeetOff, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter,
-  meridianHemisphere, pcurveOnly, seamByInversion, seamFlipped, torusOuterHalf } from '../native/test/models.ts';
+import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
+import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, knotAtEnd, loopless,
+  luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+  from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -144,21 +145,21 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.equal(l?.[3] ?? '0', '0', `${l?.[2]} refused, ${l?.[3]} at a pole`);
     assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
     // By inversion (projection off), luneOnSeam's seam side is unsettled, no fan made: its pole's refused triangles,
-    // the mesher's own, counted as at the pole.
+    // the mesher's own, counted as at the pole (at 0.02 rad: at 0.05 its uses traced sample by sample leave none).
     const inverting = new CadioTessellator();
     await inverting.init({ projectMissingPcurves: false });
     const ri = await inverting.tessellate({ ...req('cube'), data: new Uint8Array(luneOnSeam().finish().buffer),
-      linearDeflection: 0.01, angularDeflection: 0.05 });
+      linearDeflection: 0.01, angularDeflection: 0.02 });
     const li = ri.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     assert.ok(li, JSON.stringify(ri.diagnostics));
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
     assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
-    // pcurveOnly's (a cylinder's) at 1e-4 mm and 0.1 rad: refused, none at a pole (kept: past 1.1 x the deflection,
-    // the default would fail the face, maxDeviationFactor).
+    // bsplineApexHole's at 1e-3 mm and 0.1 rad: refused, none in a pole's fan (kept: past the deflection, the
+    // default would fail the face, maxDeviationFactor).
     const keeping = new CadioTessellator();
     await keeping.init({ maxDeviationFactor: 0 });
-    const ro = await keeping.tessellate({ ...req('cube'), data: new Uint8Array(pcurveOnly().finish().buffer),
-      linearDeflection: 1e-4, angularDeflection: 0.1 });
+    const ro = await keeping.tessellate({ ...req('cube'), data: new Uint8Array(bsplineApexHole().finish().buffer),
+      linearDeflection: 1e-3, angularDeflection: 0.1 });
     const o = ro.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
     assert.ok(o);
     assert.ok(Number(o[2]) >= 1);
@@ -167,13 +168,13 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
 
 test('init({maxDeviationFactor}): a face left farther from its surface than that x the deflection fails; 0 never',
   { skip }, async () => {
-    // pcurveOnly at 1e-4 mm and 0.1 rad keeps refused triangles: a factor of 1e-6 fails its face (the failed faces'
-    // diagnostic, no triangles for it), 0 keeps it as meshed.
-    const data = new Uint8Array(pcurveOnly().finish().buffer);
+    // bsplineApexHole at 1e-3 mm and 0.1 rad keeps refused triangles: a factor of 1e-6 fails its face (the failed
+    // faces' diagnostic, no triangles for it), 0 keeps it as meshed.
+    const data = new Uint8Array(bsplineApexHole().finish().buffer);
     const run = async (factor: number) => {
       const t = new CadioTessellator();
       await t.init({ maxDeviationFactor: factor });
-      return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-4, angularDeflection: 0.1 });
+      return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
     };
     const strict = await run(1e-6), never = await run(0);
     const failed = (r: TessellationResult) => r.diagnostics.some((x) => /faces failed to mesh/.test(x.message));
@@ -182,8 +183,52 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
     assert.ok(strict.indices.length < never.indices.length);
   });
 
-test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spline dome\'s at its pole; ' +
-  'a sphere\'s, a B-spline\'s without one not',
+test('init({maxPointsPerFace}): a face that reaches it fails, said as capped, not as an unsettled seam', { skip },
+  async () => {
+  const t = new CadioTessellator();
+  await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0 });
+  const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
+  assert.ok(r.diagnostics.some((x) => /^\d+ faces failed with refinement stopped at their point cap$/.test(x.message)),
+    JSON.stringify(r.diagnostics));
+  assert.ok(r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message)));
+  assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
+  const u = new CadioTessellator();
+  await u.init();
+  const ru = await u.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
+  assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
+});
+
+test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by default, more triangles at 0.5 rad',
+  { skip }, async () => {
+  const count = async (minAngle?: number) => {
+    const t = new CadioTessellator();
+    await t.init(minAngle === undefined ? {} : { minAngle });
+    return (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01 })).indices.length / 3;
+  };
+  const [none, byDefault, tenDegrees, shaped] = [await count(0), await count(), await count(Math.PI / 18),
+    await count(0.5)];
+  assert.equal(byDefault, tenDegrees);
+  assert.notEqual(byDefault, none);
+  assert.ok(shaped > byDefault && shaped > none, `${none}, ${byDefault}, ${shaped}`);
+});
+
+test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
+  'not at 0.05', { skip }, async () => {
+  // (At 0.35 rad: at the 10-degree default bentApex at 0.05 asks a ring segment split once too.)
+  const t = new CadioTessellator();
+  await t.init({ maxDeviationFactor: 0, minAngle: 0.35 });
+  const re = /^1 faces with refinement blocked by a fixed ring segment: #\d+ \((\d+) rounds\)$/;
+  const blocked = async (d: number) => {
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bentApex().finish().buffer),
+      linearDeflection: d });
+    return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
+  };
+  assert.ok(Number(await blocked(0.01)) >= 2);
+  assert.equal(await blocked(0.05), undefined);
+});
+
+test('faces with deviations sampled, said: a B-spline dome\'s at its pole; a torus\'s inner half (bounded by its ' +
+  'derivatives where its closed form fails), a sphere\'s, a B-spline\'s without a pole not',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with their deviation from the surface sampled, not bounded/;
@@ -191,7 +236,7 @@ test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spl
       const r = await t.tessellate({ ...req('cube'), data });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
     };
-    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), '1');
+    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), '1');
     assert.equal(await sampled(new Uint8Array(bumpPatch().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.seamCylinder().finish().buffer)), undefined);
@@ -220,23 +265,28 @@ test('progress: each face as it starts, throttled to one report per 100 ms; a re
     const report = progressReporter((p) => got.push(p), 100, () => clock);
     for (const [t, row] of [[0, 0], [50, 1], [99, 2], [100, 3], [150, 4], [250, 5]] as const) {
       clock = t;
-      report(4, row + 10, row, 0, row, 6);
+      report(3, row + 10, row, 0, row, 6);
     }
     assert.deepEqual(got.map((p) => p.row), [0, 3, 5]);
     assert.equal(got[1]!.message, 'face #13 (row 3), first pass, 3 of 6 faces done');
     assert.deepEqual({ ...got[2], message: undefined }, { message: undefined, faceId: 15, row: 5, round: 0,
       facesDone: 5, facesTotal: 6 });
-    report(4, 0, 7, 2, 1, 4);
+    report(3, 0, 7, 2, 1, 4);
     clock = 400;
-    report(4, 0, 7, 2, 1, 4);
+    report(3, 0, 7, 2, 1, 4);
     assert.equal(got.at(-1)!.message, 'a face with no id (row 7), split round 2, 1 of 4 faces done');
     clock = 600;
-    report(3, 0, -1, 0, 5, 40);
+    report(1, 0, -1, 0, 5, 40);
     assert.deepEqual(got.at(-1), { message: 'sampling edges: an edge, 5 of 40 edges and uses done', round: 0 });
     clock = 800;
     report(1, 21, 3, 0, 30, 40);
-    assert.deepEqual(got.at(-1), { message: 'sampling edges for the faces\' boxes: a use on face #21 (row 3), 30 of 40 '
-      + 'edges and uses done', faceId: 21, row: 3, round: 0 });
+    assert.deepEqual(got.at(-1), { message: 'sampling edges: a use on face #21 (row 3), 30 of 40 edges and uses done',
+      faceId: 21, row: 3, round: 0 });
+    // The deviation check after the rounds (part.h's PartProgress::deviation), its face and the faces checked so far.
+    clock = 1000;
+    report(5, 21, 3, 2, 3, 6);
+    assert.deepEqual(got.at(-1), { message: 'checking meshes\' deviation: face #21 (row 3), 3 of 6 faces done',
+      faceId: 21, row: 3, round: 2, facesDone: 3, facesTotal: 6 });
     // Across a real part (the cube's 6 faces, quick: the first report only), its first phase on its first face.
     const t = await tessellator();
     const seen: TessellationProgress[] = [];
@@ -291,6 +341,25 @@ test('a loop against its face\'s sense (a projected seam use\'s side contradicti
   assert.ok(!valid.diagnostics.some((x) => /loop against the face's sense/.test(x.message)));
 });
 
+test('uses traced sample by sample: a local step that fell back on the global search said, with its edge and why',
+  { skip }, async () => {
+  // uFoldFar, projection off: its loop's middle 3 mm off its arm, past the tolerance and the spacing, so the samples
+  // after its vertex fall back; uFold's 0.07 stays local, nothing said.
+  const t = new CadioTessellator();
+  await t.init({ projectMissingPcurves: false });
+  const said = async (model: { finish(): { buffer: ArrayBuffer } }) => {
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(model.finish().buffer), linearDeflection: 0.1,
+      angularDeflection: 0.26 });
+    return r.diagnostics.find((x) => /fell back on the global search/.test(x.message));
+  };
+  assert.equal(await said(uFold()), undefined);
+  const d = await said(uFold(-3));
+  assert.ok(d);
+  assert.equal(d.severity, 'info');
+  assert.match(d.message, /^\d+ samples of uses traced sample by sample fell back on the global search \(\d+ traced /);
+  assert.match(d.message, /edge \d+ at [\d.e-]+ \([\d.e-]+ off\): the local foot farther from the surface/);
+});
+
 test('uses without p-curves counted by how they were sampled, said where one fell back to the edge\'s tolerance',
   { skip }, async () => {
   const t = await tessellator();
@@ -310,3 +379,58 @@ test('uses without p-curves counted by how they were sampled, said where one fel
   assert.deepEqual([n, inverted], [4, 0]);
   assert.ok(atTol >= 1 && within + atTol === 4, `${within}, ${atTol}`);
 });
+
+test('init({countInsertions}): the points inserted by what queued them, said; the mesh the same; off by default',
+  { skip }, async () => {
+    const run = async (on: boolean | undefined, data: Uint8Array) => {
+      const t = new CadioTessellator();
+      await t.init(on === undefined ? {} : { countInsertions: on });
+      return t.tessellate({ ...req('cube'), data, edges: false });
+    };
+    const counts = (r: TessellationResult) => {
+      const d = r.diagnostics.filter((x) => x.message.startsWith(INSERTED_HEAD));
+      if (!d.length) return undefined;
+      assert.equal(d.length, 1);
+      assert.equal(d[0]!.severity, 'info');
+      const parts = d[0]!.message.slice(INSERTED_HEAD.length).split(', ');
+      assert.deepEqual(parts.map((x) => x.slice(0, x.lastIndexOf(' '))), INSERTED_KINDS);
+      return new Map(parts.map((x) => [x.slice(0, x.lastIndexOf(' ')), Number(x.slice(x.lastIndexOf(' ') + 1))]));
+    };
+    // Independently: a face's vertices off its boundary in its triangles (no seam, pole or split boundary on these).
+    const interior = (r: TessellationResult) => {
+      let n = 0;
+      for (const f of r.faces) {
+        const used = new Set<number>(), side = new Map<string, number>();
+        for (let k = f.start; k < f.start + f.count; k += 3) {
+          for (let c = 0; c < 3; c++) {
+            const a = r.indices[k + c]!, b = r.indices[k + (c + 1) % 3]!;
+            used.add(a);
+            const key = a < b ? `${a},${b}` : `${b},${a}`;
+            side.set(key, (side.get(key) ?? 0) + 1);
+          }
+        }
+        const boundary = new Set([...side].filter(([, m]) => m === 1).flatMap(([k]) => k.split(',').map(Number)));
+        n += [...used].filter((v) => !boundary.has(v)).length;
+      }
+      return n;
+    };
+    const sum = (c: Map<string, number>) => [...c.values()].reduce((a, b) => a + b, 0);
+    for (const [name, data] of [['bumpPatch', bumpPatch()], ['knotAtEnd', knotAtEnd()]] as const) {
+      const bytesOf = new Uint8Array(data.finish().buffer);
+      const on = await run(true, bytesOf), off = await run(false, bytesOf), dflt = await run(undefined, bytesOf);
+      const c = counts(on);
+      assert.ok(c, name);
+      assert.equal(sum(c), interior(on), name);
+      assert.ok(sum(c) > 0, name);
+      // (A B-spline has no closed form.)
+      assert.equal(c.get('deviation in closed form'), 0, name);
+      assert.equal(counts(off), undefined), assert.equal(counts(dflt), undefined);
+      const strip = (r: TessellationResult) => ({ ...r, diagnostics: r.diagnostics.filter((x) =>
+        !x.message.startsWith(INSERTED_HEAD)) });
+      assert.equal(bytes(strip(on)), bytes(off), name);
+    }
+    // A sphere's deviation is in closed form: some by it, none sampled or bounded.
+    const sp = counts(await run(true, new Uint8Array(MODELS.spheres().finish().buffer)))!;
+    assert.ok(sp.get('deviation in closed form')! > 0);
+    assert.equal(sp.get('deviation sampled'), 0), assert.equal(sp.get('deviation bounded'), 0);
+  });

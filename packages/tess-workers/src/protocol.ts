@@ -1,4 +1,6 @@
-// Messages between the pool and its workers, and the handle each environment's adapter implements.
+// Messages between the pool and its workers, and the handle each environment's adapter implements. Besides
+// tessellation, a worker runs jobs: a module's exported function on structured-clonable input (cad-heal's healJob,
+// healing a part ahead of its meshing), named like a backend.
 
 import type { TessellationProgress, TessellationRequest, TessellationResult, TessellatorInfo } from 'cad-scene';
 
@@ -10,16 +12,32 @@ export interface BackendSpec {
   options?: Record<string, unknown>;
 }
 
+/**
+ * A job a worker runs: the function `export` of `module` (a specifier the worker can import, or one its entry passed
+ * in `modules`), called as `f(input, progress)` with `progress(message)`, resolving to its output (structured-clonable;
+ * its typed arrays' buffers are transferred).
+ */
+export interface JobSpec {
+  module: string;
+  export: string;
+}
+
 export type ToWorker =
-  | { type: 'init'; backend: BackendSpec }
-  | { type: 'tessellate'; id: number; req: TessellationRequest };
+  /** No backend: a pool that only runs jobs. */
+  | { type: 'init'; backend?: BackendSpec }
+  | { type: 'tessellate'; id: number; req: TessellationRequest }
+  | { type: 'run'; id: number; job: JobSpec; input: unknown };
 
 export type FromWorker =
   | { type: 'ready'; info: TessellatorInfo }
   | { type: 'initError'; message: string }
-  | { type: 'result'; id: number; result: TessellationResult; memory?: number }
+  /** `cpuMs` (here and on progress): the worker thread's CPU time on the request so far, where the host gives it. */
+  | { type: 'result'; id: number; result: TessellationResult; memory?: number; cpuMs?: number }
   /** Where the backend is in request `id` (the backend throttles them). */
-  | { type: 'progress'; id: number; progress: TessellationProgress }
+  | { type: 'progress'; id: number; progress: TessellationProgress; cpuMs?: number }
+  /** Job `id`'s output, and where it is meanwhile (`cpuMs` as a request's). */
+  | { type: 'output'; id: number; output: unknown }
+  | { type: 'jobProgress'; id: number; message: string; cpuMs?: number }
   /** `part`: the part's failure (a TessellationError, with its `timeoutMs`, or a WASM trap), not the worker's. */
   | { type: 'error'; id: number; message: string; part: boolean; timeoutMs?: number };
 

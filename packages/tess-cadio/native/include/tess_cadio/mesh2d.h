@@ -6,6 +6,7 @@
 // consistently (docs/own-tessellator.md, "Simulation of simplicity").
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -42,6 +43,14 @@ public:
     (void)tri;
     return false;
   }
+  /**
+   * Why accept() refuses the triangle, as a small code (SurfaceCriteria: criteria.h's Refusal), for counts only; 0
+   * where the caller doesn't say. Asked only where a caller wants the mesher's detail (mesh2d_impl.h).
+   */
+  virtual int refusalKind(const Vec2 tri[3]) const {
+    (void)tri;
+    return 0;
+  }
 };
 
 /**
@@ -56,13 +65,28 @@ struct Domain2 {
   std::vector<std::vector<int32_t>> loops;
   /** Interior constraint segments (pairs of point indices) the triangulation must contain, also fixed. */
   std::vector<int32_t> segments;
+  /**
+   * Per segment, numbered as SplitWanted::segment (each loop's, then the interior ones), whether the caller can never
+   * split it (an edge's span whose chord is within criteria.h's refinement floor): a point encroaching
+   * only such segments is inserted, and none is wanted split. Empty, or shorter than the segments: the rest not.
+   */
+  std::vector<uint8_t> frozen;
 };
+
+/**
+ * The largest smallest angle refinement aims for (30 degrees): past it Delaunay refinement isn't guaranteed to end,
+ * and it doesn't (spheres run away at 40).
+ */
+constexpr double kMaxMinAngle = 30 * M_PI / 180;
 
 struct MeshOptions {
   /** Steiner points at most (a runaway refinement stops with Status::noConvergence, the mesh valid). */
   int maxPoints = 1000000;
-  /** The smallest angle refinement aims for, in radians, measured in the metric. */
-  double minAngle = 0.35;
+  /**
+   * The smallest angle refinement aims for, in radians, measured in the metric: 10 degrees by default, clamped to
+   * [0, kMaxMinAngle].
+   */
+  double minAngle = 10 * M_PI / 180;
   /** Called every 1024 triangles refinement takes up, if set: a long refinement's heartbeat (progress reports). */
   std::function<void()> onWork;
 };

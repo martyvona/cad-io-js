@@ -3,9 +3,10 @@
 import { PoolTessellator, type WorkerTessellatorOptions } from './pool.ts';
 import type { WorkerHandle } from './protocol.ts';
 
-export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions,
+export { DEFAULT_TIMEOUT_MS, defaultWorkers, PoolTessellator, type PoolOptions, type RequestTimes, type RunOptions,
   type WorkerTessellatorOptions } from './pool.ts';
-export type { BackendSpec, WorkerHandle } from './protocol.ts';
+export type { BackendSpec, JobSpec, WorkerHandle } from './protocol.ts';
+export { NO_BACKEND } from './serve.ts';
 
 /** A pool's handle on a module Web Worker whose entry serves the protocol (serveWebWorker). */
 export function webWorkerHandle(w: Worker): WorkerHandle {

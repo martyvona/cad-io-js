@@ -242,10 +242,22 @@ TEST_CASE("an L, a square with a hole, a slit: constrained, labelled, Delaunay e
   CHECK_EQ(uses, 2);
 }
 
+TEST_CASE("minAngle: 10 degrees by default, clamped at 30 (40 meshes as 30 does, 25 otherwise)") {
+  CHECK_EQ(MeshOptions{}.minAngle, 10 * M_PI / 180);
+  CHECK_EQ(kMaxMinAngle, 30 * M_PI / 180);
+  auto tris = [](double degrees) {
+    return mesh2(square(20), Uniform(0.05), {1000000, degrees * M_PI / 180}).triangles;
+  };
+  const std::vector<int32_t> at30 = tris(30);
+  CHECK(tris(40) == at30);
+  CHECK(tris(25) != at30);
+  CHECK(tris(10) == mesh2(square(20), Uniform(0.05)).triangles);
+}
+
 TEST_CASE("refinement in a boundary sampled at the size: edges at most about the size, angles at least minAngle") {
   Domain2 d = square(20);
   Mesh2Detail detail;
-  Mesh2 m = mesh2Detailed(d, Uniform(0.05), {}, &detail);
+  Mesh2 m = mesh2Detailed(d, Uniform(0.05), {1000000, 0.35}, &detail);
   CHECK(m.status == cadgeom::Status::ok);
   CHECK_EQ(validate(d, m, "refined square"), 0);
   int nt = static_cast<int>(m.triangles.size() / 3), small = 0, longEdges = 0;
@@ -726,7 +738,7 @@ TEST_CASE("a cap on Steiner points: noConvergence, the mesh still a valid one; a
   CHECK_EQ(z.points.size(), d.points.size());
   CHECK_EQ(validate(d, z, "no points"), 0);
   // A refinement that needs n points: ok with a cap of exactly n, noConvergence with n - 1.
-  Mesh2 full = mesh2(square(20), Uniform(0.05));
+  Mesh2 full = mesh2(square(20), Uniform(0.05), {1000000, 0.35});
   REQUIRE(full.status == cadgeom::Status::ok);
   int n = static_cast<int>(full.points.size()) - 80;
   CHECK(mesh2(square(20), Uniform(0.05), {n, 0.35}).status == cadgeom::Status::ok);
@@ -786,7 +798,11 @@ TEST_CASE("[exact] nearly collinear and nearly cocircular points (needs exact pr
     double t = 2 * M_PI * k / 40;
     d.points.push_back({0.5 + 0.3 * std::cos(t) * (1 + 1e-16 * (k % 3)), 0.5 + 0.3 * std::sin(t)});
   }
-  CHECK_EQ(validate(d, mesh2(d, Uniform(10)), "near-degenerate"), 0);
+  // And refined at 0.35 rad and at the default: refinement crowds points where the circle's samples nearly meet the
+  // line's (1e-17 apart), each cavity Delaunay as tested on the points themselves (an isotropic metric's map the
+  // identity, cdt.cpp's cavity: scaled, rounding left edges not Delaunay there).
+  CHECK_EQ(validate(d, mesh2(d, Uniform(10), {1000000, 0.35}), "near-degenerate"), 0);
+  CHECK_EQ(validate(d, mesh2(d, Uniform(10)), "near-degenerate, 10 degrees"), 0);
 }
 
 TEST_CASE("segment recovery: boundaries crowded by interior points, recovered and constrained Delaunay elsewhere") {
@@ -841,7 +857,7 @@ TEST_CASE("the angle criterion alone: no size wanted, skinny triangles from inte
   std::mt19937 rng(3);
   std::uniform_real_distribution<double> u(0.15, 0.85);
   for (int k = 0; k < 60; k++) d.points.push_back({u(rng), u(rng)});
-  Mesh2 m = mesh2(d, Uniform(100));
+  Mesh2 m = mesh2(d, Uniform(100), {1000000, 0.35});
   CHECK_EQ(validate(d, m, "angles"), 0);
   // Triangles off the loops' 40 points (the fixed boundary) all reach the minimum, the interior points' included.
   int nt = static_cast<int>(m.triangles.size() / 3), small = 0, judged = 0;
@@ -973,7 +989,7 @@ TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits
     }
     bool accept(const Vec2*) const override { return true; }
   } field;
-  Mesh2 m = mesh2(square(30, 1), field);
+  Mesh2 m = mesh2(square(30, 1), field, {1000000, 0.35});
   REQUIRE(m.status == cadgeom::Status::ok);
   CHECK_EQ(m.points.size(), 1046u);
   CHECK_EQ(meshHash(m), 0xcb1fd5688b6343b8ull);
@@ -997,7 +1013,8 @@ Domain2 halfDisc(int n) {
 TEST_CASE("a long segment opposite cocircular points: refused candidates past the cavity limit not halved") {
   // Every candidate lies in the chord's diametral circle (the half-disc does), so each is refused; the arc's samples
   // are cocircular, so each cavity is the whole mesh, past kHalvingCavity (1,024) at 2,000 samples. The metric is
-  // coarser than the chord, so nothing's wanted split.
+  // coarser than the chord, but the chord is far longer than the triangles its candidates run into (kLongSegment), so
+  // it alone is wanted split.
   Mesh2Detail big;
   Domain2 d = halfDisc(2000);
   Mesh2 m = mesh2Detailed(d, Uniform(100), {}, &big);
@@ -1007,7 +1024,8 @@ TEST_CASE("a long segment opposite cocircular points: refused candidates past th
   // (All but a few: `refused` also counts candidates too near a vertex, and near the chord's ends a cavity's star
   // pruning can leave it under the limit.)
   CHECK(big.halvingsSkipped >= big.refused - 5);
-  CHECK(m.splitWanted.empty());
+  REQUIRE(m.splitWanted.size() == 1);
+  CHECK_EQ(m.splitWanted[0].segment, 2000);
   CHECK_EQ(m.points.size(), d.points.size());
   // Under the limit (200 samples, cavities of 200) every refusal is halved as before.
   Mesh2Detail small;
@@ -1016,4 +1034,180 @@ TEST_CASE("a long segment opposite cocircular points: refused candidates past th
   CHECK_EQ(validate(e, ms, "half-disc 200"), 0);
   CHECK(small.refused > 100);
   CHECK_EQ(small.halvingsSkipped, 0);
+  // The chord wanted split only once it's over kLongSegment x the triangles its candidates run into: at 12 arc
+  // samples they're too large beside it, at 16 not.
+  CHECK(mesh2(halfDisc(12), Uniform(100)).splitWanted.empty());
+  Mesh2 m16 = mesh2(halfDisc(16), Uniform(100));
+  REQUIRE(m16.splitWanted.size() == 1);
+  CHECK_EQ(m16.splitWanted[0].segment, 16);
+}
+
+TEST_CASE("a triangle only much shorter segments stand in the way of: broken at its centroid") {
+  // A unit square whose side x = 1 has 100 samples and the others n, in a metric 150 to 1 (sizes 0.01 across, 1.5
+  // along y): beside the fine side, triangles refused for their shape have candidates that encroach only its
+  // segments, each far shorter in the metric than the triangle (under its longest edge / kShortSegment), and are
+  // broken at their centroids (the mesh valid, Delaunay in the metric rather than the plane). The isotropic square
+  // has no such segments: none.
+  for (int n : {64, 16}) {
+    Domain2 d;
+    std::vector<int32_t> loop;
+    auto add = [&](double x, double y) {
+      loop.push_back(static_cast<int32_t>(d.points.size()));
+      d.points.push_back({x, y});
+    };
+    for (int i = 0; i < n; i++) add(i / double(n), 0);
+    for (int i = 0; i < 100; i++) add(1, i / 100.0);
+    for (int i = 0; i < n; i++) add(1 - i / double(n), 1);
+    for (int i = 0; i < n; i++) add(0, 1 - i / double(n));
+    d.loops.push_back(loop);
+    Mesh2Detail fine;
+    Mesh2 m = mesh2Detailed(d, Stretched(0.01, 1.5), {1000000, 0.35}, &fine);
+    CHECK(m.status == cadgeom::Status::ok);
+    CHECK_EQ(validate(d, m, "fine side", false), 0);
+    CHECK(fine.brokenInside > 0);
+    // Pinned (the same on every target): both ways in are taken, a candidate refused and one placed within 5% of the
+    // centroid (which counts as refused): without the second, at 64, 4 broken and 953 refused; and a centroid too near
+    // a corner refused too, as any placement is (at 16, 166 refused without that).
+    CHECK_EQ(fine.brokenInside, n == 64 ? 17 : 4);
+    CHECK_EQ(fine.refused, n == 64 ? 686 : 169);
+    // No point the mesher added encroaches a boundary segment (inside its diametral circle in the metric).
+    int encroaching = 0;
+    for (size_t i = d.points.size(); i < m.points.size(); i++)
+      for (size_t k = 0; k < loop.size(); k++) {
+        Vec2 q = m.points[i], U = d.points[loop[k]], V = d.points[loop[(k + 1) % loop.size()]];
+        double dot = (q.x - U.x) * (q.x - V.x) / (0.01 * 0.01) + (q.y - U.y) * (q.y - V.y) / (1.5 * 1.5);
+        encroaching += dot <= 0;
+      }
+    CHECK_EQ(encroaching, 0);
+  }
+  Mesh2Detail plain;
+  Domain2 e = square(8);
+  Mesh2 ms = mesh2Detailed(e, Uniform(0.05), {}, &plain);
+  CHECK_EQ(validate(e, ms, "square"), 0);
+  CHECK_EQ(plain.brokenInside, 0);
+}
+
+TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, and aren't wanted split") {
+  // A strip 25 x 0.85 (trj7_b1-ec-214's face #11336, a part uncertainty of 1 against its ends' 0.85), its long sides
+  // in 30 segments, each end one; accept() refuses triangles of area over 0.2. The triangles on an end have it as
+  // their longest side and every candidate in its diametral circle: refused, the end wanted split. With the ends
+  // frozen, the candidates go in: nothing refused, nothing wanted split, the ends still edges.
+  struct Area : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2* t) const override { return std::fabs(area(t[0], t[1], t[2])) <= 0.2; }
+  };
+  const int n = 30;
+  for (bool freeze : {false, true}) {
+    Domain2 d;
+    std::vector<Vec2> pts;
+    for (int i = 0; i <= n; i++) pts.push_back({25.0 * i / n, 0});
+    for (int i = n; i >= 0; i--) pts.push_back({25.0 * i / n, 0.85});
+    addLoop(d, pts);
+    // (Segments: the bottom 0 to n - 1, the right end n, the top, the left end 2n + 1.)
+    if (freeze) {
+      d.frozen.assign(2 * n + 2, 0);
+      d.frozen[n] = d.frozen[2 * n + 1] = 1;
+    }
+    Mesh2 m = mesh2(d, Area());
+    CHECK_EQ(validate(d, m, freeze ? "frozen ends" : "ends"), 0);
+    int ends = 0;
+    for (const SplitWanted& w : m.splitWanted) ends += w.segment == n || w.segment == 2 * n + 1;
+    if (freeze) {
+      CHECK(m.rejected.empty());
+      CHECK(m.splitWanted.empty());
+    } else {
+      CHECK(!m.rejected.empty());
+      CHECK_EQ(ends, 2);
+    }
+  }
+  // A flat triangle, everything refused: its circumcentre is outside, across its base (segment 0), which is named and
+  // wanted split. Frozen, the base isn't; the sides its centroid encroaches are named instead, so a triangle refused
+  // still asks for something.
+  struct None : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2*) const override { return false; }
+  };
+  for (bool freeze : {false, true}) {
+    Domain2 d;
+    addLoop(d, {{0, 0}, {1, 0}, {0.5, 0.1}});
+    if (freeze) d.frozen = {1, 0, 0};
+    Mesh2 m = mesh2(d, None());
+    int base = 0;
+    for (const SplitWanted& w : m.splitWanted) base += w.segment == 0;
+    CHECK_EQ(base, freeze ? 0 : 1);
+    CHECK_EQ(m.rejected.size(), 1u);
+    if (freeze) {
+      std::set<int32_t> sides;
+      for (const SplitWanted& w : m.splitWanted) sides.insert(w.segment);
+      if (sides != std::set<int32_t>{1, 2}) std::printf("  flat frozen: %zu wanted\n", m.splitWanted.size());
+      CHECK((sides == std::set<int32_t>{1, 2}));
+    }
+  }
+}
+
+TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
+  // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
+  // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.
+  struct Kind3 : Refuse {
+    Kind3() : Refuse(0.2) {}
+    int refusalKind(const Vec2*) const override { return 3; }
+  };
+  auto total = [](const Mesh2Detail& D) {
+    int n = 0;
+    for (int k : D.inserted) n += k;
+    return n;
+  };
+  Domain2 d = square(4);
+  Mesh2Detail u;
+  Mesh2 mu = mesh2Detailed(d, Uniform(0.05), {}, &u);
+  CHECK_EQ(total(u), static_cast<int>(mu.points.size() - d.points.size()));
+  CHECK(u.inserted[0] > 0);
+  for (int k = 2; k < 10; k++) CHECK_EQ(u.inserted[k], 0);
+  Mesh2Detail r;
+  Mesh2 mr = mesh2Detailed(d, Kind3(), {}, &r);
+  CHECK_EQ(total(r), static_cast<int>(mr.points.size() - d.points.size()));
+  CHECK(r.inserted[2 + 3] > 0);
+  for (int k = 2; k < 10; k++)
+    if (k != 5) CHECK_EQ(r.inserted[k], 0);
+  // Thinness alone: random interior points in a square, the size coarse, every triangle accepted.
+  Domain2 w = square(10, 1);
+  std::mt19937 rng(3);
+  std::uniform_real_distribution<double> at(0.15, 0.85);
+  for (int k = 0; k < 60; k++) w.points.push_back({at(rng), at(rng)});
+  Mesh2Detail t;
+  Mesh2 mt = mesh2Detailed(w, Uniform(100), {}, &t);
+  CHECK_EQ(total(t), static_cast<int>(mt.points.size() - w.points.size()));
+  CHECK(t.inserted[1] > 0);
+  CHECK_EQ(t.inserted[0], 0);
+}
+
+TEST_CASE("a point inserted exactly on an interior edge splits both triangles beside it, none flat") {
+  // The unit square's two triangles, its sides boundary segments: the diagonal's middle (on the shared edge, also
+  // both triangles' circumcentre), then points on the new edges from it to the corners, (0.25, 0.25) and
+  // (0.75, 0.25), the latter on whichever diagonal the build didn't make (inside a triangle or on its edge).
+  cdt::Triangulation T({{0, 0}, {1, 0}, {1, 1}, {0, 1}});
+  int32_t dup[2], other[2];
+  REQUIRE(T.build(dup));
+  for (int k = 0; k < 4; k++) REQUIRE(T.insertSegment(k, (k + 1) % 4, cdt::kBoundary, other));
+  T.label();
+  auto check = [&](size_t want) {
+    size_t live = 0, flat = 0;
+    for (const cdt::Tri& t : T.tris()) {
+      if (t.dead || t.v[2] == cdt::kGhost) continue;
+      live++;
+      const Vec2 a = T.points()[t.v[0]], b = T.points()[t.v[1]], c = T.points()[t.v[2]];
+      flat += !((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y) > 0);
+    }
+    CHECK_EQ(live, want);
+    CHECK_EQ(flat, 0u);
+  };
+  check(2);
+  std::vector<int32_t> created;
+  size_t want = 2;
+  for (Vec2 p : {Vec2{0.5, 0.5}, Vec2{0.25, 0.25}, Vec2{0.75, 0.25}}) {
+    REQUIRE(T.insertPoint(p, T.locate(p, 0), created) >= 0);
+    CHECK(created.size() >= 3u);
+    want += 2;
+    check(want);
+  }
 }

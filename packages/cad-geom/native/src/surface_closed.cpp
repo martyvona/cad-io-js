@@ -1,8 +1,8 @@
 // surface.h's closeInFact: a surface closed where it closes in fact (a direction's two ends one curve, within the
 // caller's tol at 9 points, the surface at least kAcross x tol across it), and its sides collapsed within tol reported
-// as pole lines. A wrapper SurfaceImpl over the surface: every query takes parameters reduced into the range in a
-// direction it made periodic, and a box or a list of breaks over a range crossing the seam is the hull or the union
-// of the pieces either side of it.
+// as pole lines (the surface at least kAcross x tol along them). A wrapper SurfaceImpl over the surface: every query
+// takes parameters reduced into the range in a direction it made periodic, and a box or a list of breaks over a range
+// crossing the seam is the hull or the union of the pieces either side of it.
 #include <algorithm>
 #include <cmath>
 
@@ -13,7 +13,10 @@ namespace surfaces {
 
 namespace {
 
-/** A direction closes in fact only where the surface is at least this many tolerances across it. */
+/**
+ * A direction closes in fact only where the surface is at least this many tolerances across it, and a side collapses
+ * only where it's at least that long along the side.
+ */
 constexpr double kAcross = 10;
 /** The steps of the polyline that measures an iso-curve across. */
 constexpr int kAcrossSteps = 64;
@@ -57,6 +60,12 @@ public:
     newU_ = u, newV_ = v;
   }
   SurfaceDomain domain() const override { return dom_; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override {
+    s_->c0Lines(ru, rv, out);
+    // The seam a closing made: its basis's ends meet there, often at an angle.
+    if (newU_) out.push_back({true, dom_.u.lo});
+    if (newV_) out.push_back({false, dom_.v.lo});
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     return s_->derivs(ru(u), rv(v), order, out);
   }
@@ -170,12 +179,33 @@ std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
     return across >= kAcross * tol;
   };
   bool cu = closes(true), cv = closes(false);
-  // Collapsed sides: S(x, y_k) within tol of S(x, y_0) for every k; not those the surface reports already.
+  // Collapsed sides: S(x, y_k) within tol of S(x, y_0) for every k; not those the surface reports already. And only
+  // on a surface wide along the side (its longest iso-curve that way, at 9 points of its own range, at least kAcross x
+  // tol), as a direction closes only on one wide across it: a surface about as small as its tolerance (a cap of
+  // 0.2 mm under 1 mm, trj7_b1-ec-214's; a 0.1 mm patch under 0.13, LMP1 #1087410's) has every side within it, and
+  // no row of it is meaningfully a pole.
   std::vector<Singularity> have, added;
   impl->singularities(have);
+  auto wideAlong = [&](bool isU) {
+    // (Along v for a side at a u, so iso-curves along v at 9 u's; along u for a side at a v.)
+    const Range own = isU ? window(d.u) : window(d.v), along = isU ? d.v : d.u;
+    double longest = 0;
+    for (int k = 0; k <= 8; k++) {
+      double len = 0;
+      Vec3 prev = isU ? at(y(own, k), along.lo) : at(along.lo, y(own, k));
+      for (int j = 1; j <= kAcrossSteps; j++) {
+        const double t = j == kAcrossSteps ? along.hi : along.lo + (along.hi - along.lo) * j / kAcrossSteps;
+        const Vec3 q = isU ? at(y(own, k), t) : at(t, y(own, k));
+        len += norm(q - prev);
+        prev = q;
+      }
+      longest = std::fmax(longest, len);
+    }
+    return longest >= kAcross * tol;
+  };
   auto collapsed = [&](bool isU, double x) {
     Range other = isU ? d.v : d.u;
-    if (!finite(other)) return;
+    if (!finite(other) || !wideAlong(isU)) return;
     Vec3 a0 = isU ? at(x, y(other, 0)) : at(y(other, 0), x);
     for (int k = 1; k <= 8; k++) {
       Vec3 a = isU ? at(x, y(other, k)) : at(y(other, k), x);

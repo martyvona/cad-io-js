@@ -39,6 +39,11 @@ struct Job {
   std::vector<Singularity> sing;
   /** The curve's breaks over r (its ends included). */
   std::vector<double> breaks;
+  /**
+   * The surface's breaks inside its domain (knots, a profile's), and a periodic direction's seam, where its partials
+   * may jump: the trace's rate.
+   */
+  std::vector<double> uBreaks, vBreaks;
 };
 
 /** The piece's `curve` from its form (kind, reals, ints; kind 0 from `affine` over `basis`); false if it can't be. */
@@ -55,9 +60,10 @@ Vec2 at(const PcurvePiece& p, double t);
 
 /**
  * The largest |S(p(t)) - C(t)| over the piece, measured on each smooth span (the curve's and the piece's breaks) at
- * evenly spaced points, then refined by golden-section search around the worst of them.
+ * 64 evenly spaced points, then refined by golden-section search around each local maximum within half of the worst
+ * (not a bound: a bump narrower than the spacing can be missed); `worstT`, where given, gets the parameter it is at.
  */
-double measure(const Job& job, const PcurvePiece& p);
+double measure(const Job& job, const PcurvePiece& p, double* worstT = nullptr);
 
 /**
  * The point's local foot on s from uv (damped Newton on the squared distance), in a periodic direction within half a

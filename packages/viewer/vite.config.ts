@@ -71,6 +71,9 @@ const licenses = (): Plugin => ({
       '- the SMLib tessellation backend (`assets/smlib_tess-*.wasm` and `smlib_tess-*.mjs`): cad-io-js\'s wrapper ' +
         '(AGPL-3.0-only) and SMLib, from NVIDIA\'s usd-brep (https://github.com/NVIDIA-Omniverse/usd-brep), ' +
         'Apache-2.0, below;',
+      '- cad-io-js\'s geometry module, for healing (`assets/cad_geom-*.wasm` and `cad_geom-*.mjs`): AGPL-3.0-only, ' +
+        'built with Eigen\'s headers (https://eigen.tuxfamily.org, MPL-2.0; its source in cad-io-js\'s ' +
+        '`packages/cad-geom`, Eigen\'s at https://gitlab.com/libeigen/eigen);',
       // (Vite lists only the page's own packages, not the import worker's, which are these.)
       '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
         '`property-graph` and `ktx-parse`, all MIT; https://github.com/donmccurdy/glTF-Transform), Draco\'s glTF ' +

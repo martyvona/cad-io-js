@@ -40,6 +40,13 @@ public:
     CurveDomain d = c_->domain();
     return {d.range, {-kInf, kInf}, d.period, 0};
   }
+  void c0Lines(Range ru, Range, std::vector<IsoLine>& out) const override {
+    out.clear();
+    std::vector<double> b;
+    if (finite(ru)) c_->breaks(ru, b);
+    for (double x : b)
+      if (x > ru.lo && x < ru.hi) out.push_back({true, x});
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     Vec3 C[curves::kMaxOrder + 1];
     Status s = c_->derivs(u, std::min(order, curves::kMaxOrder), C);
@@ -107,6 +114,13 @@ public:
     CurveDomain d = c_->domain();
     return {{0, kTwoPi}, d.range, kTwoPi, d.period};
   }
+  void c0Lines(Range, Range rv, std::vector<IsoLine>& out) const override {
+    out.clear();
+    std::vector<double> b;
+    if (finite(rv)) c_->breaks(rv, b);
+    for (double x : b)
+      if (x > rv.lo && x < rv.hi) out.push_back({false, x});
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     Vec3 Q[curves::kMaxOrder + 1];
     Status s = c_->derivs(v, std::min(order, curves::kMaxOrder), Q);
@@ -150,7 +164,22 @@ public:
   void singularities(std::vector<Singularity>& out) const override {
     out.clear();
     CurveDomain cd = c_->domain();
-    if (!finite(cd.range)) return;
+    if (!finite(cd.range)) {
+      // An unbounded profile: a line's (a cone's) crosses the axis at most once, where its part across the axis,
+      // P + v D, P and D taken across the axis, vanishes.
+      Vec3 q0[3], q1[3];
+      c_->derivs(0, 2, q0), c_->derivs(1, 2, q1);
+      const double scale = norm(q0[1]) + 1e-300;
+      if (!(norm(q0[2]) <= 1e-12 * scale && norm(q1[2]) <= 1e-12 * scale && norm(q1[1] - q0[1]) <= 1e-12 * scale))
+        return;
+      const Vec3 P = q0[0] - A_, D = q0[1], Pp = P - dot(a_, P) * a_, Dp = D - dot(a_, D) * a_;
+      // (Parallel to the axis: 0 / 0, NaN, out of range.)
+      const double v = -dot(Pp, Dp) / dot(Dp, Dp);
+      if (!(v >= cd.range.lo && v <= cd.range.hi)) return;
+      if (!(norm(Pp + v * Dp) <= 1e-12 * (norm(P) + std::fabs(v) * norm(D) + 1))) return;
+      out.push_back({Singularity::pole, false, v, A_ + dot(a_, P + v * D) * a_});
+      return;
+    }
     // Where the profile's part across the axis, Q - (a.Q) a, vanishes: bisection on its box.
     Range r = cd.range;
     double wmin = 1e-12 * (r.hi - r.lo);
@@ -279,6 +308,7 @@ class Offset final : public SurfaceImpl {
 public:
   Offset(std::unique_ptr<SurfaceImpl> basis, double d) : b_(std::move(basis)), d_(d) {}
   SurfaceDomain domain() const override { return b_->domain(); }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override { b_->c0Lines(ru, rv, out); }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     if (order + 1 > kMaxOrder) return Status::unsupported;
     Vec3 B[kPartials];
@@ -439,6 +469,7 @@ public:
     vP_ = d.vPeriod > 0 && v.hi - v.lo >= d.vPeriod * (1 - 8 * kEps) ? d.vPeriod : 0;
   }
   SurfaceDomain domain() const override { return {u_, v_, uP_, vP_}; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override { b_->c0Lines(ru, rv, out); }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     Status s = Status::ok;
     if (!uP_ && (u < u_.lo || u > u_.hi)) s = Status::outOfDomain, u = std::clamp(u, u_.lo, u_.hi);

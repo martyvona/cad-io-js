@@ -15,6 +15,12 @@ export type Certainty = (typeof CERTAINTY)[number];
 export const SINGULARITY = ['pole', 'apex', 'normalVanishes'] as const;
 /** project.h's PcurveMethod, by code. */
 export const PCURVE_METHOD = ['none', 'planeAffine', 'isoLine', 'affineFeet', 'traced'] as const;
+/** Why a trace stopped short (project.h's StopWhy). */
+export const STOP_WHY = ['none', 'noConvergence', 'jump', 'poleLine', 'degenerate', 'fold'] as const;
+export type StopWhy = (typeof STOP_WHY)[number];
+/** project.h's EndCheck: a traced result's end against the end search's feet there. */
+export const END_CHECK = ['unchecked', 'same', 'periods', 'seamOther', 'different', 'vertexOff'] as const;
+export type EndCheck = (typeof END_CHECK)[number];
 export type PcurveMethod = (typeof PCURVE_METHOD)[number];
 
 /** The module's C API version this layer speaks (cg_api_version). */
@@ -219,6 +225,33 @@ export interface PcurvePiece {
   error: number;
 }
 
+/** localFoot's results, per point (Geometry.localFoot). */
+export interface LocalFeet {
+  status: Status;
+  uv: Float64Array;
+  point: Float64Array;
+  distance: Float64Array;
+  /** A STATUS code each. */
+  statuses: Uint8Array;
+  side: Int32Array;
+}
+
+export const END_FOOT_KIND = ['point', 'seamPair', 'pole'] as const;
+
+/** A foot of a vertex on a face (project.h's EndFoot). */
+export interface EndFoot {
+  /** point: one (u, v); seamPair: on a seam, `twin` the other side's copy; pole: its free coordinate any in `free`. */
+  kind: (typeof END_FOOT_KIND)[number];
+  uv: [number, number];
+  twin: [number, number];
+  /** A pole's free coordinate is u (else v), over `free`. */
+  poleU: boolean;
+  free: [number, number];
+  distance: number;
+  /** unique: the only foot within tol of the nearest. */
+  certainty: Certainty;
+}
+
 /** A projection (project.h's Pcurve): its status ok promises error <= tol. */
 export interface Pcurve {
   status: Status;
@@ -227,8 +260,29 @@ export interface Pcurve {
   /** On a seam: `seamTwin` is the other side's copy, a period up. */
   seamU: boolean;
   seamV: boolean;
-  /** The largest distance from the curve to the surface (mm, measured). */
+  /**
+   * The largest distance from the curve to the surface (mm, measured; where a span's control hull leaves the surface's
+   * box, at least the farthest point's distance from that box).
+   */
   offSurface: number;
+  /** Where offSurface came from the hulls: the curve's span (between two breaks) holding it; else NaN, NaN. */
+  offSpan: [number, number];
+  /**
+   * The trace stopped short: at stopAt, its last foot stopDistance from the curve, for stopWhy (project.h's StopWhy).
+   * No pieces then; offSurface covers the feet it had (a lower bound).
+   */
+  stopped: boolean;
+  stopAt: number;
+  stopDistance: number;
+  stopWhy: StopWhy;
+  /**
+   * projectCoedge, traced (and affineFeet) results: the start's and end's check against their vertices' feet (the
+   * end search's, endFeet): the same foot, whole periods over, a seam pair's other copy, different (a fold or another
+   * sheet: then ambiguous), or vertexOff (the vertex farther than tol from the curve's end: a gap in the model, not
+   * ambiguous); `endAlternatives` the feet's (u, v) for the last two, (u, v) pairs.
+   */
+  endCheck: [EndCheck, EndCheck];
+  endAlternatives: [Float64Array, Float64Array];
   error: number;
   tAmbiguous: Float64Array;
   pieces: PcurvePiece[];
@@ -244,9 +298,12 @@ export interface Pcurve {
 
 /** The scratch's projection (cad_geom_api.cpp) with n samples. */
 function readPcurve(v: Float64Array, n: number): Pcurve {
-  let at = 13;
+  let at = 23;
   const tAmbiguous = v.slice(at, at + v[7]!);
   at += v[7]!;
+  const endAlternatives: [Float64Array, Float64Array] = [v.slice(at, at + 2 * v[21]!),
+    v.slice(at + 2 * v[21]!, at + 2 * (v[21]! + v[22]!))];
+  at += 2 * (v[21]! + v[22]!);
   const read = (count: number) => {
     const out: PcurvePiece[] = [];
     for (let i = 0; i < count; i++) {
@@ -266,7 +323,9 @@ function readPcurve(v: Float64Array, n: number): Pcurve {
   at += 2 * n;
   return { status: STATUS[v[0]!]!, method: PCURVE_METHOD[v[1]!]!, certainty: CERTAINTY[v[2]!]!, seamU: v[3] === 1,
     seamV: v[4] === 1, offSurface: v[5]!, error: v[6]!, tAmbiguous, pieces, seamTwin, takesTwin: v[10] === 1,
-    range: [v[11]!, v[12]!], uv, twinUv: seamTwin.length ? v.slice(at, at + 2 * n) : new Float64Array() };
+    range: [v[11]!, v[12]!], offSpan: [v[13]!, v[14]!], stopped: v[15] === 1, stopAt: v[16]!, stopDistance: v[17]!,
+    stopWhy: STOP_WHY[v[18]!]!, endCheck: [END_CHECK[v[19]!]!, END_CHECK[v[20]!]!], endAlternatives, uv,
+    twinUv: seamTwin.length ? v.slice(at, at + 2 * n) : new Float64Array() };
 }
 
 export interface ProjectOptions {
@@ -392,6 +451,58 @@ export class Geometry {
       flags: flags as Uint8Array };
   }
 
+  /**
+   * localFoot (surface.h) for each point (x, y, z triples) from its start ((u, v) pairs) on surface `row`: Gauss-Newton
+   * continued from the start, no global search. Per point: uv, the surface's point there, its distance, a status
+   * (ok, noConvergence, singular) and the domain's side it's held on where ok there (0 u lo, 1 u hi, 2 v lo, 3 v hi;
+   * else -1).
+   */
+  localFoot(row: number, points: ArrayLike<number>, starts: ArrayLike<number>): LocalFeet {
+    return this.localFeet('surface_local_foot', row, points, starts);
+  }
+
+  /** As localFoot on a face's surface as it closes in fact (its periods the face's). */
+  /**
+   * evalSurface on face `face`'s surface as it closes in fact (its periods the face's: (u, v) a period past its domain
+   * reduced, as a projection's p-curve unwrapped past it needs). Status invalidModel for no such face.
+   */
+  faceEval(face: number, uv: ArrayLike<number>, order: 0 | 1 | 2 = 1): SurfaceEvals {
+    const n = uv.length / 2, w = order === 0 ? 1 : order === 1 ? 3 : 6;
+    const [s, values, statuses] = this.call('face_eval', face, { f64: uv }, n, order, { out: 'f64', n: 3 * w * n },
+      { out: 'u8', n });
+    return { status: STATUS[s]!, values: values as Float64Array, statuses: statuses as Uint8Array };
+  }
+
+  /**
+   * The face's C0 creases (creases.h): iso-lines where its surface is only C0 by its form and its normals jump by more
+   * than minAngle (radians), clipped to the face: u = at for v in [lo, hi] (isoU), else v = at for u in [lo, hi]; jump
+   * the largest (radians); an end on the boundary lies past the face's loop by one to two of its (u, v) tolerances,
+   * any other inside the face, where the jump falls to minAngle.
+   */
+  faceCreases(face: number, minAngle: number, tol3d = NaN):
+    { status: FaceStatus; creases: { isoU: boolean; at: number; lo: number; hi: number; jump: number;
+      loOnBoundary: boolean; hiOnBoundary: boolean }[] } {
+    const [n] = this.call('face_creases', face, minAngle, tol3d);
+    if (n! < 0) return { status: faceStatus(-n!), creases: [] };
+    const v = this.scratch(), creases = [];
+    for (let i = 0; i < n!; i++)
+      creases.push({ isoU: v[7 * i] === 1, at: v[7 * i + 1]!, lo: v[7 * i + 2]!, hi: v[7 * i + 3]!,
+        jump: v[7 * i + 4]!, loOnBoundary: v[7 * i + 5] === 1, hiOnBoundary: v[7 * i + 6] === 1 });
+    return { status: 'ok', creases };
+  }
+
+  faceLocalFoot(face: number, points: ArrayLike<number>, starts: ArrayLike<number>): LocalFeet {
+    return this.localFeet('face_local_foot', face, points, starts);
+  }
+
+  private localFeet(name: string, row: number, points: ArrayLike<number>, starts: ArrayLike<number>): LocalFeet {
+    const n = points.length / 3;
+    const [s, uv, point, distance, statuses, side] = this.call(name, row, { f64: points }, { f64: starts }, n,
+      { out: 'f64', n: 2 * n }, { out: 'f64', n: 3 * n }, { out: 'f64', n }, { out: 'u8', n }, { out: 'i32', n });
+    return { status: STATUS[s]!, uv: uv as Float64Array, point: point as Float64Array,
+      distance: distance as Float64Array, statuses: statuses as Uint8Array, side: side as Int32Array };
+  }
+
   /** arcLength over each range (t0, t1 pairs) at relTol. */
   arcLength(row: number, ranges: ArrayLike<number>, relTol: number): Estimates {
     const n = ranges.length / 2;
@@ -497,6 +608,23 @@ export class Geometry {
   projectCoedge(coedge: number, tol = NaN, samples: ArrayLike<number> = []): Pcurve | { status: FaceStatus } {
     const [s] = this.call('coedge_project', coedge, tol, { f64: samples }, samples.length);
     return s !== 0 ? { status: faceStatus(s) } : readPcurve(this.scratch(), samples.length);
+  }
+
+  /**
+   * The feet of a vertex's point on a face's surface (as it closes in fact) within tol of the nearest, from the end
+   * search (project.h's EndSearchCache, per model, by vertex and face: the search runs once per pair, at the largest
+   * tol asked).
+   */
+  endFeet(face: number, vertex: number, tol: number): { status: Status; feet: EndFoot[] } {
+    const [n] = this.call('face_end_feet', face, vertex, tol);
+    if (n! < 0) return { status: STATUS[-n!]!, feet: [] };
+    const v = this.scratch(), feet: EndFoot[] = [];
+    for (let i = 0; i < n!; i++) {
+      const o = v.subarray(10 * i, 10 * i + 10);
+      feet.push({ kind: END_FOOT_KIND[o[0]!]!, uv: [o[1]!, o[2]!], twin: [o[3]!, o[4]!], poleU: o[5] === 1,
+        free: [o[6]!, o[7]!], distance: o[8]!, certainty: CERTAINTY[o[9]!]! });
+    }
+    return { status: 'ok', feet };
   }
 
   /**

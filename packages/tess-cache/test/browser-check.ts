@@ -211,10 +211,11 @@ const server = http.createServer((q, s) => {
   const file = path.join(root, url.pathname);
   if (!file.startsWith(root + path.sep) || !file.endsWith('.ts') || !fs.existsSync(
     file)) return void s.writeHead(404).end();
-  // Bare specifiers of workspace packages (cad-scene, cad-brep, ...) to their sources, as a bundler resolves them.
-  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from '([a-z][\w-]*)'/g,
-    (m, name: string) => fs.existsSync(path.join(root, 'packages', name, 'src/index.ts'))
-      ? `from '/packages/${name}/src/index.ts'` : m);
+  // Bare specifiers of workspace packages (cad-scene, cad-brep, ...) to their sources, as a bundler resolves them;
+  // `from` and its specifier may be on separate lines (a long import folds there).
+  const js = stripTypeScriptTypes(fs.readFileSync(file, 'utf8')).replace(/from(\s+)'([a-z][\w-]*)'/g,
+    (m, space: string, name: string) => fs.existsSync(path.join(root, 'packages', name, 'src/index.ts'))
+      ? `from${space}'/packages/${name}/src/index.ts'` : m);
   s.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
 });
 

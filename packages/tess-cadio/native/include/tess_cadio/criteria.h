@@ -23,14 +23,21 @@ struct Deflections {
 };
 
 /**
- * The refinement floor, max(the part's tolerance, 0.1 x the deflection): edges are sampled no finer than it (EdgeMesh;
- * a refused triangle's split request is honoured below it, though never on a span within the part's tolerance), a
- * triangle whose patch is no larger is accepted outright (SurfaceCriteria, SizeField::belowFloor), and the mesher's
- * angle-only refinement stops at it (mesh2d.h). Below it nothing a mesh shows changes, and refinement chases rounding.
+ * The refinement floor, max(the part's tolerance, 0.1 x the deflection): edges are sampled no finer than it and no span
+ * whose chord is within it is split, whatever asks (EdgeMesh; the mesher told so, Domain2::frozen), a triangle whose
+ * patch is no larger is accepted outright (SurfaceCriteria, SizeField::belowFloor), and the mesher's angle-only
+ * refinement stops at it (mesh2d.h). Below it nothing a mesh shows changes, and refinement chases rounding.
  */
 inline double refinementFloor(double partTolerance, double deflection) {
   return std::max(partTolerance, 0.1 * deflection);
 }
+
+/**
+ * A facet (its corners' cross product) turned against a normal: past 90 degrees from it, however little. The
+ * criteria refuse a facet so against any corner's normal (below the refinement floor too); PartMesher fails a face
+ * whose triangle is so against its corners' mean normal (PartOptions::failTurnedOver).
+ */
+inline bool facetAgainst(cadgeom::Vec3 facet, cadgeom::Vec3 normal) { return cadgeom::dot(facet, normal) < 0; }
 
 /** One face's criteria; the surface outlives it. */
 /**
@@ -53,9 +60,19 @@ public:
    */
   virtual double edgeSpacing() const = 0;
   /**
+   * A crease inside the face: the iso-line u = at (isoU) or v = at where its normal jumps; a point within `near` of it
+   * in that coordinate (the face's (u, v) tolerance: a boundary point there is the loop's) is on it.
+   */
+  struct Crease {
+    bool isoU;
+    double at, near;
+  };
+  /** The face's creases, for the normals: a triangle's corner on one takes its normal from the triangle's side. */
+  virtual void setCreases(std::vector<Crease> lines) = 0;
+  /**
    * Whether accept() has bounded every triangle's deviation from the surface it judged so far (by derivative bounds
    * or a distance function) rather than sampling it: false for the kinds it samples (extrusions, revolutions,
-   * offsets) and wherever a bound wasn't available (a cone's axis, a torus's inner half).
+   * offsets) and wherever a bound wasn't available (near a cone's apex).
    */
   virtual bool bounded() const = 0;
   /**
@@ -64,8 +81,24 @@ public:
    * there to hold a triangle's to.
    */
   virtual bool acceptDeviation(const cadgeom::Vec2 tri[3]) const = 0;
-  /** Why accept() (normals true) or acceptDeviation() refuses the triangle; Refusal::none where it doesn't. */
-  virtual Refusal refusal(const cadgeom::Vec2 tri[3], bool normals = true) const = 0;
+  /**
+   * accept() for a smooth pole's fan (poles.h): its facet held to the angle however thin (a thinner triangle's isn't,
+   * only refused turned against a corner's normal: criteria.cpp's normalsRefusal).
+   */
+  virtual bool acceptFan(const cadgeom::Vec2 tri[3]) const = 0;
+  /**
+   * Why accept() (normals true; acceptFan(), fan true too) or acceptDeviation() refuses the triangle; Refusal::none
+   * where it doesn't.
+   */
+  virtual Refusal refusal(const cadgeom::Vec2 tri[3], bool normals = true, bool fan = false) const = 0;
+  /**
+   * An upper bound on how far the flat triangle on the surface's points at its corners strays from the surface (a
+   * sphere's or a distance function's closed form, else the derivative bounds over its (u, v) box, or with `pieces`
+   * over its pieces, tighter and dearer, as accept() has them); false where there is none (the surface's kind
+   * sampled, a bound failing, a corner not evaluated). For PartOptions::maxDeviationFactor's check, which measures
+   * only where this doesn't settle it.
+   */
+  virtual bool deviationBound(const cadgeom::Vec2 tri[3], double& out, bool pieces = true) const = 0;
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
   // accept(tri): the surface within `linear` of the triangle at sampled points (its centroid, its edges' middles),
   // and the surface's normals at its corners within `angular` of one another and of the triangle's own normal.

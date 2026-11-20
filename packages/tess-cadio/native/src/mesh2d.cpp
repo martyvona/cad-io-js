@@ -38,6 +38,13 @@ namespace {
  * each refused triangle cost 13 of them (as1_motor's 29 m half-discs, 20,000 arc samples: hours).
  */
 constexpr size_t kHalvingCavity = 1024;
+/**
+ * A refused triangle whose candidates encroach only segments shorter than its longest edge over this (in the metric)
+ * is broken from inside instead of asking them split; a segment longer than kLongSegment x a refused triangle's
+ * longest edge is asked split.
+ */
+constexpr double kShortSegment = 4;
+constexpr double kLongSegment = 4;
 
 using cdt::kBoundary;
 using cdt::kGhost;
@@ -143,6 +150,18 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   for (size_t k = 0; k + 1 < domain.segments.size(); k += 2)
     constrain(domain.segments[k], domain.segments[k + 1], kInterior);
   if (!ok) return out;
+  // Segments the caller can't split (Domain2::frozen): their encroachment doesn't refuse a point.
+  std::set<uint64_t> frozen;
+  {
+    size_t k = 0;
+    auto add = [&](int32_t a, int32_t b) {
+      if (k < domain.frozen.size() && domain.frozen[k] && a != b) frozen.insert(pairKey(a, b));
+      k++;
+    };
+    for (const auto& loop : domain.loops)
+      for (size_t i = 0; i < loop.size(); i++) add(loop[i], loop[(i + 1) % loop.size()]);
+    for (size_t i = 0; i + 1 < domain.segments.size(); i += 2) add(domain.segments[i], domain.segments[i + 1]);
+  }
   T.label();
   out.status = Status::ok;
 
@@ -161,12 +180,14 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     int64_t seq;
     int32_t t;
     uint32_t gen;
+    // What queued it (Mesh2Detail::inserted's index).
+    uint8_t cause;
     bool operator<(const Item& o) const { return key < o.key || (key == o.key && seq > o.seq); }
   };
   std::priority_queue<Item> queue;
   int64_t seq = 0;
   std::set<std::pair<int32_t, uint32_t>> finals;
-  const double minAngle = std::clamp(options.minAngle, 0.0, M_PI / 3), minSine = detSin(minAngle);
+  const double minAngle = std::clamp(options.minAngle, 0.0, kMaxMinAngle), minSine = detSin(minAngle);
   // (l / 2) / tan(minAngle / 2), the off-centre's height over its edge, as a factor of l.
   const double offHeight = minAngle > 0 ? 0.5 * detCos(0.5 * minAngle) / detSin(0.5 * minAngle) : 1e300;
   auto consider = [&](int32_t t) {
@@ -181,7 +202,10 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     // its corner without end: ohmm-ap203's plates, 200,000 points into one.)
     double thin = accepted && field.belowFloor(p) ? 0.0 : minSine / std::max(q.sine, 1e-300);
     double key = std::max({q.longest / std::sqrt(2.0), thin, accepted ? 0.0 : 2.0});
-    if (key > 1) queue.push({key, seq++, t, R.gen});
+    if (key <= 1) return;
+    uint8_t cause = q.longest / std::sqrt(2.0) >= thin ? 0 : 1;
+    if (!accepted) cause = detail ? static_cast<uint8_t>(2 + std::clamp(field.refusalKind(p), 0, 7)) : 2;
+    queue.push({key, seq++, t, R.gen, cause});
   };
   for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) consider(t);
   int steiner = 0;
@@ -239,6 +263,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       const size_t cavity = T.cavityConstraints(q, at, hits, mapAt(q));
       bool clear = true;
       for (auto [u, v] : hits) {
+        if (!frozen.empty() && frozen.count(pairKey(u, v))) continue;
         Vec2 U = T.points()[u], V = T.points()[v];
         Metric2 Ms = average(metricAt(u), metricAt(v), M);
         if (mdot(Ms, sub(q, U), sub(q, V)) <= 0) {
@@ -271,8 +296,39 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       for (int32_t w : T.tris()[at].v)
         if (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor) placed = false;
     }
+    // A triangle only a much shorter segment stands in the way of (each one it encroached shorter in the metric than
+    // its longest edge over kShortSegment) is broken from inside instead, at its centroid where that's clear:
+    // splitting such a segment, once a round, would leave the triangle as it is for many rounds (arm's half cylinder:
+    // fans of slivers 28 mm long over a fixed arc's 1.5 mm segments).
+    if ((!placed || f < 0.05) && !encroached.empty()) {
+      double longest = std::max({l[0], l[1], l[2]});
+      bool shortOnly = true;
+      for (uint64_t k : encroached) {
+        int32_t u = static_cast<int32_t>(k >> 32), v = static_cast<int32_t>(k & 0xffffffffu);
+        shortOnly = shortOnly && kShortSegment * mlen(M, sub(T.points()[v], T.points()[u])) < longest;
+      }
+      // (The centroid too near a corner, as placements are: a flat triangle's is about a third of its height from
+      // the obtuse corner.)
+      if (shortOnly && acceptable(g, at, false).clear) {
+        c = g, placed = true, f = 1;
+        bool near = false;
+        double floor = 0.1 * std::min(1.0, l[s]);
+        for (int32_t w : T.tris()[at].v) near = near || (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor);
+        if (near) placed = false;
+        else D.brokenInside++;
+      }
+    }
     if (!placed || f < 0.05) {
       D.refused++;
+      // No segment the first candidate named that can be split (none, or each frozen: it left the domain across
+      // one): the segments its centroid encroaches named instead, since they are what refused the halvings; else the
+      // triangle asks for nothing while refused (arm's half cylinder beside its corners).
+      bool noneSplittable = true;
+      for (uint64_t k : encroached) noneSplittable = noneSplittable && frozen.count(k);
+      if (noneSplittable) {
+        int32_t at2;
+        acceptable(g, at2, true);
+      }
       for (uint64_t k : encroached) wanted.push_back({k, it.t, it.gen});
       finals.insert({it.t, it.gen});
       continue;
@@ -289,6 +345,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       continue;
     }
     steiner++;
+    D.inserted[it.cause]++;
     for (int32_t t : created) consider(t);
   }
   D.finalTriangles = static_cast<int>(finals.size());
@@ -297,13 +354,19 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   std::set<uint64_t> split;
   for (auto [k, t, gen] : wanted) {
     const cdt::Tri& R = T.tris()[t];
-    if (R.dead || R.gen != gen || split.count(k)) continue;
+    if (R.dead || R.gen != gen || split.count(k) || frozen.count(k)) continue;
     int32_t u = static_cast<int32_t>(k >> 32), v = static_cast<int32_t>(k & 0xffffffffu);
     Metric2 Mu = metricAt(u), Mv = metricAt(v);
     Metric2 Ms{0.5 * (Mu.a + Mv.a), 0.5 * (Mu.b + Mv.b), 0.5 * (Mu.c + Mv.c)};
     Vec2 p[3];
     corners(t, p);
-    if (mlen(Ms, sub(T.points()[v], T.points()[u])) > std::sqrt(2.0) || !field.accept(p)) split.insert(k);
+    // And a segment longer than kLongSegment x the refused triangle's longest edge (in its metric): one the triangle's
+    // candidates keep running into, too long beside it to leave fixed (a plane's chord of 2 under its arc's 20,000
+    // samples: a fan of slivers to its ends, none ever split).
+    double longest = 0;
+    for (int i = 0; i < 3; i++) longest = std::max(longest, mlen(Ms, sub(p[(i + 1) % 3], p[i])));
+    const double seg = mlen(Ms, sub(T.points()[v], T.points()[u]));
+    if (seg > std::sqrt(2.0) || !field.accept(p) || seg > kLongSegment * longest) split.insert(k);
   }
   // In segment order, each once: the domain's segments numbered as SplitWanted says.
   int32_t segment = 0;

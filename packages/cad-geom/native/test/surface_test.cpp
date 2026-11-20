@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <random>
 #include <string>
 #include <tuple>
@@ -1073,6 +1074,69 @@ std::unique_ptr<Surface> rawSpline(int p, int q, std::vector<double> uk, std::ve
   return surfaces::makeBSpline(r.data(), in.data(), s);
 }
 
+TEST_CASE("inversion for the distance alone: within 1e-3 tol of the full search's, over fewer rectangles") {
+  // Every B-spline of the reference models (all variants), at points near it and off it (up to a fifth of its size
+  // along a random direction from a point of it), at tol 1e-6 and 1e-2 of its size (a coarse tol keeps many
+  // rectangles the full search must, for feet within it): the distance-only search's distance within eps = 1e-3 tol
+  // of the full search's, its foot the surface's point at its (u, v) and that far from the point, and fewer
+  // rectangles examined at the coarse tol.
+  std::mt19937_64 rng(31);
+  std::uniform_real_distribution<double> U(0, 1), D(-1, 1);
+  long full = 0, fast = 0;
+  int n = 0, bad = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    const Model m(ref.data, ref.size);
+    for (int row = 0; row < m.surfaces(); row++) {
+      if (m.surfaceKind(row) != CBR_SURFACE_BSPLINE) continue;
+      Status st;
+      auto s = makeSurface(m, row, st);
+      if (!s) continue;
+      const SurfaceDomain dom = s->domain();
+      Box3 bb;
+      s->bound(dom.u, dom.v, bb);
+      const double size = std::hypot(bb.x.width(), std::hypot(bb.y.width(), bb.z.width()));
+      for (int k = 0; k < 24; k++) {
+        const double tol = (k % 2 ? 1e-2 : 1e-6) * size;
+        SurfacePoint q;
+        s->eval(dom.u.lo + U(rng) * (dom.u.hi - dom.u.lo), dom.v.lo + U(rng) * (dom.v.hi - dom.v.lo), 0, q);
+        const Vec3 dir{D(rng), D(rng), D(rng)};
+        const Vec3 p = q.p + (0.2 * size * U(rng) / std::fmax(norm(dir), 1e-9)) * dir;
+        long r0 = surfaces::inversionRects;
+        SurfaceInversion a = invertSurface(*s, p, dom.u, dom.v, tol);
+        long r1 = surfaces::inversionRects;
+        SurfaceInversion b = invertSurface(*s, p, dom.u, dom.v, tol, nullptr, nullptr, true);
+        long r2 = surfaces::inversionRects;
+        if (k % 2) full += r1 - r0, fast += r2 - r1;
+        n++;
+        SurfacePoint f;
+        s->eval(b.uv.x, b.uv.y, 0, f);
+        const bool ok = a.status == Status::ok && b.status == Status::ok
+          && std::fabs(b.distance - a.distance) <= 1e-3 * tol + 1e-12 * size && norm(f.p - b.foot) <= 1e-12 * size
+          && std::fabs(norm(b.foot - p) - b.distance) <= 1e-12 * size && b.certainty == Certainty::none
+          && b.alternatives.empty();
+        if (!ok && bad++ < 8)
+          std::printf("  %s %d: full %.17g (%d), distance only %.17g (%d)\n", ref.file, row, a.distance,
+            int(a.status), b.distance, int(b.status));
+      }
+    }
+  }
+  CHECK(n > 50);
+  CHECK_EQ(bad, 0);
+  CHECK(fast < full);
+  // Straight over a flat patch's middle, the search grid's middle is the nearest point: every rectangle is then past
+  // it less eps, so that sample is the answer.
+  auto flat = rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1}, {2, 2}, {{{0, 0, 0}, {0, 10, 0}}, {{10, 0, 0}, {10, 10, 0}}});
+  SurfaceInversion o = invertSurface(*flat, {5, 5, 1}, {0, 1}, {0, 1}, 1e-3, nullptr, nullptr, true);
+  CHECK(o.status == Status::ok);
+  CHECK(std::fabs(o.distance - 1) < 1e-12);
+  CHECK(std::fabs(o.uv.x - 0.5) < 1e-12);
+  CHECK(std::fabs(o.uv.y - 0.5) < 1e-12);
+  if (!(fast < full))
+    std::printf("    %d points: at the coarse tol %ld rectangles for the full search, %ld for the distance\n", n,
+      full, fast);
+}
+
 /** A degree-1 tube round z, its section the square (1, 0), (0, 1), (-1, 0), (0, -1) back to (1, 0), z in [0, 1];
  * the last pole of the row at z = 0 moved by `gap` along x (0: closed exactly). */
 std::unique_ptr<Surface> tube(double gap) {
@@ -1220,6 +1284,16 @@ TEST_CASE("closeInFact: a tube closed in v, a nearly closed one, a collapsed sid
     CHECK(c->domain().uPeriod == 0 && c->domain().vPeriod == 0);
     // Nothing to add where the surface says it all: the surface itself back.
     CHECK((c.get() == raw) == (off == 0));
+  }
+  // The same side collapsed within tol, on a patch whose rows along it (in v) are at most 4 tol long: no pole, as the
+  // surface is about as small as its tolerance that way (1 wide across, in u); 12 tol long, the pole. (v's range
+  // [0, 3], not u's, so the rows are measured over their own.)
+  for (double half : {2 * tol, 6 * tol}) {
+    std::vector<std::vector<Vec3>> P{{{0, 0, 0}, {0.5 * tol, 0, 0}}, {{1, -half, 0}, {1, half, 0}}};
+    auto c = closeInFact(rawSpline(1, 1, {0, 1}, {2, 2}, {0, 3}, {2, 2}, P), tol);
+    std::vector<Singularity> g;
+    c->singularities(g);
+    CHECK(g.size() == (half > 3 * tol ? 1u : 0u));
   }
   // Rational: the exact B-spline cylinder closes in u (period 1); the B-spline sphere too, its collapsed rows
   // reported once; a plane, a periodic torus and a far cylinder unchanged or closed alike.
@@ -1505,4 +1579,144 @@ TEST_CASE("B-spline derivative bounds shrink with the box: at +-0.001 within 2 x
       CHECK(b[t] <= f * mx[t]);
     }
   }
+}
+
+TEST_CASE("B-spline partial boxes within one span: orders 0 to 3 hold dense samples, tight, asked in any order") {
+  // The boxes of one rectangle's partials share its nets (one sub-net, the partials by its differences, blossomed
+  // where those round too much): every B-spline of the reference models, a bump and its twin with the same knots
+  // (asked in turn over the same rectangle), the rational dome and bilinear patch, a degree-8 ribbon 1e4 from the
+  // origin (where the differences of a rectangle a millionth wide round too much: the fallback) and a bicubic whose
+  // first knot span is 1e-7 wide (its nets' rounding by pole, so only that span's poles take it). Rectangles from
+  // 0.3 of a span to 1e-7 of it, the partials asked in a shuffled order, two rectangles sharing their u range; each
+  // box against a 7 x 7 grid of the partial, and no wider than the grid's spread plus 1e-3 of its size (plus a
+  // rounding floor; polynomial surfaces), so a net differenced where it rounds too much (its error carried) is caught
+  // as well.
+  struct S {
+    std::string name;
+    std::unique_ptr<Surface> s;
+    bool rational = false;
+  };
+  std::vector<S> all;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    if (std::strcmp(ref.variant, "s1") && std::strcmp(ref.variant, "far")) continue;
+    const Model m(ref.data, ref.size);
+    for (int row = 0; row < m.surfaces(); row++) {
+      if (m.surfaceKind(row) != CBR_SURFACE_BSPLINE) continue;
+      Status st;
+      if (auto s = makeSurface(m, row, st))
+        all.push_back({std::string(ref.file) + " " + std::to_string(row), std::move(s), m.surfaceInts(row)[6] != 0});
+    }
+  }
+  auto bump = [](double h) {
+    std::vector<std::vector<Vec3>> P(7, std::vector<Vec3>(7));
+    for (int i = 0; i < 7; i++)
+      for (int j = 0; j < 7; j++) P[i][j] = {i * 10 / 6.0, j * 10 / 6.0, i == 3 && (j == 3 || j == 4) ? h : 0};
+    return rawSpline(3, 3, {0, 1, 2, 3, 4}, {4, 1, 1, 1, 4}, {0, 1, 2, 3, 4}, {4, 1, 1, 1, 4}, P);
+  };
+  const size_t twins = all.size();
+  all.push_back({"bump", bump(3)});
+  all.push_back({"bump's twin", bump(-5)});
+  {
+    const double r2 = std::sqrt(0.5);
+    const double xy[9][2] = {{1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}, {1, 0}};
+    const double cw[9] = {1, r2, 1, r2, 1, r2, 1, r2, 1}, mer[3][3] = {{1, 0, 1}, {1, 1, r2}, {0, 1, 1}};
+    std::vector<std::vector<Vec3>> Q(9, std::vector<Vec3>(3));
+    std::vector<std::vector<double>> W(9, std::vector<double>(3));
+    for (int i = 0; i < 9; i++)
+      for (int j = 0; j < 3; j++)
+        Q[i][j] = {mer[j][0] * xy[i][0], mer[j][0] * xy[i][1], mer[j][1]}, W[i][j] = cw[i] * mer[j][2];
+    all.push_back({"dome", rawSpline(2, 2, {0, 1, 2, 3, 4}, {3, 2, 2, 2, 3}, {0, 1}, {3, 3}, Q, W), true});
+    all.push_back({"rational bilinear", rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1}, {2, 2},
+      {{{0, 0, 0}, {0, 1, 0.3}}, {{1, 0, 0.2}, {1, 1, 1}}}, {{1, 3}, {2, 0.5}}), true});
+    std::vector<std::vector<Vec3>> R(9, std::vector<Vec3>(9));
+    std::mt19937_64 g(5);
+    std::uniform_real_distribution<double> J(-0.3, 0.3);
+    for (int i = 0; i < 9; i++)
+      for (int j = 0; j < 9; j++) R[i][j] = {1e4 + 0.2 * i + J(g), 2e4 + 0.2 * j + J(g), 3e4 * (i + j) / 16.0 + J(g)};
+    all.push_back({"degree-8 ribbon", rawSpline(8, 8, {0, 1}, {9, 9}, {0, 1}, {9, 9}, R)});
+    // A bicubic whose u knots start with a span 1e-7 wide (trj4_pm2-ec #5727 face #21856's v knots): its second
+    // differences there divide by it twice, which a net's one rounding bound spread over the whole surface.
+    std::vector<std::vector<Vec3>> T(6, std::vector<Vec3>(4));
+    for (int i = 0; i < 6; i++)
+      for (int j = 0; j < 4; j++) T[i][j] = {2.0 * i + 0.3 * j * j, 3.0 * j, 0.5 * (i % 2) + 0.2 * i * j};
+    all.push_back({"a tiny first span", rawSpline(3, 3, {0, 1e-7, 0.5, 1}, {4, 1, 1, 4}, {0, 1}, {4, 4}, T)});
+  }
+  REQUIRE(all.size() > twins + 4);
+  std::mt19937_64 rng(23);
+  std::uniform_real_distribution<double> U(0, 1);
+  const double widths[] = {0.3, 1e-2, 1e-4, 1e-6, 1e-7};
+  std::vector<std::pair<int, int>> orders;
+  for (int t = 0; t <= 3; t++)
+    for (int l = 0; l <= t; l++) orders.push_back({t - l, l});
+  const double kInf = std::numeric_limits<double>::infinity();
+  int bad = 0, loose = 0, n = 0;
+  auto check = [&](const S& c, Range ru, Range rv) {
+    const SurfaceImpl* s = impl(c.s.get());
+    std::shuffle(orders.begin(), orders.end(), rng);
+    for (auto [k, l] : orders) {
+      Box3 b;
+      if (s->derivBox(ru, rv, k, l, b) != Status::ok) continue;
+      Vec3 lo{kInf, kInf, kInf}, hi{-kInf, -kInf, -kInf};
+      double mag = 0, size = 0;
+      for (int x = 0; x <= 6; x++)
+        for (int y = 0; y <= 6; y++) {
+          Vec3 D[kPartials];
+          const double u = std::fmin(ru.lo + (ru.hi - ru.lo) * x / 6, ru.hi);
+          const double v = std::fmin(rv.lo + (rv.hi - rv.lo) * y / 6, rv.hi);
+          if (s->derivs(u, v, 3, D) == Status::singular) continue;
+          const Vec3 p = D[pidx(k, l)];
+          size = std::fmax(size, norm(D[0]));
+          n++;
+          if (!inBox(b, p) && bad++ < 10)
+            std::printf("  %s: partial (%d, %d) at (%.17g, %.17g) %s outside its box [%.17g, %.17g] [%.17g, %.17g] "
+              "[%.17g, %.17g] over [%.17g, %.17g] x [%.17g, %.17g]\n", c.name.c_str(), k, l, u, v, show(p).c_str(),
+              b.x.lo, b.x.hi, b.y.lo, b.y.hi, b.z.lo, b.z.hi, ru.lo, ru.hi, rv.lo, rv.hi);
+          lo = {std::fmin(lo.x, p.x), std::fmin(lo.y, p.y), std::fmin(lo.z, p.z)};
+          hi = {std::fmax(hi.x, p.x), std::fmax(hi.y, p.y), std::fmax(hi.z, p.z)};
+          mag = std::fmax(mag, std::fmax(std::fabs(p.x), std::fmax(std::fabs(p.y), std::fabs(p.z))));
+        }
+      // (A rational surface's partials past the first are bounded through the quotient rule's magnitudes, a constant
+      // factor loose: tightness is judged on polynomial ones, the degree-8 ribbon's fallbacks among them.)
+      if (!(hi.x >= lo.x) || c.rational) continue;
+      // The spread the grid can't see (a box holds the whole rectangle, the grid 49 points of it): its sides'
+      // second-order change, bounded by the next partials' sizes, under 1e-3 of the partial at these widths but the
+      // widest, which is let off.
+      // (The rounding floor: differences of coordinates of the surface's size over the widths, k in u and l in v.)
+      const double floor = 1e-13 * size / (std::pow(ru.hi - ru.lo, k) * std::pow(rv.hi - rv.lo, l));
+      const double slack = 1e-3 * mag + floor + (ru.hi - ru.lo > 1e-3 ? kInf : 0);
+      const double over = std::fmax(b.x.width() - (hi.x - lo.x),
+        std::fmax(b.y.width() - (hi.y - lo.y), b.z.width() - (hi.z - lo.z)));
+      if (!(over <= slack)) {
+        if (loose++ < 10)
+          std::printf("  %s: partial (%d, %d)'s box over [%.17g, %.17g] x [%.17g, %.17g] wider than its samples by "
+            "%g (size %g)\n", c.name.c_str(), k, l, ru.lo, ru.hi, rv.lo, rv.hi, over, mag);
+      }
+    }
+  };
+  for (size_t i = 0; i < all.size(); i++) {
+    const SurfaceImpl* s = impl(all[i].s.get());
+    std::vector<double> us, vs;
+    SurfaceDomain d = s->domain();
+    s->breaks(d.u, d.v, us, vs);
+    for (int trial = 0; trial < 6; trial++)
+      for (double w : widths) {
+        const size_t a = std::min(us.size() - 2, static_cast<size_t>(U(rng) * (us.size() - 1)));
+        const size_t b = std::min(vs.size() - 2, static_cast<size_t>(U(rng) * (vs.size() - 1)));
+        const double su = us[a + 1] - us[a], sv = vs[b + 1] - vs[b];
+        const double cu = us[a] + su * (w / 2 + (1 - w) * U(rng)), cv = vs[b] + sv * (w / 2 + (1 - w) * U(rng));
+        const Range ru{cu - w * su / 2, cu + w * su / 2}, rv{cv - w * sv / 2, cv + w * sv / 2};
+        // Over the rectangle, again after another rectangle sharing its u range, and for the bumps, after the twin.
+        check(all[i], ru, rv);
+        check(all[i], ru, {rv.lo, 0.5 * rv.lo + 0.5 * rv.hi});
+        check(all[i], ru, rv);
+        if (i == twins || i == twins + 1) {
+          check(all[i == twins ? twins + 1 : twins], ru, rv);
+          check(all[i], ru, rv);
+        }
+      }
+  }
+  CHECK(bad == 0);
+  CHECK(loose == 0);
+  CHECK(n > 100000);
 }

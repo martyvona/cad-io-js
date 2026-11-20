@@ -23,7 +23,8 @@
 import type { ViewName } from './camera.ts';
 import { AXES, type Axis, type PlaneSettings } from './section.ts';
 import type { PickLevel } from './selection.ts';
-import type { TessellationSettings } from './tessellation.ts';
+import { HEAL_FIXES, type HealFix } from 'cad-heal/options';
+import { defaultFixes, type TessellationSettings } from './tessellation.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 
 export type Vec3 = [number, number, number];
@@ -220,4 +221,32 @@ export function renderChanges(r: RenderSettings): Partial<RenderSettings> {
     if (r[k] !== DEFAULT_RENDER[k]) (out as Record<string, unknown>)[k] = r[k];
   }
   return out;
+}
+
+/**
+ * Healing from the address, for the model it opens (address only: a state's meshing carries it otherwise): `heal=1`
+ * or `0` (Heal B-reps), `healOn=` and `healOff=` comma-separated fixes on or off from cad-heal's defaults, which turn
+ * healing on; what's malformed is left out, with a message for each.
+ */
+export function healingFromQuery(params: URLSearchParams): { meshing?: Pick<TessellationSettings, 'heal' |
+  'healFixes'>; problems: string[] } {
+  const problems: string[] = [];
+  const heal = bool(params.get('heal'));
+  const named = (k: string) => new Set((params.get(k) ?? '').split(',').map((x) => x.trim()).filter((f) => {
+    const known = (HEAL_FIXES as readonly string[]).includes(f);
+    if (f && !known) problems.push(`${k}: not one of ${HEAL_FIXES.join(', ')}: ${f}`);
+    return known;
+  }) as HealFix[]);
+  const on = named('healOn'), off = named('healOff'), fixes: Partial<Record<HealFix, boolean>> = {};
+  for (const f of on) if (off.has(f)) problems.push(`healOn and healOff: ${f} in both, left as it is`);
+  for (const [set, v] of [[on, true], [off, false]] as const) for (const f of set) {
+    if (!(on.has(f) && off.has(f))) fixes[f] = v;
+  }
+  const listed = Object.keys(fixes).length > 0;
+  if (heal === false && listed) {
+    problems.push('heal=0 with healOn or healOff: the fixes ignored');
+    return { meshing: { heal: false, healFixes: defaultFixes() }, problems };
+  }
+  if (heal === undefined && !listed) return { problems };
+  return { meshing: { heal: heal ?? true, healFixes: { ...defaultFixes(), ...fixes } }, problems };
 }

@@ -18,7 +18,7 @@ process.on('message', async (m: { type: 'file'; path: string; job: unknown } | {
     process.exit(0);
   }
   try {
-    const result = await check.file(m.path, m.job);
+    const result = await check.file(m.path, m.job, { progress: (what) => process.send!({ type: 'progress', what }) });
     await send({ type: 'result', result, maxRss: maxRss() });
   } catch (e) {
     await send({ type: 'error', error: (e as Error).stack ?? String(e), maxRss: maxRss() });

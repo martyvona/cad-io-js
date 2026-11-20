@@ -45,9 +45,9 @@ export async function showProblems(name: string, diagnostics: readonly Diagnosti
   const ids = problemIds(diagnostics);
   if (!rows.length) return;
   await showDialog({ title: `${name}: ${count(errors, 'error')}`, error: true,
-    body: ['From reading the file and meshing it; #n is the STEP instance (the part\'s shape representation, or ' +
-      'the entity itself) it came from; Copy IDs copies them, for Selection\'s Select by ID. They are in the ' +
-      'console, with any warnings.', rows,
+    body: ['From reading the file, healing it and meshing it; #n is the STEP instance (the part\'s shape ' +
+      'representation, or the entity itself) it came from; Copy IDs copies them, for Selection\'s Select by ID. They ' +
+      'are in the console, with any warnings.', rows,
       ...(more ? [`And ${more} more, in the console.`] : [])],
     buttons: [{ label: 'OK', value: 'ok', primary: true }, { label: 'Copy IDs', value: 'copy', disabled: !ids.length,
       // The ids, as Selection's Select by ID reads them; the dialog stays open.

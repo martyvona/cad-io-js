@@ -508,6 +508,100 @@ TEST_CASE("a seam: two copies of one edge's samples at u = 0 and 2 pi, by p-curv
   }
 }
 
+TEST_CASE("a vertex's foot per use: a seam vertex's copy on its next sample's side, a pole's free coordinate its") {
+  // seamByInversion's vertex on the seam is used by both of the seam's copies and by both circles (each closed at
+  // it), none with a p-curve: each use's ends at the copy its next sample continues on, no period between them.
+  {
+    cadgeom::Model m = load("seamByInversion");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-3;
+    EdgeMesh em(m, o);
+    int ends = 0;
+    for (int c = 0; c < m.coedges(); c++) {
+      const CoedgeSamples& s = em.coedge(c);
+      REQUIRE(s.status == cadgeom::Status::ok);
+      REQUIRE(s.uv.size() >= 2u);
+      const size_t n = s.uv.size();
+      for (auto [a, b] : {std::pair{s.uv[0], s.uv[1]}, std::pair{s.uv[n - 1], s.uv[n - 2]}}) {
+        if (std::fabs(a.x - b.x) > 1) std::printf("  coedge %d: end at u %g, next at %g\n", c, a.x, b.x);
+        CHECK(std::fabs(a.x - b.x) < 1);
+        ends++;
+      }
+    }
+    CHECK_EQ(ends, 2 * m.coedges());
+  }
+  // uFoldVertex's vertex has two feet, one on each arm of the U (u in [0, 1] and [2, 3]), the nearer on the other
+  // arm: the use's ends on its own arm, by its next samples.
+  {
+    cadgeom::Model m = load("uFoldVertex");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& s = em.coedge(0);
+    REQUIRE(s.status == cadgeom::Status::ok);
+    const size_t n = s.uv.size();
+    REQUIRE(n >= 3u);
+    for (size_t i : {size_t(0), n - 1}) {
+      if (!(s.uv[i].x < 1)) std::printf("  uFoldVertex: end %zu at u %g\n", i, s.uv[i].x);
+      CHECK(s.uv[i].x < 1);
+    }
+  }
+  // pcurveOnlyWest's helix has only its p-curve, ending at the seam vertex's copy u = 2 pi, its range by inversion:
+  // its parameters there of the copy the p-curve passes, 0 to its length.
+  {
+    cadgeom::Model m = load("pcurveOnlyWest");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-3;
+    EdgeMesh em(m, o);
+    CHECK_EQ(checkEdges(m, em, o, "pcurveOnlyWest"), 0);
+    CHECK_EQ(checkCoedges(m, em, 1e-9, "pcurveOnlyWest"), 0);
+    const EdgeSamples& h = em.edge(2);
+    REQUIRE(h.status == cadgeom::Status::ok);
+    const double len = std::hypot(M_PI / 2, 2);
+    if (!(std::fabs(h.t.front()) < 1e-9 && std::fabs(h.t.back() - len) < 1e-9))
+      std::printf("  pcurveOnlyWest: t %g to %g\n", h.t.front(), h.t.back());
+    CHECK(std::fabs(h.t.front()) < 1e-9);
+    CHECK(std::fabs(h.t.back() - len) < 1e-9);
+    CHECK(em.face(0).status == cadgeom::Status::ok);
+  }
+  // meridianHemisphere's vertex is the south pole, its great circle there at both ends: its free coordinate (u)
+  // there the next sample's, by continuation.
+  {
+    cadgeom::Model m = load("meridianHemisphere");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-3;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& s = em.coedge(0);
+    REQUIRE(s.status == cadgeom::Status::ok);
+    const size_t n = s.uv.size();
+    REQUIRE(n >= 3u);
+    CHECK(std::fabs(s.uv[0].y + M_PI / 2) < 1e-9);
+    CHECK(std::fabs(s.uv[n - 1].y + M_PI / 2) < 1e-9);
+    CHECK(std::fabs(s.uv[0].x - s.uv[1].x) < 1e-9);
+    CHECK(std::fabs(s.uv[n - 1].x - s.uv[n - 2].x) < 1e-9);
+  }
+}
+
+TEST_CASE("no fold judged between points within the tolerance: a meridian's sample at the pole beside its pole line") {
+  // The south vertex 1e-11 off the pole either way across either meridian, so the 3D turn at a meridian's sample
+  // beside the pole line's point (after it, or before) is rounding of either sign: no fold.
+  for (const char* name : {"luneOffPole", "luneOffPoleBack", "luneOffPoleC", "luneOffPoleCBack"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    EdgeMesh em(m, o);
+    const FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    if (fb.foldsRepaired) std::printf("  %s: %d folds repaired\n", name, fb.foldsRepaired);
+    CHECK_EQ(fb.foldsRepaired, 0);
+  }
+}
+
 TEST_CASE("a band with no seam edge: one cut, a pseudo-edge used both ways, away from the circles' vertex") {
   for (const char* name : {"band", "bandByInversion"}) {
     cadgeom::Model m = load(name);
@@ -876,10 +970,182 @@ TEST_CASE("a use's p-curve checked between its samples against its edge's curve:
   CHECK_EQ(checkCoedges(w, ew, 1e-9, "wigglePcurve"), 0);
 }
 
-TEST_CASE("splits below the refinement floor honoured, none on a span within the part's tolerance") {
-  // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4 and the bottom
-  // circle's spans are sampled no finer: a split asked on one longer than 0.2 is made (below the floor too), one on a
-  // span of chord at most 0.2 (the tolerance) dropped.
+TEST_CASE("a local foot stuck where it started while its point moved falls back on the global search") {
+  // uFoldFlat: its loop on the U's first arm, spans of 0.05 within its tolerance (0.1), so a foot left at the sample
+  // before's (u, v) passes the distance check; a stub local foot that never moves: every inside sample falls back,
+  // saying so, and each lands on its point.
+  cadgeom::Model m = load("uFoldFlat");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.maxSpacing = 0.05;
+  o.projectMissingPcurves = false;
+  EdgeMesh plain(m, o);
+  REQUIRE(plain.traceFallbacks().empty());
+  o.localFootForTests = [&](int, Vec3 p, Vec2 start, Vec2& foot, double& distance) {
+    foot = start;
+    distance = cadgeom::norm(p - Vec3{10 * start.x, 0, 10 * start.y});
+    return true;
+  };
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.uv.size() > 8);
+  int stuck = 0;
+  for (const TraceFallback& f : em.traceFallbacks()) stuck += std::strstr(f.why, "didn't move") != nullptr;
+  CHECK_EQ(stuck, static_cast<int>(cs.uv.size()) - 2);
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "uFoldFlat stuck"), 0);
+}
+
+TEST_CASE("a local foot a rounding's worth off a seam is on it, as the global search judges: its seam use recognized") {
+  // torusWide traced sample by sample (projection off), with a stub local foot 1e-10 off the torus's foot in u (1e-9
+  // in 3D, within the tolerance; past 1e-12 of the period): its tube at u = 0 is still a seam use, placed from its
+  // neighbours, so the far tube (over half a period away) isn't put at the seam's nearer copy; the loop over u 0 to
+  // pi + 0.4, valid.
+  cadgeom::Model m = load("torusWide");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-2;
+  o.projectMissingPcurves = false;
+  o.localFootForTests = [&](int, Vec3 p, Vec2 start, Vec2& foot, double& distance) {
+    const double rho = std::hypot(p.x, p.y);
+    const double u = start.x + std::remainder(std::atan2(p.y, p.x) - start.x, 2 * M_PI) + 1e-10;
+    const double v = start.y + std::remainder(std::atan2(p.z, rho - 5) - start.y, 2 * M_PI);
+    foot = {u, v};
+    const Vec3 q{(5 + std::cos(v)) * std::cos(u), (5 + std::cos(v)) * std::sin(u), std::sin(v)};
+    distance = cadgeom::norm(p - q);
+    return true;
+  };
+  EdgeMesh em(m, o);
+  REQUIRE(em.traces().local > 0);
+  const FaceBoundary fb = em.face(0);
+  if (fb.status != cadgeom::Status::ok) std::printf("  torusWide off by 1e-10: %s\n", fb.cause.c_str());
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  double lo = INFINITY, hi = -INFINITY;
+  for (const BoundaryPoint& q : fb.loops[0]) lo = std::min(lo, q.uv.x), hi = std::max(hi, q.uv.x);
+  CHECK(std::fabs(hi - lo - (M_PI + 0.4)) < 1e-6);
+}
+
+TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on its own arm of a thin U") {
+  // uFold: the loop's middle 0.07 off its arm towards the other, 0.03 from it. Every inside sample's foot continued
+  // from the one before, on the face's arm (u within [0, 1]); none fell back on the global search.
+  cadgeom::Model m = load("uFold");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.projectMissingPcurves = false;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.uv.size() > 8);
+  int off = 0;
+  for (Vec2 p : cs.uv) off += !(p.x >= 0 && p.x <= 1 + 1e-9);
+  if (off) std::printf("  uFold: %d of %zu samples off the arm\n", off, cs.uv.size());
+  CHECK_EQ(off, 0);
+  CHECK_EQ(em.traces().local, static_cast<int>(cs.uv.size()) - 2);
+  CHECK(em.traceFallbacks().empty());
+  CHECK(em.face(0).status == cadgeom::Status::ok);
+  // uFoldAway: 0.3 off the far side, past the tolerance (0.1), within the samples' spacing: continued all the same.
+  cadgeom::Model a = load("uFoldAway");
+  REQUIRE(a.ok());
+  EdgeMesh ea(a, o);
+  for (const TraceFallback& f : ea.traceFallbacks()) std::printf("  uFoldAway: at %g, %g off: %s\n", f.t, f.distance,
+    f.why);
+  CHECK(ea.traceFallbacks().empty());
+  CHECK_EQ(ea.traces().local, static_cast<int>(ea.coedge(0).uv.size()) - 2);
+  // uFoldFar: 3 off, past the tolerance and the spacing: the samples after the vertex fall back, each said, the
+  // global search's foot kept (on the arm: the far side is nearer it than the other arm).
+  cadgeom::Model far = load("uFoldFar");
+  REQUIRE(far.ok());
+  EdgeMesh ef(far, o);
+  REQUIRE(!ef.traceFallbacks().empty());
+  for (const TraceFallback& f : ef.traceFallbacks()) {
+    CHECK_EQ(f.coedge, 0);
+    CHECK(std::string(f.why).find("farther") != std::string::npos);
+    CHECK(f.distance > 0.1);
+  }
+  CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
+}
+
+TEST_CASE("a given p-curve off its edge's points past the tolerance: used, its inside samples polished onto them") {
+  // pcurveShifted: its p-curve 0.3 off in u at a tolerance of 0.005 (within the 0.5 allowed): from the p-curve, every
+  // inside sample's (u, v) now on its point within the tolerance, the use counted as given and off; pcurveCircle's,
+  // through its p-curve, on its points: given, not off.
+  cadgeom::Model m = load("pcurveShifted");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.01;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.fromPcurve);
+  REQUIRE(cs.uv.size() > 4);
+  double worst = 0;
+  for (size_t i = 1; i + 1 < cs.uv.size(); i++) {
+    const Vec3 P = em.edge(0).points[cs.index[i]];
+    worst = std::fmax(worst, std::hypot(cs.uv[i].x - P.x, cs.uv[i].y - P.y));
+  }
+  if (!(worst <= 0.005)) std::printf("  pcurveShifted: an inside sample %g off its point\n", worst);
+  CHECK(worst <= 0.005);
+  CHECK_EQ(em.givenPcurves().used, 1);
+  CHECK_EQ(em.givenPcurves().offTolerance, 1);
+  cadgeom::Model c = load("pcurveCircle");
+  REQUIRE(c.ok());
+  EdgeMesh ec(c, o);
+  CHECK(ec.givenPcurves().used >= 1);
+  CHECK_EQ(ec.givenPcurves().offTolerance, 0);
+}
+
+TEST_CASE("respace judges a span by its length, as sampling does: arcChord's arc split at a spacing over its chord") {
+  // The arc is 1 long and 0.9974 across: at spacing 0.9996 (between them, and over the 0.99935 that two chords of it
+  // give), sampling at that spacing gives the arc 2 spans, and respace does too, so the loop has 3 points; the chord
+  // stays one span.
+  cadgeom::Model m = load("arcChord");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.angle = 0.26;
+  EdgeMesh em(m, o);
+  REQUIRE(em.edge(0).t.size() == 2u);
+  REQUIRE(em.respace({0.9996}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(0).t.size(), 3u);
+  CHECK_EQ(em.edge(1).t.size(), 2u);
+  EdgeOptions at = o;
+  at.maxSpacing = 0.9996;
+  EdgeMesh sampled(m, at);
+  CHECK_EQ(sampled.edge(0).t.size(), em.edge(0).t.size());
+  const FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  CHECK_EQ(fb.loops[0].size(), 3u);
+}
+
+TEST_CASE("respace: every span split to the faces' spacing, the samples there kept, the uses redone") {
+  // band: its circles sampled at the deflection alone (spans of about 1.2), then the face's spacing 0.1 asked, more
+  // than one pass's 9 pieces: every span's chord within it, each sample before still there, each use's (u, v) count
+  // its edge's.
+  cadgeom::Model m = load("band");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  EdgeMesh em(m, o);
+  std::vector<std::vector<double>> before;
+  for (int e = 0; e < m.edges(); e++) before.push_back(em.edge(e).t);
+  REQUIRE(em.respace(std::vector<double>(m.faces(), 0.1)) == cadgeom::Status::ok);
+  for (int e = 0; e < m.edges(); e++) {
+    const EdgeSamples& s = em.edge(e);
+    double longest = 0;
+    for (size_t i = 0; i + 1 < s.points.size(); i++)
+      longest = std::fmax(longest, cadgeom::norm(s.points[i + 1] - s.points[i]));
+    if (!(longest <= 0.3)) std::printf("  band edge %d: a span of %g\n", e, longest);
+    CHECK(longest <= 0.1);
+    CHECK(s.t.size() > before[e].size());
+    for (double t : before[e]) CHECK(std::find(s.t.begin(), s.t.end(), t) != s.t.end());
+  }
+  for (int c = 0; c < m.coedges(); c++)
+    CHECK_EQ(em.coedge(c).uv.size(), em.edge(m.coedgeEdge(c)).t.size());
+}
+
+TEST_CASE("no split on a span whose chord is within the refinement floor, though asked; longer ones split") {
+  // spindleApex's uncertainty is 0.2, so at a deflection of 4 the floor is max(0.2, 0.4) = 0.4, above the tolerance:
+  // a split asked on a span whose chord is over 0.4 is made, one on a span of chord at most 0.4 dropped (between the
+  // tolerance and the floor too).
   cadgeom::Model m = load("spindleApex");
   REQUIRE(m.ok());
   EdgeOptions o;
@@ -889,26 +1155,30 @@ TEST_CASE("splits below the refinement floor honoured, none on a span within the
   for (int k = 0; k < m.edges() && e < 0; k++)
     if (m.curveKind(m.edgeCurve(k)) == CBR_CURVE_CIRCLE) e = k;
   REQUIRE(e >= 0);
-  // Halve its first span until its chord is within the tolerance, each split made while over it.
-  int made = 0, below = 0;
+  // Halve its first span while asked, round after round: each split made while its chord is over the floor, none
+  // after.
+  int made = 0, dropped = 0, droppedOverTolerance = 0;
   for (int round = 0; round < 12; round++) {
     const auto& P = em.edge(e).points;
     const double chord = cadgeom::norm(P[1] - P[0]);
     const size_t before = P.size();
     REQUIRE(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
     const size_t after = em.edge(e).points.size();
-    if (chord > 0.2) {
+    if (chord > 0.4) {
       CHECK_EQ(after, before + 1);
       made++;
-      below += chord < 0.4;
     } else {
       CHECK_EQ(after, before);
+      dropped++;
+      droppedOverTolerance += chord > 0.2;
     }
   }
   CHECK(made > 0);
-  // (Some of them below the floor: a span of chord under 0.4 split.)
-  CHECK(below > 0);
-  CHECK(cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]) <= 0.2);
+  CHECK(dropped > 0);
+  // (The first span's chord ends over the tolerance: the floor, not the tolerance, stopped it.)
+  CHECK(droppedOverTolerance > 0);
+  const double last = cadgeom::norm(em.edge(e).points[1] - em.edge(e).points[0]);
+  CHECK(last > 0.2 && last <= 0.4);
 }
 
 TEST_CASE("a given p-curve whose domain ends within 1e-9 of the use's range: clamped, used; farther refused") {

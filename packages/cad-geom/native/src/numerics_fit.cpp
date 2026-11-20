@@ -25,6 +25,7 @@ constexpr int MAX_SPANS = 1024;  // then noConvergence
 struct Fitter {
   const std::function<Vec2(double)>& f;
   int p;
+  const std::function<double(Vec2, Vec2)>* measure = nullptr;  // the caller's error, else the (u, v) distance
   bool finite = true;
 
   Vec2 at(double t) {
@@ -85,7 +86,7 @@ struct Fitter {
     double v[2];
     bspline::eval(c, t, 0, v);
     Vec2 q = at(t);
-    return std::hypot(v[0] - q.x, v[1] - q.y);
+    return measure && *measure ? (*measure)(Vec2{v[0], v[1]}, q) : std::hypot(v[0] - q.x, v[1] - q.y);
   }
 
   /** The largest error found on [a, b]: the checks, then golden-section search around the worst. */
@@ -116,10 +117,15 @@ struct Fitter {
 long curve2Rounds = 0;
 
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError) {
+  return curve2(f, r, degree, tol, out, maxError, {});
+}
+
+Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError,
+  const std::function<double(Vec2, Vec2)>& error) {
   maxError = std::numeric_limits<double>::infinity();
   if (!(degree >= 1 && degree <= 9) || !(tol > 0) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi))
     return Status::invalidModel;
-  Fitter fit{f, degree};
+  Fitter fit{f, degree, &error};
   std::vector<double> br{r.lo, r.hi};
   while (true) {
     curve2Rounds++;
