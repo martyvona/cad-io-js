@@ -40,6 +40,13 @@ public:
     CurveDomain d = c_->domain();
     return {d.range, {-kInf, kInf}, d.period, 0};
   }
+  void c0Lines(Range ru, Range, std::vector<IsoLine>& out) const override {
+    out.clear();
+    std::vector<double> b;
+    if (finite(ru)) c_->breaks(ru, b);
+    for (double x : b)
+      if (x > ru.lo && x < ru.hi) out.push_back({true, x});
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     Vec3 C[curves::kMaxOrder + 1];
     Status s = c_->derivs(u, std::min(order, curves::kMaxOrder), C);
@@ -106,6 +113,13 @@ public:
   SurfaceDomain domain() const override {
     CurveDomain d = c_->domain();
     return {{0, kTwoPi}, d.range, kTwoPi, d.period};
+  }
+  void c0Lines(Range, Range rv, std::vector<IsoLine>& out) const override {
+    out.clear();
+    std::vector<double> b;
+    if (finite(rv)) c_->breaks(rv, b);
+    for (double x : b)
+      if (x > rv.lo && x < rv.hi) out.push_back({false, x});
   }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     Vec3 Q[curves::kMaxOrder + 1];
@@ -294,6 +308,7 @@ class Offset final : public SurfaceImpl {
 public:
   Offset(std::unique_ptr<SurfaceImpl> basis, double d) : b_(std::move(basis)), d_(d) {}
   SurfaceDomain domain() const override { return b_->domain(); }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override { b_->c0Lines(ru, rv, out); }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     if (order + 1 > kMaxOrder) return Status::unsupported;
     Vec3 B[kPartials];
@@ -454,6 +469,7 @@ public:
     vP_ = d.vPeriod > 0 && v.hi - v.lo >= d.vPeriod * (1 - 8 * kEps) ? d.vPeriod : 0;
   }
   SurfaceDomain domain() const override { return {u_, v_, uP_, vP_}; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override { b_->c0Lines(ru, rv, out); }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     Status s = Status::ok;
     if (!uP_ && (u < u_.lo || u > u_.hi)) s = Status::outOfDomain, u = std::clamp(u, u_.lo, u_.hi);

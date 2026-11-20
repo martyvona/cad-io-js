@@ -27,8 +27,20 @@ constexpr double kPi = 3.141592653589793;
 constexpr double kTwoPi = 6.283185307179586;
 constexpr double kHalfPi = 1.5707963267948966;
 
+/** An iso-line of a surface: u = at (isoU), else v = at. */
+struct IsoLine {
+  bool isoU;
+  double at;
+};
+
 class SurfaceImpl : public Surface {
 public:
+  /**
+   * The iso-lines inside ru x rv (strictly) where the surface is only C0 by its form, so its normal can jump there: a
+   * B-spline's knots of multiplicity at least its degree, an extrusion's or revolution's profile breaks; a wrapper's,
+   * its basis's. Candidates only: tangent-continuous ones are among them (findCreases tests the normals).
+   */
+  virtual void c0Lines(Range, Range, std::vector<IsoLine>& out) const { out.clear(); }
   /**
    * S and its partials of total order <= `order` (0 to kMaxOrder) into out[pidx(k, l)]; periodic directions take any
    * value, others outside the domain give outOfDomain with the clamped values; singular where a kind's formula

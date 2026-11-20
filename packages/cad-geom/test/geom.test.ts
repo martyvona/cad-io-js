@@ -400,6 +400,66 @@ test('faces: p-curves periods from the surface\'s domain (u from -pi/4 - 4 pi to
   assert.deepEqual([...r0.sides].map((x) => ['in', 'out', 'on'][x]), ['in', 'in', 'out', 'out', 'out', 'out', 'on']);
 });
 
+test('faces: a C0 crease inside a face, split by a hole, its ends on the loops', { skip }, async () => {
+  // A quadratic in u with a double knot at u = 1, folding by 90 degrees there across a cross-section z = 0, 1, 2, 1, 0
+  // (control points at x = 0..4), linear in v over y in [0, 1]. The face is its (u, v) square [0, 2] x [0, 1] less a
+  // hole [0.8, 1.2] x [0.4, 0.6], the edges without 3D curves, their p-curves lines. The fold's line u = 1 crosses it
+  // in two pieces, each end past a loop. Then an L-shaped face and a disk on the same surface.
+  const b = new BrepBuilder();
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1, 2], vKnots: [0, 1],
+    uMultiplicities: [3, 2, 3], vMultiplicities: [2, 2],
+    poles: [0, 1, 2, 1, 0].map((z, i) => [[i, 0, z], [i, 1, z]]), uClosed: false, vClosed: false,
+    selfIntersect: false, form: 'unspecified' });
+  const at = (u: number, v: number): [number, number, number] =>
+    u <= 1 ? [2 * u, v, 2 * u] : [2 * u, v, 4 - 2 * u];
+  const loop = (uv: number[][], bound: 'outer' | 'inner') => {
+    const vs = uv.map(([u, v]) => b.addVertex({ point: at(u!, v!) }));
+    const coedges = uv.map(([u, v], k) => {
+      const [nu, nv] = uv[(k + 1) % uv.length]!;
+      const pcurve = b.addCurve({ kind: 'line', point: [u!, v!], direction: [nu! - u!, nv! - v!], magnitude: 1 });
+      const edge = b.addEdge({ start: vs[k]!, end: vs[(k + 1) % uv.length]!, sameSense: true, range: [0, 1] });
+      return { edge, orientation: 'forward' as const, pcurve };
+    });
+    return { kind: 'edge' as const, bound, sense: true, coedges };
+  };
+  const f = b.addFace({ surface, sameSense: true, loops: [loop([[0, 0], [2, 0], [2, 1], [0, 1]], 'outer'),
+    loop([[0.8, 0.4], [0.8, 0.6], [1.2, 0.6], [1.2, 0.4]], 'inner')] });
+  b.addItem({ kind: 'face', ref: f });
+  // An L: u = 1 inside it for v < 0.5, its edge above.
+  const l = b.addFace({ surface, sameSense: true,
+    loops: [loop([[0, 0], [2, 0], [2, 0.5], [1, 0.5], [1, 1], [0, 1]], 'outer')] });
+  b.addItem({ kind: 'face', ref: l });
+  // A disk: one edge without vertices or a 3D curve, its p-curve a circle of radius 0.4 about (1, 0.5).
+  const circle = b.addCurve({ kind: 'circle', position: { origin: [1, 0.5], xDir: [1, 0] }, radius: 0.4 });
+  const rim = b.addEdge({ sameSense: true, range: [0, 2 * Math.PI] });
+  const disk = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: rim, orientation: 'forward', pcurve: circle }] }] });
+  b.addItem({ kind: 'face', ref: disk });
+  using g = new Geometry(await init(), new Uint8Array(b.finish().buffer));
+  assert.equal(g.faceInfo(0).status, 'ok');
+  const r = g.faceCreases(0, 15 * Math.PI / 180);
+  assert.equal(r.status, 'ok');
+  assert.equal(r.creases.length, 2, JSON.stringify(r));
+  const [a, c] = r.creases;
+  const tol = 1e-4;  // well past three (u, v) tolerances (1e-5 over a stretch of about 2.8)
+  assert.ok(a!.isoU && a!.at === 1 && c!.isoU && c!.at === 1, JSON.stringify(r));
+  assert.ok(a!.lo < 0 && a!.lo > -tol && a!.hi > 0.4 && a!.hi < 0.4 + tol, JSON.stringify(a));
+  assert.ok(c!.lo < 0.6 && c!.lo > 0.6 - tol && c!.hi > 1 && c!.hi < 1 + tol, JSON.stringify(c));
+  assert.ok(r.creases.every((x) => x.loOnBoundary && x.hiOnBoundary && Math.abs(x.jump - Math.PI / 2) < 1e-6));
+  const el = g.faceCreases(1, 15 * Math.PI / 180);
+  assert.equal(el.creases.length, 1, JSON.stringify(el));
+  const e = el.creases[0]!;
+  assert.ok(e.lo < 0 && e.hi > 0.5 && e.hi < 0.5 + 2 * tol && e.loOnBoundary && e.hiOnBoundary, JSON.stringify(e));
+  // The disk's box is its circle's, not its one point where it starts: the line u = 1 across it, v in [0.1, 0.9].
+  const dk = g.faceCreases(2, 15 * Math.PI / 180);
+  assert.equal(dk.creases.length, 1, JSON.stringify(dk));
+  const k = dk.creases[0]!;
+  assert.ok(k.lo < 0.1 && k.lo > 0.1 - tol && k.hi > 0.9 && k.hi < 0.9 + tol, JSON.stringify(k));
+  // Past its jump, none; a face that isn't one, its status.
+  assert.deepEqual(g.faceCreases(0, 91 * Math.PI / 180).creases, []);
+  assert.equal(g.faceCreases(5, 0.1).status, 'invalidModel');
+});
+
 test('faces: line p-curves scaled otherwise than their 3D lines get their own ranges', { skip }, async () => {
   // A unit square on z = 0, its edges 3D lines on t in [0, 1], its p-curves lines on t in [0, 100] (magnitude 0.01,
   // as brep_wv1/2 write them the other way round): unbounded p-curves, sampled over the curve's parameters.
