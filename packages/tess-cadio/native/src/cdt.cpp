@@ -296,8 +296,12 @@ bool Triangulation::build(int32_t duplicate[2]) {
   return true;
 }
 
-void Triangulation::cavity(Vec2 p, int32_t t, const Map2& map, std::vector<int32_t>& cav,
+void Triangulation::cavity(Vec2 p, int32_t t, const Map2& raw, std::vector<int32_t>& cav,
   std::vector<std::pair<int32_t, int>>& outside, std::vector<std::pair<int32_t, int32_t>>& bnd) const {
+  // The map scaled to l11 = 1 (the incircle's sign doesn't change under a uniform scale): an isotropic metric's is
+  // then the identity, so its test is exact on the points themselves. Scaled points round, which near-cocircular
+  // points (a refinement's cluster where boundary samples nearly meet) turn into cavities not Delaunay.
+  const Map2 map = {1, raw.l12 / raw.l11, raw.l22 / raw.l11};
   Vec2 mp = map(p);
   auto holds = [&](int32_t w) {
     const Tri& W = tris_[w];

@@ -798,9 +798,11 @@ TEST_CASE("[exact] nearly collinear and nearly cocircular points (needs exact pr
     double t = 2 * M_PI * k / 40;
     d.points.push_back({0.5 + 0.3 * std::cos(t) * (1 + 1e-16 * (k % 3)), 0.5 + 0.3 * std::sin(t)});
   }
-  // (At 0.35 rad. At the 10-degree default one Steiner point's cavity leaves edge 90-289 not Delaunay beyond
-  // rounding: a known open defect of the cavity's shrink, being fixed.)
+  // And refined at 0.35 rad and at the default: refinement crowds points where the circle's samples nearly meet the
+  // line's (1e-17 apart), each cavity Delaunay as tested on the points themselves (an isotropic metric's map the
+  // identity, cdt.cpp's cavity: scaled, rounding left edges not Delaunay there).
   CHECK_EQ(validate(d, mesh2(d, Uniform(10), {1000000, 0.35}), "near-degenerate"), 0);
+  CHECK_EQ(validate(d, mesh2(d, Uniform(10)), "near-degenerate, 10 degrees"), 0);
 }
 
 TEST_CASE("segment recovery: boundaries crowded by interior points, recovered and constrained Delaunay elsewhere") {
