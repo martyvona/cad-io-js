@@ -24,6 +24,10 @@
 // time, the file fails), each kill logged on standard error. A check whose file takes long says it's alive through
 // its context's `progress` (each call restarts the idle clock, and a kill names the last thing it said: where it was).
 // The messages arrive while the child is busy: a send writes to the channel at once.
+//
+// A child whose setup fails (a backend that won't start), or that ends before it's ready, fails the run: the other
+// children are killed and runFiles rejects naming the error, so a check never reports a run in which no file ran as
+// if it were clean.
 import { fork, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -109,6 +113,18 @@ export function division(threads = os.availableParallelism(), memory = usableMem
 }
 
 /**
+ * Every pool's init together (a check's setup); any that fail reject as one error naming each by its key, once all
+ * have settled: "backend init failed: <key>: <its error>; ...".
+ */
+export async function initAll(pools: Record<string, { init(): Promise<unknown> }>): Promise<void> {
+  const names = Object.keys(pools);
+  const rs = await Promise.allSettled(names.map((k) => pools[k]!.init()));
+  const bad = rs.flatMap((r, i) => (r.status === 'rejected' ? [`${names[i]}: ${(r.reason as Error)?.message
+    ?? String(r.reason)}`] : []));
+  if (bad.length) throw new Error(`backend init failed: ${bad.join('; ')}`);
+}
+
+/**
  * Runs `check` (exported by the module at `moduleUrl`, the caller's `import.meta.url`) over the files, each with its
  * job, and gives `merge` each file's result (or the error it threw, or its child's crash) in file order. `args` are
  * given to setup (the check's command line, so children read it as the main process does).
@@ -156,13 +172,24 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
   // A file's end frees its estimate; the children waiting for room try again (in the order they began waiting).
   const ended = (k: number) => { inFlight -= estimate(k), runningFiles--; };
   const wake = () => { for (const g of waiting.splice(0)) g(); };
+  // A child's setup failing (or the child ending before it's ready) fails the run: no more files start, the other
+  // children are killed, and runFiles rejects with this.
+  let failure: Error | undefined;
+  const live = new Set<ChildProcess>();
+  const fail = (why: string) => {
+    if (failure) return;
+    failure = new Error(`runner: ${why}`);
+    queue.splice(0);
+    for (const c of live) c.kill('SIGKILL');
+  };
   await new Promise<void>((resolve) => {
     let running = 0;
     const start = () => {
       const c: ChildProcess = fork(child, [moduleUrl, String(meshWorkers), ...args],
         { serialization: 'advanced', stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
       running++;
-      let current = -1, idle: NodeJS.Timeout | undefined, killedIdle = false, said = '';
+      live.add(c);
+      let current = -1, idle: NodeJS.Timeout | undefined, killedIdle = false, said = '', ready = false;
       // The idle clock on the current file, restarted by each message.
       const arm = () => {
         clearTimeout(idle);
@@ -192,7 +219,13 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
         arm();
       };
       c.on('message', (m: { type: 'ready' } | { type: 'stats'; maxRss: number } | { type: 'progress'; what: string }
-        | { type: 'result'; result: R; maxRss: number } | { type: 'error'; error: string; maxRss: number }) => {
+        | { type: 'result'; result: R; maxRss: number } | { type: 'error'; error: string; maxRss: number }
+        | { type: 'setupError'; error: string }) => {
+        if (m.type === 'setupError') {
+          fail(`a child's setup failed, so the run stopped: ${m.error}`);
+          return;
+        }
+        if (m.type === 'ready') ready = true;
         if (m.type === 'progress') {
           said = m.what;
           arm();
@@ -219,9 +252,12 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
         give();
         wake();
       });
-      c.on('exit', (code, signal) => {
+      // ('close', not 'exit': by then every message the child sent has arrived, its setupError among them.)
+      c.on('close', (code, signal) => {
         running--;
+        live.delete(c);
         clearTimeout(idle);
+        if (!ready) fail(`a child ended before it was ready (${signal ?? `exit ${code}`}), so the run stopped`);
         // A crash: its file failed (or, killed idle the first time, is given again); a new child takes the rest.
         if (current >= 0) {
           ended(current);
@@ -243,6 +279,7 @@ export async function runFiles<J, R>(moduleUrl: string, check: FileCheck<J, R>, 
     for (let k = 0; k < Math.min(children, files.length); k++) start();
     if (!files.length) resolve();
   });
+  if (failure) throw failure;
   deliver();
   if (held.size) process.stderr.write(`runner: ${held.size} files waited for room in the memory budget\n`);
   peak.report(children, meshWorkers);
