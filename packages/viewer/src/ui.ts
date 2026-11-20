@@ -14,7 +14,7 @@ import { applyCustomBackground, applyTheme, customBackground, hexColour, onSyste
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
-import { showProblems } from './problems.ts';
+import { faceCausesOf, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
@@ -753,13 +753,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.triangleEdges.select(pieces);
     viewer.redraw();
   };
+  // The failed faces' causes (problems.ts), read again only when the model's diagnostics change (a new list, or more
+  // pushed onto it as meshing ends).
+  let causesFor: { of: unknown; n: number; map: Map<number, string> } | undefined;
+  const causes = () => {
+    const d = viewer.model?.diagnostics ?? [];
+    if (causesFor?.of !== d || causesFor.n !== d.length) causesFor = { of: d, n: d.length, map: faceCausesOf(d) };
+    return causesFor.map;
+  };
   // The details stay while they describe a selection, and fade as the status line does while there's none.
   const detailsShown = autoHide(detailsElement);
   const describe = () => {
     const was = detailsElement.hidden;
     detailsElement.hidden = !selection.details;
     if (!selection.details || !viewer.nodes) return;
-    const text = details(viewer.nodes, selected).join('\n');
+    const text = details(viewer.nodes, selected, causes()).join('\n');
     if (text !== detailsElement.textContent || was) detailsShown(selected.length > 0);
     detailsElement.textContent = text;
   };
@@ -1008,7 +1016,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       !!(missing.length || bad.length) && !found.length);
       return { selected: found.length, found: [...hit], missing, bad };
     },
-    details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
+    details: () => (viewer.nodes ? details(viewer.nodes, selected, causes()) : []),
     openUrl,
     openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
     currentUrl: () => last?.url,

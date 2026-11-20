@@ -1,8 +1,10 @@
 // The errors of loading or meshing a model again (the importer's and the meshing's: parts that failed to build or mesh,
-// or timed out, and faces that failed to mesh), shown in a modal once meshing is done; warnings only in the status
-// line's count and the console.
+// or timed out, and faces that failed to mesh), shown in a modal once meshing is done, with each failed face's cause
+// where its backend said one (tess-cadio's by-cause diagnostic, an info: tess-cadio/causes); warnings only in the
+// status line's count and the console.
 
 import type { Diagnostic } from 'cad-scene';
+import { CAUSES_HEAD, failedCauses } from 'tess-cadio/causes';
 import { showDialog } from './dialog.ts';
 import { formatIds } from './step-ids.ts';
 
@@ -11,13 +13,36 @@ export const MAX_LISTED = 500;
 
 const errorsOf = (diagnostics: readonly Diagnostic[]) => diagnostics.filter((d) => d.severity === 'error');
 
-/** The errors among diagnostics, in the order met, as rows: where, and the message. */
+/**
+ * The errors among diagnostics, in the order met, as rows: where, the message, and where any listed has one, a
+ * third column: a failed-faces error's causes (faceCausesOf), each with its faces, else empty.
+ */
 export function problemRows(diagnostics: readonly Diagnostic[], max = MAX_LISTED):
-  { rows: [string, string][]; errors: number; more: number } {
+  { rows: string[][]; errors: number; more: number } {
   const errors = errorsOf(diagnostics);
-  const rows = errors.slice(0, max).map((d): [string, string] =>
-    [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message]);
+  const listed = errors.slice(0, max);
+  const causes = listed.map((d) => causesText(diagnostics, d));
+  const rows = listed.map((d, i) => [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message,
+    ...(causes.some(Boolean) ? [causes[i]!] : [])]);
   return { rows, errors: errors.length, more: Math.max(0, errors.length - max) };
+}
+
+/** Each failed face's cause, by its STEP id, as its backend said them (tess-cadio's; none for other backends). */
+export const faceCausesOf = (diagnostics: readonly Diagnostic[]) => failedCauses({ diagnostics });
+
+/**
+ * A failed-faces error's causes, as "<status>: <cause> (#id, ...)" joined by "; ": its part's by-cause diagnostic
+ * (the same source), which names every face the error does (the error at most 10); '' for another error or where
+ * none was said.
+ */
+function causesText(diagnostics: readonly Diagnostic[], error: Diagnostic): string {
+  if (!error.source || !/faces failed to mesh/.test(error.message)) return '';
+  const by = new Map<string, number[]>();
+  for (const d of diagnostics) {
+    if (d.source?.id !== error.source.id || !d.message.startsWith(CAUSES_HEAD)) continue;
+    for (const [id, cause] of failedCauses({ diagnostics: [d] })) by.set(cause, [...(by.get(cause) ?? []), id]);
+  }
+  return [...by].map(([cause, ids]) => `${cause} (${ids.map((i) => `#${i}`).join(', ')})`).join('; ');
 }
 
 /** The STEP ids the errors came from, each once, in the rows' order (what Copy IDs copies). */

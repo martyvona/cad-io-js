@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./options": "./src/options.ts"
+    "./options": "./src/options.ts",
+    "./causes": "./src/causes.ts"
   },
   "scripts": {
     "build": "./build.sh module",
