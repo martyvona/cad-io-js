@@ -8,9 +8,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
-import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam,
-  luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
+import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, knotAtEnd, loopless,
+  luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
@@ -363,3 +363,58 @@ test('uses without p-curves counted by how they were sampled, said where one fel
   assert.deepEqual([n, inverted], [4, 0]);
   assert.ok(atTol >= 1 && within + atTol === 4, `${within}, ${atTol}`);
 });
+
+test('init({countInsertions}): the points inserted by what queued them, said; the mesh the same; off by default',
+  { skip }, async () => {
+    const run = async (on: boolean | undefined, data: Uint8Array) => {
+      const t = new CadioTessellator();
+      await t.init(on === undefined ? {} : { countInsertions: on });
+      return t.tessellate({ ...req('cube'), data, edges: false });
+    };
+    const counts = (r: TessellationResult) => {
+      const d = r.diagnostics.filter((x) => x.message.startsWith(INSERTED_HEAD));
+      if (!d.length) return undefined;
+      assert.equal(d.length, 1);
+      assert.equal(d[0]!.severity, 'info');
+      const parts = d[0]!.message.slice(INSERTED_HEAD.length).split(', ');
+      assert.deepEqual(parts.map((x) => x.slice(0, x.lastIndexOf(' '))), INSERTED_KINDS);
+      return new Map(parts.map((x) => [x.slice(0, x.lastIndexOf(' ')), Number(x.slice(x.lastIndexOf(' ') + 1))]));
+    };
+    // Independently: a face's vertices off its boundary in its triangles (no seam, pole or split boundary on these).
+    const interior = (r: TessellationResult) => {
+      let n = 0;
+      for (const f of r.faces) {
+        const used = new Set<number>(), side = new Map<string, number>();
+        for (let k = f.start; k < f.start + f.count; k += 3) {
+          for (let c = 0; c < 3; c++) {
+            const a = r.indices[k + c]!, b = r.indices[k + (c + 1) % 3]!;
+            used.add(a);
+            const key = a < b ? `${a},${b}` : `${b},${a}`;
+            side.set(key, (side.get(key) ?? 0) + 1);
+          }
+        }
+        const boundary = new Set([...side].filter(([, m]) => m === 1).flatMap(([k]) => k.split(',').map(Number)));
+        n += [...used].filter((v) => !boundary.has(v)).length;
+      }
+      return n;
+    };
+    const sum = (c: Map<string, number>) => [...c.values()].reduce((a, b) => a + b, 0);
+    for (const [name, data] of [['bumpPatch', bumpPatch()], ['knotAtEnd', knotAtEnd()]] as const) {
+      const bytesOf = new Uint8Array(data.finish().buffer);
+      const on = await run(true, bytesOf), off = await run(false, bytesOf), dflt = await run(undefined, bytesOf);
+      const c = counts(on);
+      assert.ok(c, name);
+      assert.equal(sum(c), interior(on), name);
+      assert.ok(sum(c) > 0, name);
+      // (A B-spline has no closed form.)
+      assert.equal(c.get('deviation in closed form'), 0, name);
+      assert.equal(counts(off), undefined), assert.equal(counts(dflt), undefined);
+      const strip = (r: TessellationResult) => ({ ...r, diagnostics: r.diagnostics.filter((x) =>
+        !x.message.startsWith(INSERTED_HEAD)) });
+      assert.equal(bytes(strip(on)), bytes(off), name);
+    }
+    // A sphere's deviation is in closed form: some by it, none sampled or bounded.
+    const sp = counts(await run(true, new Uint8Array(MODELS.spheres().finish().buffer)))!;
+    assert.ok(sp.get('deviation in closed form')! > 0);
+    assert.equal(sp.get('deviation sampled'), 0), assert.equal(sp.get('deviation bounded'), 0);
+  });
