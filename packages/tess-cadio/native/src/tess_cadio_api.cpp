@@ -78,7 +78,10 @@ void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 /** The next calls' PartOptions::maxPointsPerFace (default 100,000; under 1: the default). */
 void tc_set_max_points(int points) { maxPoints = points > 0 ? points : PartOptions{}.maxPointsPerFace; }
 
-/** The next calls' PartOptions::minAngle in radians (default 10 degrees, at most 30; negative or not finite: the default). */
+/**
+ * The next calls' PartOptions::minAngle in radians (default 10 degrees, at most 30; negative or not finite: the
+ * default).
+ */
 void tc_set_min_angle(double radians) {
   minAngle = std::isfinite(radians) && radians >= 0 ? radians : PartOptions{}.minAngle;
 }
@@ -157,10 +160,10 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (fm.seamUnsettled) unsettled.push_back(faceId[f]);
-      if (fm.capped) capped.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
       if (fm.foldsRepaired) folded.push_back(faceId[f]), folds += static_cast<uint32_t>(fm.foldsRepaired);
     } else {
+      if (fm.capped) capped.push_back(faceId[f]);
       failed.push_back(faceId[f]);
       failedRows.push_back(static_cast<uint32_t>(f));
       failedStatus.push_back(static_cast<uint32_t>(fm.status == Status::ok ? Status::invalidModel : fm.status));
@@ -286,8 +289,8 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex), "ringBlocked" and
  * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
- * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces whose refinement stopped at the point
- * cap: FaceMesh::capped)}.
+ * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces failed for refinement stopped at the
+ * point cap: FaceMesh::capped)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }

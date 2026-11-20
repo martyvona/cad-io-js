@@ -309,7 +309,7 @@ export class CadioTessellator implements Tessellator {
         + 'surface sampled, not bounded (their surfaces\' derivative bounds not yet tight)' });
     }
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
-    note('capped', 'with refinement stopped at their point cap');
+    note('capped', 'failed with refinement stopped at their point cap');
     // The uses without p-curves, by how they were sampled: [within 0.05 x the deflection, at the edge's tolerance,
     // by inversion]; said where any fell back from the first.
     const pc = list('projections');
