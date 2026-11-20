@@ -71,6 +71,19 @@ public:
       }
   }
   SurfaceDomain domain() const override { return {{U_[p_], U_[nu_]}, {V_[q_], V_[nv_]}, 0, 0}; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override {
+    out.clear();
+    // Interior knots repeated at least the degree's times.
+    auto add = [&](const std::vector<double>& K, int degree, Range r, bool isoU) {
+      for (size_t i = 0; i < K.size();) {
+        size_t j = i;
+        while (j < K.size() && K[j] == K[i]) j++;
+        if (static_cast<int>(j - i) >= degree && K[i] > r.lo && K[i] < r.hi) out.push_back({isoU, K[i]});
+        i = j;
+      }
+    };
+    add(U_, p_, ru, true), add(V_, q_, rv, false);
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     SurfaceDomain d = domain();
     Status st = Status::ok;
