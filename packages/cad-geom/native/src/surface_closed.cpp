@@ -1,0 +1,225 @@
+// surface.h's closeInFact: a surface closed where it closes in fact (a direction's two ends one curve, within the
+// caller's tol at 9 points, the surface at least kAcross x tol across it), and its sides collapsed within tol reported
+// as pole lines (the surface at least kAcross x tol along them). A wrapper SurfaceImpl over the surface: every query
+// takes parameters reduced into the range in a direction it made periodic, and a box or a list of breaks over a range
+// crossing the seam is the hull or the union of the pieces either side of it.
+#include <algorithm>
+#include <cmath>
+
+#include "surface_impl.h"
+
+namespace cadgeom {
+namespace surfaces {
+
+namespace {
+
+/**
+ * A direction closes in fact only where the surface is at least this many tolerances across it, and a side collapses
+ * only where it's at least that long along the side.
+ */
+constexpr double kAcross = 10;
+/** The steps of the polyline that measures an iso-curve across. */
+constexpr int kAcrossSteps = 64;
+
+/**
+ * x reduced into [r.lo, r.hi], P = r.hi - r.lo: as it is where it's already in (r.hi too), else by whole periods,
+ * clamped into the range (x - P floor((x - lo) / P) can round past either end).
+ */
+double reduce(double x, Range r, double P) {
+  if (x >= r.lo && x <= r.hi) return x;
+  double y = x - P * std::floor((x - r.lo) / P);
+  return std::clamp(y, r.lo, r.hi);
+}
+
+/**
+ * The pieces of a range, in a direction of period P over [r.lo, r.hi]: each piece reduced into r, with the shift that
+ * takes it back (the range itself where the direction isn't periodic); the whole of r where it spans a period.
+ */
+struct Piece {
+  Range r;
+  double shift;
+};
+std::vector<Piece> pieces(Range a, Range r, double P) {
+  if (!(P > 0)) return {{a, 0}};
+  if (a.hi - a.lo >= P) return {{r, 0}};
+  std::vector<Piece> out;
+  double lo = reduce(a.lo, r, P), shift = a.lo - lo, w = a.hi - a.lo;
+  if (lo + w <= r.hi) return {{{lo, lo + w}, shift}};
+  out.push_back({{lo, r.hi}, shift});
+  out.push_back({{r.lo, lo + w - P}, shift + P});
+  return out;
+}
+
+class Closed final : public SurfaceImpl {
+public:
+  Closed(std::unique_ptr<SurfaceImpl> s, bool u, bool v, std::vector<Singularity> added)
+    : s_(std::move(s)), added_(std::move(added)) {
+    dom_ = s_->domain();
+    if (u) dom_.uPeriod = dom_.u.hi - dom_.u.lo;
+    if (v) dom_.vPeriod = dom_.v.hi - dom_.v.lo;
+    newU_ = u, newV_ = v;
+  }
+  SurfaceDomain domain() const override { return dom_; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override {
+    s_->c0Lines(ru, rv, out);
+    // The seam a closing made: its basis's ends meet there, often at an angle.
+    if (newU_) out.push_back({true, dom_.u.lo});
+    if (newV_) out.push_back({false, dom_.v.lo});
+  }
+  Status derivs(double u, double v, int order, Vec3* out) const override {
+    return s_->derivs(ru(u), rv(v), order, out);
+  }
+  Status normal(double u, double v, Vec3& out) const override { return s_->normal(ru(u), rv(v), out); }
+  void breaks(Range a, Range b, std::vector<double>& us, std::vector<double>& vs) const override {
+    // Each direction alone: the base's breaks on each piece, shifted back, the seams between pieces included.
+    auto along = [&](Range x, bool isU) {
+      std::vector<double> out, one, other;
+      Range r = isU ? dom_.u : dom_.v;
+      double P = isU ? (newU_ ? dom_.uPeriod : 0) : (newV_ ? dom_.vPeriod : 0);
+      if (P > 0 && x.hi - x.lo >= P) {
+        // A period or more: every period's breaks.
+        double k0 = std::floor((x.lo - r.lo) / P);
+        for (double k = k0; r.lo + k * P <= x.hi; k++) {
+          Range piece{maxNum(x.lo, r.lo + k * P), minNum(x.hi, r.lo + (k + 1) * P)};
+          if (piece.lo > piece.hi) continue;
+          Range red{piece.lo - k * P, piece.hi - k * P};
+          isU ? s_->breaks(red, b, one, other) : s_->breaks(a, red, other, one);
+          for (double t : one) out.push_back(t + k * P);
+        }
+      } else {
+        for (const Piece& p : pieces(x, r, P)) {
+          isU ? s_->breaks(p.r, b, one, other) : s_->breaks(a, p.r, other, one);
+          for (double t : one) out.push_back(t + p.shift);
+        }
+      }
+      std::sort(out.begin(), out.end());
+      out.erase(std::unique(out.begin(), out.end()), out.end());
+      return out;
+    };
+    us = along(a, true), vs = along(b, false);
+  }
+  Status derivBox(Range a, Range b, int k, int l, Box3& out) const override {
+    out = emptyBox();
+    for (const Piece& p : pieces(a, dom_.u, newU_ ? dom_.uPeriod : 0))
+      for (const Piece& q : pieces(b, dom_.v, newV_ ? dom_.vPeriod : 0)) {
+        Box3 x;
+        Status s = s_->derivBox(p.r, q.r, k, l, x);
+        if (s != Status::ok) return out = x, s;
+        out = hull(out, x);
+      }
+    return Status::ok;
+  }
+  void singularities(std::vector<Singularity>& out) const override {
+    s_->singularities(out);
+    out.insert(out.end(), added_.begin(), added_.end());
+    std::sort(out.begin(), out.end(), [](const Singularity& x, const Singularity& y) {
+      return x.isoU != y.isoU ? x.isoU < y.isoU : x.at < y.at;
+    });
+  }
+  void within(Vec3 p, double d, Range& u, Range& v) const override { s_->within(p, d, u, v); }
+  bool footCandidates(Vec3 p, Range u, Range v, double tol, std::vector<Vec2>& out) const override {
+    // The base's closed forms take its own periods; one this made periodic has none (it can't be a kind with them).
+    if (newU_ || newV_) return false;
+    return s_->footCandidates(p, u, v, tol, out);
+  }
+  char footFamily(Vec3 p) const override { return s_->footFamily(p); }
+  bool splitByBoxes() const override { return s_->splitByBoxes(); }
+
+private:
+  double ru(double u) const { return newU_ ? reduce(u, dom_.u, dom_.uPeriod) : u; }
+  double rv(double v) const { return newV_ ? reduce(v, dom_.v, dom_.vPeriod) : v; }
+
+  std::unique_ptr<SurfaceImpl> s_;
+  std::vector<Singularity> added_;
+  SurfaceDomain dom_;
+  bool newU_ = false, newV_ = false;
+};
+
+} // namespace
+
+} // namespace surfaces
+
+using namespace surfaces;
+
+std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
+  SurfaceImpl* impl = dynamic_cast<SurfaceImpl*>(s.get());
+  if (!impl || !(tol >= 0)) return s;
+  SurfaceDomain d = impl->domain();
+  auto at = [&](double u, double v) {
+    Vec3 q[kPartials];
+    impl->derivs(u, v, 0, q);
+    return q[0];
+  };
+  auto y = [](Range r, int k) { return k == 8 ? r.hi : r.lo + (r.hi - r.lo) * k / 8; };
+  bool fu = finite(d.u), fv = finite(d.v);
+  // Closed in fact: the two ends one curve at 9 points of the other range, or of [-1, 1] where that is infinite (an
+  // extrusion's ends differ by its profile's whatever v is; no other kind with an infinite range closes in fact).
+  auto window = [](Range r) { return finite(r) ? r : Range{maxNum(r.lo, -1.0), minNum(r.hi, 1.0)}; };
+  // And wide: the longest iso-curve along the direction, at the same 9 points, as a polyline of kAcrossSteps steps,
+  // at least kAcross x tol; a sliver narrower than that is degenerate, not closed (its sides are boundaries).
+  auto closes = [&](bool isU) {
+    if (!(isU ? fu : fv) || (isU ? d.uPeriod : d.vPeriod) > 0) return false;
+    Range wu = window(d.u), wv = window(d.v);
+    double across = 0;
+    for (int k = 0; k <= 8; k++) {
+      Vec3 a = isU ? at(d.u.lo, y(wv, k)) : at(y(wu, k), d.v.lo);
+      Vec3 b = isU ? at(d.u.hi, y(wv, k)) : at(y(wu, k), d.v.hi);
+      if (!(norm(a - b) <= tol)) return false;
+      double len = 0;
+      Vec3 prev = a;
+      for (int j = 1; j <= kAcrossSteps; j++) {
+        const Range r = isU ? d.u : d.v;
+        const double x = j == kAcrossSteps ? r.hi : r.lo + (r.hi - r.lo) * j / kAcrossSteps;
+        const Vec3 q = isU ? at(x, y(wv, k)) : at(y(wu, k), x);
+        len += norm(q - prev);
+        prev = q;
+      }
+      across = maxNum(across, len);
+    }
+    return across >= kAcross * tol;
+  };
+  bool cu = closes(true), cv = closes(false);
+  // Collapsed sides: S(x, y_k) within tol of S(x, y_0) for every k; not those the surface reports already. And only
+  // on a surface wide along the side (its longest iso-curve that way, at 9 points of its own range, at least kAcross x
+  // tol), as a direction closes only on one wide across it: a surface about as small as its tolerance (a cap of
+  // 0.2 mm under 1 mm, trj7_b1-ec-214's; a 0.1 mm patch under 0.13, LMP1 #1087410's) has every side within it, and
+  // no row of it is meaningfully a pole.
+  std::vector<Singularity> have, added;
+  impl->singularities(have);
+  auto wideAlong = [&](bool isU) {
+    // (Along v for a side at a u, so iso-curves along v at 9 u's; along u for a side at a v.)
+    const Range own = isU ? window(d.u) : window(d.v), along = isU ? d.v : d.u;
+    double longest = 0;
+    for (int k = 0; k <= 8; k++) {
+      double len = 0;
+      Vec3 prev = isU ? at(y(own, k), along.lo) : at(along.lo, y(own, k));
+      for (int j = 1; j <= kAcrossSteps; j++) {
+        const double t = j == kAcrossSteps ? along.hi : along.lo + (along.hi - along.lo) * j / kAcrossSteps;
+        const Vec3 q = isU ? at(y(own, k), t) : at(t, y(own, k));
+        len += norm(q - prev);
+        prev = q;
+      }
+      longest = maxNum(longest, len);
+    }
+    return longest >= kAcross * tol;
+  };
+  auto collapsed = [&](bool isU, double x) {
+    Range other = isU ? d.v : d.u;
+    if (!finite(other) || !wideAlong(isU)) return;
+    Vec3 a0 = isU ? at(x, y(other, 0)) : at(y(other, 0), x);
+    for (int k = 1; k <= 8; k++) {
+      Vec3 a = isU ? at(x, y(other, k)) : at(y(other, k), x);
+      if (!(norm(a - a0) <= tol)) return;
+    }
+    for (const Singularity& g : have)
+      if (g.kind != Singularity::normalVanishes && g.isoU == isU && g.at == x) return;
+    added.push_back({Singularity::pole, isU, x, a0});
+  };
+  if (fu) collapsed(true, d.u.lo), collapsed(true, d.u.hi);
+  if (fv) collapsed(false, d.v.lo), collapsed(false, d.v.hi);
+  if (!cu && !cv && added.empty()) return s;
+  s.release();
+  return std::make_unique<Closed>(std::unique_ptr<SurfaceImpl>(impl), cu, cv, std::move(added));
+}
+
+} // namespace cadgeom

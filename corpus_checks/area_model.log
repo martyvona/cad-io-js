@@ -1,4 +1,4 @@
-host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 7.7; speed 4877 on 1 thread, 26453 on 10
+host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 10.3; speed 4888 on 1 thread, 26246 on 10
 517 files, 86142 model faces; 63875 trusted by both oracles, 63875 agreeing
 largest relative difference where both are trusted: 9.74e-8 (gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #2667)
       46 model trusted, file unsupported: vertices against the curve's sense  e.g. gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #9390; gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #12490; gkv311-opencascade-dataset/step/r0901_ec.stp #33698; gkv311-opencascade-dataset/step/r0901_ec.stp #38237

@@ -332,6 +332,11 @@ test('cad-viewer: arguments', () => {
   const rep = parseArgs(['replay', 'r.json', '-o', 'end.png', '--json', 'out.json']);
   assert.ok(typeof rep === 'object' && rep.command === 'replay' && rep.file === path.resolve('r.json') &&
     rep.shot.out === path.resolve('end.png') && rep.shot.json === 'out.json');
+  for (const [flag, on] of [['--heal', true], ['--no-heal', false]] as const) {
+    const h = parseArgs(['shot', 'm.stp', flag]);
+    assert.ok(typeof h === 'object' && h.shot.heal === on);
+  }
+  assert.equal(parseArgs(['shot', 'm.stp', '--heal', '--no-heal']), '--heal and --no-heal together');
   const plainShot = parseArgs(['shot', 'm.stp']);
   assert.ok(typeof plainShot === 'object' && plainShot.shot.width === 1200 && plainShot.shot.height === 800);
   for (const [argv, err] of [[[], /no command/], [['serve'], /unknown command/], [['open'], /one file/],

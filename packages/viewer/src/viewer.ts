@@ -37,7 +37,8 @@ import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
 import type { ImportProgress } from 'step-import';
-import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
+import { clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
+  from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
 
@@ -85,6 +86,20 @@ export interface MeshedWith {
   angularDeflection: number;
   /** Seconds a part could take (which decides which parts time out). */
   timeout: number;
+  /** Whether the models were healed, and with which fixes. */
+  heal: boolean;
+  healFixes: TessellationSettings['healFixes'];
+  /** tess-cadio's smallest angle (degrees) and its debugging switch (each read only where tess-cadio meshed). */
+  minAngle: number;
+  keepFailing: boolean;
+}
+
+/** The settings' MeshedWith (copies). */
+export function meshedWithOf(s: TessellationSettings): MeshedWith {
+  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes, minAngle,
+    keepFailing } = s;
+  return { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal,
+    healFixes: { ...healFixes }, minAngle, keepFailing };
 }
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
@@ -105,13 +120,17 @@ const drawable = (o: THREE.Object3D): o is THREE.Mesh | THREE.Line | THREE.Point
   (o as THREE.Mesh).isMesh === true || (o as THREE.Line).isLine === true || (o as THREE.Points).isPoints === true;
 
 /** The world box of what's drawn: visible objects whose ancestors are visible too. */
-/** An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`. */
+/**
+ * An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`,
+ * `healing 3 of 12 parts`.
+ */
 export function importPhase(p: ImportProgress): string {
   switch (p.phase) {
     case 'reading': return 'reading';
     case 'structure': return 'reading its structure';
     case 'parts': return `making parts${p.total ? `, ${Math.floor(100 * (p.done ?? 0) / p.total)} %` : ''}`;
     case 'assembly': return 'assembling';
+    case 'healing': return `healing${p.total ? ` ${p.done ?? 0} of ${p.total} parts` : ''}`;
   }
 }
 
@@ -941,8 +960,7 @@ export class Viewer {
     const input = await modelInput(src, format);
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
-    const { backend, fallback, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    const meshedWith: MeshedWith = { backend, fallback, profile, linearDeflection, angularDeflection, timeout };
+    const meshedWith = meshedWithOf(this.settings);
     // (The deflection the worker meshes with, in mm: faces are judged by it against their measures.)
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
     let graph: SceneGraph | undefined;
@@ -972,8 +990,9 @@ export class Viewer {
         ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
         if (gen !== this.generation) return;
         if (ev.type === 'importing') {
-          // STEP's phases (a large file said only "importing" for seconds).
-          this.onStatus?.(`${importing}: ${importPhase(ev.progress)}...`);
+          // STEP's phases (a large file said only "importing" for seconds), and healing's after the scene.
+          this.onStatus?.(ev.progress.phase === 'healing' && model ? `${src.name}: ${importPhase(ev.progress)}...`
+            : `${importing}: ${importPhase(ev.progress)}...`);
           continue;
         }
         if (ev.type === 'scene') {
@@ -994,7 +1013,7 @@ export class Viewer {
           // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           edges.total = ev.edgeParts;
-          const wanted = meshDeflections(deflectionsOf(this.settings));
+          const wanted = wantedOf(this.settings);
           // In slices of about 30 ms, the page drawing and answering in between (LMP1's 1,251 parts in one task took a
           // second), the status line counting.
           const parts = [...graph.placements.keys()];
@@ -1080,9 +1099,8 @@ export class Viewer {
       this.meshing = false;
       this.abortLoad?.();
     }
-    const { backend, fallback, profile, linearDeflection, angularDeflection, timeout } = this.settings;
-    model.meshedWith = { backend, fallback, profile, linearDeflection, angularDeflection, timeout };
-    const wanted = meshDeflections(deflectionsOf(this.settings));
+    model.meshedWith = meshedWithOf(this.settings);
+    const wanted = wantedOf(this.settings);
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
     model.diagnostics = [...graph.scene.diagnostics];
@@ -1098,7 +1116,10 @@ export class Viewer {
         workers: workerCount(this.device) };
       for await (const ev of this.events(gen, msg)) {
         if (gen !== this.generation) return true;
-        if (ev.type === 'mesh') {
+        if (ev.type === 'importing') {
+          // Healing again, with other settings.
+          this.onStatus?.(`${model.name}: meshing again: ${importPhase(ev.progress)}...`);
+        } else if (ev.type === 'mesh') {
           parts.done++;
           const mesh = ev.mesh, part = graph.scene.parts[ev.part]!;
           const drawn = !!mesh && mesh.indices.length + (mesh.curvePositions?.length ?? 0) +

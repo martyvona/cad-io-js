@@ -10,9 +10,15 @@
 //   - Edges (and curve items' edges): their 3D curves' ranges, as the translator set them from the vertices; edges
 //     without a 3D curve left out.
 // occt_probe_build does the same for a part's cad-brep buffer built by the native builder (occt_build.cpp), unhealed,
-// its faces and edges by their source ids (corpus_checks/native_route.ts).
+// its faces and edges by their source ids (corpus_checks/native_route.ts). occt_probe_classify then classifies (u, v)
+// points against such faces by OCCT's 2D face classifier (corpus_checks/geom2d_corpus.ts), in OCCT's parameters, and
+// occt_probe_pcurve gives an edge's p-curves on such a face (corpus_checks/pcurve_corpus.ts): the built shape's own
+// where it has one (the model's, or a plane's computed on request), else made by healing's ShapeFix_Edge.
 
+#include <BRepClass_FaceClassifier.hxx>
 #include <BRep_Tool.hxx>
+#include <Geom2d_Curve.hxx>
+#include <ShapeFix_Edge.hxx>
 #include <DESTEP_Parameters.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Geom_Curve.hxx>
@@ -39,6 +45,7 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TransferBRep.hxx>
+#include <gp_Pnt2d.hxx>
 #include <Transfer_TransientProcess.hxx>
 #include <XSControl_TransferReader.hxx>
 #include <XSControl_WorkSession.hxx>
@@ -69,6 +76,8 @@ struct Probe
   std::vector<double>             faceBoxes; // id, u0, u1, v0, v1
   std::vector<double>             edgeRanges; // id, t0, t1
   std::string                     diag;
+  // occt_probe_pcurve's route per (face id, edge id), from its first call: a p-curve it adds is the shape's after.
+  std::map<std::pair<uint32_t, uint32_t>, int> routes;
 };
 Probe p;
 
@@ -152,6 +161,17 @@ void boxes()
     p.edgeRanges.insert(p.edgeRanges.end(), {(double)id, t0, t1});
   }
 }
+// OCCT's one-time set-up, before either entry point: the native builder needs it too (without it a build traps on
+// a null function where a read never ran first).
+void initOcct()
+{
+  static bool inited = false;
+  if (!inited)
+  {
+    STEPControl_Controller::Init();
+    inited = true;
+  }
+}
 } // namespace
 
 extern "C"
@@ -160,12 +180,7 @@ extern "C"
 int occt_probe_read(const char* data, int len, int rootId)
 {
   p = Probe();
-  static bool inited = false;
-  if (!inited)
-  {
-    STEPControl_Controller::Init();
-    inited = true;
-  }
+  initOcct();
   try
   {
     STEPControl_Reader reader;
@@ -232,6 +247,7 @@ int occt_probe_read(const char* data, int len, int rootId)
 int occt_probe_build(const uint8_t* buf, int len)
 {
   p = Probe();
+  initOcct();
   try
   {
     BuiltPart b = buildPart(buf, (size_t)len);
@@ -301,6 +317,124 @@ void occt_probe_eval(const double* queries, int n, double* out)
     catch (const Standard_Failure&)
     {
     }
+  }
+}
+
+// Points against faces: n queries of (id; u; v; tol), (u, v) in OCCT's parameters of the face's surface and tol
+// OCCT's 2D tolerance there, into out: 0 in, 1 out, 2 on, 3 unknown (OCCT's TopAbs_State), 255 where the id isn't
+// kept or the classifier fails.
+void occt_probe_classify(const double* queries, int n, unsigned char* out)
+{
+  for (int k = 0; k < n; ++k)
+  {
+    const double* q = queries + 4 * k;
+    out[k]          = 255;
+    auto it         = p.faces.find((uint32_t)q[0]);
+    if (it == p.faces.end())
+      continue;
+    try
+    {
+      BRepClass_FaceClassifier c(it->second, gp_Pnt2d(q[1], q[2]), q[3]);
+      const TopAbs_State      st = c.State();
+      out[k] = st == TopAbs_IN ? 0 : st == TopAbs_OUT ? 1 : st == TopAbs_ON ? 2 : 3;
+    }
+    catch (const Standard_Failure&)
+    {
+    }
+  }
+}
+
+// An edge's p-curves on a face (occt_probe_build's ids), at n parameters of the edge's 3D curve spread over its range
+// (midpoints of n equal steps). The face is taken in its surface's sense (oriented forward), so a use oriented
+// forward runs with the curve's parameter and has the face on its left in (u, v). info: the uses' count (1, or 2 on a
+// seam), each one's orientation (1 forward, 0 reversed), and the route: 0 the shape's own p-curve stored (the
+// model's), 1 computed on request (a plane's), 2 added by ShapeFix_Edge::FixAddPCurve at tol, both a seam's at once.
+// out: per parameter (t, the curve's point x, y, z), then per use its parameters' (u, v, the distance from the surface
+// there to the curve's point) and its (u, v) at its p-curve's first and last parameters (where its loop's neighbours
+// join it: 4). 0, or -1 the ids not kept, -2 no p-curve made, -3 an exception.
+int occt_probe_pcurve(int faceId, int edgeId, double tol, int n, double* out, double* info)
+{
+  info[0] = 0;
+  info[1] = info[2] = 0;
+  info[3] = -1;
+  auto fi = p.faces.find((uint32_t)faceId);
+  auto ei = p.edges.find((uint32_t)edgeId);
+  if (fi == p.faces.end() || ei == p.edges.end())
+    return -1;
+  try
+  {
+    const TopoDS_Face face = TopoDS::Face(fi->second.Oriented(TopAbs_FORWARD));
+    std::vector<TopoDS_Edge> uses;
+    for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next())
+      if (ex.Current().TShape() == ei->second.TShape())
+        uses.push_back(TopoDS::Edge(ex.Current()));
+    if (uses.empty() || uses.size() > 2)
+      return -1;
+    const auto key = std::make_pair((uint32_t)faceId, (uint32_t)edgeId);
+    auto       ri  = p.routes.find(key);
+    if (ri == p.routes.end())
+    {
+      double a, b;
+      bool   stored = false;
+      int    route  = -1;
+      if (!BRep_Tool::CurveOnSurface(uses[0], face, a, b, &stored).IsNull())
+        route = stored ? 0 : 1;
+      else
+      {
+        ShapeFix_Edge fix;
+        fix.FixAddPCurve(uses[0], face, uses.size() == 2, tol);
+        if (!BRep_Tool::CurveOnSurface(uses[0], face, a, b).IsNull())
+          route = 2;
+      }
+      ri = p.routes.emplace(key, route).first;
+    }
+    info[3] = ri->second;
+    if (ri->second < 0)
+      return -2;
+    TopLoc_Location         cloc, sloc;
+    double                  t0, t1;
+    occ::handle<Geom_Curve> c = BRep_Tool::Curve(uses[0], cloc, t0, t1);
+    if (c.IsNull())
+      return -2;
+    occ::handle<Geom_Surface> s = BRep_Tool::Surface(face, sloc);
+    info[0]                     = (int)uses.size();
+    std::vector<gp_Pnt> points;
+    for (int i = 0; i < n; ++i)
+    {
+      const double t = t0 + (t1 - t0) * (i + 0.5) / n;
+      points.push_back(c->Value(t).Transformed(cloc.Transformation()));
+      out[4 * i] = t;
+      out[4 * i + 1] = points.back().X(), out[4 * i + 2] = points.back().Y(), out[4 * i + 3] = points.back().Z();
+    }
+    for (size_t k = 0; k < uses.size(); ++k)
+    {
+      info[1 + k] = uses[k].Orientation() == TopAbs_FORWARD ? 1 : 0;
+      double                    a, b;
+      occ::handle<Geom2d_Curve> pc = BRep_Tool::CurveOnSurface(uses[k], face, a, b);
+      double*                   o  = out + 4 * n + (3 * n + 4) * k;
+      for (int j = 0; j < 4; ++j)
+        o[3 * n + j] = NaN;
+      if (!pc.IsNull())
+      {
+        const gp_Pnt2d qa = pc->Value(a), qb = pc->Value(b);
+        o[3 * n] = qa.X(), o[3 * n + 1] = qa.Y(), o[3 * n + 2] = qb.X(), o[3 * n + 3] = qb.Y();
+      }
+      for (int i = 0; i < n; ++i)
+      {
+        o[3 * i] = o[3 * i + 1] = o[3 * i + 2] = NaN;
+        if (pc.IsNull())
+          continue;
+        const gp_Pnt2d q = pc->Value(out[4 * i]);
+        const gp_Pnt   x = s->Value(q.X(), q.Y()).Transformed(sloc.Transformation());
+        const gp_Pnt& y = points[i];
+        o[3 * i] = q.X(), o[3 * i + 1] = q.Y(), o[3 * i + 2] = std::hypot(x.X() - y.X(), x.Y() - y.Y(), x.Z() - y.Z());
+      }
+    }
+    return 0;
+  }
+  catch (const Standard_Failure&)
+  {
+    return -3;
   }
 }
 

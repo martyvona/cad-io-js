@@ -13,7 +13,8 @@ import { orientResult } from './orient.ts';
 import { openEdgesCount } from './open-edges.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
-import type { TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from './tessellator.ts';
+import type { TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from
+  './tessellator.ts';
 
 /** What judgeResult found wrong with a result. */
 export interface Verdict {
@@ -153,7 +154,8 @@ export class FallbackTessellator implements Tessellator {
     await Promise.all([this.primary.init(opts), this.fallback.init()]);
   }
 
-  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
+  async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
+    Promise<TessellationResult> {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
     const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
@@ -163,8 +165,8 @@ export class FallbackTessellator implements Tessellator {
       const f = this.fill ? fillResult(model, j, req.linearDeflection) : j;
       return this.orient ? orientResult(model, f, req.linearDeflection) : f;
     };
-    const run = (t: Tessellator) => t.tessellate(ask).then(tidy).catch((e: unknown) => e instanceof Error ? e
-      : new Error(String(e)));
+    const run = (t: Tessellator) => t.tessellate(ask, onProgress).then(tidy).catch((e: unknown) =>
+      e instanceof Error ? e : new Error(String(e)));
     const a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
     const va = judgeResult(a, model, req.linearDeflection);

@@ -1,0 +1,15 @@
+{"format":3,"name":"case-periodic","variant":"s1","file":"case-periodic-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+"facts": [],
+"cases": [
+{"id":"periodic-band-nesting","description":"A cylinder band (radius 1, z in [0, 2]) bounded by two circles, each winding once round u: neither contains the other.","entities":{"face":[0],"loop":[0,1]},"query":"nest2","input":{"face":0,"periods":{"u":6.283185307179586,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"parents":[-1,-1]}},
+{"id":"periodic-band-classify-1-1","description":"A point against the band: (1, 1) is in.","entities":{"face":[0]},"query":"classify2","input":{"face":0,"p":[1,1],"periods":{"u":6.283185307179586,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"in"}},
+{"id":"periodic-band-classify-5-0","description":"A point against the band: (5, 0) is on.","entities":{"face":[0]},"query":"classify2","input":{"face":0,"p":[5,0],"periods":{"u":6.283185307179586,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"on"}},
+{"id":"periodic-band-classify-1-3","description":"A point against the band: (1, 3) is out.","entities":{"face":[0]},"query":"classify2","input":{"face":0,"p":[1,3],"periods":{"u":6.283185307179586,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"out"}},
+{"id":"periodic-band-classify-0-1","description":"A point against the band: (0, 1) is in.","entities":{"face":[0]},"query":"classify2","input":{"face":0,"p":[0,1],"periods":{"u":6.283185307179586,"v":0,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"in"}},
+{"id":"periodic-torus-band-nesting","description":"A torus band between the minor circles at u = 1 and u = 2, each winding once round v: neither contains the other.","entities":{"face":[1],"loop":[2,3]},"query":"nest2","input":{"face":1,"periods":{"u":6.283185307179586,"v":6.283185307179586,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"parents":[-1,-1]}},
+{"id":"periodic-torus-classify-1.5-3","description":"A point against the torus band: (1.5, 3) is in.","entities":{"face":[1]},"query":"classify2","input":{"face":1,"p":[1.5,3],"periods":{"u":6.283185307179586,"v":6.283185307179586,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"in"}},
+{"id":"periodic-torus-classify-3-3","description":"A point against the torus band: (3, 3) is out.","entities":{"face":[1]},"query":"classify2","input":{"face":1,"p":[3,3],"periods":{"u":6.283185307179586,"v":6.283185307179586,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"out"}},
+{"id":"periodic-torus-classify-1-5","description":"A point against the torus band: (1, 5) is on.","entities":{"face":[1]},"query":"classify2","input":{"face":1,"p":[1,5],"periods":{"u":6.283185307179586,"v":6.283185307179586,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"on"}},
+{"id":"periodic-torus-classify-1.5-0","description":"A point against the torus band: (1.5, 0) is in.","entities":{"face":[1]},"query":"classify2","input":{"face":1,"p":[1.5,0],"periods":{"u":6.283185307179586,"v":6.283185307179586,"poleU":[],"poleV":[]},"tol":1e-9},"expected":{"side":"in"}}
+]
+}

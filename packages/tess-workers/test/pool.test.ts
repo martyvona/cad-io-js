@@ -37,6 +37,269 @@ test('results come back whole, with the backend info, and requests run in parall
   }
 });
 
+const job = { module: backend.module, export: 'fakeJob' };
+type JobOut = { input: { mode: string }; values: Float64Array; instance: string };
+
+test('run: a job runs in a worker with its progress, its output whole, alongside tessellation requests', async () => {
+  const t = await pool({ workers: 2 });
+  try {
+    const seen: string[] = [];
+    const [a, r, b] = await Promise.all([
+      t.run<JobOut>(job, { mode: 'echo', n: 5, progress: 2 }, { onProgress: (m) => seen.push(m) }),
+      t.tessellate(req(4, 10)), t.run<JobOut>(job, { mode: 'wait', ms: 100 })]);
+    assert.deepEqual(a.input, { mode: 'echo', n: 5, progress: 2 });
+    assert.ok(a.values instanceof Float64Array);
+    assert.deepEqual([...a.values], [0, 1, 2, 3, 4]);
+    assert.deepEqual(seen, ['step 1', 'step 2']);
+    assert.deepEqual([...r.indices], [0, 1, 2]);
+    assert.equal(b.values.length, 0);
+  } finally {
+    t.dispose();
+  }
+});
+
+test('run: a job that throws rejects with its message (not as a part failure), the worker replaced; one that '
+  + 'hangs has no timeout of its own unless given one, then names its last progress', async () => {
+  const t = await pool({ workers: 1, timeoutMs: 200 });
+  try {
+    const before = (await t.run<JobOut>(job, { mode: 'echo' })).instance;
+    await assert.rejects(t.run(job, { mode: 'throw' }),
+      (e) => !(e instanceof TessellationError) && /job refused/.test((e as Error).message));
+    assert.notEqual((await t.run<JobOut>(job, { mode: 'echo' })).instance, before);
+    // Longer than the pool's 200 ms for parts: not killed.
+    assert.equal((await t.run<JobOut>(job, { mode: 'wait', ms: 400 })).input.mode, 'wait');
+    await assert.rejects(t.run(job, { mode: 'hang' }, { timeoutMs: 300 }),
+      (e) => !(e instanceof TessellationError) && (e as Error).message === 'job fakeJob timed out after 300 ms');
+    await assert.rejects(t.run(job, { mode: 'hang', progress: 2 }, { timeoutMs: 300 }),
+      (e) => (e as Error).message === 'job fakeJob timed out after 300 ms (last: step 2)');
+  } finally {
+    t.dispose();
+  }
+});
+
+test('run: a job limited on CPU time is stopped at the first progress past it, naming it; one waiting with little '
+  + 'CPU runs past that limit in wall time', async () => {
+  // (The CPU timer off in effect: the progress path alone.)
+  const t = await pool({ workers: 1, cpuPollMs: 60_000 });
+  try {
+    await assert.rejects(t.run(job, { mode: 'spin', ms: 5000 }, { cpuTimeoutMs: 150, timeoutMs: 10_000 }),
+      (e) => !(e instanceof TessellationError)
+        && /^job fakeJob timed out after 150 ms of CPU time \(last: spin \d+\)$/.test((e as Error).message));
+    assert.equal((await t.run<JobOut>(job, { mode: 'idle', ms: 400 }, { cpuTimeoutMs: 150 })).input.mode, 'idle');
+    // Without one, the same spin finishes.
+    assert.equal((await t.run<JobOut>(job, { mode: 'spin', ms: 300 })).input.mode, 'spin');
+  } finally {
+    t.dispose();
+  }
+});
+
+test('run: a job busy without progress is stopped by the CPU timer at its own limit, naming its last message; a job '
+  + 'without a limit isn\'t, in a pool whose requests have one', async () => {
+  const t = await pool({ workers: 1, cpuTimeoutMs: 100, cpuPollMs: 50 });
+  try {
+    const t0 = performance.now();
+    await assert.rejects(t.run(job, { mode: 'hang', progress: 2 }, { cpuTimeoutMs: 250, timeoutMs: 20_000 }),
+      (e) => !(e instanceof TessellationError)
+        && (e as Error).message === 'job fakeJob timed out after 250 ms of CPU time (last: step 2)');
+    // (Wall time is never less than CPU time; the upper bound only well under the 20 s backstop, as a loaded host
+    // stretches wall time.)
+    const took = performance.now() - t0;
+    assert.ok(took >= 250 && took < 10_000, `stopped after ${took} ms`);
+    // 400 ms of CPU, past the pool's 100 ms for requests: a job has its own limit, here none.
+    assert.equal((await t.run<JobOut>(job, { mode: 'spin', ms: 400 })).input.mode, 'spin');
+  } finally {
+    t.dispose();
+  }
+});
+
+test("serve's outputBuffers: each typed array's buffer once, in plain objects and arrays, not in other objects",
+  async () => {
+  const { outputBuffers } = await import('../src/serve.ts');
+  const shared = new ArrayBuffer(16), own = new Float64Array(2);
+  const inClass = new (class { a = new Uint8Array(4); })();
+  const out = outputBuffers({ a: new Uint8Array(shared, 0, 8), b: [new Int32Array(shared, 8, 2), { c: own }],
+    d: shared, e: inClass, f: 'x', g: null });
+  assert.deepEqual(out, [shared, own.buffer]);
+});
+
+test('run: a missing export rejects; a pool without a backend runs jobs, its info NO_BACKEND', async () => {
+  const { NO_BACKEND } = await import('../src/node.ts');
+  const t = new WorkerTessellator({ workers: 1 });
+  await t.init();
+  try {
+    assert.deepEqual(t.info, NO_BACKEND);
+    assert.equal((await t.run<JobOut>(job, { mode: 'echo', n: 2 })).values.length, 2);
+    await assert.rejects(t.run({ ...job, export: 'noSuchJob' }, {}), /has no function 'noSuchJob'/);
+    await assert.rejects(t.tessellate(req(0)), /no backend loaded/);
+  } finally {
+    t.dispose();
+  }
+});
+
+test('a timeout says where the backend last was: its last progress, which the caller saw as it came', async () => {
+  const t = await pool({ workers: 1, timeoutMs: 300 });
+  try {
+    const seen: number[] = [];
+    await assert.rejects(t.tessellate(req(8, 3), (p) => seen.push(p.faceId!)),
+      (e) => e instanceof TessellationError && e.message === 'tessellation timed out after 300 ms (last: face #3)');
+    assert.deepEqual(seen, [1, 2, 3]);
+    // Without progress, the message as it was.
+    await assert.rejects(t.tessellate(req(1)),
+      (e) => e instanceof Error && e.message === 'tessellation timed out after 300 ms');
+  } finally {
+    t.dispose();
+  }
+});
+
+test('cpuTimeoutMs: a request past it in its thread\'s CPU time is stopped at its next progress; one long in wall '
+  + 'time but light on CPU (a loaded host) is not; one waiting without progress still meets the wall-clock backstop; '
+  + 'each result\'s wall and CPU times', async () => {
+  // (The CPU timer off in effect: the progress path alone.)
+  const t = await pool({ workers: 1, cpuTimeoutMs: 300, timeoutMs: 20_000, cpuPollMs: 60_000 });
+  try {
+    assert.equal(t.cpuTimeoutMs, 300);
+    // 2 s of CPU wanted: stopped at about 300 ms of it, long before the backstop (the message says which stopped it;
+    // the backstop far off, as a loaded host stretches wall time).
+    const t0 = performance.now();
+    await assert.rejects(t.tessellate(req(9, 200)), (e) => e instanceof TessellationError && e.timeoutMs === 300
+      && /^tessellation timed out after 300 ms of CPU time \(last: spin \d+\)$/.test(e.message));
+    const took = performance.now() - t0;
+    assert.ok(took < 10_000, `stopped after ${took} ms`);
+    // 1 s of wall time at little CPU: past the CPU limit in wall time, under it in CPU, so it completes; its times.
+    const r = await t.tessellate(req(10, 100));
+    const times = t.timesOf(r)!;
+    assert.ok(times.wallMs >= 950, `wall ${times.wallMs}`);
+    assert.ok(times.cpuMs !== undefined && times.cpuMs < 300, `cpu ${times.cpuMs}`);
+    // 100 ms of CPU, under the limit: completes, its CPU time about that and at most its wall time.
+    const s = await t.tessellate(req(9, 10));
+    const ts = t.timesOf(s)!;
+    assert.ok(ts.cpuMs! >= 100 && ts.cpuMs! <= ts.wallMs + 5, JSON.stringify(ts));
+    assert.equal(t.timesOf({ ...r }), undefined);
+  } finally {
+    t.dispose();
+  }
+  // No progress and little CPU (waiting 2 s): the wall-clock backstop.
+  const b = await pool({ workers: 1, cpuTimeoutMs: 300, timeoutMs: 1500, cpuPollMs: 60_000 });
+  try {
+    await assert.rejects(b.tessellate(req(4, 200)), (e) => e instanceof TessellationError && e.timeoutMs === 1500
+      && e.message === 'tessellation timed out after 1500 ms');
+  } finally {
+    b.dispose();
+  }
+});
+
+test('cpuTimeoutMs: a request busy in a step that reports nothing is stopped by the CPU timer, naming its last '
+  + 'progress where it had one, long before the wall-clock backstop; the next request gets a new worker; the timer '
+  + 'counts only the request\'s own CPU time', async () => {
+  const t = await pool({ workers: 1, cpuTimeoutMs: 300, cpuPollMs: 50, timeoutMs: 20_000 });
+  try {
+    assert.equal(t.cpuPollMs, 50);
+    // Spins with no progress at all.
+    let t0 = performance.now();
+    await assert.rejects(t.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 300
+      && e.message === 'tessellation timed out after 300 ms of CPU time');
+    // (The upper bound only well under the backstop: a loaded host stretches wall time.)
+    let took = performance.now() - t0;
+    assert.ok(took >= 300 && took < 10_000, `stopped after ${took} ms`);
+    // Three progresses, then spins silently: named by the last.
+    const seen: string[] = [];
+    t0 = performance.now();
+    await assert.rejects(t.tessellate(req(8, 3), (p) => seen.push(p.message)), (e) => e instanceof TessellationError
+      && e.message === 'tessellation timed out after 300 ms of CPU time (last: face #3)');
+    took = performance.now() - t0;
+    assert.ok(took < 10_000, `stopped after ${took} ms`);
+    assert.deepEqual(seen, ['face #1', 'face #2', 'face #3']);
+    // A worker that has already spent CPU on earlier requests: each request starts from zero. Four of 200 ms each
+    // (800 ms on one worker, past the limit together) all complete.
+    const before = instance(await t.tessellate(req(0)));
+    for (let k = 0; k < 4; k++) assert.equal(instance(await t.tessellate(req(9, 20))), before);
+  } finally {
+    t.dispose();
+  }
+});
+
+/**
+ * Node's worker handle, its CPU readings counted, each delayed by `lag.ms` as it was when the reading was asked, and
+ * their values (the thread's CPU so far, ms) kept in order of arrival.
+ */
+function laggingHandles() {
+  const lag = { ms: 0, reads: 0, values: [] as number[] };
+  const spawn = () => {
+    const h = spawnNodeWorker();
+    return { ...h, cpuUsageMs: async () => {
+      const ms = lag.ms;
+      lag.reads++;
+      await new Promise((r) => setTimeout(r, ms));
+      const v = await h.cpuUsageMs!();
+      lag.values.push(v);
+      return v;
+    } };
+  };
+  return { lag, spawn };
+}
+
+test('the CPU timer reads every cpuPollMs while a request runs, and not at all without a limit; a reading that '
+  + 'arrives after its request ended doesn\'t stop the next one; a silent step stops near the limit', async () => {
+  const { lag, spawn } = laggingHandles();
+  const t = new PoolTessellator(spawn, { backend, workers: 1, cpuTimeoutMs: 300, cpuPollMs: 50, timeoutMs: 20_000 });
+  await t.init();
+  try {
+    // A 200 ms spin: about 4 readings at 50 ms, and the one at the start.
+    lag.reads = 0;
+    await t.tessellate(req(9, 20));
+    assert.ok(lag.reads >= 3 && lag.reads <= 12, `${lag.reads} readings`);
+    // Readings delayed 400 ms: those asked during A (250 ms of CPU, under the limit) come back while B runs, past
+    // the limit counted from A's start; they're A's, so B (also 250 ms) completes.
+    const a = t.tessellate(req(9, 25));
+    lag.ms = 400;
+    const b = t.tessellate(req(9, 25));
+    assert.ok(instance(await a) && instance(await b));
+    lag.ms = 0;
+    // A silent spin stops at the first reading past the limit: by the readings (its CPU from the one at its start),
+    // the last past 300 ms and the one before under it, however long the host's load makes a poll in wall time.
+    // (After the 400 ms readings still due from B have come.)
+    await new Promise((r) => setTimeout(r, 600));
+    lag.values = [];
+    const t0 = performance.now();
+    await assert.rejects(t.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 300);
+    const took = performance.now() - t0;
+    const used = lag.values.map((v) => v - lag.values[0]!);
+    assert.ok(used.length >= 3 && used.at(-1)! >= 300 && used.at(-2)! < 300, `readings ${used.join(', ')}`);
+    assert.ok(took < 10_000, `stopped after ${took} ms`);
+  } finally {
+    t.dispose();
+  }
+  const u = new PoolTessellator(spawn, { backend, workers: 1, cpuPollMs: 50 });
+  await u.init();
+  try {
+    lag.reads = 0;
+    await u.tessellate(req(9, 20));
+    assert.equal(lag.reads, 0);
+  } finally {
+    u.dispose();
+  }
+});
+
+test('cpuPollMs 0: no CPU timer, so a silent spin meets only the wall-clock backstop; a pool without a CPU limit '
+  + 'never stops a request on CPU', async () => {
+  const t = await pool({ workers: 1, cpuTimeoutMs: 200, cpuPollMs: 0, timeoutMs: 1000 });
+  try {
+    await assert.rejects(t.tessellate(req(1)), (e) => e instanceof TessellationError && e.timeoutMs === 1000
+      && e.message === 'tessellation timed out after 1000 ms');
+  } finally {
+    t.dispose();
+  }
+  const u = await pool({ workers: 1, cpuPollMs: 50 });
+  try {
+    assert.equal(u.cpuTimeoutMs, 0);
+    assert.equal(u.cpuPollMs, 50);
+    // 500 ms of CPU with no limit: completes.
+    assert.ok(instance(await u.tessellate(req(9, 50))));
+  } finally {
+    u.dispose();
+  }
+});
+
 test('a request that hangs times out, and the next one gets a new worker', async () => {
   const t = await pool({ workers: 1, timeoutMs: 300 });
   try {

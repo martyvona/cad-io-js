@@ -33,6 +33,11 @@ export interface TessellationRequest {
   linearDeflection: number;
   /** Maximum angle between adjacent mesh normals, in radians. */
   angularDeflection: number;
+  /**
+   * The smallest angle a backend that refines for shape aims for in its triangles, in radians (tess-cadio's minAngle:
+   * 10 degrees by default, at most 30). Absent: the backend's default; backends without one ignore it.
+   */
+  minAngle?: number;
   /** Also return B-rep edges as polylines. */
   edges?: boolean;
   /**
@@ -107,11 +112,28 @@ export interface TessellationResult {
   backend?: string;
 }
 
+/**
+ * Where a backend is in a request: a phrase for people, and where it can say them, the face it's on (its entity id
+ * and row), the round of its work and how many of the round's faces it has done.
+ */
+export interface TessellationProgress {
+  message: string;
+  faceId?: number | null;
+  row?: number;
+  round?: number;
+  facesDone?: number;
+  facesTotal?: number;
+}
+
 export interface Tessellator {
   readonly info: TessellatorInfo;
   /** Load and compile the backend (WASM). */
   init(opts?: Record<string, unknown>): Promise<void>;
-  tessellate(req: TessellationRequest): Promise<TessellationResult>;
+  /**
+   * `onProgress`, optional: where the backend is, said as it goes (throttled by the backend), so a host that stops a
+   * request (a timeout) can say how far it got. Backends may ignore it.
+   */
+  tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void): Promise<TessellationResult>;
   /**
    * The backend's memory in bytes (WASM: its linear memory, which never shrinks), so a host can recycle an instance
    * that has grown too large. Optional.

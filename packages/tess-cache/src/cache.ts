@@ -2,8 +2,8 @@
 // by a hash of the payload, the backend's name and version, and the request's meshing options (not edges or measures,
 // which don't change the triangles: an entry records whether its request asked for them). Failures are cached too.
 
-import { failedPart, sha256 as digest, TessellationError, type TessellationRequest, type TessellationResult,
-  type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { failedPart, sha256 as digest, TessellationError, type TessellationProgress, type TessellationRequest,
+  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 
 /** Where cached results live: bytes by key, the least recently used evicted beyond `maxBytes`. */
 export interface CacheStore {
@@ -46,13 +46,16 @@ export async function keyPrefix(info: TessellatorInfo): Promise<{ backend: strin
 
 /**
  * The key for a request to a backend: the backend's prefix (`keyPrefix`), then SHA-256 (hex) over the cache format,
- * the backend's name and version, the request's options and its payload. Not whether it asks for edges or measures:
- * a backend's triangles don't depend on them (`Tessellator`), so one entry serves requests with and without.
+ * the backend's name and version, the request's options (its minAngle where given) and its payload. Not whether it
+ * asks for edges or measures: a backend's triangles don't depend on them (`Tessellator`), so one entry serves requests
+ * with and without.
  */
 export async function cacheKey(info: TessellatorInfo, req: TessellationRequest): Promise<string> {
   const head = new TextEncoder().encode(JSON.stringify([
     FORMAT, info.name, info.version, req.format, req.rootId ?? null, req.origin ?? [0, 0, 0],
     req.linearDeflection, req.angularDeflection,
+    // (Only where given: a request without one keys as before, its backend's default.)
+    ...(req.minAngle !== undefined ? [req.minAngle] : []),
   ]));
   const all = new Uint8Array(head.length + 1 + req.data.length);
   all.set(head);
@@ -225,8 +228,9 @@ export class CachedTessellator implements Tessellator {
     return this.inner.init(opts);
   }
 
-  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
-    if (this.store.maxBytes <= 0) return this.inner.tessellate(req);
+  async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
+    Promise<TessellationResult> {
+    if (this.store.maxBytes <= 0) return this.inner.tessellate(req, onProgress);
     const info = this.inner.info;
     await this.sweep();
     if (!this.opts.keepOtherVersions) await this.prune(await keyPrefix(info));
@@ -254,7 +258,7 @@ export class CachedTessellator implements Tessellator {
     this.counts.misses++;
     let r: TessellationResult;
     try {
-      r = await this.inner.tessellate(req);
+      r = await this.inner.tessellate(req, onProgress);
     } catch (e) {
       if (e instanceof TessellationError) await this.put(key,
         { at: Date.now(), thrown: e.timeoutMs === undefined ? { message: e.message } : { message: e.message,

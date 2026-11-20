@@ -99,6 +99,20 @@ test('tessellateScene: the meshing profile (default medium), its values replaced
   assert.ok(near(await requests({ angularDeflection: 0.5 }), [0.1, 0.5]), 'angle');
 });
 
+test('tessellateScene: minAngle passed to each request and kept on its level where given; else neither has one',
+  async () => {
+  for (const minAngle of [undefined, 0.2]) {
+    const t = fake(), s = scene();
+    await tessellateScene(s, t, minAngle === undefined ? {} : { minAngle });
+    const p3 = t.seen.find((q) => tagOf(q.data) === 3)!;
+    assert.equal(p3.minAngle, minAngle);
+    assert.ok('minAngle' in p3 === (minAngle !== undefined));
+    const lods = s.parts.flatMap((p) => p.lods).filter((l) => l.from === 'tessellated');
+    assert.ok(lods.length > 0);
+    for (const l of lods) assert.equal(l.minAngle, minAngle);
+  }
+});
+
 test('tessellateScene outlines: faces with no triangles or no range outlined; a failed part all outlines', async () => {
   const s = scene();
   const asked: { part: number; faces: number[]; linearDeflection: number }[] = [];

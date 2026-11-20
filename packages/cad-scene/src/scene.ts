@@ -11,7 +11,7 @@
 // (`rootParts`), carrying the instance's name, sources and properties and the product's apart (one node per placed
 // part, as CAD systems and 3MF show them; `leafParts`, which every importer ends with).
 
-import type { BrepData } from 'cad-brep';
+import type { BrepAnalysis, BrepData } from 'cad-brep';
 
 /** A 4x4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
 export type Mat4 = Float64Array;
@@ -211,6 +211,12 @@ export type BrepFormat = 'step' | 'iges' | 'brep';
  */
 export interface Brep {
   model: BrepData;
+  /**
+   * The model's analysis (cad-brep's analysis-layout.ts: what was measured of it and where each value came from,
+   * the measures of the traces healing made among them), where one was made: healing's (cad-heal's healScene) of the
+   * healed model. Tied to `model` by its hash: whatever replaces `model` must replace or drop it.
+   */
+  analysis?: BrepAnalysis;
   /** The format it came from. */
   format: BrepFormat;
   /**
@@ -237,6 +243,8 @@ export interface Lod {
   linearDeflection?: number;
   /** Maximum angle between adjacent normals, radians: likewise. */
   angularDeflection?: number;
+  /** The smallest angle asked of its triangles, radians (TessellationRequest's minAngle), where one was given. */
+  minAngle?: number;
   /** The tessellator that made it: its name and version. */
   backend?: string;
 }

@@ -9,6 +9,7 @@
 // address (after #, or in the query as older links have it); `ready` settles after both.
 
 import { sha256 } from 'cad-scene';
+import { parseIds } from './step-ids.ts';
 import { VIEWS, type ViewName } from './camera.ts';
 import { askUrl, showDialog } from './dialog.ts';
 import { formatOf } from './formats.ts';
@@ -20,7 +21,8 @@ import { nodeForPick } from './selection.ts';
 import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
-import { fromQuery, renderChanges, toQuery, type CameraState, type ViewState } from './view-state.ts';
+import { backendsFromQuery, fromQuery, healingFromQuery, renderChanges, toQuery, type CameraState, type ViewState } from
+  './view-state.ts';
 import type { TessellationSettings } from './tessellation.ts';
 import type { MeshedWith, Viewer } from './viewer.ts';
 
@@ -205,12 +207,42 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     return url.href;
   };
 
+  /**
+   * The address's `part=` and `face=` (STEP ids, as Select by ID reads them: `#12`, `12`, several by spaces or
+   * commas, or the parameter repeated): selected (the tree's detail turned on for faces, the nodes revealed) and
+   * zoomed to; what names nothing, or isn't an id, said per parameter.
+   */
+  const goTo = async (params: URLSearchParams): Promise<string[]> => {
+    const given = { part: params.getAll('part').join(' '), face: params.getAll('face').join(' ') };
+    if (!given.part.trim() && !given.face.trim()) return [];
+    if (!viewer.nodes) return ['part= and face=: no model to find them in'];
+    await ui.refreshed();
+    const r = ui.selectByIds(`${given.part} ${given.face}`);
+    const found = new Set(r.found), problems: string[] = [];
+    for (const k of ['part', 'face'] as const) {
+      const { ids, bad } = parseIds(given[k]);
+      const none = ids.filter((id) => !found.has(id));
+      if (none.length) problems.push(`${k}=: nothing has ${none.map((id) => `#${id}`).join(', ')}`);
+      if (bad.length) problems.push(`${k}=: not STEP ids: ${bad.join(', ')}`);
+    }
+    if (r.selected) ui.zoomSelected();
+    return problems;
+  };
+
   const start = async () => {
     // The view from after # and from the query (older links, `cad-viewer shot --state`), the fragment's first where
     // both give one.
     const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
       ...new URLSearchParams(location.search)]);
     const { state: st, problems } = fromQuery(params);
+    // Healing (heal=, healOn=, healOff=) before the model opens: it decides the models meshed.
+    const healing = healingFromQuery(params);
+    if (healing.meshing) ui.setMeshing(healing.meshing);
+    problems.push(...healing.problems);
+    // The backends (backend=, fallback=, minAngle=, keepFailing=) likewise.
+    const backends = backendsFromQuery(params, viewer.settings);
+    if (backends.meshing) ui.setMeshing(backends.meshing);
+    problems.push(...backends.problems);
     const given = params.get('model') ?? params.get('url');
     if (params.has('model') && params.has('url')) problems.push('model and url both given: url ignored');
     const url = given !== null ? typedUrl(given) : undefined;
@@ -226,6 +258,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // Recorded (?record began before it) as the call it is, so a replay applies the address's view too.
     if (Object.keys(st).length) recorder.api('apply', [st]);
     problems.push(...apply(st));
+    // part= and face= last, once the model has meshed (with the address's backends and healing): selected as Select
+    // by ID selects, revealed, zoomed to.
+    problems.push(...await goTo(params));
     if (problems.length) ui.say(`the address: ${problems.join('; ')}`, true);
   };
 

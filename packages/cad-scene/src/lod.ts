@@ -4,10 +4,11 @@
 import { degenerateMessage, dropDegenerate } from './mesh.ts';
 import type { Lod, Mesh, Part, Scene } from './scene.ts';
 
-/** The deflections a level is wanted at: millimetres and radians. */
+/** The deflections a level is wanted at: millimetres and radians; and the smallest angle asked, where one is. */
 export interface LodWanted {
   linearDeflection?: number;
   angularDeflection?: number;
+  minAngle?: number;
 }
 
 /** Deflections equal up to rounding (a profile's values through degrees and back). */
@@ -17,12 +18,14 @@ const same = (a: number | undefined, b: number | undefined) =>
 /**
  * Adds a level to a part, finest first: before the first level whose linear deflection is coarser or unstated, else
  * last; a level without one after all those with one (it can't be ranked; so the first level is the finest known,
- * ours where we tessellated). A tessellated level replaces one from the same backend at the same deflections.
+ * ours where we tessellated). A tessellated level replaces one from the same backend at the same deflections and
+ * smallest angle (none given: the backend's default, one level).
  */
 export function addLod(part: Part, lod: Lod): void {
   if (lod.from === 'tessellated') {
     const i = part.lods.findIndex((l) => l.from === 'tessellated' && l.backend === lod.backend &&
-      same(l.linearDeflection, lod.linearDeflection) && same(l.angularDeflection, lod.angularDeflection));
+      same(l.linearDeflection, lod.linearDeflection) && same(l.angularDeflection, lod.angularDeflection) &&
+      same(l.minAngle, lod.minAngle));
     if (i >= 0) part.lods.splice(i, 1);
   }
   const d = lod.linearDeflection;
@@ -33,7 +36,8 @@ export function addLod(part: Part, lod: Lod): void {
 }
 
 /**
- * The level to use: one tessellated at the wanted deflections (the last added, of several backends); else, of those
+ * The level to use: one tessellated at the wanted deflections and smallest angle (the last added, of several
+ * backends); else, of those
  * with a linear deflection, the coarsest not coarser than wanted, or if all are coarser the finest of them; else the
  * finest (the first). Undefined for a part with none.
  */
@@ -41,7 +45,7 @@ export function chooseLod(part: Part, wanted: LodWanted = {}): Lod | undefined {
   const lods = part.lods;
   if (!lods.length) return undefined;
   const exact = lods.filter((l) => l.from === 'tessellated' && same(l.linearDeflection, wanted.linearDeflection) &&
-    same(l.angularDeflection, wanted.angularDeflection));
+    same(l.angularDeflection, wanted.angularDeflection) && same(l.minAngle, wanted.minAngle));
   if (exact.length && wanted.linearDeflection !== undefined) return exact.at(-1);
   const w = wanted.linearDeflection;
   const known = lods.filter((l) => l.linearDeflection !== undefined);

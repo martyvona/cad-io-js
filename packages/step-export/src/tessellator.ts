@@ -7,8 +7,8 @@
 // and with measures gets the area oracle's (oracleMeasures).
 
 import { openBrep } from 'cad-brep';
-import { openEdgesDiagnostic, oracleMeasures, type TessellationRequest, type TessellationResult, type Tessellator,
-  type TessellatorInfo } from 'cad-scene';
+import { openEdgesDiagnostic, oracleMeasures, type TessellationProgress, type TessellationRequest,
+  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 import { stepPartBytes } from './part.ts';
 
 /** Bumped whenever the writer's output for some model changes: cached meshes of the old output then miss. */
@@ -40,8 +40,11 @@ export class StepTessellator implements Tessellator {
     return this.inner.init(opts);
   }
 
-  async tessellate(req: TessellationRequest): Promise<TessellationResult> {
-    if (req.format !== 'cad-brep' || this.inner.info.formats.includes('cad-brep')) return this.inner.tessellate(req);
+  async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
+    Promise<TessellationResult> {
+    if (req.format !== 'cad-brep' || this.inner.info.formats.includes('cad-brep')) {
+      return this.inner.tessellate(req, onProgress);
+    }
     const model = openBrep(req.data);
     const w = stepPartBytes(model);
     // (Edges always, to judge the mesh by; dropped after if not asked for.)

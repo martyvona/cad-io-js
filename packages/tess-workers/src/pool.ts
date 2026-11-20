@@ -1,11 +1,12 @@
 // A Tessellator that runs another backend in a pool of workers: one request per worker at a time, a per-request
 // timeout that terminates a stuck worker, and recycling (a fresh worker and backend instance) after a backend error,
-// after a number of parts or when the backend's memory grows too large. Written against WorkerHandle; node.ts and
-// browser.ts supply the workers.
+// after a number of parts or when the backend's memory grows too large. The same workers run jobs (`run`, protocol.ts:
+// cad-heal's healJob healing parts ahead of their meshing), queued with the requests; a pool without a backend runs
+// jobs only. Written against WorkerHandle; node.ts and browser.ts supply the workers.
 
-import { TessellationError, type TessellationRequest, type TessellationResult, type Tessellator,
-  type TessellatorInfo } from 'cad-scene';
-import type { BackendSpec, FromWorker, WorkerHandle } from './protocol.ts';
+import { TessellationError, type TessellationProgress, type TessellationRequest, type TessellationResult,
+  type Tessellator, type TessellatorInfo } from 'cad-scene';
+import type { BackendSpec, FromWorker, JobSpec, ToWorker, WorkerHandle } from './protocol.ts';
 
 export interface PoolOptions {
   /** Number of workers. Default: one less than the hardware concurrency, at least 1. */
@@ -15,6 +16,16 @@ export interface PoolOptions {
    * Default `DEFAULT_TIMEOUT_MS`.
    */
   timeoutMs?: number;
+  /**
+   * Per request, the worker thread's CPU time in milliseconds, so a loaded host doesn't change which parts time out:
+   * checked at each progress the backend reports and, where the worker handle can read its thread's CPU time from
+   * outside (Node's `cpuUsageMs`), every `cpuPollMs` as well, so a long step that reports nothing is stopped too; the
+   * request then rejected as `timeoutMs`'s are. Where the host gives no thread CPU time (browsers), only `timeoutMs`
+   * applies: set it as the backstop (a multiple of this). 0: none. Default 0.
+   */
+  cpuTimeoutMs?: number;
+  /** How often, in ms, a busy worker's CPU time is read for `cpuTimeoutMs` and jobs' limits. Default 1000. */
+  cpuPollMs?: number;
   /** Recycle a worker after this many parts. 0: never. Default 0. */
   maxPartsPerWorker?: number;
   /**
@@ -25,14 +36,43 @@ export interface PoolOptions {
 }
 
 export interface WorkerTessellatorOptions extends PoolOptions {
-  backend: BackendSpec;
+  /** None: the pool only runs jobs (`run`), and its info is serve.ts's NO_BACKEND. */
+  backend?: BackendSpec;
+}
+
+/**
+ * A job's options: progress, and its own limits (ms; 0, the default, none: unlike a part's meshing): `timeoutMs` on
+ * wall time, `cpuTimeoutMs` on the worker thread's CPU time, checked at each progress message the job sends and on
+ * the pool's `cpuPollMs` timer (only where the host gives thread CPU time: keep `timeoutMs` as the backstop).
+ */
+export interface RunOptions {
+  onProgress?: (message: string) => void;
+  timeoutMs?: number;
+  cpuTimeoutMs?: number;
 }
 
 interface Job {
   id: number;
-  req: TessellationRequest;
-  resolve: (r: TessellationResult) => void;
+  /** What the worker is sent: a tessellation request, or a job. */
+  msg: Extract<ToWorker, { id: number }>;
+  resolve: (r: never) => void;
   reject: (e: Error) => void;
+  onProgress?: (p: TessellationProgress) => void;
+  onJobProgress?: (message: string) => void;
+  /** The last progress (the backend's, or a job's message), for a timeout to say how far it got. */
+  last?: string;
+  timeoutMs: number;
+  /** A job's limit on CPU time (RunOptions'); requests use the pool's. */
+  cpuTimeoutMs?: number;
+}
+
+/**
+ * A request's times as the pool saw them (PoolTessellator.timesOf): wall, from its start in a worker to its result;
+ * the worker thread's CPU time, where the host gives it.
+ */
+export interface RequestTimes {
+  wallMs: number;
+  cpuMs?: number;
 }
 
 interface Slot {
@@ -41,7 +81,14 @@ interface Slot {
   parts: number;
   job?: Job;
   timer?: ReturnType<typeof setTimeout>;
+  /** The CPU limit's timer, while a request or job with one runs. */
+  poll?: ReturnType<typeof setInterval>;
+  /** When its request was posted (performance.now()). */
+  started?: number;
 }
+
+/** 1 s: a step that reports nothing overruns its CPU limit by at most about this. */
+export const DEFAULT_CPU_POLL_MS = 1000;
 
 /**
  * 120 s: the corpus's slowest part takes about 61 s with OCCT on an Apple M4 at 0.1 mm with measures
@@ -57,9 +104,12 @@ export function defaultWorkers(): number {
 export class PoolTessellator implements Tessellator {
   readonly workers: number;
   private readonly spawnWorker: () => WorkerHandle;
-  private readonly backend: BackendSpec;
+  private readonly backend: BackendSpec | undefined;
   readonly timeoutMs: number;
+  readonly cpuTimeoutMs: number;
+  readonly cpuPollMs: number;
   private readonly maxParts: number;
+  private readonly times = new WeakMap<TessellationResult, RequestTimes>();
   private readonly maxMemory: number;
   private slots: Slot[] = [];
   private queue: Job[] = [];
@@ -75,6 +125,8 @@ export class PoolTessellator implements Tessellator {
     this.backend = opts.backend;
     this.workers = Math.max(1, Math.floor(opts.workers ?? defaultWorkers()));
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.cpuTimeoutMs = opts.cpuTimeoutMs ?? 0;
+    this.cpuPollMs = opts.cpuPollMs ?? DEFAULT_CPU_POLL_MS;
     this.maxParts = opts.maxPartsPerWorker ?? 0;
     this.maxMemory = opts.maxMemoryBytes ?? 256 * 2 ** 20;
   }
@@ -95,13 +147,36 @@ export class PoolTessellator implements Tessellator {
     return this.initPromise;
   }
 
-  tessellate(req: TessellationRequest): Promise<TessellationResult> {
+  tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void): Promise<TessellationResult> {
     if (this.disposed) return Promise.reject(new Error('PoolTessellator: disposed'));
     if (!this.infoValue) return Promise.reject(new Error('PoolTessellator: call init() first'));
     return new Promise((resolve, reject) => {
-      this.queue.push({ id: this.nextId++, req, resolve, reject });
+      const id = this.nextId++;
+      this.queue.push({ id, msg: { type: 'tessellate', id, req }, resolve: resolve as (r: never) => void, reject,
+        onProgress, timeoutMs: this.timeoutMs });
       this.pump();
     });
+  }
+
+  /**
+   * Runs `job` on `input` in a worker (protocol.ts's JobSpec), queued with the tessellation requests. A job that
+   * throws rejects with its message; the worker is then replaced, as after a backend's error.
+   */
+  run<T>(job: JobSpec, input: unknown, opts: RunOptions = {}): Promise<T> {
+    if (this.disposed) return Promise.reject(new Error('PoolTessellator: disposed'));
+    if (!this.infoValue) return Promise.reject(new Error('PoolTessellator: call init() first'));
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.queue.push({ id, msg: { type: 'run', id, job, input }, resolve: resolve as (r: never) => void, reject,
+        ...(opts.onProgress ? { onJobProgress: opts.onProgress } : {}), timeoutMs: opts.timeoutMs ?? 0,
+        cpuTimeoutMs: opts.cpuTimeoutMs ?? 0 });
+      this.pump();
+    });
+  }
+
+  /** A result's times (RequestTimes), for a result this pool returned. */
+  timesOf(r: TessellationResult): RequestTimes | undefined {
+    return this.times.get(r);
   }
 
   /** Terminate every worker; pending requests are rejected. */
@@ -126,7 +201,7 @@ export class PoolTessellator implements Tessellator {
       if (starting) this.afterStartFailure(new Error(`worker failed to start: ${err.message}`));
       this.pump();
     });
-    s.h.post({ type: 'init', backend: this.backend });
+    s.h.post(this.backend ? { type: 'init', backend: this.backend } : { type: 'init' });
   }
 
   private onMessage(s: Slot, msg: FromWorker): void {
@@ -144,14 +219,40 @@ export class PoolTessellator implements Tessellator {
         this.afterStartFailure(new Error(`backend init failed: ${msg.message}`));
         break;
       }
+      case 'output': {
+        this.finish(s)?.resolve(msg.output as never);
+        this.idle(s);
+        break;
+      }
+      case 'jobProgress': {
+        if (s.job && s.job.id === msg.id) {
+          const job = s.job;
+          job.last = msg.message;
+          job.onJobProgress?.(msg.message);
+          if (msg.cpuMs !== undefined) this.checkCpu(s, job, msg.cpuMs);
+        }
+        return;
+      }
       case 'result': {
+        const started = s.started;
         const job = this.finish(s);
-        job?.resolve(msg.result);
+        if (started !== undefined) this.times.set(msg.result, { wallMs: performance.now() - started,
+          ...(msg.cpuMs === undefined ? {} : { cpuMs: msg.cpuMs }) });
+        job?.resolve(msg.result as never);
         s.parts++;
         if ((this.maxParts > 0 && s.parts >= this.maxParts) || (
           this.maxMemory > 0 && (msg.memory ?? 0) > this.maxMemory)) this.kill(s);
         else this.idle(s);
         break;
+      }
+      case 'progress': {
+        if (s.job && s.job.id === msg.id) {
+          const job = s.job;
+          job.last = msg.progress.message;
+          job.onProgress?.(msg.progress);
+          if (msg.cpuMs !== undefined) this.checkCpu(s, job, msg.cpuMs);
+        }
+        return;
       }
       case 'error': {
         // The backend instance may be left broken (a WASM trap), so the worker is replaced.
@@ -184,8 +285,44 @@ export class PoolTessellator implements Tessellator {
     s.h.unref?.();
   }
 
+  /** A request's or job's CPU limit (a job's its own, a request's the pool's); 0 none. */
+  private cpuLimit(job: Job): number {
+    return job.msg.type === 'run' ? job.cpuTimeoutMs ?? 0 : this.cpuTimeoutMs;
+  }
+
+  /** Stop `job` on `s` if `cpuMs`, its worker thread's CPU time on it so far, is past its limit. */
+  private checkCpu(s: Slot, job: Job, cpuMs: number): void {
+    const limit = this.cpuLimit(job);
+    if (!(limit > 0) || !(cpuMs > limit) || s.job !== job) return;
+    const last = job.last === undefined ? '' : ` (last: ${job.last})`;
+    this.kill(s, job.msg.type === 'run'
+      ? new Error(`job ${job.msg.job.export} timed out after ${limit} ms of CPU time${last}`)
+      : new TessellationError(`tessellation timed out after ${limit} ms of CPU time${last}`, limit));
+    this.pump();
+  }
+
+  /**
+   * Reads the worker's CPU time every cpuPollMs while `job` runs, from the handle (outside the worker), so a step that
+   * sends no progress still meets the limit. The baseline is read as the job is posted, so the time counted is the
+   * job's (with the message's delivery); a reading that comes back after the job ended, or from a stopped worker, is
+   * dropped.
+   */
+  private watchCpu(s: Slot, job: Job): void {
+    const read = s.h.cpuUsageMs?.bind(s.h);
+    if (!read || !(this.cpuLimit(job) > 0) || !(this.cpuPollMs > 0)) return;
+    const base = read().catch(() => undefined);
+    s.poll = setInterval(() => {
+      void Promise.all([base, read().catch(() => undefined)]).then(([b, now]) => {
+        if (b !== undefined && now !== undefined) this.checkCpu(s, job, now - b);
+      });
+    }, this.cpuPollMs);
+  }
+
   private finish(s: Slot): Job | undefined {
     clearTimeout(s.timer);
+    clearInterval(s.poll);
+    s.poll = undefined;
+    s.started = undefined;
     const job = s.job;
     s.job = undefined;
     return job;
@@ -209,12 +346,17 @@ export class PoolTessellator implements Tessellator {
       s.state = 'busy';
       s.job = job;
       s.h.ref?.();
-      s.h.post({ type: 'tessellate', id: job.id, req: job.req });
-      if (this.timeoutMs > 0) {
+      s.started = performance.now();
+      this.watchCpu(s, job);
+      s.h.post(job.msg);
+      if (job.timeoutMs > 0) {
+        const what = job.msg.type === 'run' ? `job ${job.msg.job.export}` : 'tessellation';
         s.timer = setTimeout(() => {
-          this.kill(s, new TessellationError(`tessellation timed out after ${this.timeoutMs} ms`, this.timeoutMs));
+          const last = s.job?.last;
+          const m = `${what} timed out after ${job.timeoutMs} ms${last ? ` (last: ${last})` : ''}`;
+          this.kill(s, job.msg.type === 'run' ? new Error(m) : new TessellationError(m, job.timeoutMs));
           this.pump();
-        }, this.timeoutMs);
+        }, job.timeoutMs);
       }
     }
     const starting = this.slots.filter((s) => s.state === 'starting').length;

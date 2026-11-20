@@ -7,19 +7,18 @@
 import { canonical } from './canonical.ts';
 import { clampCurve, clampSurface } from './clamp.ts';
 import { curveEvaluator, surfaceEvaluator } from './geometry.ts';
+import { writeColumns } from './columns.ts';
 import { Copier, type Draw } from './copy.ts';
-import { BYTES, COLUMNS, type BrepData, HEADER_BYTES, openBrep, rowCount } from './data.ts';
+import { COLUMNS, type BrepData, MODEL_LAYOUT, openBrep, rowCount } from './data.ts';
 import * as dec from './decode.ts';
 import {
-  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, ITEM_KIND, LOGICAL, LOOP_KIND, MAGIC, ORIENTATION, SHELL_DECLARED,
+  BODY_KIND, BOUND, CURVE_FORMS, CURVE_KIND, ITEM_KIND, LOGICAL, LOOP_KIND, ORIENTATION, SHELL_DECLARED,
   SHELL_KIND, SURFACE_FORMS, SURFACE_KIND, TRANSITIONS, TRIM_PREFERENCES, type ColumnType, type TableName,
 } from './layout.ts';
 import { compose, IDENTITY, type Similarity, similarity } from './transform.ts';
 import type { Body, Copy, Curve, Edge, Face, Item, Logical, PartInfo, Placement, Point, Shell, Surface, Vertex } from
   './types.ts';
 import type { BrepDiagnostic } from './validate.ts';
-
-if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1) throw new Error('cad-brep needs a little-endian platform');
 
 type Typed = Uint8Array | Int32Array | Uint32Array | Float64Array;
 const CTORS: Record<ColumnType, new (n: number) => Typed> = { u8: Uint8Array, i32: Int32Array, u32: Uint32Array,
@@ -633,22 +632,9 @@ export class BrepBuilder {
   }
 
   private pack(): BrepData {
-    const align = (n: number) => (n + 7) & ~7;
-    let size = HEADER_BYTES;
-    const placed = COLUMNS.map((c) => {
-      const g = this.col(c.table, c.column), offset = size;
-      size = align(size + g.n * BYTES[c.type]);
-      return { g, offset };
-    });
-    const buffer = new ArrayBuffer(size);
-    const bytes = new Uint8Array(buffer), head = new DataView(buffer);
-    for (let k = 0; k < 4; k++) bytes[k] = MAGIC.charCodeAt(k);
-    head.setUint32(4, COLUMNS.length, true);
-    placed.forEach(({ g, offset }, k) => {
-      head.setUint32(8 + 8 * k, offset, true);
-      head.setUint32(12 + 8 * k, g.n, true);
-      new (g.a.constructor as new (b: ArrayBuffer, o: number, n: number) => Typed)(buffer, offset, g.n)
-        .set(g.a.subarray(0, g.n));
+    const buffer = writeColumns(MODEL_LAYOUT, (c) => {
+      const g = this.col(c.table, c.column);
+      return g.a.subarray(0, g.n);
     });
     return openBrep(buffer);
   }

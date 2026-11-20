@@ -12,14 +12,16 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "step-parser": "0.3.0",
+    "cad-heal": "0.3.0",
     "cad-scene": "0.3.0",
     "export-3mf": "0.3.0",
     "export-gltf": "0.3.0",
     "export-threejs": "0.3.0",
-    "step-import": "0.3.0",
     "step-export": "0.3.0",
+    "step-import": "0.3.0",
+    "step-parser": "0.3.0",
     "tess-cache": "0.3.0",
+    "tess-cadio": "0.3.0",
     "tess-occt": "0.3.0",
     "tess-smlib": "0.3.0",
     "tess-truck": "0.3.0",

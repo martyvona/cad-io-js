@@ -1,0 +1,13 @@
+{"format":3,"name":"case-parabolic","variant":"s1","file":"case-parabolic-s1","similarity":{"scale":1,"rotation":[1,0,0,0,1,0,0,0,1],"translation":[0,0,0]},"uncertainty":0.000001,
+"facts": [
+{"kind":"surfacePoint","id":2,"surface":0,"u":1,"v":0.5,"p":[1,2,1],"du":[2,2,0],"dv":[0,0,2],"duu":[2,0,0],"duv":[0,0,0],"dvv":[0,0,0],"n":[0.7071067811865475,-0.7071067811865475,0],"tol":1e-12,"abs":4e-12},
+{"kind":"surfacePoint","id":2,"surface":0,"u":-1,"v":0.5,"p":[1,-2,1],"du":[-2,2,0],"dv":[0,0,2],"duu":[2,0,0],"duv":[0,0,0],"dvv":[0,0,0],"n":[0.7071067811865475,0.7071067811865475,0],"tol":1e-12,"abs":4e-12}
+],
+"cases": [
+{"id":"parabolic-symmetry-0","description":"A point on the parabolic cylinder's plane of symmetry, off it: (3, 0, 0) is nearest at u = -1 and u = 1 alike (v = z / 2), at distance sqrt 8.","entities":{"surface":[0],"curve":[1]},"query":"invertSurface","input":{"surface":0,"p":[3,0,0],"tol":1e-9},"expected":{"uv":[-1,0],"distance":2.8284271247461903,"certainty":"ambiguous","alternatives":[[1,0]],"onSeamU":false,"onSeamV":false,"atSingularity":false}},
+{"id":"parabolic-symmetry-1","description":"A point on the parabolic cylinder's plane of symmetry, off it: (3, 0, 1) is nearest at u = -1 and u = 1 alike (v = z / 2), at distance sqrt 8.","entities":{"surface":[0],"curve":[1]},"query":"invertSurface","input":{"surface":0,"p":[3,0,1],"tol":1e-9},"expected":{"uv":[-1,0.5],"distance":2.8284271247461903,"certainty":"ambiguous","alternatives":[[1,0.5]],"onSeamU":false,"onSeamV":false,"atSingularity":false}},
+{"id":"parabolic-symmetry--2","description":"A point on the parabolic cylinder's plane of symmetry, off it: (3, 0, -2) is nearest at u = -1 and u = 1 alike (v = z / 2), at distance sqrt 8.","entities":{"surface":[0],"curve":[1]},"query":"invertSurface","input":{"surface":0,"p":[3,0,-2],"tol":1e-9},"expected":{"uv":[-1,-1],"distance":2.8284271247461903,"certainty":"ambiguous","alternatives":[[1,-1]],"onSeamU":false,"onSeamV":false,"atSingularity":false}},
+{"id":"parabolic-symmetry-curve","description":"The parabola itself from (3, 0, 0): nearest at t = -1 and t = 1 alike.","entities":{"curve":[0]},"query":"invertCurve","input":{"curve":0,"p":[3,0,0],"range":[-3,3],"tol":1e-9},"expected":{"t":-1,"distance":2.8284271247461903,"certainty":"ambiguous","alternatives":[1]}},
+{"id":"parabolic-inside","description":"A point nearer the vertex than its centre of curvature: (1.5, 0, 0) is nearest the vertex alone (t = 0, distance 1.5).","entities":{"curve":[0]},"query":"invertCurve","input":{"curve":0,"p":[1.5,0,0],"range":[-3,3],"tol":1e-9},"expected":{"t":0,"distance":1.5,"certainty":"unique","alternatives":[]}}
+]
+}

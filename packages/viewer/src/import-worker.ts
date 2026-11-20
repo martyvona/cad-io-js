@@ -8,11 +8,11 @@
 
 import dracoWasm from 'draco3dgltf/draco_decoder_gltf.wasm?url';
 import dracoEncoderWasm from 'draco3dgltf/draco_encoder.wasm?url';
-import { chooseLod, meshDeflections, type Mesh, type Scene } from 'cad-scene';
+import { chooseLod, type Mesh, type Scene } from 'cad-scene';
 import type { ExportRequest } from './export-formats.ts';
 import { exportModel, type Exported } from './export-model.ts';
 import { loadModelIn, meshBuffers, meshModelIn, type ModelEvent, type ModelInput } from './model-load.ts';
-import { deflectionsOf, Tessellation, type TessellationSettings } from './tessellation.ts';
+import { Tessellation, wantedOf, type TessellationSettings } from './tessellation.ts';
 
 export type ToImportWorker =
   | { type: 'load'; load: number; input?: ModelInput; settings: TessellationSettings; workers: number }
@@ -59,7 +59,7 @@ scope.onmessage = async (e) => {
       if (!last) throw new Error('no model to export');
       // Each part's level the page shows (chooseLod, as the page chose it), with the page's mesh; parts without one
       // (failed) none.
-      const wanted = meshDeflections(deflectionsOf(last.settings));
+      const wanted = wantedOf(last.settings);
       const meshes = new Map(msg.meshes);
       const scene: Scene = { ...last.scene, parts: last.scene.parts.map((p, i) => {
         const mesh = meshes.get(i);

@@ -1,0 +1,1190 @@
+// part.h: the edges sampled twice, first to find each face's (u, v) box for its criteria, then with the spacing the
+// criteria ask of each face's edges; every face meshed; then rounds of the splits the faces' meshes want (mesh2d.h's
+// splitWanted), mapped from their Domain2 segments to edges' spans (found among the face's edges by their points: a
+// segment's ends may be labelled with other edges, a junction's point carrying the edge before it), one
+// EdgeMesh::split for all, and the faces whose edges changed meshed again. Every face's mesh is made
+// from the samples as they finally are, so faces sharing an edge share its points.
+#include "tess_cadio/part.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <map>
+#include <set>
+#include <tuple>
+#include <unordered_map>
+
+#include "cad_geom/creases.h"
+#include "cad_geom/surface.h"
+#include "mesh2d_impl.h"
+#include "poles.h"
+
+namespace tesscadio {
+
+/** The deviation check's progress: a report as each face's starts, and again every this many triangles measured. */
+constexpr int kDeviationReport = 64;
+
+using namespace cadgeom;
+
+namespace {
+
+/**
+ * A face's criteria answering from its verdicts of its last two meshings where it can (PartOptions::reuseVerdicts):
+ * keyed by the corners' exact bits in the order given, so an answer is the one the criteria would give. Their one
+ * state, whether any deviation was sampled (SurfaceCriteria::bounded), only ever turns true, and did on the first
+ * asking. Two generations, the older dropped as each meshing starts. Its bytes are counted (estimated per entry) into
+ * the part's total, and past the part's budget it answers from what it holds but keeps nothing new: the same answers,
+ * only asked again.
+ */
+class VerdictMemo final : public SizeField {
+public:
+  VerdictMemo(const SizeField& field, size_t& total, size_t& peak, size_t budget)
+    : field_(field), total_(total), peak_(peak), budget_(budget) {}
+  ~VerdictMemo() override { total_ -= bytes_; }
+  VerdictMemo(const VerdictMemo&) = delete;
+  VerdictMemo& operator=(const VerdictMemo&) = delete;
+  /** A meshing starts: the last one's verdicts kept, the one before's dropped. */
+  void next() {
+    const size_t dropped = old_.size() * kTriBytes + oldMetric_.size() * kPointBytes;
+    total_ -= dropped, bytes_ -= dropped;
+    old_ = std::move(cur_), cur_.clear();
+    oldMetric_ = std::move(curMetric_), curMetric_.clear();
+  }
+  size_t bytes() const { return bytes_; }
+  Metric2 metric(Vec2 p) const override {
+    const PointKey k{bits(p.x), bits(p.y)};
+    if (auto it = curMetric_.find(k); it != curMetric_.end()) return it->second;
+    auto it = oldMetric_.find(k);
+    const Metric2 M = it != oldMetric_.end() ? it->second : field_.metric(p);
+    if (room(kPointBytes)) curMetric_.emplace(k, M);
+    return M;
+  }
+  bool accept(const Vec2 t[3]) const override { return ask(t, kAccept, [&] { return field_.accept(t); }); }
+  bool belowFloor(const Vec2 t[3]) const override { return ask(t, kFloor, [&] { return field_.belowFloor(t); }); }
+  int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+
+private:
+  /**
+   * An entry's bytes as estimated: a hash node (key, value, link, cached hash, the allocator's header) and its bucket,
+   * for 64-bit pointers (WebAssembly's 32-bit ones take less).
+   */
+  static constexpr size_t kTriBytes = 104, kPointBytes = 88;
+  struct TriKey {
+    uint64_t b[6];
+    bool operator==(const TriKey& o) const { return std::equal(b, b + 6, o.b); }
+  };
+  struct PointKey {
+    uint64_t x, y;
+    bool operator==(const PointKey& o) const { return x == o.x && y == o.y; }
+  };
+  static uint64_t mix(uint64_t h, uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h * 0xff51afd7ed558ccdull;
+  }
+  struct TriHash {
+    size_t operator()(const TriKey& k) const {
+      uint64_t h = 0;
+      for (uint64_t v : k.b) h = mix(h, v);
+      return static_cast<size_t>(h ^ (h >> 33));
+    }
+  };
+  struct PointHash {
+    size_t operator()(const PointKey& k) const {
+      const uint64_t h = mix(mix(0, k.x), k.y);
+      return static_cast<size_t>(h ^ (h >> 33));
+    }
+  };
+  static uint64_t bits(double x) {
+    uint64_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return u;
+  }
+  /** Whether an entry of n bytes fits the part's budget, counted if it does. */
+  bool room(size_t n) const {
+    if (total_ + n > budget_) return false;
+    total_ += n, bytes_ += n;
+    peak_ = std::max(peak_, total_);
+    return true;
+  }
+  // Per triangle, two bits per question: known, then the answer.
+  enum : uint8_t { kAccept = 0, kFloor = 2 };
+  template <class F> bool ask(const Vec2 t[3], uint8_t q, F evaluate) const {
+    const TriKey k{{bits(t[0].x), bits(t[0].y), bits(t[1].x), bits(t[1].y), bits(t[2].x), bits(t[2].y)}};
+    uint8_t known = 0;
+    auto it = cur_.find(k);
+    if (it != cur_.end()) known = it->second;
+    else if (auto o = old_.find(k); o != old_.end()) known = o->second;
+    if (!(known >> q & 1)) known |= static_cast<uint8_t>((1 | (evaluate() ? 2 : 0)) << q);
+    if (it != cur_.end()) it->second = known;
+    else if (room(kTriBytes)) cur_.emplace(k, known);
+    return known >> (q + 1) & 1;
+  }
+  const SizeField& field_;
+  size_t &total_, &peak_;
+  const size_t budget_;
+  mutable size_t bytes_ = 0;
+  mutable std::unordered_map<TriKey, uint8_t, TriHash> cur_, old_;
+  mutable std::unordered_map<PointKey, Metric2, PointHash> curMetric_, oldMetric_;
+};
+
+} // namespace
+
+struct PartMesher::Impl {
+  const Model& m;
+  PartOptions o;
+  std::vector<std::unique_ptr<Surface>> surfaces;
+  std::vector<std::unique_ptr<SurfaceCriteria>> criteria;
+  /** The memos' bytes together (estimated; declared first, as their destructors count it down). */
+  size_t memoBytes = 0, memoPeak = 0;
+  /** Per face, its criteria's verdicts kept across its meshings (PartOptions::reuseVerdicts), made as first meshed. */
+  std::vector<std::unique_ptr<VerdictMemo>> memos;
+  /** Each face's last meshing's order: its memo's age, the oldest dropped first. */
+  std::vector<long> meshedAt;
+  long meshings = 0;
+  std::vector<Status> criteriaStatus;
+  std::vector<std::string> criteriaWhy;
+  std::unique_ptr<EdgeMesh> em;
+  std::vector<FaceMesh> faces;
+  /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
+  std::vector<std::set<int>> edgesOf;
+  std::vector<std::vector<SplitRequest>> wanted;
+  /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
+  std::vector<size_t> mesherTriangles;
+  /** Each face's rounds with refinement blocked by a ring's segment (FaceMesh::ringBlocked). */
+  std::vector<int> ringBlocked;
+  /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
+  double floor = 0;
+  /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
+  std::vector<std::vector<PoleRing>> rings;
+  /**
+   * Per face, its refused triangles (FaceMesh::rejected, in order): their (u, v) corners and their vertices' indices
+   * into the face's points, for the deviation check (PartOptions::maxDeviationFactor).
+   */
+  struct Refused {
+    Vec2 uv[3];
+    int32_t v[3];
+  };
+  std::vector<std::vector<Refused>> refused;
+  /**
+   * Per face, its creases (cad_geom/creases.h) as constraints: each piece's line (u = at where isoU, else v = at), its
+   * samples along it (ascending), and at each end on the boundary the edge sample there (edge, parameter; -1 none).
+   */
+  struct CreasePiece {
+    bool isoU = true;
+    double at = 0;
+    /** Within this of the line in its coordinate is on it (rounding: its points, the boundary's too, are on it). */
+    double near = 0;
+    std::vector<double> s;
+    int endEdge[2] = {-1, -1};
+    double endT[2] = {0, 0};
+  };
+  std::vector<std::vector<CreasePiece>> creases;
+  /**
+   * Per face, its loops' (u, v) box's sides on a break of a surface going on past them (findFaceCreases; infinite
+   * where not): its points on one take normals from inside.
+   */
+  std::vector<std::pair<Range, Range>> faceBox;
+  /** Per face, the crease segments its last meshing wanted split: (piece, its segment from s[k] to s[k + 1]). */
+  std::vector<std::set<std::pair<int, int>>> creaseSplits;
+  static Vec2 creaseUv(const CreasePiece& c, double s) { return c.isoU ? Vec2{c.at, s} : Vec2{s, c.at}; }
+  int rounds = 0;
+  /** The progress of the pass under way (PartOptions::progress). */
+  PartProgress at;
+  void report(const PartProgress& p) const {
+    if (o.progress) o.progress(p);
+  }
+  /** An EdgeMesh's progress as PartMesher's, in phase `phase`. */
+  std::function<void(int, int, int)> edgeProgress(PartProgress::Phase phase) const {
+    if (!o.progress) return {};
+    return [this, phase](int done, int total, int face) { o.progress({phase, face, 0, done, total}); };
+  }
+
+  Impl(const Model& model, const PartOptions& options) : m(model), o(options) {}
+
+  EdgeOptions edgeOptions() const {
+    EdgeOptions e;
+    e.projectMissingPcurves = o.projectMissingPcurves;
+    e.deflection = o.d.linear;
+    e.angle = o.d.angular;
+    return e;
+  }
+
+  /**
+   * The span of one of face f's edges that boundary points a and b bound (adjacent samples, found by their points: a
+   * one-span edge between two vertices has neither end labelled with it, a junction's point carrying the edge before
+   * it), and whether a to b runs up its samples; false if none (a pole line's segment).
+   */
+  /**
+   * A pole's fan: a run of a loop's points at a pole (or apex) replaced by a ring of points near it, the ring's
+   * chain (its ends the boundary points either side of the run) joined to the pole in 3D by triangles made here,
+   * outside the mesher, which can't make good ones there: the pole line is one point in 3D, so a triangle the mesher
+   * finds well shaped in (u, v) can have its two other corners on one meridian.
+   */
+  struct Fan {
+    int loop;
+    /** The chain's positions in its (new) loop, the run's ends either side; the pole's (u, v) row and side. */
+    std::vector<int> chain;
+    Vec3 pole;
+    bool isoU;
+    double at;
+    /** The run's first and last points (on the row). */
+    BoundaryPoint first, last;
+    /** Whether the pole is smooth (its fan's normals judged) or apex-like (its deviation alone), PoleRing::smooth. */
+    bool smooth = true;
+  };
+
+  static double fixedOf(Vec2 p, bool isoU) { return isoU ? p.x : p.y; }
+  static double freeOf(Vec2 p, bool isoU) { return isoU ? p.y : p.x; }
+  static Vec2 uvOf(double fixed, double fr, bool isoU) { return isoU ? Vec2{fixed, fr} : Vec2{fr, fixed}; }
+
+  /**
+   * Face f's runs of loop points at a pole replaced by rings (each loop's points as they come, the fans' chains
+   * recorded): a run of two points or more (a pole line's, or a junction at the pole) between regular points on one
+   * side of the pole's row, which are the incident curves' crossings of the ring (cutRings made them). The ring is the
+   * pole's (rings[f]): its row at the pole's radius, in pieces by the edge rules (ringPieces). A pole with no ring
+   * keeps its run as it is.
+   */
+  std::vector<Fan> makeFans(int f, FaceBoundary& fb) const {
+    std::vector<Fan> fans;
+    const Surface& s = *surfaces[f];
+    std::vector<Singularity> sing;
+    s.singularities(sing);
+    if (sing.empty()) return fans;
+    // At a pole: on its row in (u, v).
+    auto poleOf = [&](const BoundaryPoint& p) -> int {
+      for (size_t g = 0; g < sing.size(); g++) {
+        if (sing[g].kind == Singularity::normalVanishes) continue;
+        double F = fixedOf(p.uv, sing[g].isoU);
+        if (std::fabs(F - sing[g].at) <= 1e-12 * (1 + std::fabs(sing[g].at))) return static_cast<int>(g);
+      }
+      return -1;
+    };
+    for (size_t li = 0; li < fb.loops.size(); li++) {
+      std::vector<BoundaryPoint>& L = fb.loops[li];
+      int n = static_cast<int>(L.size());
+      std::vector<int> at(n);
+      int start = -1;
+      for (int i = 0; i < n; i++) {
+        at[i] = poleOf(L[i]);
+        if (at[i] < 0 && start < 0) start = i;
+      }
+      if (start < 0) continue;
+      std::vector<BoundaryPoint> out;
+      std::vector<Fan> mine;
+      for (int k = 0; k < n;) {
+        int i = (start + k) % n;
+        if (at[i] < 0) {
+          out.push_back(L[i]);
+          k++;
+          continue;
+        }
+        int g = at[i], len = 0;
+        while (k + len < n && at[(start + k + len) % n] == g) len++;
+        const Singularity& S = sing[g];
+        const BoundaryPoint& a = L[(start + k - 1 + n) % n];
+        const BoundaryPoint& b = L[(start + k + len) % n];
+        const BoundaryPoint& first = L[i];
+        const BoundaryPoint& last = L[(start + k + len - 1) % n];
+        double da = fixedOf(a.uv, S.isoU) - S.at, db = fixedOf(b.uv, S.isoU) - S.at;
+        // (Not where an end is on the row itself, all but: a sample inverted to the pole from an edge a little off its
+        // surface, its own point not at the pole. The pole line stays as it is there.)
+        double onRow = 1e-9 * (1 + std::fabs(S.at));
+        const PoleRing* ring = nullptr;
+        for (const PoleRing& pr : rings[f])
+          if (pr.singularity == g && pr.radius > 0) ring = &pr;
+        if (len < 2 || !(da * db > 0) || std::fabs(da) <= onRow || std::fabs(db) <= onRow || !ring) {
+          for (int j = 0; j < len; j++) out.push_back(L[(start + k + j) % n]);
+          k += len;
+          continue;
+        }
+        Fan fan;
+        fan.loop = static_cast<int>(li);
+        fan.isoU = S.isoU;
+        fan.at = S.at;
+        fan.pole = S.point;
+        for (int j = 0; j < len; j++) {
+          const BoundaryPoint& q = L[(start + k + j) % n];
+          if (q.kind == BoundaryPoint::edgeSample || q.kind == BoundaryPoint::pseudoSample) fan.pole = q.point;
+        }
+        fan.first = first, fan.last = last;
+        double side = da > 0 ? 1 : -1, q0 = freeOf(first.uv, S.isoU), q1 = freeOf(last.uv, S.isoU);
+        // The ring: its pole's (poles.h: the radius by the pole-ring rule, one reach for every face at the pole, cut
+        // into the curves through it), in pieces by the edge rules, at the radius throughout so it stays under the
+        // clearance. An end off the row by over half as much again (a curve whose crossing at the shared reach is
+        // farther out in this face's fixed coordinate) is reached along its own row of the free coordinate, so the
+        // chain runs beside no other boundary. The pieces span the chain from end to end: an end on the ring is
+        // where the chain starts in the free coordinate, which can be far along the row from the run's own ends (a
+        // curve's crossing of the ring away from where it meets the pole), and the ring's segments are never split
+        // later.
+        const PoleRing& R = *ring;
+        const double r = R.radius;
+        fan.smooth = R.smooth;
+        const bool farA = std::fabs(da) > 1.5 * r, farB = std::fabs(db) > 1.5 * r;
+        const double lo = farA ? q0 : freeOf(a.uv, S.isoU), hi = farB ? q1 : freeOf(b.uv, S.isoU);
+        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular);
+        std::vector<double> qs;
+        double piece = (hi - lo) / pieces;
+        if (farA) qs.push_back(q0);
+        for (int j = 1; j < pieces; j++) qs.push_back(lo + j * piece);
+        if (farB) qs.push_back(q1);
+        fan.chain.push_back(static_cast<int>(out.size()) - 1);
+        for (double qj : qs) {
+          BoundaryPoint q;
+          q.kind = BoundaryPoint::vertexPoint;
+          q.uv = uvOf(S.at + side * r, qj, S.isoU);
+          SurfacePoint sp;
+          s.eval(q.uv.x, q.uv.y, 0, sp);
+          q.point = sp.p;
+          fan.chain.push_back(static_cast<int>(out.size()));
+          out.push_back(q);
+        }
+        fan.chain.push_back(static_cast<int>(out.size()));  // b, pushed next (or the loop's first point)
+        mine.push_back(fan);
+        k += len;
+      }
+      // A chain's last position past the end is the loop's first point (b was where the rotation started).
+      for (Fan& fan : mine) {
+        if (fan.chain.front() < 0) fan.chain.front() += static_cast<int>(out.size());
+        if (fan.chain.back() >= static_cast<int>(out.size())) fan.chain.back() -= static_cast<int>(out.size());
+        fans.push_back(fan);
+      }
+      L = out;
+    }
+    return fans;
+  }
+
+  /** Triangle t turned counterclockwise in (u, v). */
+  static void orient(Vec2 t[3]) {
+    if (cross(t[1] - t[0], t[2] - t[0]) < 0) std::swap(t[1], t[2]);
+  }
+
+  /**
+   * Why the mesher refused face f's domain, from the segments it names (mesh2d.h): two of the boundary's points at
+   * one (u, v), a segment through another point, or two that cross; and what they're of (an edge's samples, a cut's,
+   * a pole line, a pole's ring).
+   */
+  static std::string meshWhy(const Mesh2& mesh, const std::vector<BoundaryPoint>& bp) {
+    const std::vector<int32_t>& r = mesh.rejected;
+    auto of = [&](int32_t i) -> std::string {
+      if (i < 0 || i >= static_cast<int32_t>(bp.size())) return "a point";
+      switch (bp[i].kind) {
+        case BoundaryPoint::edgeSample: return "an edge";
+        case BoundaryPoint::pseudoSample: return "a cut";
+        case BoundaryPoint::poleLine: return "a pole line";
+        default: return "a pole's ring or a vertex";
+      }
+    };
+    if (r.size() == 2) return "two of its boundary's points at one (u, v) (" + of(r[0]) + ", " + of(r[1]) + ")";
+    if (r.size() >= 4 && r[2] == r[3])
+      return "its boundary in (u, v) through its own point (" + of(r[0]) + " through " + of(r[2]) + ")";
+    if (r.size() >= 4) return "its boundary in (u, v) crossing itself (" + of(r[0]) + " and " + of(r[2]) + ")";
+    return "its boundary not a domain in (u, v) (a loop under 3 points, a segment not closed)";
+  }
+
+  /**
+   * The loop point of face boundary fb that is edge `edge`'s sample at parameter t exactly, if any: by its 3D point (a
+   * junction's point carries the edge before it).
+   */
+  bool boundaryPoint(const FaceBoundary& fb, int edge, double t, BoundaryPoint& out) const {
+    const EdgeSamples& es = em->edge(edge);
+    int j = -1;
+    for (size_t k = 0; k < es.t.size() && j < 0; k++)
+      if (es.t[k] == t) j = static_cast<int>(k);
+    if (j < 0) return false;
+    const Vec3 x = es.points[j];
+    for (const auto& L : fb.loops)
+      for (const BoundaryPoint& p : L)
+        if (p.point.x == x.x && p.point.y == x.y && p.point.z == x.z) return out = p, true;
+    return false;
+  }
+
+  /**
+   * Each face's creases (cad_geom/creases.h: iso-lines inside it where the normal jumps past the angle) as
+   * constraints: a piece's end on the boundary crossed with its loop's (u, v) polyline, an edge sample placed there
+   * (EdgeMesh::split's exact: both faces get it); pieces crossing each other share the crossing; then each sampled as
+   * an edge is in 3D (chord within d, at most the face's edge spacing apart). A piece whose boundary end can't be
+   * placed on an edge's span is dropped.
+   */
+  void findFaceCreases() {
+    const int nf = m.faces();
+    creases.assign(nf, {});
+    creaseSplits.assign(nf, {});
+    faceBox.assign(nf, {{INFINITY, -INFINITY}, {INFINITY, -INFINITY}});
+    std::vector<SplitRequest> exact;
+    for (int f = 0; f < nf; f++) {
+      if (!surfaces[f] || !criteria[f]) continue;
+      const FaceBoundary fb = em->face(f);
+      if (fb.status != Status::ok) continue;
+      // (Its edges as meshFace lists them, for spanOf: the first meshing comes after.)
+      for (int i = 0; i < m.faceLoopCount(f); i++) {
+        const int l = m.faceFirstLoop(f) + i;
+        if (m.loopKind(l) == CBR_LOOP_EDGE)
+          for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
+      }
+      for (const auto& L : fb.loops)
+        for (const BoundaryPoint& p : L)
+          if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
+      const Surface& s = *surfaces[f];
+      Range ru{INFINITY, -INFINITY}, rv{INFINITY, -INFINITY};
+      for (const auto& L : fb.loops)
+        for (const BoundaryPoint& p : L)
+          ru.lo = std::min(ru.lo, p.uv.x), ru.hi = std::max(ru.hi, p.uv.x), rv.lo = std::min(rv.lo, p.uv.y),
+          rv.hi = std::max(rv.hi, p.uv.y);
+      if (!(ru.lo < ru.hi && rv.lo < rv.hi)) continue;
+      // The (u, v) tolerance findCreases classifies by, bisects to and extends ends past the boundary by: rounding,
+      // 1e-7 of the box, not the face's tolerance. Both the classification and the crossing are with these loops'
+      // own polyline, and a crease within the face's tolerance of the boundary (trj3's #1349: u = 7, 0.05 of a 1 mm
+      // tolerance's 0.5 from its edge) still has a strip beyond it that triangles across it can't mesh.
+      const double box = std::max(ru.hi - ru.lo, rv.hi - rv.lo);
+      auto uvTol = [&](Vec2) { return 1e-7 * box; };
+      // In (0), out (1) or on (2: within uvTol of a loop's segment) by the loops' even-odd rule.
+      auto inside = [&](const Vec2* p, int n, int* sides) {
+        for (int i = 0; i < n; i++) {
+          const Vec2 x = p[i];
+          const double near = uvTol(x);
+          bool in = false, on = false;
+          for (const auto& L : fb.loops)
+            for (size_t k = 0; k < L.size() && !on; k++) {
+              const Vec2 a = L[k].uv, b = L[(k + 1) % L.size()].uv;
+              const Vec2 e{b.x - a.x, b.y - a.y};
+              const double l2 = e.x * e.x + e.y * e.y;
+              const double w = l2 > 0 ? std::clamp(((x.x - a.x) * e.x + (x.y - a.y) * e.y) / l2, 0.0, 1.0) : 0;
+              on = std::hypot(x.x - a.x - w * e.x, x.y - a.y - w * e.y) <= near;
+              if ((a.y > x.y) != (b.y > x.y) && x.x < a.x + (x.y - a.y) * (b.x - a.x) / (b.y - a.y)) in = !in;
+            }
+          sides[i] = on ? 2 : in ? 0 : 1;
+        }
+      };
+      // (Past half the angle: a jump just under it leaves a triangle across it no room, refined to the cap.)
+      const std::vector<cadgeom::Crease> found = cadgeom::findCreases(s, ru, rv, 0.5 * o.d.angular, inside, uvTol);
+      for (const cadgeom::Crease& c : found) {
+        CreasePiece P;
+        P.isoU = c.isoU, P.at = c.at;
+        double ends[2] = {c.lo, c.hi};
+        bool ok = true;
+        const bool onB[2] = {c.loOnBoundary, c.hiOnBoundary};
+        for (int e = 0; e < 2 && ok; e++) {
+          if (!onB[e]) continue;
+          // The loop's segment the line crosses nearest that end, within the piece.
+          double best = INFINITY, along = 0, frac = 0;
+          const BoundaryPoint *ba = nullptr, *bb = nullptr;
+          for (const auto& L : fb.loops)
+            for (size_t k = 0; k < L.size(); k++) {
+              const BoundaryPoint &a = L[k], &b = L[(k + 1) % L.size()];
+              const double xa = c.isoU ? a.uv.x : a.uv.y, xb = c.isoU ? b.uv.x : b.uv.y;
+              if (xa == xb || (xa - c.at) * (xb - c.at) > 0) continue;
+              const double w = (c.at - xa) / (xb - xa);
+              const double ya = c.isoU ? a.uv.y : a.uv.x, yb = c.isoU ? b.uv.y : b.uv.x, y = ya + w * (yb - ya);
+              if (y < c.lo || y > c.hi || std::fabs(y - ends[e]) >= best) continue;
+              best = std::fabs(y - ends[e]), along = y, frac = w, ba = &a, bb = &b;
+            }
+          int edge, span;
+          bool forward;
+          ok = ba && spanOf(f, *ba, *bb, edge, span, forward);
+          if (!ok) break;
+          const double fr = forward ? frac : 1 - frac;
+          const std::vector<double>& ts = em->edge(edge).t;
+          P.endEdge[e] = edge, P.endT[e] = ts[span] + fr * (ts[span + 1] - ts[span]);
+          if (!(fr > 1e-9 && fr < 1 - 1e-9)) P.endT[e] = fr < 0.5 ? ts[span] : ts[span + 1];
+          else exact.push_back({edge, span, fr, true});
+          ends[e] = along;
+        }
+        if (!ok || !(ends[0] < ends[1])) continue;
+        P.s = {ends[0], ends[1]};
+        creases[f].push_back(P);
+      }
+      // Crossings: a u-line's and a v-line's shared point.
+      for (CreasePiece& A : creases[f])
+        for (CreasePiece& B : creases[f])
+          if (A.isoU && !B.isoU && B.at > A.s.front() && B.at < A.s.back() && A.at > B.s.front() && A.at < B.s.back())
+            A.s.push_back(B.at), B.s.push_back(A.at);
+      // Sampled as an edge: chord within d of the line's middle, no longer than the face's edge spacing (both coarser
+      // with PartOptions::edgeSpacingScale, the chord's sag as its square, left to the split rounds).
+      const double spacing = criteria[f]->edgeSpacing() * o.edgeSpacingScale;
+      const double sag = o.d.linear * o.edgeSpacingScale * o.edgeSpacingScale;
+      for (CreasePiece& P : creases[f]) {
+        std::sort(P.s.begin(), P.s.end());
+        std::vector<double> out{P.s.front()};
+        std::function<void(double, double, int)> sample = [&](double a, double b, int depth) {
+          SurfacePoint pa, pb, pm;
+          const Vec2 ua = creaseUv(P, a), ub = creaseUv(P, b), um = creaseUv(P, 0.5 * (a + b));
+          bool split = depth < 24 && s.eval(ua.x, ua.y, 0, pa) == Status::ok && s.eval(ub.x, ub.y, 0, pb) ==
+            Status::ok && s.eval(um.x, um.y, 0, pm) == Status::ok;
+          split = split && (norm(pm.p - 0.5 * (pa.p + pb.p)) > sag || norm(pb.p - pa.p) > spacing);
+          if (split) sample(a, 0.5 * (a + b), depth + 1), sample(0.5 * (a + b), b, depth + 1);
+          else out.push_back(b);
+        };
+        for (size_t i = 0; i + 1 < P.s.size(); i++) sample(P.s[i], P.s[i + 1], 0);
+        P.s = std::move(out);
+      }
+      std::vector<SurfaceCriteria::Crease> lines;
+      for (CreasePiece& P : creases[f]) {
+        P.near = 1e-9 * (1 + std::fabs(P.at));
+        lines.push_back({P.isoU, P.at, P.near});
+      }
+      // And the box's sides on a break of a surface going on past them (trj3's #1307: u = 6, a C0 knot inside its
+      // B-spline): normals there from inside, not from the span beyond. (Not elsewhere: a pole line's are limits.)
+      const SurfaceDomain D = s.domain();
+      bool sideU[2] = {false, false}, sideV[2] = {false, false};
+      for (int k = 0; k < 4; k++) {
+        const bool isoU = k < 2;
+        const double a = isoU ? (k == 0 ? ru.lo : ru.hi) : (k == 2 ? rv.lo : rv.hi);
+        const Range dom = isoU ? D.u : D.v, other = isoU ? rv : ru;
+        const double w = 1e-3 * box;
+        const Range near{std::max(dom.lo, a - w), std::min(dom.hi, a + w)};
+        if (!(near.lo < a && a < near.hi)) continue;
+        std::vector<double> us, vs;
+        s.breaks(isoU ? near : other, isoU ? other : near, us, vs);
+        const std::vector<double>& b = isoU ? us : vs;
+        if (std::find(b.begin(), b.end(), a) == b.end()) continue;
+        lines.push_back({isoU, a, 1e-9 * (1 + std::fabs(a))});
+        (isoU ? sideU : sideV)[k % 2] = true;
+      }
+      criteria[f]->setCreases(lines);
+      faceBox[f] = {{sideU[0] ? ru.lo : -INFINITY, sideU[1] ? ru.hi : INFINITY},
+        {sideV[0] ? rv.lo : -INFINITY, sideV[1] ? rv.hi : INFINITY}};
+    }
+    if (!exact.empty()) em->split(exact);
+  }
+
+  bool spanOf(int f, const BoundaryPoint& a, const BoundaryPoint& b, int& edge, int& span, bool& forward) const {
+    auto same = [](Vec3 x, Vec3 y) { return x.x == y.x && x.y == y.y && x.z == y.z; };
+    for (int e : edgesOf[f]) {
+      const std::vector<Vec3>& p = em->edge(e).points;
+      for (size_t j = 0; j + 1 < p.size(); j++)
+        if ((same(p[j], a.point) && same(p[j + 1], b.point)) || (same(p[j], b.point) && same(p[j + 1], a.point))) {
+          edge = e, span = static_cast<int>(j), forward = same(p[j], a.point);
+          return true;
+        }
+    }
+    return false;
+  }
+
+  /**
+   * Faces left farther from their surfaces than maxDeviationFactor x the larger of the deflection and the face's
+   * tolerance (cad-geom's Tolerances::face: the part's, widened by the face's own; the limit) fail: below its
+   * tolerance the model doesn't say where the surface is. A refused
+   * triangle is settled without measuring where its criteria's bound (deviationBound) plus its corners' distances from
+   * the surface's points at their (u, v) is within the limit: its points' distances are at most that. Otherwise the
+   * points of its barycentric lattice of order 4 but its corners are inverted onto the surface, the face failing at the
+   * first past the limit: the verdict as measuring them all would give it (where inversion finds the nearest point),
+   * the measure in its cause a lower bound on the worst.
+   */
+  void checkDeviation() {
+    if (!(o.maxDeviationFactor > 0)) return;
+    const cadgeom::Tolerances tols(m);
+    const int nf = static_cast<int>(faces.size());
+    for (int f = 0; f < nf; f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || fm.rejected.empty() || !surfaces[f]) continue;
+      const double within = std::fmax(o.d.linear, tols.face(f)), limit = o.maxDeviationFactor * within;
+      const Surface& s = *surfaces[f];
+      const SurfaceDomain D = s.domain();
+      const PartProgress here{PartProgress::deviation, f, rounds, f, nf};
+      report(here);
+      double worst = 0;
+      bool past = false;
+      for (size_t k = 0; k < fm.rejected.size() && !past; k++) {
+        // (The box's bound first, the pieces' only where that doesn't settle it: over a B-spline's many knots the
+        // pieces cost far more, tens of thousands of refused triangles at a point cap.)
+        if (refused[f].size() == fm.rejected.size() && criteria[f]) {
+          const Refused& r = refused[f][k];
+          double gap = 0;
+          for (int i = 0; i < 3; i++) {
+            SurfacePoint q;
+            gap = s.eval(r.uv[i].x, r.uv[i].y, 0, q) == Status::ok ? std::fmax(gap, norm(fm.points[r.v[i]] - q.p))
+                                                                   : INFINITY;
+          }
+          double bound;
+          if (gap < limit && criteria[f]->deviationBound(r.uv, bound, false) && bound + gap <= limit) continue;
+          if (gap < limit && criteria[f]->deviationBound(r.uv, bound, true) && bound + gap <= limit) continue;
+        }
+        if (fm.deviationMeasured++ % kDeviationReport == kDeviationReport - 1) report(here);
+        const int32_t t = fm.rejected[k];
+        // Each corner's (u, v), where the refused triangle's record has it: the surface's point at a lattice point's
+        // barycentric (u, v), inside its domain, is a point of the surface, so its distance bounds the point's own
+        // from above, and only a point it doesn't put within the limit is inverted (globally, over the whole domain:
+        // dear on a B-spline).
+        Vec2 uvc[3];
+        bool haveUv = refused[f].size() == fm.rejected.size();
+        for (int c = 0; c < 3 && haveUv; c++) {
+          int at = -1;
+          for (int i = 0; i < 3; i++)
+            if (refused[f][k].v[i] == fm.triangles[3 * t + c]) at = i;
+          haveUv = at >= 0;
+          if (haveUv) uvc[c] = refused[f][k].uv[at];
+        }
+        for (int i = 0; i <= 4 && !past; i++)
+          for (int j = 0; i + j <= 4 && !past; j++) {
+            if ((i == 4) || (j == 4) || (i + j == 0)) continue;  // (the corners: on the surface)
+            const Vec3 x = (i / 4.0) * fm.points[fm.triangles[3 * t]] + (j / 4.0) * fm.points[fm.triangles[3 * t + 1]]
+              + ((4 - i - j) / 4.0) * fm.points[fm.triangles[3 * t + 2]];
+            Vec2 uv{0, 0};
+            if (haveUv) {
+              uv = (i / 4.0) * uvc[0] + (j / 4.0) * uvc[1] + ((4 - i - j) / 4.0) * uvc[2];
+              SurfacePoint q;
+              const bool inside = uv.x >= D.u.lo && uv.x <= D.u.hi && uv.y >= D.v.lo && uv.y <= D.v.hi;
+              if (inside && s.eval(uv.x, uv.y, 0, q) == Status::ok && norm(x - q.p) <= limit) continue;
+            }
+            // (The distance alone, within 1e-3 d of the nearest: invertSurface's distanceOnly, the lattice point's
+            // barycentric (u, v) its seed.)
+            const SurfaceInversion inv =
+              invertSurface(s, x, D.u, D.v, o.d.linear, haveUv ? &uv : nullptr, nullptr, true);
+            if (inv.status != Status::ok) continue;
+            worst = std::fmax(worst, inv.distance);
+            past = worst > limit;
+          }
+      }
+      fm.worstDeviation = worst;
+      if (!past) continue;
+      char why[240];
+      std::snprintf(why, sizeof why, "meshed past its deflection: at least %.3g x the deflection (a refused triangle's "
+        "point inverted onto its surface), past %.3g x max(d, tol) = %.3g x %.3g mm", worst / o.d.linear,
+        o.maxDeviationFactor, o.maxDeviationFactor, within);
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+      refused[f].clear();
+    }
+  }
+
+  /**
+   * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
+   * normals) fail as one past its deflection does (PartOptions::failTurnedOver): wrong output however small. Such a
+   * triangle is one its criteria refused that refinement didn't mend (they refuse a facet turned against any corner's
+   * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
+   * (the normal there a limit, on a strongly curved patch).
+   */
+  void checkFacing() {
+    if (!o.failTurnedOver) return;
+    const cadgeom::Tolerances tols(m);
+    for (size_t f = 0; f < faces.size(); f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || !surfaces[f]) continue;
+      std::vector<Singularity> sing;
+      surfaces[f]->singularities(sing);
+      const double near = tols.face(static_cast<int>(f));
+      auto atSingular = [&](Vec3 p) {
+        for (const Singularity& g : sing)
+          if (g.kind != Singularity::normalVanishes && norm(p - g.point) <= near) return true;
+        return false;
+      };
+      int against = 0;
+      for (size_t t = 0; t + 2 < fm.triangles.size() && t / 3 < mesherTriangles[f]; t += 3) {
+        const int32_t* v = &fm.triangles[t];
+        if (atSingular(fm.points[v[0]]) || atSingular(fm.points[v[1]]) || atSingular(fm.points[v[2]])) continue;
+        const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+        against += facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
+      }
+      if (!against) continue;
+      char why[160];
+      std::snprintf(why, sizeof why, "meshed with %d triangles turned against its surface (their facets against their "
+        "corners' normals, refused and not mended)", against);
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
+  /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
+  void failCapped() {
+    if (!o.failCapped) return;
+    for (FaceMesh& fm : faces) {
+      if (fm.status != Status::ok || !fm.capped) continue;
+      fm.status = Status::noConvergence;
+      fm.cause = "refinement stopped at its point cap, " + std::to_string(fm.triangles.size() / 3) + " triangles";
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
+  void meshFace(int f) {
+    at.row = f;
+    if (o.progress) o.progress(at);
+    FaceMesh& out = faces[f];
+    out = {};
+    refused[f].clear();
+    wanted[f].clear();
+    if (f < static_cast<int>(creaseSplits.size())) creaseSplits[f].clear();
+    edgesOf[f].clear();
+    if (!surfaces[f]) {
+      out.cause = "its surface not made (a kind or form cad-geom lacks)";
+      return;
+    }
+    if (!criteria[f]) {
+      out.status = criteriaStatus[f];
+      out.cause = criteriaWhy[f];
+      return;
+    }
+    FaceBoundary fb = em->face(f);
+    if (fb.status != Status::ok && fb.status != Status::singular) {
+      out.status = fb.status;
+      out.cause = fb.cause;
+      return;
+    }
+    if (fb.status == Status::singular) {
+      out.note = "a seam's side in (u, v) not settled by its neighbours";
+      out.seamUnsettled = true;
+    }
+    out.againstSense = fb.againstSense;
+    out.foldsRepaired = fb.foldsRepaired;
+    // A crease's end on the boundary: the loop's sample there put on the crease's line in this face's (u, v) (its 3D
+    // point the edge's, shared; moved within the face's tolerance), so no triangle beside the end crosses the line.
+    if (f < static_cast<int>(creases.size()))
+      for (const CreasePiece& P : creases[f])
+        for (int e = 0; e < 2; e++) {
+          BoundaryPoint b;
+          if (P.endEdge[e] < 0 || !boundaryPoint(fb, P.endEdge[e], P.endT[e], b)) continue;
+          for (auto& L : fb.loops)
+            for (BoundaryPoint& p : L)
+              if (p.point.x == b.point.x && p.point.y == b.point.y && p.point.z == b.point.z)
+                (P.isoU ? p.uv.x : p.uv.y) = P.at;
+        }
+    // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
+    std::vector<Fan> fans;
+    if (fb.status == Status::ok) fans = makeFans(f, fb);
+    // The domain: the loops' points, then the interior chains' (segments between consecutive ones). A point exactly
+    // equal to one before, in (u, v) and in 3D, is that point again (mesh2d.h's Domain2): a vertex a loop passes
+    // twice (a hole of circles touching at their vertices), or loops share.
+    Domain2 d;
+    std::vector<BoundaryPoint> bp;
+    std::map<std::tuple<double, double, double, double, double>, int32_t> seen;
+    auto index = [&](const BoundaryPoint& p) {
+      auto [it, added] = seen.try_emplace({p.uv.x, p.uv.y, p.point.x, p.point.y, p.point.z},
+        static_cast<int32_t>(bp.size()));
+      if (added) bp.push_back(p);
+      return it->second;
+    };
+    for (const auto& l : fb.loops) {
+      std::vector<int32_t> loop;
+      for (const BoundaryPoint& p : l) loop.push_back(index(p));
+      d.loops.push_back(loop);
+    }
+    for (const auto& c : fb.interior) {
+      std::vector<int32_t> chain;
+      for (const BoundaryPoint& p : c) chain.push_back(index(p));
+      for (size_t i = 0; i + 1 < chain.size(); i++) d.segments.insert(d.segments.end(), {chain[i], chain[i + 1]});
+    }
+    // Its creases' chains: interior constraints too, an end on the boundary the loop's own sample there. Each
+    // segment's (piece, k), for the splits the mesher asks of it; each point's lines, for its normals by side.
+    std::map<std::pair<int32_t, int32_t>, std::pair<int, int>> creaseSegment;
+    std::map<int32_t, std::vector<std::pair<bool, double>>> onCrease;
+    if (f < static_cast<int>(creases.size()))
+      for (size_t k = 0; k < creases[f].size(); k++) {
+        const CreasePiece& P = creases[f][k];
+        std::vector<int32_t> chain;
+        for (size_t i = 0; i < P.s.size(); i++) {
+          const int end = i == 0 ? 0 : i + 1 == P.s.size() ? 1 : -1;
+          BoundaryPoint b;
+          if (!(end >= 0 && P.endEdge[end] >= 0 && boundaryPoint(fb, P.endEdge[end], P.endT[end], b))) {
+            b.kind = BoundaryPoint::vertexPoint, b.uv = creaseUv(P, P.s[i]);
+            SurfacePoint q;
+            surfaces[f]->eval(b.uv.x, b.uv.y, 0, q);
+            b.point = q.p;
+          }
+          chain.push_back(index(b));
+          onCrease[chain.back()].push_back({P.isoU, P.at});
+        }
+        for (size_t i = 0; i + 1 < chain.size(); i++) {
+          d.segments.insert(d.segments.end(), {chain[i], chain[i + 1]});
+          creaseSegment[{std::min(chain[i], chain[i + 1]), std::max(chain[i], chain[i + 1])}] =
+            {static_cast<int>(k), static_cast<int>(i)};
+        }
+      }
+    // Its edges: its loops' model edges, and the pseudo-edges its boundary has.
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) == CBR_LOOP_EDGE)
+        for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
+    }
+    for (const BoundaryPoint& p : bp) {
+      d.points.push_back(p.uv);
+      if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
+    }
+    // The segments the edges won't split (an edge's span whose chord is within the refinement floor, as
+    // EdgeMesh::split has it): frozen, so the mesher inserts past them rather than asking.
+    auto frozenSpan = [&](int32_t a, int32_t b) -> uint8_t {
+      int edge, span;
+      bool forward;
+      return a != b && norm(bp[b].point - bp[a].point) <= floor && spanOf(f, bp[a], bp[b], edge, span, forward);
+    };
+    for (const auto& l : d.loops)
+      for (size_t k = 0; k < l.size(); k++) d.frozen.push_back(frozenSpan(l[k], l[(k + 1) % l.size()]));
+    for (size_t k = 0; k + 1 < d.segments.size(); k += 2)
+      d.frozen.push_back(frozenSpan(d.segments[k], d.segments[k + 1]));
+    // Each fan's ring as domain points (its chain's positions in its loop, through the loop's indices).
+    std::vector<std::vector<int32_t>> ring(fans.size());
+    for (size_t k = 0; k < fans.size(); k++)
+      for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
+    MeshOptions mo;
+    mo.maxPoints = o.maxPointsPerFace;
+    mo.minAngle = o.minAngle;
+    if (o.progress) mo.onWork = [this] { o.progress(at); };
+    static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
+    Mesh2Detail detail;
+    const SizeField* field = criteria[f].get();
+    if (o.reuseVerdicts) {
+      // Room for this face's: the other faces' memos dropped, least recently meshed first, while the part's total is
+      // past half its budget.
+      if (memos[f]) memos[f]->next();
+      while (memoBytes > o.verdictBudget / 2) {
+        int oldest = -1;
+        for (int g = 0; g < static_cast<int>(memos.size()); g++)
+          if (g != f && memos[g] && (oldest < 0 || meshedAt[g] < meshedAt[oldest])) oldest = g;
+        if (oldest < 0) break;
+        memos[oldest].reset();
+      }
+      if (!memos[f]) memos[f] = std::make_unique<VerdictMemo>(*criteria[f], memoBytes, memoPeak, o.verdictBudget);
+      meshedAt[f] = meshings++;
+      field = memos[f].get();
+    }
+    const bool detailed = o.countInsertions || o.countAngles;
+    mo.refusalKinds = o.countInsertions;
+    Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    if (o.countInsertions) std::copy(detail.inserted, detail.inserted + kInsertionKinds, out.inserted);
+    if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
+      // (A boundary whose seam side wasn't settled fails for that.)
+      out.status = fb.status == Status::singular ? Status::singular : mesh.status;
+      out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
+      // Two segments that cross, or one through a point: each segment that is an edge's span split at its middle,
+      // for the next round to mesh again (two edges leaving a vertex nearly tangent: the coarser one's chord across
+      // the other's samples, which no criterion of either edge sees).
+      if (mesh.rejected.size() >= 4)
+        for (size_t k = 0; k < 4; k += 2) {
+          const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
+          int edge, span;
+          bool forward;
+          if (a >= 0 && b >= 0 && a < static_cast<int32_t>(bp.size()) && b < static_cast<int32_t>(bp.size()) &&
+            spanOf(f, bp[a], bp[b], edge, span, forward))
+            wanted[f].push_back({edge, span, 0.5});
+        }
+      out.splitsWanted = static_cast<int>(wanted[f].size());
+      return;
+    }
+    out.status = Status::ok;
+    if (mesh.status == Status::noConvergence) {
+      out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
+      out.capped = true;
+    }
+    // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
+    std::vector<std::pair<int32_t, int32_t>> segs;
+    for (const auto& l : d.loops)
+      for (size_t k = 0; k < l.size(); k++) segs.push_back({l[k], l[(k + 1) % l.size()]});
+    for (size_t k = 0; k + 1 < d.segments.size(); k += 2) segs.push_back({d.segments[k], d.segments[k + 1]});
+    // (A ring's segments, consecutive in a fan's ring, aren't an edge's: counted, as refinement is blocked there.)
+    std::set<std::pair<int32_t, int32_t>> ringSegments;
+    for (const auto& rg : ring)
+      for (size_t j = 0; j + 1 < rg.size(); j++)
+        ringSegments.insert({std::min(rg[j], rg[j + 1]), std::max(rg[j], rg[j + 1])});
+    bool blocked = false;
+    for (const SplitWanted& w : mesh.splitWanted) {
+      if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
+      int edge, span;
+      bool forward;
+      auto [a, b] = segs[w.segment];
+      if (spanOf(f, bp[a], bp[b], edge, span, forward))
+        wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
+      else if (auto c = creaseSegment.find({std::min(a, b), std::max(a, b)}); c != creaseSegment.end())
+        creaseSplits[f].insert(c->second);
+      else
+        blocked = blocked || ringSegments.count({std::min(a, b), std::max(a, b)});
+    }
+    if (blocked) ringBlocked[f]++;
+    out.ringBlocked = ringBlocked[f];
+    // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
+    // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
+    out.splitsWanted = static_cast<int>(wanted[f].size() + creaseSplits[f].size());
+    out.sampled = !criteria[f]->bounded();
+    // In 3D: the boundary's points exactly, the mesher's on the surface.
+    const Surface& s = *surfaces[f];
+    double sense = m.faceSameSense(f) ? 1 : -1;
+    size_t n = mesh.points.size();
+    out.points.resize(n);
+    out.normals.assign(n, Vec3{0, 0, 0});
+    std::vector<char> regular(n, 0);
+    for (size_t i = 0; i < n; i++) {
+      if (i < bp.size()) {
+        out.points[i] = bp[i].point;
+      } else {
+        SurfacePoint q;
+        s.eval(mesh.points[i].x, mesh.points[i].y, 0, q);
+        out.points[i] = q.p;
+      }
+      // (At a singular point, the limit where the surface gives one: surface.h's normal() with Status::singular. On
+      // the box's side, from inside: the surface may go on past a C0 line there, findFaceCreases.)
+      Vec2 at = mesh.points[i];
+      if (f < static_cast<int>(faceBox.size())) {
+        const auto [bu, bv] = faceBox[f];
+        auto in = [](double& x, Range r) {
+          if (x == r.lo) x = r.lo + 1e-9 * (1 + std::fabs(r.lo));
+          else if (x == r.hi) x = r.hi - 1e-9 * (1 + std::fabs(r.hi));
+        };
+        in(at.x, bu), in(at.y, bv);
+      }
+      Vec3 nn;
+      Status ns = s.normal(at.x, at.y, nn);
+      if ((ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) && std::fabs(norm(nn) - 1) < 1e-9) {
+        out.normals[i] = sense * nn;
+        regular[i] = 1;
+      }
+    }
+    auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
+    // The thin triangles (PartOptions::countAngles), but those with two corners on a pole line (no triangle in 3D).
+    if (o.countAngles)
+      for (size_t k = 0; k < detail.thin.size(); k++) {
+        const int32_t* v = &mesh.triangles[3 * static_cast<size_t>(detail.thin[k])];
+        const Vec3 &a = out.points[v[0]], &b = out.points[v[1]], &c = out.points[v[2]];
+        if (samePoint(a, b) || samePoint(b, c) || samePoint(a, c)) continue;
+        const double deg = detail.thinAngle[k] * 180 / M_PI;
+        const uint8_t fl = detail.thinFlags[k];
+        out.thin++;
+        out.thinByAngle[deg < 1 ? 0 : deg < 2 ? 1 : deg < 5 ? 2 : deg < 8 ? 3 : deg < 10 ? 4 : 5]++;
+        out.thinArea += 0.5 * norm(cross(b - a, c - a));
+        out.thinBoundary += (fl & kThinBoundary) != 0, out.thinFrozen += (fl & kThinFrozen) != 0;
+        out.thinFloor += (fl & kThinFloor) != 0;
+      }
+    std::set<int32_t> refusedHere(mesh.rejected.begin(), mesh.rejected.end());
+    // A point on a crease: a copy per side of its lines a triangle lies on, each with its side's normal (the
+    // surface's there one-sided), the first side met keeping the point itself.
+    std::map<std::pair<int32_t, int>, int32_t> sideCopy;
+    auto bySide = [&](int32_t v, const int32_t* tri) -> int32_t {
+      auto it = onCrease.find(v);
+      if (it == onCrease.end()) return v;
+      const Vec2 g{(mesh.points[tri[0]].x + mesh.points[tri[1]].x + mesh.points[tri[2]].x) / 3,
+        (mesh.points[tri[0]].y + mesh.points[tri[1]].y + mesh.points[tri[2]].y) / 3};
+      Vec2 q = mesh.points[v];
+      int key = 0;
+      for (size_t l = 0; l < it->second.size() && l < 8; l++) {
+        auto [isoU, at] = it->second[l];
+        const double side = isoU ? g.x : g.y;
+        if (side == at) continue;
+        (isoU ? q.x : q.y) = at + (side > at ? 1 : -1) * 1e-9 * (1 + std::fabs(at));
+        key |= (side > at ? 1 : 2) << (2 * l);
+      }
+      Vec3 nn;
+      const Status ns = s.normal(q.x, q.y, nn);
+      const bool reg = (ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) &&
+        std::fabs(norm(nn) - 1) < 1e-9;
+      auto [c, added] = sideCopy.try_emplace({v, key}, v);
+      if (added) {
+        bool first = true;
+        for (const auto& [k, w] : sideCopy) first = first && !(k.first == v && k.second != key);
+        if (!first) {
+          c->second = static_cast<int32_t>(out.points.size());
+          out.points.push_back(out.points[v]);
+          out.normals.push_back(Vec3{0, 0, 0});
+          regular.push_back(0);
+        }
+        if (reg) out.normals[c->second] = sense * nn, regular[c->second] = 1;
+      }
+      return c->second;
+    };
+    for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+      int32_t a = mesh.triangles[t], b = mesh.triangles[t + 1], c = mesh.triangles[t + 2];
+      if (samePoint(out.points[a], out.points[b]) || samePoint(out.points[b], out.points[c]) ||
+        samePoint(out.points[a], out.points[c]))
+        continue;  // two corners on a pole line: no triangle in 3D
+      const Vec2 uvTri[3] = {mesh.points[a], mesh.points[b], mesh.points[c]};
+      if (!onCrease.empty()) {
+        const int32_t* tri = &mesh.triangles[t];
+        a = bySide(a, tri), b = bySide(b, tri), c = bySide(c, tri);
+      }
+      if (refusedHere.count(static_cast<int32_t>(t / 3))) {
+        out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
+        out.refusedBy[static_cast<int>(criteria[f]->refusal(uvTri))]++;
+        refused[f].push_back({{uvTri[0], uvTri[1], uvTri[2]}, {a, b, c}});
+      }
+      // Counterclockwise in (u, v) is about S_u x S_v: turned where the face's normal is the opposite.
+      if (sense > 0) out.triangles.insert(out.triangles.end(), {a, b, c});
+      else out.triangles.insert(out.triangles.end(), {a, c, b});
+    }
+    mesherTriangles[f] = out.triangles.size() / 3;
+    // The fans: each ring's chain to its pole, a point of its own (the run's edge sample there, else the surface's).
+    for (size_t k = 0; k < fans.size(); k++) {
+      const Fan& fan = fans[k];
+      int32_t pole = static_cast<int32_t>(out.points.size());
+      out.points.push_back(fan.pole);
+      Vec3 nn{0, 0, 0};
+      double q0 = freeOf(fan.first.uv, fan.isoU), q1 = freeOf(fan.last.uv, fan.isoU);
+      Vec2 puv = uvOf(fan.at, 0.5 * (q0 + q1), fan.isoU);
+      Status ns = s.normal(puv.x, puv.y, nn);
+      bool reg = (ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) &&
+        std::fabs(norm(nn) - 1) < 1e-9;
+      out.normals.push_back(reg ? sense * nn : Vec3{0, 0, 0});
+      regular.push_back(reg);
+      for (size_t j = 0; j + 1 < ring[k].size(); j++) {
+        int32_t a = ring[k][j], b = ring[k][j + 1];
+        double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);
+        const Vec2 apex = uvOf(fan.at, 0.5 * (qa + qb), fan.isoU);
+        Vec2 tri[3] = {mesh.points[a], mesh.points[b], apex};
+        orient(tri);
+        if (!(fan.smooth ? criteria[f]->acceptFan(tri) : criteria[f]->acceptDeviation(tri))) {
+          out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
+          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth, true))]++;
+          refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
+        }
+        // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
+        // has no area to tell by).
+        Vec3 g = cross(out.points[b] - out.points[a], out.points[pole] - out.points[a]);
+        if (dot(g, out.normals[a] + out.normals[b]) >= 0) out.triangles.insert(out.triangles.end(), {a, b, pole});
+        else out.triangles.insert(out.triangles.end(), {b, a, pole});
+      }
+    }
+    n = out.points.size();
+    // At a singular point (a pole, an apex) with no limit given: the mean of its triangles' other corners' normals,
+    // else of the triangles' own normals, else any regular vertex's.
+    for (size_t i = 0; i < n; i++) {
+      if (regular[i]) continue;
+      Vec3 sum{0, 0, 0}, geo{0, 0, 0};
+      for (size_t t = 0; t + 2 < out.triangles.size(); t += 3) {
+        const int32_t* v = &out.triangles[t];
+        if (v[0] != int32_t(i) && v[1] != int32_t(i) && v[2] != int32_t(i)) continue;
+        for (int k = 0; k < 3; k++)
+          if (v[k] != int32_t(i) && regular[v[k]]) sum = sum + out.normals[v[k]];
+        geo = geo + cross(out.points[v[1]] - out.points[v[0]], out.points[v[2]] - out.points[v[0]]);
+      }
+      Vec3 pick = norm(sum) > 0 ? sum : geo;
+      if (!(norm(pick) > 0))
+        for (size_t j = 0; j < n && !(norm(pick) > 0); j++)
+          if (regular[j]) pick = out.normals[j];
+      out.normals[i] = norm(pick) > 0 ? (1 / norm(pick)) * pick : Vec3{0, 0, 1};
+    }
+  }
+};
+
+PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(new Impl(model, options)) {
+  Impl& I = *impl_;
+  const Model& m = model;
+  int nf = m.faces();
+  I.surfaces.resize(nf);
+  I.criteria.resize(nf);
+  I.memos.resize(nf);
+  I.meshedAt.assign(nf, 0);
+  I.criteriaStatus.assign(nf, Status::unsupported);
+  I.criteriaWhy.assign(nf, "");
+  I.faces.resize(nf);
+  I.edgesOf.resize(nf);
+  I.wanted.resize(nf);
+  I.rings.resize(nf);
+  I.mesherTriangles.assign(nf, 0);
+  I.ringBlocked.assign(nf, 0);
+  I.refused.resize(nf);
+  I.creases.assign(nf, {}), I.creaseSplits.assign(nf, {});
+  const cadgeom::Tolerances tols(m);
+  I.floor = refinementFloor(tols.part(), I.o.d.linear);
+  for (int f = 0; f < nf; f++) {
+    Status st;
+    // (A face with no loops too: its surface's natural extent, where it has one, edges.h.)
+    I.report({PartProgress::surfaces, f, 0, f, nf});
+    I.surfaces[f] = closedSurface(m, tols, f, st);
+  }
+  // The edges sampled once, at their own deflection and angle; the faces' (u, v) boxes from those samples, their
+  // criteria, then the edges refined to the spacing the criteria ask (EdgeMesh::respace): each use traced once.
+  std::vector<double> spacing(nf, INFINITY);
+  {
+    EdgeOptions eo = I.edgeOptions();
+    eo.progress = I.edgeProgress(PartProgress::edges);
+    I.em = std::make_unique<EdgeMesh>(m, eo);
+    EdgeMesh& first = *I.em;
+    for (int f = 0; f < nf; f++) {
+      I.report({PartProgress::criteria, f, 0, f, nf});
+      if (!I.surfaces[f]) continue;
+      FaceBoundary fb = first.face(f);
+      Box2 box{{INFINITY, -INFINITY}, {INFINITY, -INFINITY}};
+      auto add = [&](Vec2 p) {
+        box.x.lo = std::min(box.x.lo, p.x), box.x.hi = std::max(box.x.hi, p.x);
+        box.y.lo = std::min(box.y.lo, p.y), box.y.hi = std::max(box.y.hi, p.y);
+      };
+      for (const auto& l : fb.loops)
+        for (const BoundaryPoint& p : l) add(p.uv);
+      for (const auto& c : fb.interior)
+        for (const BoundaryPoint& p : c) add(p.uv);
+      if (!(box.x.lo <= box.x.hi)) {
+        I.criteriaStatus[f] = fb.status == Status::ok ? Status::invalidModel : fb.status;
+        I.criteriaWhy[f] = !fb.cause.empty() ? fb.cause : "its boundary gives no points in (u, v)";
+        continue;
+      }
+      I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
+      if (!I.criteria[f]) I.criteriaWhy[f] = "no criteria for it (its (u, v) box not finite)";
+      if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
+    }
+  }
+  I.em->respace(spacing);
+  // The poles' rings: each face's, one reach per pole across faces, cut into the edges through them once for all.
+  {
+    std::vector<const Surface*> sp(nf, nullptr);
+    for (int f = 0; f < nf; f++) {
+      sp[f] = I.surfaces[f].get();
+      if (!I.surfaces[f] || !I.criteria[f]) continue;
+      FaceBoundary fb = I.em->face(f);
+      if (fb.status != Status::ok) continue;
+      I.rings[f] = facePoles(m, f, *I.surfaces[f], fb, *I.em, *I.criteria[f], tols.face(f), I.o.d.linear,
+        I.o.d.angular);
+    }
+    shareRings(sp, I.rings, tols.part());
+    std::vector<RingCut> cuts;
+    std::set<std::tuple<int, double, double>> seen;
+    for (int f = 0; f < nf; f++)
+      for (const PoleRing& r : I.rings[f])
+        for (const RingCut& c : ringCuts(*I.em, r))
+          if (seen.insert({c.edge, c.approach, c.crossing}).second) cuts.push_back(c);
+    if (!cuts.empty()) I.em->cutRings(cuts);
+  }
+  if (I.o.creases) I.findFaceCreases();
+  I.at = {PartProgress::meshing, 0, 0, 0, nf};
+  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
+  for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
+    // Every face's wanted splits, each span once (the first face's fraction).
+    std::vector<SplitRequest> requests;
+    std::set<std::pair<int, int>> seen;
+    for (int f = 0; f < nf; f++)
+      for (const SplitRequest& r : I.wanted[f])
+        if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
+    // And the creases' segments the faces asked split: a sample at the middle, the face meshed again.
+    std::set<int> creased;
+    for (int f = 0; f < nf && f < static_cast<int>(I.creaseSplits.size()); f++) {
+      if (I.creaseSplits[f].empty()) continue;
+      for (auto it = I.creaseSplits[f].rbegin(); it != I.creaseSplits[f].rend(); ++it) {
+        std::vector<double>& cs = I.creases[f][it->first].s;
+        const size_t k = static_cast<size_t>(it->second);
+        if (k + 1 < cs.size()) cs.insert(cs.begin() + k + 1, 0.5 * (cs[k] + cs[k + 1]));
+      }
+      creased.insert(f);
+    }
+    if (requests.empty() && creased.empty()) break;
+    I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
+    // Only the edges the split changed: it drops a request inside a pole's ring or on a span within the refinement
+    // floor (EdgeMesh::split), and a face whose edges didn't change would mesh to the same bits again, asking the
+    // same. None changed (and no crease split): the rounds end.
+    std::map<int, size_t> before;
+    for (const SplitRequest& r : requests) before.emplace(r.edge, I.em->edge(r.edge).t.size());
+    if (!requests.empty()) I.em->split(requests);
+    std::set<int> touched;
+    for (auto [e, n] : before)
+      if (I.em->edge(e).t.size() != n) touched.insert(e);
+    if (touched.empty() && creased.empty()) break;
+    std::vector<int> redo;
+    for (int f = 0; f < nf; f++) {
+      bool again = creased.count(f) > 0;
+      for (int e : touched) again = again || I.edgesOf[f].count(e);
+      if (again) redo.push_back(f);
+    }
+    I.at = {PartProgress::meshing, 0, I.rounds + 1, 0, static_cast<int>(redo.size())};
+    for (int f : redo) {
+      I.meshFace(f);
+      I.at.facesDone++;
+    }
+  }
+  I.memos.clear();
+  I.failCapped();
+  I.checkDeviation();
+  I.checkFacing();
+}
+
+PartMesher::~PartMesher() { delete impl_; }
+const FaceMesh& PartMesher::face(int f) const { return impl_->faces[f]; }
+const EdgeMesh& PartMesher::edges() const { return *impl_->em; }
+int PartMesher::rounds() const { return impl_->rounds; }
+size_t PartMesher::verdictPeak() const { return impl_->memoPeak; }
+
+} // namespace tesscadio
