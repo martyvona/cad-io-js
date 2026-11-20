@@ -2234,8 +2234,23 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
     PartOptions o = options(c.d, c.angle), fresh = o;
     o.edgeSpacingScale = fresh.edgeSpacingScale = c.scale;
     fresh.reuseVerdicts = false;
-    PartMesher a(m, o), b(m, fresh);
+    // And within a budget of 64 KB: the least recently meshed faces' dropped, then nothing more kept.
+    PartOptions tight = o;
+    tight.verdictBudget = 64 << 10;
+    PartMesher a(m, o), b(m, fresh), t(m, tight);
     CHECK_EQ(a.rounds(), b.rounds());
+    CHECK_EQ(t.rounds(), b.rounds());
+    CHECK_EQ(b.verdictPeak(), 0u);
+    CHECK(t.verdictPeak() <= tight.verdictBudget);
+    CHECK(a.verdictPeak() > 0u);
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &z = t.face(f), &y = b.face(f);
+      bool same = z.status == y.status && z.triangles == y.triangles && z.rejected == y.rejected &&
+        z.points.size() == y.points.size();
+      for (size_t i = 0; same && i < z.points.size(); i++) same = key(z.points[i]) == key(y.points[i]);
+      if (!same) std::printf("  %s face %d differs within the budget\n", c.name, f);
+      CHECK(same);
+    }
     for (int f = 0; f < m.faces(); f++) {
       const FaceMesh &x = a.face(f), &y = b.face(f);
       bool same = x.status == y.status && x.triangles == y.triangles && x.rejected == y.rejected &&

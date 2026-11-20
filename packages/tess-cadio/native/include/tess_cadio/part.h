@@ -4,6 +4,7 @@
 // meet along their edges), its normals the surface's, its triangles counterclockwise about the face's normal.
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
@@ -81,6 +82,12 @@ struct PartOptions {
    * off to compare, at the cost of evaluating them all again.
    */
   bool reuseVerdicts = true;
+  /**
+   * The bytes the kept verdicts may take across the part, as estimated (reuseVerdicts): past half of it the least
+   * recently meshed faces' are dropped as another face's meshing starts, and past all of it nothing more is kept.
+   * The mesh is the same bits whatever the budget.
+   */
+  size_t verdictBudget = size_t{256} << 20;
 };
 
 /** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */
@@ -157,6 +164,8 @@ public:
   const EdgeMesh& edges() const;
   /** The rounds of splitting run. */
   int rounds() const;
+  /** The most bytes the kept verdicts took at once, as estimated (PartOptions::verdictBudget): for tests. */
+  size_t verdictPeak() const;
 
 private:
   struct Impl;
