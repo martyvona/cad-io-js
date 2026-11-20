@@ -67,7 +67,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
 import { INSERTED_HEAD, INSERTED_KINDS } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
-import { addInto, division, runFiles, type FileCheck } from './runner.ts';
+import { addInto, division, initAll, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
 import { Geometry } from '../packages/cad-geom/src/index.ts';
 import {
@@ -111,6 +111,7 @@ const BEYOND = 'beyond repair', FAILURE = 'failure';
 const BACKENDS = ['cadio', 'occt', 'smlib'] as const;
 type Backend = typeof BACKENDS[number];
 const LABEL: Record<Backend, string> = { cadio: 'ours', occt: 'OCCT', smlib: 'SMLib' };
+const PKG: Record<Backend, string> = { cadio: 'tess-cadio', occt: 'tess-occt', smlib: 'tess-smlib' };
 type PartStatus = string;
 const STATUSES: PartStatus[] = ['ok', 'partial', 'no triangles', 'error', OVER, 'timeout', 'crash', 'no faces'];
 /** A part's statuses that are no failure: every face meshed, or no face to mesh (a part of curves or points). */
@@ -433,9 +434,10 @@ export const check: FileCheck<string, Tallies> = {
       backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls,
         ...(cpu && INSERTIONS ? { options: { countInsertions: true } } : {}) }, workers,
       ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS } : { timeoutMs: TIMEOUT_MS }) });
-    pools = { cadio: pool('tess-cadio', 'CadioTessellator', true), occt: pool('tess-occt', 'OcctTessellator', false),
-      smlib: pool('tess-smlib', 'SmlibTessellator', false) };
-    await Promise.all(BACKENDS.map((b) => pools[b].init()));
+    pools = { cadio: pool(PKG.cadio, 'CadioTessellator', true), occt: pool(PKG.occt, 'OcctTessellator', false),
+      smlib: pool(PKG.smlib, 'SmlibTessellator', false) };
+    // (Named so a backend that won't start fails the run saying which: runner.ts.)
+    await initAll(Object.fromEntries(BACKENDS.map((b) => [`${LABEL[b]} (${PKG[b]})`, pools[b]])));
   },
   async teardown() {
     await Promise.all(BACKENDS.map((b) => pools[b].dispose()));
@@ -745,6 +747,13 @@ if (import.meta.main) {
     }
     merge(into, out.result);
   });
+  // (A run in which no file was checked is an error, not an empty report.)
+  const checked = [...per.values()].reduce((a, T) => a + T.files, 0);
+  if (!checked) {
+    const big = [...per.values()].reduce((a, T) => a + T.skippedBig, 0);
+    throw new Error(`coverage: no file ran: ${files.length} listed (${ls.join(', ')}), ${big} over `
+      + `${maxBytes / 1e6} MB, ${errors.length} failed${errors.length ? `, first ${errors[0]}` : ''}`);
+  }
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, ${PROFILE} profile (${LIN} mm, ${ANG} rad), `
