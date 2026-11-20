@@ -9,7 +9,7 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 4;
+const API_VERSION = 5;
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -69,6 +69,7 @@ interface CadioExports {
   _tc_set_project: Fn;
   _tc_set_deviation_factor: Fn;
   _tc_set_max_points: Fn;
+  _tc_set_min_angle: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -117,6 +118,11 @@ export interface CadioInitOptions {
    * reaches it stops there, the mesh kept and said. For tests and tuning.
    */
   maxPointsPerFace?: number;
+  /**
+   * The smallest angle refinement aims for in each face's triangles, in radians (part.h's PartOptions::minAngle;
+   * default 0.35, about 20 degrees; 0 none): the triangles' shape, which neither deflection asks for.
+   */
+  minAngle?: number;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -138,6 +144,7 @@ export class CadioTessellator implements Tessellator {
   private project = true;
   private deviationFactor = 1;
   private maxPoints = 0;
+  private minAngle = -1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -149,6 +156,7 @@ export class CadioTessellator implements Tessellator {
     this.project = opts.projectMissingPcurves ?? true;
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
+    this.minAngle = opts.minAngle ?? -1;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -196,6 +204,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_project(this.project ? 1 : 0);
     m._tc_set_deviation_factor(this.deviationFactor);
     m._tc_set_max_points(this.maxPoints);
+    m._tc_set_min_angle(this.minAngle);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);

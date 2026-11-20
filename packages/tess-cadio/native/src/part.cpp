@@ -462,6 +462,7 @@ struct PartMesher::Impl {
       for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
     MeshOptions mo;
     mo.maxPoints = o.maxPointsPerFace;
+    mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
     Mesh2 mesh = mesh2(d, *criteria[f], mo);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {

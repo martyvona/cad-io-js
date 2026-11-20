@@ -42,6 +42,8 @@ bool project = true;
 // PartOptions::maxDeviationFactor and maxPointsPerFace for the next calls.
 double deviationFactor = 1.0;
 int maxPoints = PartOptions{}.maxPointsPerFace;
+// PartOptions::minAngle for the next calls (radians).
+double minAngle = PartOptions{}.minAngle;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -59,7 +61,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 4; }
+int tc_api_version() { return 5; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -73,6 +75,11 @@ void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 
 /** The next calls' PartOptions::maxPointsPerFace (default 100,000; under 1: the default). */
 void tc_set_max_points(int points) { maxPoints = points > 0 ? points : PartOptions{}.maxPointsPerFace; }
+
+/** The next calls' PartOptions::minAngle in radians (default 0.35; negative or not finite: the default). */
+void tc_set_min_angle(double radians) {
+  minAngle = std::isfinite(radians) && radians >= 0 ? radians : PartOptions{}.minAngle;
+}
 
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,
   int wantEdges) {
@@ -92,6 +99,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.projectMissingPcurves = project;
   opts.maxDeviationFactor = deviationFactor;
   opts.maxPointsPerFace = maxPoints;
+  opts.minAngle = minAngle;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
