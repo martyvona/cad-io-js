@@ -1,6 +1,9 @@
-// The oracle's C API for the WebAssembly module (src/index.ts): a model by handle, its edges' lengths and its faces'
-// measures in flat arrays of doubles. Status, method and flag codes are oracle.h's and result.h's.
+// The oracle's C API for the WebAssembly module (src/index.ts): a model by handle, its edges' lengths, its faces'
+// measures and their polynomial moments in flat arrays of doubles. Status, method and flag codes are oracle.h's and
+// result.h's.
 
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -33,7 +36,7 @@ void put(double* o, const Estimate& e) {
 extern "C" {
 
 /** The format's version of this API, for the TypeScript layer to check. */
-int32_t co_api_version() { return 1; }
+int32_t co_api_version() { return 2; }
 
 /**
  * The oracle of `size` bytes at `buffer` (from malloc; owned from now on, freed by co_model_free or here if it isn't
@@ -78,6 +81,36 @@ int32_t co_face(int32_t h, int32_t face, double* out, const char** why) {
   put(out, m.area), put(out + 3, m.perimeter);
   out[6] = static_cast<double>(m.method), out[7] = static_cast<double>(m.flags), out[8] = m.offSurface;
   *why = m.why;
+  return 0;
+}
+
+/** Monomials of degree at most this, at most (co_face_moments). */
+constexpr int32_t kMaxMomentDegree = 4;
+
+/**
+ * Face `face`'s moments about (cx, cy, cz) (oracle.h's faceIntegral): the integral of (p - c)^(a, b, c) n_j for every
+ * exponent of degree at most `degree` (by degree, then a, then b, both descending) and j = x, y, z, each into
+ * out[3 (3 m + j) ..] as (value, error, status). 0, -1 for a bad handle, -2 for a degree past kMaxMomentDegree.
+ */
+int32_t co_face_moments(int32_t h, int32_t face, double cx, double cy, double cz, int32_t degree, double* out) {
+  Entry* e = entry(h);
+  if (!e) return -1;
+  if (degree < 0 || degree > kMaxMomentDegree) return -2;
+  std::vector<std::array<int, 3>> exps;
+  for (int t = 0; t <= degree; t++)
+    for (int a = t; a >= 0; a--)
+      for (int b = t - a; b >= 0; b--) exps.push_back({a, b, t - a - b});
+  const int n = static_cast<int>(exps.size());
+  const Vec3 c{cx, cy, cz};
+  Integrand g{3 * n, [&](Vec3 p, Vec3 nv, double* o) {
+    const Vec3 d = p - c;
+    for (int m = 0; m < n; m++) {
+      const double w = std::pow(d.x, exps[m][0]) * std::pow(d.y, exps[m][1]) * std::pow(d.z, exps[m][2]);
+      o[3 * m] = w * nv.x, o[3 * m + 1] = w * nv.y, o[3 * m + 2] = w * nv.z;
+    }
+  }, {}};
+  const std::vector<Estimate> v = e->oracle->faceIntegral(face, g);
+  for (int k = 0; k < 3 * n; k++) put(out + 3 * k, v[k]);
   return 0;
 }
 

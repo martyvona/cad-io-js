@@ -196,13 +196,204 @@ TEST_CASE("a sphere's face turned over gives its complement, flagged past a hemi
   CHECK(seen > 0);
 }
 
-TEST_CASE("faceIntegral is unsupported until the free-form method is decided") {
-  const fixtures::Reference& r = *fixtures::reference("box", "s1");
+namespace {
+
+/** A body's faces (its shells' face uses, all forward in the canonical model), or none if any is past the oracle. */
+std::vector<int> bodyFaces(const Model& m, int body) {
+  std::vector<int> out;
+  const int first = m.i32(CBR_BODY_FIRST)[body], count = m.i32(CBR_BODY_COUNT)[body];
+  for (int k = first; k < first + count; k++) {
+    const int sh = m.i32(CBR_MEMBER_REF)[k];
+    for (int u = m.i32(CBR_SHELL_FIRST)[sh]; u < m.i32(CBR_SHELL_FIRST)[sh] + m.i32(CBR_SHELL_COUNT)[sh]; u++)
+      out.push_back(m.i32(CBR_FACE_USE_FACE)[u]);
+  }
+  return out;
+}
+
+/** The reference's similarity applied to a point of its shape's own frame. */
+Vec3 placed(const fixtures::Reference& r, Vec3 p) {
+  const double* R = r.rotation;
+  return {r.scale * (R[0] * p.x + R[3] * p.y + R[6] * p.z) + r.translation[0],
+    r.scale * (R[1] * p.x + R[4] * p.y + R[7] * p.z) + r.translation[1],
+    r.scale * (R[2] * p.x + R[5] * p.y + R[8] * p.z) + r.translation[2]};
+}
+
+} // namespace
+
+TEST_CASE("faceIntegral: every reference body's volume, at every variant, by (p - c) . n / 3 over its faces") {
+  std::map<std::string, int> checked, unsupported;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& r = fixtures::references[i];
+    const Model model(r.data, r.size);
+    Oracle oracle(r.data, r.size);
+    for (int k = 0; k < r.nVolumes; k++) {
+      const fixtures::Volume& vf = r.volumes[k];
+      const std::vector<int> faces = bodyFaces(model, vf.body);
+      // About a point of the body (its first vertex, else the origin), against cancellation far from the origin.
+      const Vec3 c = model.vertices() ? model.vertexPoint(0) : Vec3{};
+      Integrand g{1, [&](Vec3 p, Vec3 n, double* out) { out[0] = cadgeom::dot(p - c, n) / 3; }, {}};
+      double sum = 0, err = 0;
+      bool supported = true;
+      for (int f : faces) {
+        const Estimate e = oracle.faceIntegral(f, g)[0];
+        if (e.status == Status::unsupported) supported = false;
+        else CHECK(e.status == Status::ok);
+        sum += e.value, err += e.error;
+      }
+      const std::string what = std::string(r.name) + "-" + r.variant + " body " + std::to_string(vf.body);
+      if (!supported) {
+        unsupported[r.name]++;
+        continue;
+      }
+      if (!(std::fabs(sum - vf.volume) <= std::fmax(std::fmax(vf.tol * std::fabs(vf.volume), vf.abs), 10 * err))) {
+        ::check::fail(__FILE__, __LINE__, what + ": volume " + ::check::show(sum) + " vs " + ::check::show(vf.volume)
+          + " (error " + ::check::show(err) + ")");
+      }
+      checked[r.name]++;
+    }
+  }
+  for (const char* name : {"box", "cylinder", "cone", "sphere", "torus", "extrusion", "revolution",
+    "revolutionSphere"}) {
+    CHECK(checked[name] >= 7);
+  }
+  for (const char* name : {"bsplineCylinder", "bsplineSphere", "bsplineTorus", "offset"}) CHECK(unsupported[name] >= 7);
+}
+
+TEST_CASE("faceIntegral: |n| is face()'s area; n over a closed body sums to 0") {
+  int faces = 0, bodies = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& r = fixtures::references[i];
+    const Model model(r.data, r.size);
+    Oracle oracle(r.data, r.size);
+    Integrand g{4, [](Vec3, Vec3 n, double* out) { out[0] = cadgeom::norm(n), out[1] = n.x, out[2] = n.y,
+      out[3] = n.z; }, {}};
+    for (int f = 0; f < model.faces(); f++) {
+      const FaceMeasure m = oracle.face(f);
+      if (!trusted(m, 1e-9)) continue;
+      const Estimate a = oracle.faceIntegral(f, g)[0];
+      CHECK(a.status == Status::ok);
+      if (!(std::fabs(a.value - m.area.value) <= 1e-9 * m.area.value + 10 * (a.error + m.area.error))) {
+        ::check::fail(__FILE__, __LINE__, std::string(r.name) + "-" + r.variant + " face " + std::to_string(f)
+          + ": " + ::check::show(a.value) + " vs face()'s " + ::check::show(m.area.value));
+      }
+      faces++;
+    }
+    for (int k = 0; k < r.nVolumes; k++) {
+      double sum[3] = {0, 0, 0}, scale = 0;
+      bool all = true;
+      for (int f : bodyFaces(model, r.volumes[k].body)) {
+        const std::vector<Estimate> v = oracle.faceIntegral(f, g);
+        if (v[0].status != Status::ok) all = false;
+        for (int q = 0; q < 3; q++) sum[q] += v[q + 1].value;
+        scale += v[0].value;
+      }
+      if (!all) continue;
+      CHECK_NEAR(std::hypot(sum[0], sum[1], sum[2]), 0, 0, 1e-9 * scale);
+      bodies++;
+    }
+  }
+  if (faces < 170 || bodies < 60) {
+    ::check::fail(__FILE__, __LINE__, "faces " + std::to_string(faces) + ", bodies " + std::to_string(bodies));
+  }
+}
+
+TEST_CASE("faceIntegral: first moments, the box's and the cylinder's centroids (x^2 / 2 n_x and so on)") {
+  for (const char* name : {"box", "cylinder"}) {
+    for (int i = 0; i < fixtures::nReferences; i++) {
+      const fixtures::Reference& r = fixtures::references[i];
+      if (std::strcmp(r.name, name) != 0) continue;
+      const Model model(r.data, r.size);
+      Oracle oracle(r.data, r.size);
+      const Vec3 c = model.vertexPoint(0);
+      // int x dV over the solid, about c: oint (x - c)^2 / 2 n_x, per axis; and its volume.
+      Integrand g{4, [&](Vec3 p, Vec3 n, double* out) {
+        const Vec3 d = p - c;
+        out[0] = d.x * d.x / 2 * n.x, out[1] = d.y * d.y / 2 * n.y, out[2] = d.z * d.z / 2 * n.z;
+        out[3] = cadgeom::dot(d, n) / 3;
+      }, {}};
+      double sum[4] = {0, 0, 0, 0};
+      for (int f : bodyFaces(model, r.volumes[0].body)) {
+        const std::vector<Estimate> v = oracle.faceIntegral(f, g);
+        for (int q = 0; q < 4; q++) sum[q] += v[q].value;
+      }
+      const Vec3 own = std::strcmp(name, "box") == 0 ? Vec3{0.5, 1, 1.5} : Vec3{0, 0, 2.5};
+      const Vec3 expected = placed(r, own) - c, got{sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3]};
+      CHECK_NEAR(cadgeom::norm(got - expected), 0, 0, 1e-9 * r.scale * 3);
+    }
+  }
+}
+
+TEST_CASE("faceIntegral: an integrand oscillating along v, the cylinder's int cos(k z) dV by x cos(k z) n_x") {
+  // In the cylinder's own frame (radius 2, z from 0 to 5): div (x cos(k z), 0, 0) = cos(k z), so the faces' integrals
+  // of x cos(k z) n_x add up to pi r^2 sin(k h) / k; about ten periods along the side's v, past the inner rule's
+  // first panels. Placed: q = R^T (p - t) / s, the field s q_x cos(k q_z) along the placed x axis.
+  const double rr = 2, hh = 5, k = 12;
+  int seen = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& r = fixtures::references[i];
+    if (std::strcmp(r.name, "cylinder") != 0) continue;
+    const Model model(r.data, r.size);
+    Oracle oracle(r.data, r.size);
+    const double* R = r.rotation;
+    const Vec3 ex{R[0], R[1], R[2]}, ez{R[6], R[7], R[8]}, t{r.translation[0], r.translation[1], r.translation[2]};
+    Integrand g{1, [&](Vec3 p, Vec3 n, double* out) {
+      const Vec3 d = p - t;
+      out[0] = cadgeom::dot(d, ex) * std::cos(k * cadgeom::dot(d, ez) / r.scale) * cadgeom::dot(ex, n);
+    }, {}};
+    double sum = 0;
+    for (int f : bodyFaces(model, r.volumes[0].body)) {
+      const Estimate e = oracle.faceIntegral(f, g)[0];
+      CHECK(e.status == Status::ok);
+      sum += e.value;
+    }
+    const double s3 = r.scale * r.scale * r.scale;
+    CHECK_NEAR(sum, s3 * M_PI * rr * rr * std::sin(k * hh) / k, 0, 1e-9 * s3 * M_PI * rr * rr * hh);
+    seen++;
+  }
+  CHECK(seen >= 7);
+}
+
+TEST_CASE("faceIntegral: a component zero on a tilted plane but for rounding, whatever n, converges") {
+  // ((p - o) . m)(n . m) on a plane face through o with normal m: rounding on the face for every n, so its tolerance
+  // must come from the integrand's size near the face (or no tolerance relative to rounding is ever met).
+  int seen = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& r = fixtures::references[i];
+    if (std::strcmp(r.name, "box") != 0) continue;
+    const Model model(r.data, r.size);
+    Oracle oracle(r.data, r.size);
+    for (int f = 0; f < model.faces(); f++) {
+      const int s = model.faceSurface(f);
+      if (model.surfaceKind(s) != CBR_SURFACE_PLANE) continue;
+      const double* R = model.surfaceReals(s);
+      const Vec3 o{R[0], R[1], R[2]}, m{R[3], R[4], R[5]};
+      Integrand g{2, [&](Vec3 p, Vec3 n, double* out) {
+        out[0] = cadgeom::dot(p - o, m) * cadgeom::dot(n, m), out[1] = cadgeom::norm(n);
+      }, {}};
+      const std::vector<Estimate> v = oracle.faceIntegral(f, g);
+      CHECK(v[0].status == Status::ok);
+      CHECK_NEAR(v[0].value, 0, 0, 1e-9 * v[1].value * r.scale);
+      seen++;
+    }
+  }
+  CHECK(seen >= 40);
+}
+
+TEST_CASE("faceIntegral: B-spline faces unsupported, bad faces invalid") {
+  const fixtures::Reference& r = *fixtures::reference("bsplineCylinder", "s1");
+  const Model model(r.data, r.size);
   Oracle oracle(r.data, r.size);
-  Integrand g{2, [](Vec3, Vec3 n, double* out) { out[0] = cadgeom::norm(n), out[1] = 0; }};
-  const std::vector<Estimate> v = oracle.faceIntegral(0, g);
-  REQUIRE(v.size() == 2);
-  CHECK(v[0].status == Status::unsupported && v[1].status == Status::unsupported);
+  Integrand g{2, [](Vec3, Vec3 n, double* out) { out[0] = cadgeom::norm(n), out[1] = 0; }, {}};
+  int seen = 0;
+  for (int f = 0; f < model.faces(); f++) {
+    if (model.surfaceKind(model.faceSurface(f)) != CBR_SURFACE_BSPLINE) continue;
+    const std::vector<Estimate> v = oracle.faceIntegral(f, g);
+    REQUIRE(v.size() == 2);
+    CHECK(v[0].status == Status::unsupported && v[1].status == Status::unsupported);
+    seen++;
+  }
+  CHECK(seen > 0);
+  CHECK(oracle.faceIntegral(-1, g)[0].status == Status::invalidModel);
 }
 
 TEST_CASE("a model that isn't one, and rows out of range") {
