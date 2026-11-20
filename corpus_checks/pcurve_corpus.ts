@@ -271,7 +271,7 @@ export const check: FileCheck<undefined, Result> = {
               for (const [i, k] of p.endCheck.entries())
                 if (k !== 'unchecked') tally(R.ends, `${k} (${sk})`, k === 'same' ? undefined : `${ce}: its `
                   + `${i ? 'end' : 'start'} (${p.status})`
-                  + (k === 'different' ? `, ${p.endAlternatives[i]!.length / 2} feet there` : ''));
+                  + (k === 'different' || k === 'vertexOff' ? `, ${p.endAlternatives[i]!.length / 2} feet there` : ''));
               if (p.status === 'invalidModel') {
                 // The gap: how far the curve is off the surface, against the floors a tolerance could take.
                 const gap = p.offSurface, ftol = d.face.tolerance[f]!;

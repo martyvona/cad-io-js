@@ -19,7 +19,7 @@ export const PCURVE_METHOD = ['none', 'planeAffine', 'isoLine', 'affineFeet', 't
 export const STOP_WHY = ['none', 'noConvergence', 'jump', 'poleLine', 'degenerate', 'fold'] as const;
 export type StopWhy = (typeof STOP_WHY)[number];
 /** project.h's EndCheck: a traced result's end against the end search's feet there. */
-export const END_CHECK = ['unchecked', 'same', 'periods', 'seamOther', 'different'] as const;
+export const END_CHECK = ['unchecked', 'same', 'periods', 'seamOther', 'different', 'vertexOff'] as const;
 export type EndCheck = (typeof END_CHECK)[number];
 export type PcurveMethod = (typeof PCURVE_METHOD)[number];
 
@@ -277,8 +277,9 @@ export interface Pcurve {
   stopWhy: StopWhy;
   /**
    * projectCoedge, traced (and affineFeet) results: the start's and end's check against their vertices' feet (the
-   * end search's, endFeet): the same foot, whole periods over, a seam pair's other copy, or different (then
-   * ambiguous, `endAlternatives` the feet's (u, v), (u, v) pairs).
+   * end search's, endFeet): the same foot, whole periods over, a seam pair's other copy, different (a fold or another
+   * sheet: then ambiguous), or vertexOff (the vertex farther than tol from the curve's end: a gap in the model, not
+   * ambiguous); `endAlternatives` the feet's (u, v) for the last two, (u, v) pairs.
    */
   endCheck: [EndCheck, EndCheck];
   endAlternatives: [Float64Array, Float64Array];

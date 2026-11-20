@@ -1082,7 +1082,7 @@ TEST_CASE("the end search: a pole, a seam's pair, a point, a family; searched on
   CHECK(std::fabs(vertex[0].distance - 3) < 1e-9);
 }
 
-TEST_CASE("traced ends against the end search: the same foot, a seam pair's other copy, periods over, different") {
+TEST_CASE("traced ends against the end search: the same foot, a seam pair's other copy, periods over, different, off") {
   // Quarter arcs exactly on a cylinder of radius 5 (rational quadratics in x, y, rising in z), its seam at angle 0:
   // from 3 pi / 2 to the seam (the trace arrives at 2 pi, the search's foot at 0, its twin 2 pi), and from 7 pi / 4
   // across it to pi / 4 (the trace's end unwrapped a period past the search's foot).
@@ -1120,17 +1120,20 @@ TEST_CASE("traced ends against the end search: the same foot, a seam pair's othe
   CHECK(q.endCheck[0] == EndCheck::same);
   CHECK(q.endCheck[1] == EndCheck::periods);
   CHECK(q.endAlternatives[1].empty());
-  // Its end vertex elsewhere on the cylinder (a model's wrong vertex): its feet aren't the trace's end, which is
-  // otherwise unique: different, so ambiguous there.
+  // Its end vertex elsewhere on the cylinder (a model's gap: the vertex off the curve's end): vertexOff, the
+  // vertex's foot given, the trace still unique.
   PcurveEnds wrong = e1;
   wrong.endKey = 12, wrong.endPoint = {-R, 0, 1};
   Pcurve w = projectCurve(*toSeam, {0, 1}, *cyl, tol, &wrong);
   CHECK(w.endCheck[0] == EndCheck::same);
-  CHECK(w.endCheck[1] == EndCheck::different);
-  CHECK(w.certainty == Certainty::ambiguous);
-  CHECK(w.tAmbiguous.size() == 1);
+  CHECK(w.endCheck[1] == EndCheck::vertexOff);
+  CHECK(w.certainty == Certainty::unique);
+  CHECK(w.tAmbiguous.empty());
   REQUIRE(w.endAlternatives[1].size() == 1);
   CHECK(std::fabs(w.endAlternatives[1][0].x - kPi) < 1e-6);
+  // Off by 2 tol, still a gap.
+  wrong.endKey = 13, wrong.endPoint = {R + 2 * tol, 0, 1};
+  CHECK(projectCurve(*toSeam, {0, 1}, *cyl, tol, &wrong).endCheck[1] == EndCheck::vertexOff);
   // Without a cache, unchecked.
   Pcurve u = projectCurve(*toSeam, {0, 1}, *cyl, tol);
   CHECK(u.endCheck[0] == EndCheck::unchecked);
@@ -1157,6 +1160,19 @@ TEST_CASE("traced ends against the end search: the same foot, a seam pair's othe
   bool atEnd = false;
   for (double t : d.tAmbiguous) atEnd = atEnd || t == 1;
   CHECK(atEnd);
+  // The line ending just past the trough's symmetry plane (x = 0.01): no check sample past it, so the trace is
+  // otherwise unique, but its end (on the far foot) isn't its vertex's nearest: different, which alone makes it
+  // ambiguous.
+  const double sr2[7] = {-0.3, 2, 0.2, 1, 0, 0, 0.31};
+  std::unique_ptr<Curve> shortLine = curves::makeLine(sr2, 3);
+  const PcurveEnds e4 = ends(cache, *shortLine, 50);
+  Pcurve d2 = projectCurve(*shortLine, {0, 1}, *trough, 1e-7, &e4);
+  CHECK(d2.endCheck[1] == EndCheck::different);
+  CHECK(d2.certainty == Certainty::ambiguous);
+  CHECK(d2.tAmbiguous.size() == 1);
+  if (d2.endCheck[1] != EndCheck::different || d2.tAmbiguous.size() != 1)
+    std::printf("    short line: check %d certainty %d ambiguous %zu\n", int(d2.endCheck[1]), int(d2.certainty),
+      d2.tAmbiguous.size());
   // A small circle on a sphere of radius 10 through its north pole and the equator's points at u = 1.5 and 1.5 + pi / 2
   // (equilateral: its centre their centroid), traced from the first to the pole: the end search's foot there a pole's
   // (its u 0), the trace's u past pi from it (1.5 + 3 pi / 4), the same foot all the same.
@@ -1189,6 +1205,68 @@ TEST_CASE("traced ends against the end search: the same foot, a seam pair's othe
     std::printf("    checks %d %d / %d %d / %d %d; methods %d %d %d\n", int(p.endCheck[0]), int(p.endCheck[1]),
       int(q.endCheck[0]), int(q.endCheck[1]), int(d.endCheck[0]), int(d.endCheck[1]), int(p.method), int(q.method),
       int(d.method));
+}
+
+TEST_CASE("a trace from a crease leaves along the span it goes into; beside a pole its feet don't slip whole turns") {
+  // A polyline's extrusion with a right angle at u = 1 (degree 1: (0, 0) to (10, 0) to (10, 10), z 0 to 3), as
+  // trj3_s1-al and trj5_k1-al's faces: from the corner along either leg, seeded there, and back into it. At u = 1 the
+  // evaluation gives the second leg's S_u, across the first leg, so a rate from it doesn't move along the first.
+  const double tol = 1e-6;
+  const int32_t si[] = {1, 1, 3, 2, 3, 2, 0, 0, 0, 0, 0, 2, 1, 2, 2, 2};
+  const double sr[] = {0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 3, 10, 0, 0, 10, 0, 3, 10, 10, 0, 10, 10, 3};
+  Status st;
+  std::unique_ptr<Surface> bend = surfaces::makeBSpline(sr, si, st);
+  REQUIRE(bend);
+  struct Leg {
+    const char* name;
+    double line[7];
+    bool atStart;
+    double u0, u1;
+  };
+  for (const Leg& g : {Leg{"along the first leg", {10, 0, 1, -1, 0, 0, 10}, true, 1, 0},
+         Leg{"along the second", {10, 0, 1, 0, 1, 0, 10}, true, 1, 2},
+         Leg{"into the corner along the first", {0, 0, 1, 1, 0, 0, 10}, false, 0, 1}}) {
+    std::unique_ptr<Curve> line = curves::makeLine(g.line, 3);
+    PcurveEnds e;
+    (g.atStart ? e.hasStart : e.hasEnd) = true;
+    (g.atStart ? e.start : e.end) = {1, 1.0 / 3};
+    Pcurve p = projectCurve(*line, {0, 1}, *bend, tol, &e);
+    CHECK(p.status == Status::ok);
+    CHECK(p.error <= tol);
+    REQUIRE(!p.pieces.empty());
+    const Vec2 mid = project::at(p.pieces.front(), 0.5);
+    CHECK(std::fabs(mid.x - 0.5 * (g.u0 + g.u1)) < 1e-6);
+    CHECK(std::fabs(mid.y - 1.0 / 3) < 1e-6);
+    if (!(p.status == Status::ok) || !(std::fabs(mid.x - 0.5 * (g.u0 + g.u1)) < 1e-6))
+      std::printf("    %s: status %d error %g mid (%g, %g)\n", g.name, int(p.status), p.error, mid.x, mid.y);
+  }
+  // A great circle of a sphere of radius 10 passing 3e-3 beside its north pole (tilted 3e-4 from a meridian), from
+  // (0, -10, 0) over the top, seeded at its start: the feet's u swings by pi beside the pole, where Newton's steps in
+  // u are huge and could land whole turns on (the same point in 3D).
+  const double sp[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 10};
+  std::unique_ptr<Surface> sph = closeInFact(surfaces::makeSphere(sp), 1e-5);
+  const double dl = 3e-4;
+  const Vec3 a{0, -10, 0}, c{10 * std::sin(dl), 0, 10 * std::cos(dl)};
+  Vec3 n{a.y * c.z - a.z * c.y, a.z * c.x - a.x * c.z, a.x * c.y - a.y * c.x};
+  n = (1 / norm(n)) * n;
+  const double gc[9] = {0, 0, 0, n.x, n.y, n.z, 0, -1, 0};
+  std::unique_ptr<Curve> great = curves::makeEllipse(gc, 3, 10, 10);
+  REQUIRE(great);
+  PcurveEnds ge;
+  ge.hasStart = true, ge.start = {1.5 * kPi, 0};
+  Pcurve q = projectCurve(*great, {0, kPi}, *sph, 1e-5, &ge);
+  CHECK(q.status == Status::ok);
+  CHECK(q.error <= 1e-5);
+  double far = 0;
+  for (int i = 0; i <= 64; i++) {
+    const double t = kPi * i / 64;
+    for (const PcurvePiece& k : q.pieces)
+      if (t >= k.t.lo && t <= k.t.hi) far = std::fmax(far, std::fabs(project::at(k, t).x - 1.5 * kPi));
+  }
+  // u from 3 pi / 2 to pi / 2 (or 5 pi / 2): within a turn of the start.
+  CHECK(far < 2 * kPi);
+  if (!(q.status == Status::ok) || !(far < 2 * kPi))
+    std::printf("    near pass: status %d error %g farthest u from the start %g\n", int(q.status), q.error, far);
 }
 
 // The corpus's stopped traces (pcurve_corpus), as fixtures: bug25287_bad_tess_face_plus #2134's coedge 750 (its curve
@@ -1404,7 +1482,7 @@ TEST_CASE("traces that stop short say where and why: a fold 0.26 off the curve, 
   }
 }
 
-TEST_CASE("localFoot: continued from a nearby foot, held along a side (its own step there), singular at a pole") {
+TEST_CASE("localFoot: continued from a nearby foot, held along a side (its own step there), off a crease, at a pole") {
   // A cylinder of radius 5: from (0.9, 1.8), p 1 outside it at u = 1, v = 2.
   const double cr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 5};
   std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(cr, 5, 0), 1e-7);
@@ -1455,6 +1533,42 @@ TEST_CASE("localFoot: continued from a nearby foot, held along a side (its own s
   CHECK(g.uv.x == 0);
   CHECK(std::fabs(g.uv.y - 0.32) < 1e-6);
   CHECK(std::fabs(g.distance - std::sqrt(17.2)) < 1e-9);
+  // From the corner of a polyline's extrusion with a right angle at u = 1 (as trj3_s1-al #6704 face #1306): along
+  // either leg on its side v = 1, and beside the first. At u = 1 the evaluation gives the second leg's S_u, across
+  // the first, so the step of the first leg's side it heads into.
+  {
+    const int32_t bi[] = {1, 1, 3, 2, 3, 2, 0, 0, 0, 0, 0, 2, 1, 2, 2, 2};
+    const double br[] = {0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 3, 10, 0, 0, 10, 0, 3, 10, 10, 0, 10, 10, 3};
+    std::unique_ptr<Surface> bend = surfaces::makeBSpline(br, bi, st);
+    REQUIRE(bend);
+    for (double along : {0.53, 2.0, 4.0}) {
+      LocalFoot g1 = localFoot(*bend, {10 - along, 0, 3}, {1, 1});
+      CHECK(g1.status == Status::ok);
+      CHECK(std::fabs(g1.uv.x - (1 - along / 10)) < 1e-9);
+      CHECK(g1.distance < 1e-9);
+      CHECK(g1.iterations > 0);
+      LocalFoot g2 = localFoot(*bend, {10, along, 3}, {1, 1});
+      CHECK(g2.status == Status::ok);
+      CHECK(std::fabs(g2.uv.x - (1 + along / 10)) < 1e-9);
+      LocalFoot g3 = localFoot(*bend, {10 - along, -0.5, 1.5}, {1, 1});
+      CHECK(g3.status == Status::ok);
+      CHECK(std::fabs(g3.uv.x - (1 - along / 10)) < 1e-6);
+      CHECK(std::fabs(g3.uv.y - 0.5) < 1e-6);
+      CHECK(std::fabs(g3.distance - 0.5) < 1e-9);
+      if (!(std::fabs(g1.uv.x - (1 - along / 10)) < 1e-9))
+        std::printf("    bend at %g: (%g, %g) after %d, distance %g\n", along, g1.uv.x, g1.uv.y, g1.iterations,
+          g1.distance);
+    }
+    // Its second leg 1e-6 long: the evaluation's S_u at the corner is 1e-7 of the first leg's, so a step judged by it
+    // looks like nothing (under 1e-6 of the distance); judged by the first leg's own, it isn't.
+    const double sr2[] = {0, 1, 2, 0, 1, 0, 0, 0, 0, 0, 3, 10, 0, 0, 10, 0, 3, 10, 1e-6, 0, 10, 1e-6, 3};
+    std::unique_ptr<Surface> hook = surfaces::makeBSpline(sr2, bi, st);
+    REQUIRE(hook);
+    LocalFoot h = localFoot(*hook, {8, 0, 3}, {1, 1});
+    CHECK(h.status == Status::ok);
+    CHECK(std::fabs(h.uv.x - 0.8) < 1e-9);
+    CHECK(h.distance < 1e-9);
+  }
   // A sphere from its north pole, where S_u vanishes: singular, not a foot.
   const double ssr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 10};
   std::unique_ptr<Surface> sph = closeInFact(surfaces::makeSphere(ssr), 1e-7);

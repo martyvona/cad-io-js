@@ -67,9 +67,9 @@ double conditioning(double a, double b, double c) {
   return m + r > 0 ? (m - r) / (m + r) : 0;
 }
 
-/** The feet's rate d(u, v)/dt; `fold` where H is singular (the first fundamental form taken instead). */
-Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold) {
-  const Frame2 f = forms(job, t, uv);
+/** The feet's rate d(u, v)/dt with the surface's partials at `at` (uv, or beside it); `fold` where H is singular. */
+Vec2 rateAt(const Job& job, double t, Vec2 at, bool& fold) {
+  const Frame2 f = forms(job, t, at);
   double a = f.ha, b = f.hb, c = f.hc;
   const double det = a * c - b * b, scale = f.a * f.c;
   fold = !(det > 1e-10 * scale);
@@ -78,6 +78,44 @@ Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold) {
   a += mu, c += mu;
   const double d = a * c - b * b;
   return {(c * f.rhs.x - b * f.rhs.y) / d, (a * f.rhs.y - b * f.rhs.x) / d};
+}
+
+/**
+ * The feet's rate d(u, v)/dt (the first fundamental form taken where H is singular: `fold`), leaving uv as t moves by
+ * `dir` (0: either way). On a break of the surface (a knot: a C0 one is a crease, where the partials jump and the
+ * evaluation gives one side's), the side the feet move into: the partials just below and just above the break, and
+ * the side whose rate moves into it where the evaluation's own doesn't (a polyline extrusion's corner: the next
+ * span's S_u is across the curve, its rate there 0).
+ */
+Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold, double dir = 0) {
+  Vec2 r = rateAt(job, t, uv, fold);
+  if (dir == 0) return r;
+  for (int k = 0; k < 2; k++) {
+    const std::vector<double>& bs = k ? job.vBreaks : job.uBreaks;
+    if (bs.empty()) continue;
+    const Range dom = k ? job.dom.v : job.dom.u;
+    const double period = k ? job.dom.vPeriod : job.dom.uPeriod, x = k ? uv.y : uv.x;
+    const double xr = period > 0 ? dom.lo + std::fmod(std::fmod(x - dom.lo, period) + period, period) : x;
+    auto it = std::lower_bound(bs.begin(), bs.end(), xr - 1e-12 * (1 + std::fabs(xr)));
+    if (it == bs.end() || std::fabs(*it - xr) > 1e-12 * (1 + std::fabs(xr))) continue;
+    // Beside it by a little of the narrower neighbouring span, in uv's own (unreduced) coordinates.
+    const double lo = it == bs.begin() ? dom.lo : *(it - 1), hi = it + 1 == bs.end() ? dom.hi : *(it + 1);
+    const double step = std::fmin(1e-9 * (dom.hi - dom.lo), 0.25 * std::fmin(*it - lo, hi - *it));
+    const double base = x + (*it - xr);
+    Vec2 below = uv, above = uv;
+    (k ? below.y : below.x) = base - step, (k ? above.y : above.x) = base + step;
+    bool fb = false, fa = false;
+    const Vec2 rb = rateAt(job, t, below, fb), ra = rateAt(job, t, above, fa);
+    const double tiny = 1e-9 * (std::fabs(r.x) + std::fabs(r.y) + std::fabs(rb.x) + std::fabs(rb.y) + std::fabs(ra.x)
+      + std::fabs(ra.y));
+    const double mb = dir * (k ? rb.y : rb.x), ma = dir * (k ? ra.y : ra.x), m = dir * (k ? r.y : r.x);
+    const bool intoBelow = mb < -tiny, intoAbove = ma > tiny;
+    // The evaluation's own already moves into its side (its partials are that side's): kept.
+    if ((m > tiny && intoAbove) || (m < -tiny && intoBelow)) continue;
+    if (intoBelow && !intoAbove) r = rb, fold = fb;
+    else if (intoAbove && !intoBelow) r = ra, fold = fa;
+  }
+  return r;
 }
 
 Vec3 pointOf(const Surface& s, Vec2 uv) {
@@ -124,8 +162,9 @@ bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, s
   StopWhy refused = StopWhy::noConvergence;
   bool lastFold = false;
   {
+    // Leaving the first node the way the march goes (on a crease, the side it goes into).
     bool f0 = false;
-    rate(job, t, uv, f0);
+    duv = rate(job, t, uv, f0, dir);
     lastFold = f0;
   }
   auto stopHere = [&](StopWhy why) {
@@ -144,12 +183,20 @@ bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, s
     Vec2 uvc = guess;
     const Vec3 cp = curveAt(job.c, tn), c0 = curveAt(job.c, t);
     footFrom(job.s, job.dom, cp, uvc, 12);
+    // Beside a pole the rate in the free (periodic) direction is huge and the feet swing round there: a step can jump
+    // across the swing, or Newton land whole turns off, at one place in 3D, so the checks below pass it. Refused: a
+    // correction in a periodic direction past both a sixteenth of the period and a quarter of the predicted move
+    // there. Smaller steps follow the swing.
+    auto slips = [&](double c, double g, double last, double period) {
+      return period > 0 && std::fabs(c - g) > 0.0625 * period && std::fabs(c - g) > 0.25 * std::fabs(g - last);
+    };
+    const bool slipped = slips(uvc.x, guess.x, uv.x, job.dom.uPeriod) || slips(uvc.y, guess.y, uv.y, job.dom.vPeriod);
     const Vec3 sp = pointOf(job.s, uvc), sg = pointOf(job.s, guess), s0 = pointOf(job.s, uv);
     const double chord = norm(cp - c0);
     // The predictor good to a tenth of the step, and no jump: the new foot no farther from the last than the curve
     // moved, give or take the tolerance.
     const bool near = norm(sp - s0) <= 2 * chord + 2 * job.tol;
-    bool good = norm(sp - sg) <= 0.1 * chord + 0.5 * job.tol && near;
+    bool good = norm(sp - sg) <= 0.1 * chord + 0.5 * job.tol && near && !slipped;
     refused = near ? StopWhy::noConvergence : StopWhy::jump;
     // A foot on a pole line, the curve farther than tol from the pole: Newton stuck there (the pole's free parameter
     // has no gradient), not a foot (a curve passing near a pole, the predictor overshooting onto its line). A smaller
@@ -168,7 +215,7 @@ bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, s
       continue;
     }
     bool fold = false;
-    Vec2 d = rate(job, tn, uvc, fold);
+    Vec2 d = rate(job, tn, uvc, fold, dir);
     if (fold) folds.push_back(tn);
     lastFold = fold;
     const Frame2 f = forms(job, tn, uvc);

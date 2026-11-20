@@ -100,10 +100,11 @@ struct PcurveEnds {
 
 /**
  * A traced result's end against the end search's feet there (PcurveEnds' cache): unchecked; the same foot; the same
- * a whole number of periods over (the result's unwrapping); a seam pair's other copy; or a different foot (the end
- * then ambiguous, the feet its alternatives).
+ * a whole number of periods over (the result's unwrapping); a seam pair's other copy; a different foot (a fold or
+ * another sheet: the end then ambiguous, the feet its alternatives); or the vertex farther than tol from the
+ * curve's end (vertexOff: a gap in the model, the vertex's feet its alternatives, the end not ambiguous).
  */
-enum class EndCheck : uint8_t { unchecked, same, periods, seamOther, different };
+enum class EndCheck : uint8_t { unchecked, same, periods, seamOther, different, vertexOff };
 
 /**
  * Where the exact table reads the curve's and surface's kinds and parameters (the model's rows the Curve and Surface
@@ -183,7 +184,8 @@ struct Pcurve {
    */
   double error = 0;
   std::vector<double> tAmbiguous;
-  /** Its start's and end's check (traced and affineFeet results, ends given a cache); different: the feet's (u, v). */
+  /** Its start's and end's check (traced and affineFeet results, ends given a cache); different, vertexOff: the feet
+   * there. */
   EndCheck endCheck[2] = {EndCheck::unchecked, EndCheck::unchecked};
   std::vector<Vec2> endAlternatives[2];
 };
