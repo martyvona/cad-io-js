@@ -20,18 +20,51 @@ using cadgeom::Vec2;
 
 namespace {
 
-/** (u, v) and (u', v') on a piece, its periods added; false where the face API can't evaluate it. */
-bool pieceAt(int32_t h, const SweptPiece& p, double t, Vec2& uv, Vec2& d) {
-  double out[6];
-  uint8_t st = 0;
-  const bool ok = cg_coedge_eval(h, p.coedge, &t, 1, 1, out, &st) == 0 && st == 0;
-  uv = {out[0] + p.ou, out[1] + p.ov}, d = {out[3], out[4]};
-  return ok;
-}
-
-double reduce(double d, double period) { return period > 0 ? period * std::round(d / period) : 0.0; }
-
 } // namespace
+
+LoopPieces loopPieces(Oracle::Impl& I, int f, double Pu, double Pv) {
+  LoopPieces L;
+  const Model& model = I.model;
+  auto fail = [&](Status st, const char* why) {
+    L.status = st, L.why = why;
+    return std::move(L);
+  };
+  const int32_t np = cg_face_pieces(I.h, f);
+  if (np < 0) return fail(Status::invalidModel, faceStatusWhy(-np));
+  std::vector<int> loopOf(model.coedges(), -1);
+  for (int l = model.faceFirstLoop(f); l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++)
+    for (int k = model.loopFirst(l); k < model.loopFirst(l) + model.loopCount(l); k++)
+      if (model.loopKind(l) == CBR_LOOP_EDGE) loopOf[k] = l;
+  {
+    const double* sc = cg_scratch();
+    for (int i = 0; i < np; i++) {
+      const int c = static_cast<int>(sc[3 * i]);
+      L.pieces.push_back({c, c >= 0 && c < model.coedges() ? loopOf[c] : -1, sc[3 * i + 1], sc[3 * i + 2]});
+    }
+  }
+  // Each loop's pieces unwrapped: a piece's start brought within half a period of the previous piece's end; the
+  // whole periods a loop closes across are its winding.
+  bool ok = true;
+  auto& P = L.pieces;
+  for (size_t i = 0; i < P.size(); i++) {
+    Vec2 a, b, d;
+    if (i > 0 && P[i - 1].loop == P[i].loop) {
+      ok &= pieceAt(I.h, P[i - 1], P[i - 1].t1, b, d);
+      ok &= pieceAt(I.h, P[i], P[i].t0, a, d);
+      P[i].ou = reducePeriods(b.x - a.x, Pu), P[i].ov = reducePeriods(b.y - a.y, Pv);
+    }
+    if (i + 1 == P.size() || P[i + 1].loop != P[i].loop) {
+      size_t j = i;
+      while (j > 0 && P[j - 1].loop == P[i].loop) j--;
+      ok &= pieceAt(I.h, P[i], P[i].t1, b, d);
+      ok &= pieceAt(I.h, P[j], P[j].t0, a, d);
+      L.windU.push_back(Pu > 0 ? std::round((b.x - a.x) / Pu) : 0);
+      L.windV.push_back(Pv > 0 ? std::round((b.y - a.y) / Pv) : 0);
+    }
+  }
+  if (!ok) return fail(Status::invalidModel, "a p-curve not evaluated");
+  return L;
+}
 
 SweptFace sweptFace(Oracle::Impl& I, int f) {
   SweptFace F;
@@ -67,41 +100,13 @@ SweptFace sweptFace(Oracle::Impl& I, int f) {
     }
   }
   if (info[6] > 0) F.flags |= flagProjectedBoundary;
-  const int32_t np = cg_face_pieces(I.h, f);
-  if (np < 0) return fail(Status::invalidModel, faceStatusWhy(-np));
-  std::vector<int> loopOf(model.coedges(), -1);
-  for (int l = model.faceFirstLoop(f); l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++)
-    for (int k = model.loopFirst(l); k < model.loopFirst(l) + model.loopCount(l); k++)
-      if (model.loopKind(l) == CBR_LOOP_EDGE) loopOf[k] = l;
-  {
-    const double* sc = cg_scratch();
-    for (int i = 0; i < np; i++) {
-      const int c = static_cast<int>(sc[3 * i]);
-      F.pieces.push_back({c, c >= 0 && c < model.coedges() ? loopOf[c] : -1, sc[3 * i + 1], sc[3 * i + 2]});
-    }
-  }
+  LoopPieces L = loopPieces(I, f, F.Pu, F.Pv);
+  if (*L.why) return fail(L.status, L.why);
+  F.pieces = std::move(L.pieces);
+  for (double w : L.windU) F.windU += w;
+  for (double w : L.windV) F.windV += w;
   if (F.pieces.empty()) return F;
-  // Each loop's pieces unwrapped: a piece's start brought within half a period of the previous piece's end; the
-  // whole periods a loop closes across are its winding.
-  bool ok = true;
   auto& P = F.pieces;
-  for (size_t i = 0; i < P.size(); i++) {
-    Vec2 a, b, d;
-    if (i > 0 && P[i - 1].loop == P[i].loop) {
-      ok &= pieceAt(I.h, P[i - 1], P[i - 1].t1, b, d);
-      ok &= pieceAt(I.h, P[i], P[i].t0, a, d);
-      P[i].ou = reduce(b.x - a.x, F.Pu), P[i].ov = reduce(b.y - a.y, F.Pv);
-    }
-    if (i + 1 == P.size() || P[i + 1].loop != P[i].loop) {
-      size_t j = i;
-      while (j > 0 && P[j - 1].loop == P[i].loop) j--;
-      ok &= pieceAt(I.h, P[i], P[i].t1, b, d);
-      ok &= pieceAt(I.h, P[j], P[j].t0, a, d);
-      F.windU += F.Pu > 0 ? std::round((b.x - a.x) / F.Pu) : 0;
-      F.windV += F.Pv > 0 ? std::round((b.y - a.y) / F.Pv) : 0;
-    }
-  }
-  if (!ok) return fail(Status::invalidModel, "a p-curve not evaluated");
   if (F.windV != 0) F.flags |= flagWinds;
   if (F.windU != 0 && (F.extrusion || F.poleV.empty())) F.flags |= flagWinds;
   Vec2 start, d0;
@@ -155,13 +160,22 @@ SweptTotals sweptIntegral(Oracle::Impl& I, const SweptFace& F, int K,
   for (size_t i = 0; i < P.size(); i++) {
     const SweptPiece& p = P[i];
     std::vector<double> br;
-    const int pc = model.coedgePcurve(p.coedge);
-    // Cut where the p-curve is less smooth: its own breaks, or a projection's, which is in its edge's curve's
-    // parameter, that curve's (an extrusion's profile copy: the profile's knots, where C' and so H may kink).
+    // Cut where the p-curve is less smooth: its own breaks, or a projection's pieces' (a fit's knots) and, as the
+    // projection is in its edge's curve's parameter, that curve's (an extrusion's profile copy: the profile's knots,
+    // where C' and so H may kink).
     const Range span{std::fmin(p.t0, p.t1), std::fmax(p.t0, p.t1)};
-    const Curve* own = pc >= 0 ? I.curve(pc) : I.curve(model.edgeCurve(model.coedgeEdge(p.coedge)));
-    if (own) own->breaks(span, br);
+    const int32_t nb = cg_coedge_breaks(I.h, p.coedge, span.lo, span.hi);
+    if (nb >= 2) br.assign(cg_scratch(), cg_scratch() + nb);
     else br = {span.lo, span.hi};
+    if (model.coedgePcurve(p.coedge) < 0) {
+      if (const Curve* own = I.curve(model.edgeCurve(model.coedgeEdge(p.coedge)))) {
+        std::vector<double> more;
+        own->breaks(span, more);
+        for (double x : more) br.push_back(std::clamp(x, span.lo, span.hi));
+        std::sort(br.begin(), br.end());
+        br.erase(std::unique(br.begin(), br.end()), br.end());
+      }
+    }
     if (p.t1 < p.t0) std::reverse(br.begin(), br.end());
     // H du at t, all components (the first component's rule computes them, the others' mostly look them up).
     Memo memo(K);
@@ -187,7 +201,7 @@ SweptTotals sweptIntegral(Oracle::Impl& I, const SweptFace& F, int K,
     at(p, p.t0, s0, d);
     T.spanU += std::fabs(a.x - s0.x);
     at(P[j], P[j].t0, b, d);
-    b = {b.x + reduce(a.x - b.x, F.Pu), b.y + reduce(a.y - b.y, F.Pv)};
+    b = {b.x + reducePeriods(a.x - b.x, F.Pu), b.y + reducePeriods(a.y - b.y, F.Pv)};
     if (norm(b - a) <= 1e-12 * (1 + norm(a))) continue;
     Memo gap(K);
     auto gapHdu = [&](double x, double* o) {

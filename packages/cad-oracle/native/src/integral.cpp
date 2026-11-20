@@ -1,10 +1,11 @@
-// faceIntegral (oracle.h) on the faces the oracle measures: planes, cylinders, cones, spheres and tori by the engine
-// of closed.h, extrusions and revolutions by swept.h's, with H numeric: H(u, v) = -int_{v0}^{v} F(u, t) dt, F the
-// integrand at the surface's point with its area vector n = S_u x S_v turned by the face's sense, by a fixed
-// composite Gauss-Legendre rule (smooth in v, so the outer quadrature can converge through it) whose panels are
-// doubled until H at the loops' samples settles. The area, |n|, rides along as one more component: on a sphere, and a
-// revolution closed by two poles, the result is known modulo the integral over the whole surface (closed.h, swept.h),
-// and the area, which lies in [0, whole), says which multiple; every component takes the same.
+// faceIntegral (oracle.h) on the faces the oracle measures: planes, cylinders, cones, spheres and tori by the engine of
+// closed.h, extrusions and revolutions by swept.h's, B-splines, offsets and trims by free.h's, with H numeric: H(u, v)
+// = -int_{v0}^{v} F(u, t) dt, F the integrand at the surface's point with its area vector n = S_u x S_v turned by the
+// face's sense, by a composite Gauss-Legendre rule (smooth in v, so the outer quadrature can converge through it) whose
+// panels are doubled per span until H at the loops' samples settles (inner.h). The area, |n|, rides along as one more
+// component: on a sphere, and a revolution closed by two poles, the result is known modulo the integral over the whole
+// surface (closed.h, swept.h, free.h), and the area, which lies in [0, whole), says which multiple; every component
+// takes the same.
 
 #include <algorithm>
 #include <array>
@@ -15,7 +16,9 @@
 
 #include "cad_geom/surface.h"
 #include "closed.h"
+#include "free.h"
 #include "geom_api.h"
+#include "inner.h"
 #include "quad.h"
 #include "swept.h"
 
@@ -23,119 +26,8 @@ namespace cadoracle {
 
 namespace {
 
-/** Panels of the inner rule at most. */
-constexpr int kMaxInnerPanels = 1024;
-/** Boundary points an integrand's default scale is probed around at most (floors). */
-constexpr size_t kScaleSamples = 16;
-
-/**
- * A face's integrand in (u, v): K components, the caller's then the area, F(u, t, out). inner(m) gives H by m panels
- * between v0 and v (cut at `cuts` between them, a profile's breaks).
- */
-struct Inner {
-  int K;
-  std::function<void(double u, double t, double* out)> F;
-  /** The surface's point at (u, v). */
-  std::function<Vec3(double u, double v)> P;
-  std::vector<double> cuts;
-
-  /** -int_{v0}^{v} F(u, t) dt, by m panels of 16-point Gauss-Legendre per piece between cuts. */
-  void H(double u, double v0, double v, int m, double* out) const {
-    std::fill(out, out + K, 0.0);
-    if (v == v0) return;
-    std::vector<double> ends{v0};
-    for (double c : cuts)
-      if ((c - v0) * (c - v) < 0) ends.push_back(c);
-    std::sort(ends.begin() + 1, ends.end(), [&](double a, double b) { return v > v0 ? a < b : a > b; });
-    ends.push_back(v);
-    std::vector<double> f(K);
-    for (size_t k = 0; k + 1 < ends.size(); k++) {
-      const double a = ends[k], h = (ends[k + 1] - a) / m;
-      for (int j = 0; j < m; j++) {
-        const double c = a + (j + 0.5) * h;
-        for (int i = 0; i < 16; i++) {
-          F(u, c + kGauss16.x[i] * h / 2, f.data());
-          for (int q = 0; q < K; q++) out[q] -= kGauss16.w[i] * f[q] * h / 2;
-        }
-      }
-    }
-  }
-};
-
-/**
- * The inner rule's panels for H at the samples (u, v0, v): doubled from 2 until every component settles within
- * relTol of its largest over the samples, or of its floor (floors) over the samples' extent in u (a turn when they
- * have none), its share of the outer integral's tolerance: a component that is rounding on the face never settles
- * relative to itself. err the last change, per component.
- */
-int innerPanels(const Inner& in, const std::vector<std::array<double, 3>>& samples, double relTol,
-  const std::vector<double>& floor, std::vector<double>& err) {
-  double uLo = INFINITY, uHi = -INFINITY;
-  for (const auto& s : samples) uLo = std::fmin(uLo, s[0]), uHi = std::fmax(uHi, s[0]);
-  const double uSpan = uHi > uLo ? uHi - uLo : 2 * M_PI;
-  const int K = in.K;
-  std::vector<double> a(K), b(K), scale(K, 0);
-  int m = 2;
-  for (;; m *= 2) {
-    std::fill(err.begin(), err.end(), 0.0);
-    std::fill(scale.begin(), scale.end(), 0.0);
-    for (const auto& s : samples) {
-      in.H(s[0], s[1], s[2], m, a.data());
-      in.H(s[0], s[1], s[2], 2 * m, b.data());
-      for (int q = 0; q < K; q++) {
-        err[q] = std::fmax(err[q], std::fabs(b[q] - a[q]));
-        scale[q] = std::fmax(scale[q], std::fabs(b[q]));
-      }
-    }
-    bool settled = true;
-    for (int q = 0; q < K; q++) settled &= err[q] <= relTol * std::fmax(scale[q], floor[q] / uSpan) + 1e-300;
-    if (settled || 2 * m >= kMaxInnerPanels) return 2 * m;
-  }
-}
-
 std::vector<Estimate> unsupported(int k) {
   return std::vector<Estimate>(k > 0 ? k : 0, Estimate{NAN, INFINITY, Status::unsupported});
-}
-
-/**
- * Per component, the floor of the scale its absolute tolerance is set from (closed.h's and swept.h's): the caller's
- * scale (else the integrand's size near the face, below) times the size squared of the samples' box; the area's that
- * size squared. Near the face, not on it: a component can vanish on a face but for rounding (a volume's on a plane
- * through its c, a moment's n_x on a face normal to x), and a tolerance relative to rounding is never met, so the
- * default is the largest |f| at the samples' points moved by up to the box's size along each axis, n a unit vector
- * along each axis.
- */
-std::vector<double> floors(const Integrand& g, const Inner& in, const std::vector<std::array<double, 3>>& samples) {
-  const int k = in.K - 1;
-  std::vector<Vec3> points;
-  Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
-  for (const auto& s : samples) {
-    const Vec3 q = in.P(s[0], s[2]);
-    points.push_back(q);
-    lo = {std::fmin(lo.x, q.x), std::fmin(lo.y, q.y), std::fmin(lo.z, q.z)};
-    hi = {std::fmax(hi.x, q.x), std::fmax(hi.y, q.y), std::fmax(hi.z, q.z)};
-  }
-  const double size = std::fmax(norm(hi - lo), 1e-300);
-  std::vector<double> out(in.K, size * size), near(k, 0), f(k);
-  if (static_cast<int>(g.scale.size()) == k) {
-    for (int c = 0; c < k; c++) near[c] = std::fabs(g.scale[c]);
-  } else {
-    const Vec3 axes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-    const size_t step = std::max<size_t>(1, points.size() / kScaleSamples);
-    for (size_t i = 0; i < points.size(); i += step) {
-      for (int d = 0; d < 7; d++) {
-        const Vec3 p = d == 0 ? points[i] : points[i] + (d % 2 ? size : -size) * axes[(d - 1) / 2];
-        for (const Vec3& n : axes) {
-          g.f(p, n, f.data());
-          for (int c = 0; c < k; c++) {
-            if (std::isfinite(f[c])) near[c] = std::fmax(near[c], std::fabs(f[c]));
-          }
-        }
-      }
-    }
-  }
-  for (int c = 0; c < k; c++) out[c] *= near[c];
-  return out;
 }
 
 /** The integral of f(u) over [a, b] per component, by Gauss-Kronrod (each component on its own tolerance). */
@@ -336,6 +228,19 @@ std::vector<Estimate> Oracle::Impl::integral(int f, const Integrand& g) {
     for (int c = 0; c < k; c++) {
       out[c] = {value[c], T.error[c] + innerErr[c] * (T.spanU + std::fabs(F.windU) * F.Pu), T.status};
     }
+    return out;
+  }
+
+  if (kind == CBR_SURFACE_BSPLINE || kind == CBR_SURFACE_OFFSET || kind == CBR_SURFACE_RECTANGULAR_TRIMMED) {
+    const FreeTotals T = freeIntegral(*this, f, K, k, [&](Vec3 p, Vec3 n, double* o) {
+      g.f(p, sense * n, o);
+      o[k] = norm(n);
+    }, [&](const Inner& in, const std::vector<std::array<double, 3>>& samples) { return floors(g, in, samples); },
+      options.relTol);
+    if (*T.why && T.status != Status::noConvergence && T.status != Status::singular) {
+      return std::vector<Estimate>(k, Estimate{NAN, INFINITY, T.status});
+    }
+    for (int c = 0; c < k; c++) out[c] = {T.value[c], T.error[c], T.status};
     return out;
   }
   return unsupported(k);

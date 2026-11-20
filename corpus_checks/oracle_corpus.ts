@@ -8,11 +8,20 @@
 //     1 %, OCCT's own mesh of the face (medium) says which side it's on (a mesh that far off its own measure is
 //     OCCT measuring wrong, or meshing wrong); and plane perimeters against ours (other faces' count the edges
 //     OCCT's healing split them along).
+//   - free-form faces (B-splines, offsets, rectangular trims: the oracle's free-form method, which today's doesn't
+//     cover), trusted and not apart, wherever the oracle computed an area: against OCCT's measure and SMLib's
+//     (tess-smlib's: its own exact areas, on parts with such faces, SMLIB=0 to skip), the nearer within 1e-6, 1e-4 or
+//     past, or the two within 1e-6 of each other but not of ours (a disagreement, noted where it's within the tolerance
+//     strip, the perimeter times the face's tolerance: the p-curves and the edges' curves may differ by that, and the
+//     measures may take the curves); past 1e-4, OCCT's mesh of the face says which side it's on (nearer ours, or nearer
+//     a measure: a disagreement) where the difference is past the mesh's resolution (its perimeter times the
+//     deflection), else unrefereed.
 // The oracle's coverage by surface kind: trusted, flagged (by flag), unsupported (by why). Planted bugs, in about one
 // part in 10 (corpus.ts's plantedPart): PLANT=area scales the oracle's area by 1 + 1e-6 (each planted face both trust
 // must disagree with today's oracle, where the allowance is at most half that), PLANT=perimeter its perimeter by
 // 1 + 1e-5 (against today's oracle's perimeter, within 1e-6, where both trust a face and its vertices are on its
-// curves).
+// curves), PLANT=free a free-form face's area by 1 + 1e-5 (each planted face a measure agreed with within 1e-6 must
+// no longer agree within 1e-6).
 // Usage: node --max-old-space-size=8192 corpus_checks/oracle_corpus.ts [file-list.txt] [max MB, default 1000]
 import fs from 'node:fs';
 import { type BrepData, curveEvaluator, decode, edgeParams, rowCount, SURFACE_KIND } from
@@ -22,7 +31,7 @@ import { modelFaceArea, trustedArea } from '../packages/cad-scene/src/area-oracl
 import { importStep } from '../packages/step-import/src/index.ts';
 import { StepTessellator } from '../packages/step-export/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { init, Oracle, type OracleModule, trusted } from '../packages/cad-oracle/src/index.ts';
+import { type FaceMeasure, init, Oracle, type OracleModule, trusted } from '../packages/cad-oracle/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
@@ -34,7 +43,10 @@ const TRUST = 1e-6;
 const OFF = 0.01;
 const EXAMPLES = 6;
 /** Perimeters agree within this (relative; today's is extrapolated from polylines), and the plants' sizes. */
-const PERIM = 1e-6, AREA_PLANT = 1e-6, PERIM_PLANT = 1e-5;
+const PERIM = 1e-6, AREA_PLANT = 1e-6, PERIM_PLANT = 1e-5, FREE_PLANT = 1e-5;
+/** The free-form method's surface kinds. */
+const FREE_KINDS = new Set<number>([SURFACE_KIND.bspline, SURFACE_KIND.offset, SURFACE_KIND.rectangularTrimmed]);
+const useSmlib = process.env.SMLIB !== '0';
 const bins = [1e-12, 1e-9, 1e-6, 1e-4, 1e-2, 0.1, Infinity];
 const plant = process.env.PLANT;
 const kindName = (k: number) => Object.keys(SURFACE_KIND).find((n) => SURFACE_KIND[n as keyof typeof SURFACE_KIND]
@@ -43,7 +55,8 @@ const kindName = (k: number) => Object.keys(SURFACE_KIND).find((n) => SURFACE_KI
 type Tally = Record<string, { n: number; ex: string[] }>;
 const fresh = () => ({
   files: 0, skipped: 0, parts: 0, faces: 0, failed: [] as string[],
-  coverage: {} as Tally, vsToday: {} as Tally, vsOcct: {} as Tally, refereed: {} as Tally,
+  coverage: {} as Tally, vsToday: {} as Tally, vsOcct: {} as Tally, refereed: {} as Tally, free: {} as Tally,
+  freeHist: bins.map(() => 0), freeSlowest: 0, freeSlowestAt: '', freeMs: 0, smlibFailed: 0,
   areaHist: bins.map(() => 0), perimHist: bins.map(() => 0), worstToday: 0, worstTodayAt: '',
   planted: 0, plantedCaught: 0, plantedMissed: [] as string[], msOracle: 0, msToday: 0,
 });
@@ -99,7 +112,70 @@ function vertexGap(d: BrepData, f: number): number {
   return worst;
 }
 
-let pool: WorkerTessellator, module: OracleModule, maxBytes = 1e9;
+/**
+ * The tolerance a face's boundary is known to, as the face API takes it (cad-geom's tolerance.h): the part's
+ * uncertainty (1e-5 where it gives none), widened by the face's own tolerance and its edges'.
+ */
+function faceTolerance(d: BrepData, f: number): number {
+  const u = d.part.uncertainty[0]!;
+  let tol = Number.isFinite(u) && u > 0 ? u : 1e-5;
+  const widen = (t: number | undefined) => { if (t !== undefined && Number.isFinite(t) && t > tol) tol = t; };
+  widen(d.face.tolerance[f]);
+  for (const l of decode.face(d, f).loops) {
+    if (l.kind === 'edge') for (const c of l.coedges) widen(d.edge.tolerance[c.edge]);
+  }
+  return tol;
+}
+
+/**
+ * A free-form face (the oracle's area computed) against the referees: OCCT's and SMLib's measures, the nearer of
+ * them, and past 1e-4 OCCT's mesh; a plant (PLANT=free) judged where a measure agreed within 1e-6 before it.
+ */
+function freeFace(R: Result, m: FaceMeasure, at: string, om: { area: number; valid: boolean } | undefined,
+  meshArea: number | undefined, smArea: number | undefined, uncertainty: number, planted: boolean) {
+  const ok = trusted(m, TRUST), a = m.area.value;
+  const refs: [string, number][] = [];
+  if (om && om.valid) refs.push(['OCCT', om.area]);
+  if (smArea !== undefined && Number.isFinite(smArea)) refs.push(['SMLib', smArea]);
+  const best = (v: number) => Math.min(...refs.map(([, x]) => Math.abs(x - v) / Math.abs(v)));
+  const side = ok ? 'trusted' : `not trusted (${m.flags.join(', ') || 'its error'})`;
+  if (!refs.length) {
+    add(R.free, `${side}: no referee (neither measured it)`, at);
+    return;
+  }
+  const rel = best(a), near = refs.filter(([, x]) => Math.abs(x - a) / Math.abs(a) <= 1e-6).map(([w]) => w);
+  if (ok) bin(R.freeHist, rel);
+  let cls: string;
+  const nearest = refs.reduce((p, q) => Math.abs(q[1] - a) < Math.abs(p[1] - a) ? q : p);
+  // A mesh's area is off its face's by up to about its perimeter times the deflection (an inscribed boundary).
+  const resolution = m.perimeter.status === 'ok' ? m.perimeter.value * LINEAR_MM : Infinity;
+  // The face's boundary is known only to its tolerance: its p-curves and its edges' curves (which the
+  // measures may take instead) can differ by that strip along the perimeter.
+  const strip = m.perimeter.status === 'ok' ? m.perimeter.value * uncertainty : 0;
+  const inStrip = Math.abs(nearest[1] - a) <= strip ? ', within the tolerance strip' : '';
+  if (rel <= 1e-6) cls = `within 1e-6 of ${near.length === refs.length && refs.length > 1 ? 'both measures'
+    : `${near.join(' and ')}'s measure${refs.length > 1 ? ' only' : ''}`}`;
+  else if (refs.length > 1 && Math.abs(refs[0]![1] - refs[1]![1]) <= 1e-6 * Math.abs(a)) {
+    cls = `the measures within 1e-6 of each other, not of ours${inStrip}: DISAGREE`;
+  } else if (rel <= 1e-4) cls = 'within 1e-4 of a measure';
+  else if (meshArea === undefined || meshArea === 0) cls = 'past 1e-4 of the measures, OCCT has no mesh of it';
+  else if (Math.abs(nearest[1] - a) <= resolution) {
+    cls = 'past 1e-4 of the measures, within OCCT\'s mesh\'s resolution (perimeter x deflection)';
+  } else {
+    cls = Math.abs(meshArea - a) < Math.abs(meshArea - nearest[1])
+      ? 'past 1e-4 of the measures, OCCT\'s mesh nearer ours'
+      : `past 1e-4, OCCT's mesh nearer ${nearest[0]}'s measure${inStrip}: DISAGREE`;
+  }
+  add(R.free, `${side}: ${cls}`, `${at}: ours ${a.toPrecision(10)} (+/- ${m.area.error.toPrecision(2)}), ${refs.map(
+    ([w, x]) => `${w}'s ${x.toPrecision(10)}`).join(', ')}, OCCT's mesh ${meshArea?.toPrecision(8)}`);
+  if (planted && rel <= 1e-6) {
+    R.planted++;
+    if (best(a * (1 + FREE_PLANT)) > 1e-6) R.plantedCaught++;
+    else if (R.plantedMissed.length < EXAMPLES) R.plantedMissed.push(at);
+  }
+}
+
+let pool: WorkerTessellator, smlib: WorkerTessellator | undefined, module: OracleModule, maxBytes = 1e9;
 
 export const check: FileCheck<undefined, Result> = {
   async setup({ meshWorkers, args }) {
@@ -107,6 +183,11 @@ export const check: FileCheck<undefined, Result> = {
     pool = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-occt/src/index.ts'),
       export: 'OcctTessellator' }, workers: meshWorkers });
     await pool.init();
+    if (useSmlib) {
+      smlib = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-smlib/src/index.ts'),
+        export: 'SmlibTessellator' }, workers: meshWorkers });
+      await smlib.init();
+    }
     module = await init();
   },
   async file(path, _job, ctx) {
@@ -125,6 +206,16 @@ export const check: FileCheck<undefined, Result> = {
       ctx.progress(`${name} #${part.sources[0]?.id}`);
       const where = `${name} #${part.sources[0]?.id}`, planted = !!plant && plantedPart(where);
       const occt = part.measures?.faces, mesh = meshes.get(pi), meshArea = mesh ? meshAreas(mesh) : new Map();
+      // SMLib's exact areas, where the part has free-form faces.
+      let smArea: Map<number, number> | undefined;
+      let hasFree = false;
+      for (let f = 0; f < rowCount(d, 'face'); f++) hasFree ||= FREE_KINDS.has(d.surface.kind[d.face.surface[f]!]!);
+      if (smlib && hasFree) {
+        const r = await smlib.tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer), origin: part.origin,
+          linearDeflection: LINEAR_MM, angularDeflection: ANGULAR, measures: true }).catch((e: Error) => e);
+        if (r instanceof Error) R.smlibFailed++;
+        else smArea = new Map((r.measures ?? []).filter((x) => x.valid !== false).map((x) => [x.entityId, x.area]));
+      }
       using o = new Oracle(module, d.buffer);
       const seen = new Map<number, number>();
       for (let f = 0; f < rowCount(d, 'face'); f++) seen.set(d.face.id[f]!, (seen.get(d.face.id[f]!) ?? 0) + 1);
@@ -133,7 +224,16 @@ export const check: FileCheck<undefined, Result> = {
         const id = d.face.id[f]!, kind = kindName(d.surface.kind[d.face.surface[f]!]!), at = `${where} face #${id}`;
         let t0 = performance.now();
         const m = o.face(f);
-        R.msOracle += performance.now() - t0;
+        const ms = performance.now() - t0;
+        R.msOracle += ms;
+        if (FREE_KINDS.has(d.surface.kind[d.face.surface[f]!]!)) {
+          R.freeMs += ms;
+          if (ms > R.freeSlowest) R.freeSlowest = ms, R.freeSlowestAt = at;
+          if (m.area.status === 'ok' && seen.get(id)! === 1) {
+            freeFace(R, m, at, occt?.get(id), meshArea.get(id), smArea?.get(id), faceTolerance(d, f),
+              planted && plant === 'free');
+          }
+        }
         if (planted && plant === 'area') m.area.value *= 1 + AREA_PLANT;
         if (planted && plant === 'perimeter') m.perimeter.value *= 1 + PERIM_PLANT;
         const ok = trusted(m, TRUST);
@@ -173,7 +273,7 @@ export const check: FileCheck<undefined, Result> = {
               // A plant is judged only where it can be seen: an area's past the allowance by a factor of 2, a
               // perimeter's where the two perimeters are the same measure.
               const visible = plant === 'area' ? slack <= 0.5 * AREA_PLANT * t.area : onCurves;
-              if (planted && visible) {
+              if (planted && visible && (plant === 'area' || plant === 'perimeter')) {
                 R.planted++;
                 const caught = plant === 'area' ? diff > slack : perimDiff > PERIM * t.perimeter;
                 if (caught) R.plantedCaught++;
@@ -207,22 +307,25 @@ export const check: FileCheck<undefined, Result> = {
   },
   async teardown() {
     await pool?.dispose?.();
+    await smlib?.dispose?.();
   },
 };
 
 /** One run's results into another: counts summed, tallies' examples kept up to EXAMPLES, the worst kept. */
 function merge(all: Result, r: Result) {
-  for (const k of ['files', 'skipped', 'parts', 'faces', 'planted', 'plantedCaught', 'msOracle', 'msToday'] as const) {
+  for (const k of ['files', 'skipped', 'parts', 'faces', 'planted', 'plantedCaught', 'msOracle', 'msToday', 'freeMs',
+    'smlibFailed'] as const) {
     all[k] += r[k];
   }
-  for (const k of ['coverage', 'vsToday', 'vsOcct', 'refereed'] as const) {
+  for (const k of ['coverage', 'vsToday', 'vsOcct', 'refereed', 'free'] as const) {
     for (const [key, e] of Object.entries(r[k])) {
       const a = all[k][key] ??= { n: 0, ex: [] };
       a.n += e.n;
       a.ex.push(...e.ex.slice(0, EXAMPLES - a.ex.length));
     }
   }
-  addInto(all.areaHist, r.areaHist), addInto(all.perimHist, r.perimHist);
+  addInto(all.areaHist, r.areaHist), addInto(all.perimHist, r.perimHist), addInto(all.freeHist, r.freeHist);
+  if (r.freeSlowest > all.freeSlowest) { all.freeSlowest = r.freeSlowest; all.freeSlowestAt = r.freeSlowestAt; }
   if (r.worstToday > all.worstToday) { all.worstToday = r.worstToday; all.worstTodayAt = r.worstTodayAt; }
   all.failed.push(...r.failed);
   all.plantedMissed.push(...r.plantedMissed.slice(0, EXAMPLES - all.plantedMissed.length));
@@ -241,7 +344,9 @@ if (import.meta.main) {
     console.log(`\n${title}`);
     for (const [k, e] of Object.entries(t).sort((a, b) => b[1].n - a[1].n || (a[0] < b[0] ? -1 : 1))) {
       console.log(`${String(e.n).padStart(8)}  ${k}`);
-      if (examples && !/trusted$|agree$|within/.test(k)) for (const x of e.ex) console.log(`            ${x}`);
+      if (examples && (/DISAGREE|past/.test(k) || !/trusted$|agree$|within/.test(k))) {
+        for (const x of e.ex) console.log(`            ${x}`);
+      }
     }
   };
   const hist = (h: number[]) => bins.map((b, k) => `<= ${b === Infinity ? 'inf' : b.toExponential(0)}: ${h[k]}`)
@@ -257,4 +362,9 @@ if (import.meta.main) {
   console.log(`  relative difference of the area: ${hist(all.areaHist)}`);
   console.log(`  of the perimeter, planes only: ${hist(all.perimHist)}`);
   show(`OCCT's measure more than ${OFF * 100} % off ours, by its own mesh:`, all.refereed);
+  show(`Free-form faces against OCCT's and SMLib's measures${useSmlib ? '' : ' (SMLIB=0: OCCT\'s only)'}, past 1e-4 by `
+    + `OCCT's mesh:`, all.free);
+  console.log(`  trusted, the nearer measure's relative difference: ${hist(all.freeHist)}`);
+  console.log(`  the free-form faces' oracle time ${(all.freeMs / 1000).toFixed(1)} s, the slowest ${
+    all.freeSlowest.toFixed(0)} ms (${all.freeSlowestAt}); SMLib failed on ${all.smlibFailed} parts`);
 }
