@@ -18,6 +18,9 @@ export const PCURVE_METHOD = ['none', 'planeAffine', 'isoLine', 'affineFeet', 't
 /** Why a trace stopped short (project.h's StopWhy). */
 export const STOP_WHY = ['none', 'noConvergence', 'jump', 'poleLine', 'degenerate', 'fold'] as const;
 export type StopWhy = (typeof STOP_WHY)[number];
+/** project.h's EndCheck: a traced result's end against the end search's feet there. */
+export const END_CHECK = ['unchecked', 'same', 'periods', 'seamOther', 'different'] as const;
+export type EndCheck = (typeof END_CHECK)[number];
 export type PcurveMethod = (typeof PCURVE_METHOD)[number];
 
 /** The module's C API version this layer speaks (cg_api_version). */
@@ -272,6 +275,13 @@ export interface Pcurve {
   stopAt: number;
   stopDistance: number;
   stopWhy: StopWhy;
+  /**
+   * projectCoedge, traced (and affineFeet) results: the start's and end's check against their vertices' feet (the
+   * end search's, endFeet): the same foot, whole periods over, a seam pair's other copy, or different (then
+   * ambiguous, `endAlternatives` the feet's (u, v), (u, v) pairs).
+   */
+  endCheck: [EndCheck, EndCheck];
+  endAlternatives: [Float64Array, Float64Array];
   error: number;
   tAmbiguous: Float64Array;
   pieces: PcurvePiece[];
@@ -287,9 +297,12 @@ export interface Pcurve {
 
 /** The scratch's projection (cad_geom_api.cpp) with n samples. */
 function readPcurve(v: Float64Array, n: number): Pcurve {
-  let at = 19;
+  let at = 23;
   const tAmbiguous = v.slice(at, at + v[7]!);
   at += v[7]!;
+  const endAlternatives: [Float64Array, Float64Array] = [v.slice(at, at + 2 * v[21]!),
+    v.slice(at + 2 * v[21]!, at + 2 * (v[21]! + v[22]!))];
+  at += 2 * (v[21]! + v[22]!);
   const read = (count: number) => {
     const out: PcurvePiece[] = [];
     for (let i = 0; i < count; i++) {
@@ -310,7 +323,7 @@ function readPcurve(v: Float64Array, n: number): Pcurve {
   return { status: STATUS[v[0]!]!, method: PCURVE_METHOD[v[1]!]!, certainty: CERTAINTY[v[2]!]!, seamU: v[3] === 1,
     seamV: v[4] === 1, offSurface: v[5]!, error: v[6]!, tAmbiguous, pieces, seamTwin, takesTwin: v[10] === 1,
     range: [v[11]!, v[12]!], offSpan: [v[13]!, v[14]!], stopped: v[15] === 1, stopAt: v[16]!, stopDistance: v[17]!,
-    stopWhy: STOP_WHY[v[18]!]!, uv,
+    stopWhy: STOP_WHY[v[18]!]!, endCheck: [END_CHECK[v[19]!]!, END_CHECK[v[20]!]!], endAlternatives, uv,
     twinUv: seamTwin.length ? v.slice(at, at + 2 * n) : new Float64Array() };
 }
 

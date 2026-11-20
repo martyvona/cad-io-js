@@ -1082,6 +1082,115 @@ TEST_CASE("the end search: a pole, a seam's pair, a point, a family; searched on
   CHECK(std::fabs(vertex[0].distance - 3) < 1e-9);
 }
 
+TEST_CASE("traced ends against the end search: the same foot, a seam pair's other copy, periods over, different") {
+  // Quarter arcs exactly on a cylinder of radius 5 (rational quadratics in x, y, rising in z), its seam at angle 0:
+  // from 3 pi / 2 to the seam (the trace arrives at 2 pi, the search's foot at 0, its twin 2 pi), and from 7 pi / 4
+  // across it to pi / 4 (the trace's end unwrapped a period past the search's foot).
+  const double R = 5, tol = 1e-6;
+  const double cr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, R};
+  std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(cr, R, 0), tol);
+  Status st;
+  auto arc = [&](double a) {
+    const double w = std::sqrt(0.5), c = std::cos(a), s = std::sin(a);
+    const int32_t in[] = {2, 3, 2, 1, 0, 0, 0, 3, 3};
+    const double r[] = {0, 1, R * c, R * s, 0, R * (c - s), R * (s + c), 1, R * -s, R * c, 2, 1, w, 1};
+    return curves::makeBSpline(r, in, 3, st);
+  };
+  auto ends = [&](EndSearchCache& cache, const Curve& c, uint64_t key) {
+    PcurveEnds e;
+    CurvePoint a, b;
+    c.eval(0, 0, a), c.eval(1, 0, b);
+    e.cache = &cache, e.checkStart = e.checkEnd = true, e.startKey = key, e.endKey = key + 1;
+    e.startPoint = a.p, e.endPoint = b.p;
+    return e;
+  };
+  EndSearchCache cache;
+  std::unique_ptr<Curve> toSeam = arc(1.5 * kPi), across = arc(1.75 * kPi);
+  REQUIRE(toSeam);
+  REQUIRE(across);
+  const PcurveEnds e1 = ends(cache, *toSeam, 10), e2 = ends(cache, *across, 20);
+  Pcurve p = projectCurve(*toSeam, {0, 1}, *cyl, tol, &e1);
+  CHECK(p.status == Status::ok);
+  CHECK((p.method == PcurveMethod::traced || p.method == PcurveMethod::affineFeet));
+  CHECK(p.endCheck[0] == EndCheck::same);
+  CHECK(p.endCheck[1] == EndCheck::seamOther);
+  CHECK(p.certainty == Certainty::unique);
+  Pcurve q = projectCurve(*across, {0, 1}, *cyl, tol, &e2);
+  CHECK(q.status == Status::ok);
+  CHECK(q.endCheck[0] == EndCheck::same);
+  CHECK(q.endCheck[1] == EndCheck::periods);
+  CHECK(q.endAlternatives[1].empty());
+  // Its end vertex elsewhere on the cylinder (a model's wrong vertex): its feet aren't the trace's end, which is
+  // otherwise unique: different, so ambiguous there.
+  PcurveEnds wrong = e1;
+  wrong.endKey = 12, wrong.endPoint = {-R, 0, 1};
+  Pcurve w = projectCurve(*toSeam, {0, 1}, *cyl, tol, &wrong);
+  CHECK(w.endCheck[0] == EndCheck::same);
+  CHECK(w.endCheck[1] == EndCheck::different);
+  CHECK(w.certainty == Certainty::ambiguous);
+  CHECK(w.tAmbiguous.size() == 1);
+  REQUIRE(w.endAlternatives[1].size() == 1);
+  CHECK(std::fabs(w.endAlternatives[1][0].x - kPi) < 1e-6);
+  // Without a cache, unchecked.
+  Pcurve u = projectCurve(*toSeam, {0, 1}, *cyl, tol);
+  CHECK(u.endCheck[0] == EndCheck::unchecked);
+  CHECK(u.endCheck[1] == EndCheck::unchecked);
+  // The trough (as above): its line's start has one foot, the traced one; past the symmetry plane the trace keeps
+  // the farther foot, so its end isn't the search's one foot there: different, ambiguous at t = 1, that foot given.
+  std::vector<double> r = {0, 1, 0, 1};
+  for (double px : {-2.0, 0.0, 2.0})
+    for (double z : {-1.0, 1.0}) r.insert(r.end(), {px, px == 0 ? -4.0 : 4.0, z});
+  const int32_t in[] = {2, 1, 3, 2, 2, 2, 0, 0, 0, 0, 0, 3, 3, 2, 2};
+  std::unique_ptr<Surface> trough = surfaces::makeBSpline(r.data(), in, st);
+  REQUIRE(trough);
+  const double lr[7] = {-0.3, 2, 0.2, 1, 0, 0, 0.6};
+  std::unique_ptr<Curve> line = curves::makeLine(lr, 3);
+  const PcurveEnds e3 = ends(cache, *line, 30);
+  Pcurve d = projectCurve(*line, {0, 1}, *trough, 1e-7, &e3);
+  CHECK(d.endCheck[0] == EndCheck::same);
+  CHECK(d.endCheck[1] == EndCheck::different);
+  CHECK(d.certainty == Certainty::ambiguous);
+  REQUIRE(d.endAlternatives[1].size() == 1);
+  // Its foot on the near side, x > 0 (u = (x + 2) / 4 along the trough's Bezier), the trace's on the far.
+  CHECK(d.endAlternatives[1][0].x > 0.5);
+  CHECK(project::at(d.pieces.back(), 1).x < 0.5);
+  bool atEnd = false;
+  for (double t : d.tAmbiguous) atEnd = atEnd || t == 1;
+  CHECK(atEnd);
+  // A small circle on a sphere of radius 10 through its north pole and the equator's points at u = 1.5 and 1.5 + pi / 2
+  // (equilateral: its centre their centroid), traced from the first to the pole: the end search's foot there a pole's
+  // (its u 0), the trace's u past pi from it (1.5 + 3 pi / 4), the same foot all the same.
+  {
+    const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 10};
+    std::unique_ptr<Surface> sph = closeInFact(surfaces::makeSphere(sr), tol);
+    const double f = 1.5;
+    const Vec3 a{10 * std::cos(f), 10 * std::sin(f), 0}, b{-10 * std::sin(f), 10 * std::cos(f), 0}, pole{0, 0, 10};
+    const Vec3 ctr = (1.0 / 3) * (a + b + pole), n = (1 / norm(ctr)) * ctr, x = (1 / norm(a - ctr)) * (a - ctr);
+    const Vec3 y{n.y * x.z - n.z * x.y, n.z * x.x - n.x * x.z, n.x * x.y - n.y * x.x};
+    const double tp = std::atan2(dot(pole - ctr, y), dot(pole - ctr, x)), rad = norm(a - ctr);
+    const double cc[9] = {ctr.x, ctr.y, ctr.z, n.x, n.y, n.z, x.x, x.y, x.z};
+    std::unique_ptr<Curve> circ = curves::makeEllipse(cc, 3, rad, rad);
+    REQUIRE(circ);
+    const double t1 = tp > 0 ? tp : tp + 2 * kPi;
+    PcurveEnds pe;
+    pe.cache = &cache, pe.checkStart = pe.checkEnd = true, pe.startKey = 40, pe.endKey = 41;
+    pe.startPoint = a, pe.endPoint = pole;
+    Pcurve k = projectCurve(*circ, {0, t1}, *sph, tol, &pe);
+    const std::vector<EndFoot>& pf = cache.feet(41, *sph, pole, tol);
+    REQUIRE(pf.size() == 1);
+    CHECK(pf[0].kind == EndFoot::Kind::pole);
+    REQUIRE(!k.pieces.empty());
+    CHECK(std::fabs(project::at(k.pieces.back(), t1).x - pf[0].uv.x) > kPi);
+    CHECK(k.endCheck[0] == EndCheck::same);
+    CHECK(k.endCheck[1] == EndCheck::same);
+  }
+  if (p.endCheck[1] != EndCheck::seamOther || q.endCheck[1] != EndCheck::periods
+    || d.endCheck[1] != EndCheck::different)
+    std::printf("    checks %d %d / %d %d / %d %d; methods %d %d %d\n", int(p.endCheck[0]), int(p.endCheck[1]),
+      int(q.endCheck[0]), int(q.endCheck[1]), int(d.endCheck[0]), int(d.endCheck[1]), int(p.method), int(q.method),
+      int(d.method));
+}
+
 // The corpus's stopped traces (pcurve_corpus), as fixtures: bug25287_bad_tess_face_plus #2134's coedge 750 (its curve
 // a cubic 18 poles, its face #5924 a 28 x 3 B-spline) and bug24383_224013 #11's coedge 7966 (the curve with a stray
 // pole in its first knot span, 61 poles; its face #11346 a 3 x 3 B-spline).

@@ -59,8 +59,8 @@ struct EndFoot {
 
 /**
  * The end search's results by key (the caller's: a vertex and a face, as (vertex row << 32) | face row), for a pass,
- * so a vertex's feet on a face are searched once (the trace doesn't seed from them: a central seed, as projectCurve
- * takes, traced more of the corpus's coedges within tol than one at an end):
+ * so a vertex's feet on a face are searched once (a trace's ends are checked against them, PcurveEnds; it isn't
+ * seeded from them: on a C0 knot or toward a pole a trace from an end went astray where one from inside didn't):
  * the global search (invertSurface over the surface's domain) runs once per key, at the largest tol asked so far,
  * keeping every foot it found; each call clusters those at its own tol (feet within tol of the nearest kept, feet
  * within tol of each other one). A key's surface and point are its first call's. The vectors returned stay valid for
@@ -84,10 +84,26 @@ private:
   long searches_ = 0;
 };
 
+/**
+ * Known ends: (u, v) the result must start or end at (hasStart, hasEnd), which also seed the trace. And, through
+ * `cache`, the feet of the end vertices' points (startPoint, endPoint; checkStart, checkEnd, keyed by startKey and
+ * endKey) a traced result's ends are checked against (Pcurve's endCheck).
+ */
 struct PcurveEnds {
   bool hasStart = false, hasEnd = false;
   Vec2 start, end;
+  EndSearchCache* cache = nullptr;
+  bool checkStart = false, checkEnd = false;
+  uint64_t startKey = 0, endKey = 0;
+  Vec3 startPoint, endPoint;
 };
+
+/**
+ * A traced result's end against the end search's feet there (PcurveEnds' cache): unchecked; the same foot; the same
+ * a whole number of periods over (the result's unwrapping); a seam pair's other copy; or a different foot (the end
+ * then ambiguous, the feet its alternatives).
+ */
+enum class EndCheck : uint8_t { unchecked, same, periods, seamOther, different };
 
 /**
  * Where the exact table reads the curve's and surface's kinds and parameters (the model's rows the Curve and Surface
@@ -167,6 +183,9 @@ struct Pcurve {
    */
   double error = 0;
   std::vector<double> tAmbiguous;
+  /** Its start's and end's check (traced and affineFeet results, ends given a cache); different: the feet's (u, v). */
+  EndCheck endCheck[2] = {EndCheck::unchecked, EndCheck::unchecked};
+  std::vector<Vec2> endAlternatives[2];
 };
 
 /**

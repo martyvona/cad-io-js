@@ -437,6 +437,55 @@ Form surfaceForm(const Model& m, int row) {
   return {m.surfaceKind(row), 3, m.surfaceReals(row), m.surfaceInts(row)};
 }
 
+/**
+ * A traced result's ends against the end search's feet (PcurveEnds' cache): the nearest foot in 3D, if the end is
+ * that one, then by (u, v) the same, a whole number of periods over, or a seam pair's other copy; else different, the
+ * end ambiguous with the feet as its alternatives.
+ */
+void checkEnds(const Job& job, Pcurve& out) {
+  const PcurveEnds* e = job.ends;
+  if (!e || !e->cache || out.pieces.empty()) return;
+  auto point = [&](Vec2 uv) {
+    SurfacePoint q;
+    job.s.eval(uv.x, uv.y, 0, q);
+    return q.p;
+  };
+  // Whether a and b, one place in 3D, are whole periods apart (rounded: the feet are only that accurate).
+  auto shifted = [&](Vec2 a, Vec2 b) {
+    const double pu = job.dom.uPeriod, pv = job.dom.vPeriod;
+    return (pu > 0 && std::round((a.x - b.x) / pu) != 0) || (pv > 0 && std::round((a.y - b.y) / pv) != 0);
+  };
+  for (int side = 0; side < 2; side++) {
+    if (!(side ? e->checkEnd : e->checkStart)) continue;
+    const double t = side ? job.r.hi : job.r.lo;
+    const PcurvePiece& q = side ? out.pieces.back() : out.pieces.front();
+    const Vec2 uv = q.poleLine ? (side ? q.to : q.from) : at(q, t);
+    const Vec3 vp = side ? e->endPoint : e->startPoint;
+    const std::vector<EndFoot>& feet = e->cache->feet(side ? e->endKey : e->startKey, job.s, vp, job.tol);
+    if (feet.empty()) continue;
+    const Vec3 here = point(uv);
+    // The nearest foot, if the end is that one: the end within tol of the curve's point, the feet within tol of the
+    // vertex's, which is within tol of it in a consistent model (feet more than tol apart are separate ones); a
+    // vertex farther off isn't the curve's end, and its feet are different.
+    const EndFoot* k = nullptr;
+    double best = kInf;
+    for (const EndFoot& f : feet)
+      if (const double d = norm(here - point(f.uv)); d < best) best = d, k = &f;
+    EndCheck c = EndCheck::different;
+    if (best <= 3 * job.tol) {
+      if (k->kind == EndFoot::Kind::pole || !shifted(uv, k->uv)) c = EndCheck::same;
+      else if (k->kind == EndFoot::Kind::seamPair && !shifted(uv, k->twin)) c = EndCheck::seamOther;
+      else c = EndCheck::periods;
+    }
+    out.endCheck[side] = c;
+    if (c == EndCheck::different) {
+      for (const EndFoot& k : feet) out.endAlternatives[side].push_back(k.uv);
+      out.certainty = Certainty::ambiguous;
+      out.tAmbiguous.push_back(t);
+    }
+  }
+}
+
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,
   Form surface) {
   Pcurve out;
@@ -454,6 +503,7 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
   if (out.pieces.empty()) return out;
   align(job, out);
   seams(job, out);
+  if (out.method == PcurveMethod::traced || out.method == PcurveMethod::affineFeet) checkEnds(job, out);
   // The result's error and certainty from its pieces'.
   out.error = 0;
   bool allUnique = true;
