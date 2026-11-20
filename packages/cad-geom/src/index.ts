@@ -462,6 +462,17 @@ export class Geometry {
   }
 
   /** As localFoot on a face's surface as it closes in fact (its periods the face's). */
+  /**
+   * evalSurface on face `face`'s surface as it closes in fact (its periods the face's: (u, v) a period past its domain
+   * reduced, as a projection's p-curve unwrapped past it needs). Status invalidModel for no such face.
+   */
+  faceEval(face: number, uv: ArrayLike<number>, order: 0 | 1 | 2 = 1): SurfaceEvals {
+    const n = uv.length / 2, w = order === 0 ? 1 : order === 1 ? 3 : 6;
+    const [s, values, statuses] = this.call('face_eval', face, { f64: uv }, n, order, { out: 'f64', n: 3 * w * n },
+      { out: 'u8', n });
+    return { status: STATUS[s]!, values: values as Float64Array, statuses: statuses as Uint8Array };
+  }
+
   faceLocalFoot(face: number, points: ArrayLike<number>, starts: ArrayLike<number>): LocalFeet {
     return this.localFeet('face_local_foot', face, points, starts);
   }
