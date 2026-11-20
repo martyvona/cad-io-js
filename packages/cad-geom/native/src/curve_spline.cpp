@@ -46,7 +46,7 @@ public:
     for (int i = 0; i < n_; i++) {
       const double* P = c_.poles.data() + i * cw;
       double wt = c_.rational ? P[d_] : 1.0;
-      for (int a = 0; a < d_; a++) h.poles.push_back(wt * P[a]), mag = std::fmax(mag, std::fabs(wt * P[a]));
+      for (int a = 0; a < d_; a++) h.poles.push_back(wt * P[a]), mag = maxNum(mag, std::fabs(wt * P[a]));
       h.poles.push_back(wt);
     }
     h.error = 2 * kEps * mag;
@@ -63,7 +63,7 @@ public:
         for (int a = 0; a < w_; a++) {
           double v = den > 0 ? q * (f.poles[(i + 1) * w_ + a] - f.poles[i * w_ + a]) / den : 0.0;
           g.poles.push_back(v);
-          if (den > 0) err = std::fmax(err, q * 2 * f.error / den + 4 * kEps * std::fabs(v));
+          if (den > 0) err = maxNum(err, q * 2 * f.error / den + 4 * kEps * std::fabs(v));
         }
       }
       g.error = err;
@@ -136,7 +136,7 @@ public:
         Vec3 v = readVec(h, d_);
         if (order == 0 && c_.rational) v = (1 / h[d_]) * v;
         b = hull(b, v);
-        mag = std::fmax(mag, maxAbs(v));
+        mag = maxNum(mag, maxAbs(v));
       }
       // The projection's rounding (rational points) and the blossom's, on top of the hodograph's own.
       double wmin = order == 0 && c_.rational ? minWeight(ctrl) : 1;
@@ -162,9 +162,9 @@ public:
         double m = 0, mag = 0;
         for (int j = 0; j < q; j++) {
           Vec3 v = readVec(ctrl.data() + j * w_, d_);
-          m = std::fmax(m, norm(v)), mag = std::fmax(mag, maxAbs(v));
+          m = maxNum(m, norm(v)), mag = maxNum(mag, maxAbs(v));
         }
-        out = std::fmax(out, (m + std::sqrt(3.0) * (err + 8 * (q + 2) * kEps * mag)) * (1 + 4 * kEps));
+        out = maxNum(out, (m + std::sqrt(3.0) * (err + 8 * (q + 2) * kEps * mag)) * (1 + 4 * kEps));
       });
       return Status::ok;
     }
@@ -180,11 +180,11 @@ public:
         double err = hodo_[k].error + 8 * (q + 2) * kEps * absMax(piece[k]);
         for (int j = 0; j < q; j++) {
           const double* h = piece[k].data() + j * w_;
-          Am[k] = std::fmax(Am[k], norm(readVec(h, d_)) + std::sqrt(3.0) * err);
-          Wm[k] = std::fmax(Wm[k], std::fabs(h[d_]) + err);
+          Am[k] = maxNum(Am[k], norm(readVec(h, d_)) + std::sqrt(3.0) * err);
+          Wm[k] = maxNum(Wm[k], std::fabs(h[d_]) + err);
           if (k == 0) {
-            wmin = std::fmin(wmin, h[d_] - err);
-            B[0] = std::fmax(B[0], norm(readVec(h, d_)) / h[d_]);
+            wmin = minNum(wmin, h[d_] - err);
+            B[0] = maxNum(B[0], norm(readVec(h, d_)) / h[d_]);
           }
         }
       }
@@ -199,7 +199,7 @@ public:
         for (int i = 1; i <= k; i++) v += binom(k, i) * Wm[i] * B[k - i];
         B[k] = v / wmin * (1 + 16 * kEps);
       }
-      Bk = std::fmax(Bk, B[order]);
+      Bk = maxNum(Bk, B[order]);
     });
     out = Bk;
     return s;
@@ -220,7 +220,7 @@ private:
   /** r clipped to the domain; false if it misses it. */
   bool clip(Range& r) const {
     Range d = domain().range;
-    r = {std::fmax(r.lo, d.lo), std::fmin(r.hi, d.hi)};
+    r = {maxNum(r.lo, d.lo), minNum(r.hi, d.hi)};
     return r.lo <= r.hi;
   }
   /** Each nonempty span meeting r, with r's part of it [a, b]. */
@@ -228,7 +228,7 @@ private:
     const std::vector<double>& U = c_.knots;
     for (int i = bspline::findSpan(p_, U, n_, r.lo); i < n_; i++) {
       if (U[i] == U[i + 1]) continue;
-      double a = std::fmax(r.lo, U[i]), b = std::fmin(r.hi, U[i + 1]);
+      double a = maxNum(r.lo, U[i]), b = minNum(r.hi, U[i + 1]);
       if (a > b) break;
       f(i, a, b);
       if (U[i + 1] >= r.hi) break;
@@ -270,12 +270,12 @@ private:
   }
   double minWeight(const std::vector<double>& ctrl) const {
     double m = kInf;
-    for (size_t j = d_; j < ctrl.size(); j += w_) m = std::fmin(m, ctrl[j]);
+    for (size_t j = d_; j < ctrl.size(); j += w_) m = minNum(m, ctrl[j]);
     return m;
   }
   static double absMax(const std::vector<double>& v) {
     double m = 0;
-    for (double x : v) m = std::fmax(m, std::fabs(x));
+    for (double x : v) m = maxNum(m, std::fabs(x));
     return m;
   }
 
@@ -316,12 +316,12 @@ public:
     double mag = 0;
     if (order == 0) {
       Vec3 v[2];
-      for (double t : {r.lo, r.hi}) derivs(t, 0, v), out = hull(out, v[0]), mag = std::fmax(mag, maxAbs(v[0]));
+      for (double t : {r.lo, r.hi}) derivs(t, 0, v), out = hull(out, v[0]), mag = maxNum(mag, maxAbs(v[0]));
       for (double k = std::floor(r.lo) + 1; k < r.hi; k++) out = hull(out, pts_[static_cast<int>(k)]);
     } else {
       for (int k = segment(r.lo); k <= lastSegment(r); k++) {
         Vec3 d = pts_[k + 1] - pts_[k];
-        out = hull(out, d), mag = std::fmax(mag, maxAbs(d));
+        out = hull(out, d), mag = maxNum(mag, maxAbs(d));
       }
     }
     out = widen(out, 4 * kEps * mag);
@@ -331,7 +331,7 @@ public:
     Status s = clip(r);
     out = 0;
     if (order != 1) return s;
-    for (int k = segment(r.lo); k <= lastSegment(r); k++) out = std::fmax(out, norm(pts_[k + 1] - pts_[k]));
+    for (int k = segment(r.lo); k <= lastSegment(r); k++) out = maxNum(out, norm(pts_[k + 1] - pts_[k]));
     out *= 1 + 4 * kEps;
     return s;
   }
@@ -339,13 +339,13 @@ public:
     out.clear();
     if (clip(r) != Status::ok && r.lo > r.hi) return;
     for (int k = segment(r.lo); k <= lastSegment(r); k++)
-      if (norm(pts_[k + 1] - pts_[k]) == 0) out.push_back(std::fmax(r.lo, double(k)));
+      if (norm(pts_[k + 1] - pts_[k]) == 0) out.push_back(maxNum(r.lo, double(k)));
   }
   bool exactLength(double t0, double t1, double& out) const override {
     // Whole segments' lengths, and the fractions of the first and last.
     out = 0;
     for (int k = segment(t0); k <= lastSegment({t0, t1}); k++) {
-      double a = std::fmax(t0, double(k)), b = std::fmin(t1, double(k + 1));
+      double a = maxNum(t0, double(k)), b = minNum(t1, double(k + 1));
       if (b > a) out += (b - a) * norm(pts_[k + 1] - pts_[k]);
     }
     return true;
@@ -362,7 +362,7 @@ private:
     return k > segment(r.lo) && k == r.hi ? k - 1 : k;
   }
   Status clip(Range& r) const {
-    Range c{std::fmax(r.lo, 0.0), std::fmin(r.hi, last())};
+    Range c{maxNum(r.lo, 0.0), minNum(r.hi, last())};
     Status s = c.lo == r.lo && c.hi == r.hi ? Status::ok : Status::outOfDomain;
     r = c.lo <= c.hi ? c : Range{c.lo, c.lo};
     return s;

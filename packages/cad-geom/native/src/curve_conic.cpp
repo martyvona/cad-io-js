@@ -36,11 +36,11 @@ Interval& coord(Box3& b, int i) { return i == 0 ? b.x : i == 1 ? b.y : b.z; }
 
 /** The range of A cos t + B sin t over r, widened by its rounding. */
 Interval sinusoid(double A, double B, Range r) {
-  double R = std::hypot(A, B), T = std::fmax(std::fabs(r.lo), std::fabs(r.hi));
+  double R = std::hypot(A, B), T = maxNum(std::fabs(r.lo), std::fabs(r.hi));
   double m = 8 * kEps * R * (1 + T);
   if (!(r.hi - r.lo < kTwoPi)) return {-R - m, R + m};
   auto f = [&](double t) { return A * std::cos(t) + B * std::sin(t); };
-  double lo = std::fmin(f(r.lo), f(r.hi)), hi = std::fmax(f(r.lo), f(r.hi));
+  double lo = minNum(f(r.lo), f(r.hi)), hi = maxNum(f(r.lo), f(r.hi));
   double phi = std::atan2(B, A);  // f(phi + j pi) = (-1)^j R
   for (double j = std::ceil((r.lo - phi) / kPi); phi + j * kPi <= r.hi; j++) {
     if (std::fmod(std::fabs(j), 2.0) == 0) hi = R;
@@ -52,12 +52,12 @@ Interval sinusoid(double A, double B, Range r) {
 /** The range of A cosh t + B sinh t over a finite r, widened by its rounding. */
 Interval hyperbolic(double A, double B, Range r) {
   auto f = [&](double t) { return A * std::cosh(t) + B * std::sinh(t); };
-  double lo = std::fmin(f(r.lo), f(r.hi)), hi = std::fmax(f(r.lo), f(r.hi));
+  double lo = minNum(f(r.lo), f(r.hi)), hi = maxNum(f(r.lo), f(r.hi));
   if (std::fabs(B) < std::fabs(A)) {
     double t = std::atanh(-B / A);
-    if (t > r.lo && t < r.hi) lo = std::fmin(lo, f(t)), hi = std::fmax(hi, f(t));
+    if (t > r.lo && t < r.hi) lo = minNum(lo, f(t)), hi = maxNum(hi, f(t));
   }
-  double T = std::fmax(std::fabs(r.lo), std::fabs(r.hi));
+  double T = maxNum(std::fabs(r.lo), std::fabs(r.hi));
   double m = 8 * kEps * (std::fabs(A) + std::fabs(B)) * std::cosh(T) * (1 + T);
   return {lo - m, hi + m};
 }
@@ -143,16 +143,16 @@ public:
   Status derivBoundN(Range r, int order, double& out) const override {
     // |C^(k)|^2 = a^2 cos^2 + b^2 sin^2 (k even) or a^2 sin^2 + b^2 cos^2 (k odd): extremes at multiples of pi / 2.
     if (!(r.hi - r.lo < kTwoPi) || !finite(r)) {
-      out = std::fmax(a_, b_) * (1 + 8 * kEps);
+      out = maxNum(a_, b_) * (1 + 8 * kEps);
       return Status::ok;
     }
     auto g = [&](double t) {
       double c = std::cos(t), s = std::sin(t);
       return order % 2 == 0 ? std::hypot(a_ * c, b_ * s) : std::hypot(a_ * s, b_ * c);
     };
-    double m = std::fmax(g(r.lo), g(r.hi));
-    for (double j = std::ceil(r.lo / (kPi / 2)); j * (kPi / 2) <= r.hi; j++) m = std::fmax(m, g(j * (kPi / 2)));
-    out = m * (1 + 8 * kEps) + 8 * kEps * std::fmax(a_, b_);
+    double m = maxNum(g(r.lo), g(r.hi));
+    for (double j = std::ceil(r.lo / (kPi / 2)); j * (kPi / 2) <= r.hi; j++) m = maxNum(m, g(j * (kPi / 2)));
+    out = m * (1 + 8 * kEps) + 8 * kEps * maxNum(a_, b_);
     return Status::ok;
   }
   void singular(Range, std::vector<double>& out) const override { out.clear(); }
@@ -163,7 +163,7 @@ public:
     Vec3 q = p - f_.o;
     double qx = dot(q, f_.x), qy = dot(q, f_.y), rho = std::hypot(qx, qy), d = norm(q);
     out = {r.lo, r.hi};
-    if (2 * a_ * rho <= tol * std::fmax(d, a_)) {
+    if (2 * a_ * rho <= tol * maxNum(d, a_)) {
       for (int k = 1; k < 8; k++) out.push_back(r.lo + (r.hi - r.lo) * k / 8);
       return true;
     }
@@ -217,7 +217,7 @@ public:
   }
   Status derivBoundN(Range r, int order, double& out) const override {
     // Both a^2 cosh^2 + b^2 sinh^2 and a^2 sinh^2 + b^2 cosh^2 grow with |t|.
-    double T = std::fmax(std::fabs(r.lo), std::fabs(r.hi));
+    double T = maxNum(std::fabs(r.lo), std::fabs(r.hi));
     if (!std::isfinite(T)) {
       out = kInf;
       return Status::outOfDomain;
@@ -229,7 +229,7 @@ public:
   void singular(Range, std::vector<double>& out) const override { out.clear(); }
   Range within(Vec3 p, double d) const override {
     // |C - o|^2 = a^2 cosh^2 + b^2 sinh^2 >= min(a, b)^2 cosh^2 t.
-    double T = std::acosh(std::fmax(1.0, (d + norm(p - f_.o)) / std::fmin(a_, b_))) * (1 + 1e-12) + 1e-12;
+    double T = std::acosh(maxNum(1.0, (d + norm(p - f_.o)) / minNum(a_, b_))) * (1 + 1e-12) + 1e-12;
     return {-T, T};
   }
 
@@ -261,15 +261,15 @@ public:
       out = entireBox();
       return Status::outOfDomain;
     }
-    double T = std::fmax(std::fabs(r.lo), std::fabs(r.hi));
+    double T = maxNum(std::fabs(r.lo), std::fabs(r.hi));
     for (int i = 0; i < 3; i++) {
       // Coordinate i: al t^2 + be t (the point's), 2 al t + be (the tangent's).
       double al = fd_ * coord(f_.x, i), be = 2 * fd_ * coord(f_.y, i);
       auto f = [&](double t) { return order == 0 ? al * t * t + be * t : 2 * al * t + be; };
-      double lo = std::fmin(f(r.lo), f(r.hi)), hi = std::fmax(f(r.lo), f(r.hi));
+      double lo = minNum(f(r.lo), f(r.hi)), hi = maxNum(f(r.lo), f(r.hi));
       if (order == 0 && al != 0) {
         double t = -be / (2 * al);
-        if (t > r.lo && t < r.hi) lo = std::fmin(lo, f(t)), hi = std::fmax(hi, f(t));
+        if (t > r.lo && t < r.hi) lo = minNum(lo, f(t)), hi = maxNum(hi, f(t));
       }
       double m = 8 * kEps * (std::fabs(al) * T * T + std::fabs(be) * T + 2 * std::fabs(al) * T + std::fabs(be));
       Interval v{lo - m, hi + m};
@@ -282,7 +282,7 @@ public:
     return Status::ok;
   }
   Status derivBoundN(Range r, int order, double& out) const override {
-    double T = std::fmax(std::fabs(r.lo), std::fabs(r.hi));
+    double T = maxNum(std::fabs(r.lo), std::fabs(r.hi));
     out = order == 1 ? 2 * std::fabs(fd_) * std::hypot(T, 1.0) * (1 + 8 * kEps)
       : order == 2 ? 2 * std::fabs(fd_) * (1 + 4 * kEps) : 0;
     return std::isfinite(out) ? Status::ok : Status::outOfDomain;

@@ -86,7 +86,7 @@ std::unique_ptr<CurveImpl> makeOffset(std::unique_ptr<CurveImpl> basis, double d
 
 inline Vec3 readVec(const double* r, int dim) { return {r[0], r[1], dim == 3 ? r[2] : 0.0}; }
 inline bool finite(Range r) { return std::isfinite(r.lo) && std::isfinite(r.hi); }
-inline double maxAbs(Vec3 v) { return std::fmax(std::fabs(v.x), std::fmax(std::fabs(v.y), std::fabs(v.z))); }
+inline double maxAbs(Vec3 v) { return maxNum(std::fabs(v.x), maxNum(std::fabs(v.y), std::fabs(v.z))); }
 /** The binomial coefficient, n <= kMaxOrder + 1. */
 inline double binom(int n, int k) {
   double b = 1;
@@ -97,7 +97,7 @@ inline Interval widen(Interval a, double by) { return {a.lo - by, a.hi + by}; }
 inline Box3 widen(Box3 b, double by) { return {widen(b.x, by), widen(b.y, by), widen(b.z, by)}; }
 inline Box3 pointBox(Vec3 p) { return {Interval::point(p.x), Interval::point(p.y), Interval::point(p.z)}; }
 inline Box3 hull(Box3 a, Box3 b) {
-  auto h = [](Interval x, Interval y) { return Interval{std::fmin(x.lo, y.lo), std::fmax(x.hi, y.hi)}; };
+  auto h = [](Interval x, Interval y) { return Interval{minNum(x.lo, y.lo), maxNum(x.hi, y.hi)}; };
   return {h(a.x, b.x), h(a.y, b.y), h(a.z, b.z)};
 }
 inline Box3 hull(Box3 a, Vec3 p) { return hull(a, pointBox(p)); }
@@ -107,11 +107,11 @@ inline Box3 entireBox() { return {Interval::entire(), Interval::entire(), Interv
 inline Box3 ballBox(Vec3 c, double r) { return widen(pointBox(c), r); }
 /** a intersected with b (each holding the same set: the result holds it too). */
 inline Box3 meet(Box3 a, Box3 b) {
-  auto m = [](Interval x, Interval y) { return Interval{std::fmax(x.lo, y.lo), std::fmin(x.hi, y.hi)}; };
+  auto m = [](Interval x, Interval y) { return Interval{maxNum(x.lo, y.lo), minNum(x.hi, y.hi)}; };
   return {m(a.x, b.x), m(a.y, b.y), m(a.z, b.z)};
 }
 /** The largest coordinate magnitude in the box: with its norm bound below. */
-inline double boxMag(const Box3& b) { return std::fmax(b.x.mag(), std::fmax(b.y.mag(), b.z.mag())); }
+inline double boxMag(const Box3& b) { return maxNum(b.x.mag(), maxNum(b.y.mag(), b.z.mag())); }
 /** An upper bound on |v| for v in the box. */
 inline double boxNorm(const Box3& b) {
   double x = b.x.mag(), y = b.y.mag(), z = b.z.mag();

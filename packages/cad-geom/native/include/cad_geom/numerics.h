@@ -90,10 +90,11 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
 /**
  * curve2 with the error at each check measured by error(the spline's point, f's) instead of their distance: a
  * caller's metric (projection's: the two (u, v)'s points on the surface, so a direction the surface hardly stretches
- * in asks no more of the fit than its 3D effect), tol and maxError in its units. Empty, the distance.
+ * in asks no more of the fit than its 3D effect), tol and maxError in its units. Empty, the distance. maxSpans: past
+ * that many spans, noConvergence (with the last fit).
  */
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError,
-  const std::function<double(Vec2, Vec2)>& error);
+  const std::function<double(Vec2, Vec2)>& error, int maxSpans = 1024);
 /** curve2's rounds (each a solve and the spans' errors measured), counted for tests; never reset. */
 extern long curve2Rounds;
 } // namespace fit

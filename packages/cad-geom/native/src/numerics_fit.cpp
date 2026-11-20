@@ -20,7 +20,6 @@ namespace fit {
 namespace {
 
 constexpr int CHECKS = 33;       // error checks per span
-constexpr int MAX_SPANS = 1024;  // then noConvergence
 
 struct Fitter {
   const std::function<Vec2(double)>& f;
@@ -117,11 +116,11 @@ struct Fitter {
 long curve2Rounds = 0;
 
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError) {
-  return curve2(f, r, degree, tol, out, maxError, {});
+  return curve2(f, r, degree, tol, out, maxError, {}, 1024);
 }
 
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError,
-  const std::function<double(Vec2, Vec2)>& error) {
+  const std::function<double(Vec2, Vec2)>& error, int maxSpans) {
   maxError = std::numeric_limits<double>::infinity();
   if (!(degree >= 1 && degree <= 9) || !(tol > 0) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi))
     return Status::invalidModel;
@@ -145,7 +144,7 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
     // Halving stops where the spans are too many, or too narrow to halve in floating point.
     bool narrow = false;
     for (size_t s = 0; s + 1 < next.size(); s++) narrow = narrow || !(next[s] < next[s + 1]);
-    if (static_cast<int>(next.size()) - 1 > MAX_SPANS || narrow) return Status::noConvergence;
+    if (static_cast<int>(next.size()) - 1 > maxSpans || narrow) return Status::noConvergence;
     br = std::move(next);
   }
 }
