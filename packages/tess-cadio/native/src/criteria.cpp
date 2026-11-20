@@ -152,6 +152,8 @@ public:
   }
 
   double edgeSpacing() const override { return spacing_; }
+  void setCreases(std::vector<Crease> lines) override { creases_ = std::move(lines); }
+
   bool bounded() const override { return (bounded_ || kind_ != Kind::none) && !sampledAny_; }
 
   Metric2 metric(Vec2 p) const override {
@@ -323,7 +325,7 @@ private:
   Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
     Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
     bool has[3];
-    for (int i = 0; i < 3; i++) has[i] = s_.normal(t[i].x, t[i].y, n[i]) == Status::ok;
+    for (int i = 0; i < 3; i++) has[i] = cornerNormal(t, i, n[i]) == Status::ok;
     // (A facet with two corners on a pole line has rounding for a normal: no direction to judge.)
     double gl = norm(g), c = d_.angular > 0 ? std::cos(d_.angular) : 0;
     double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
@@ -615,6 +617,24 @@ private:
    * the tolerance of a pole or apex, as PartMesher's check doesn't judge it there: below the floor at such a point
    * refinement would chase rounding to the point cap (LMP1 #172881's apex, 100,000 refused triangles of 1e-10 mm).
    */
+  /**
+   * Corner i's normal: on a crease (setCreases: within its `near`), the side's, a step of 1e-9 x (1 + |at|) across
+   * its line toward the triangle's centroid (into the span on that side), the surface's there one-sided.
+   */
+  Status cornerNormal(const Vec2 t[3], int i, Vec3& n) const {
+    Vec2 q = t[i];
+    if (!creases_.empty()) {
+      const Vec2 c{(t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3};
+      for (const Crease& k : creases_) {
+        double& x = k.isoU ? q.x : q.y;
+        const double side = k.isoU ? c.x : c.y;
+        if (std::fabs(x - k.at) <= k.near && std::fabs(side - k.at) > k.near)
+          x = k.at + (side > k.at ? 1 : -1) * 1e-9 * (1 + std::fabs(k.at));
+      }
+    }
+    return s_.normal(q.x, q.y, n);
+  }
+
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
     for (const Vec3& q : poles_)
       for (int i = 0; i < 3; i++)
@@ -624,7 +644,7 @@ private:
     if (!(norm(g) > 1e-9 * longest * longest)) return false;
     for (int i = 0; i < 3; i++) {
       Vec3 n;
-      if (s_.normal(t[i].x, t[i].y, n) == Status::ok && facetAgainst(g, n)) return true;
+      if (cornerNormal(t, i, n) == Status::ok && facetAgainst(g, n)) return true;
     }
     return false;
   }
@@ -709,6 +729,8 @@ private:
   bool bounded_;
   /** Whether any triangle's deviation was sampled so far (a bound unavailable there: bounded() then false). */
   mutable bool sampledAny_ = false;
+  /** The face's creases (setCreases). */
+  std::vector<Crease> creases_;
   Kind kind_;
   Vec3 centre_, axis_;
   double radius_, second_;  // a cone's radius at v = 0 and tan of its semi-angle; a torus's major and minor radii

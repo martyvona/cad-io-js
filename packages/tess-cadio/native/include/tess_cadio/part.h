@@ -78,6 +78,11 @@ struct PartOptions {
    */
   bool failCapped = true;
   /**
+   * Creases inside a face (cad_geom/creases.h: iso-lines where its normal jumps past the angle) met as the mesher's
+   * constraints, their normals by side.
+   */
+  bool creases = true;
+  /**
    * Count each face's mesher insertions by what queued them (FaceMesh::inserted). Off by default: it evaluates the
    * criteria again on every refused triangle the mesher queues (up to 2 x the time); the mesh is the same either way.
    */

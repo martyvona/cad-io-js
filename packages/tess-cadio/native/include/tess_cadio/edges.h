@@ -200,12 +200,15 @@ struct FaceBoundary {
 
 /**
  * A split asked for: the edge's (model or pseudo) span between samples `span` and `span + 1`, at `fraction` of it in
- * parameter, clamped to [0.1, 0.9] so no sample lands nearer than a tenth of the span to another.
+ * parameter, clamped to [0.1, 0.9] so no sample lands nearer than a tenth of the span to another. `exact`: a sample
+ * the caller needs at that very parameter (where a crease inside a face meets its boundary), fraction in (0, 1)
+ * unclamped and kept whatever the span's length; one within 1e-9 of the span of a sample is that sample.
  */
 struct SplitRequest {
   int32_t edge;
   int32_t span;
   double fraction = 0.5;
+  bool exact = false;
 };
 
 /**
