@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 #include <Eigen/Dense>
 
@@ -26,10 +27,17 @@ struct Fitter {
   int p;
   const std::function<double(Vec2, Vec2)>* measure = nullptr;  // the caller's error, else the (u, v) distance
   bool finite = true;
+  // f's values by parameter, kept across the rounds: a span a round doesn't halve keeps its ends, so its samples and
+  // checks are at the same parameters (the same doubles) the next round. f is a caller's foot (a Newton each), most
+  // of a fit's cost, and deterministic.
+  std::unordered_map<double, Vec2> seen;
 
   Vec2 at(double t) {
+    auto it = seen.find(t);
+    if (it != seen.end()) return it->second;
     Vec2 v = f(t);
     finite = finite && std::isfinite(v.x) && std::isfinite(v.y);
+    seen.emplace(t, v);
     return v;
   }
 
@@ -124,7 +132,7 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
   maxError = std::numeric_limits<double>::infinity();
   if (!(degree >= 1 && degree <= 9) || !(tol > 0) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi))
     return Status::invalidModel;
-  Fitter fit{f, degree, &error};
+  Fitter fit{f, degree, &error, true, {}};
   std::vector<double> br{r.lo, r.hi};
   while (true) {
     curve2Rounds++;

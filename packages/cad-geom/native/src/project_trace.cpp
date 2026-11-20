@@ -731,7 +731,6 @@ void trace(const Job& job, Pcurve& out) {
       // side or a degenerate corner, asked far more than its 3D effect, of feet barely determined there: fits ran to
       // their cap.)
       double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
-      const std::vector<Node>& nodes = sg.nodes;
       std::function<Vec2(double)> f = [&](double t) { return foot(t); };
       const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
         return norm(pointOf(job.s, a) - pointOf(job.s, b));

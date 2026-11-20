@@ -264,19 +264,29 @@ private:
     i0 = std::max(0, a - n.p), i1 = std::min(n.nu - 1, b), j0 = std::max(0, c - n.q), j1 = std::min(n.nv - 1, d);
   }
   /**
-   * De Boor's algorithm on the q + 1 points D (4 wide) of span s in knots K, degree q, with argument arg(level) at
-   * each level: the blossom (Ramshaw; Seidel's formulation), into out.
+   * The blossoms at (c^(q - j), d^j) for j = 0..q of the q + 1 points D (4 wide) of span s, into out[j * stride]: the
+   * blossom by de Boor's algorithm (Ramshaw; Seidel's formulation), the c levels shared: each continued from the state
+   * after its q - j of them (the same operations in the same order as q + 1 separate runs, at about a third of the
+   * cost).
    */
-  template <class A> static void blossom(double* D, int q, int s, const std::vector<double>& K, A arg, double* out) {
-    for (int r = 1; r <= q; r++) {
-      double t = arg(r);
+  static void blossomAll(const double* D, int q, int s, const std::vector<double>& K, double c, double d, double* out,
+    int stride) {
+    Scratch<double, 64> state((q + 1) * 4), w((q + 1) * 4);
+    std::copy(D, D + (q + 1) * 4, state.data());
+    auto level = [&](double* X, int r, double t) {
       for (int j = q; j >= r; j--) {
         int i = s - q + j;
         double al = (t - K[i]) / (K[i + q + 1 - r] - K[i]);
-        for (int a = 0; a < 4; a++) D[j * 4 + a] = (1 - al) * D[(j - 1) * 4 + a] + al * D[j * 4 + a];
+        for (int a = 0; a < 4; a++) X[j * 4 + a] = (1 - al) * X[(j - 1) * 4 + a] + al * X[j * 4 + a];
       }
+    };
+    for (int L = 0; L <= q; L++) {
+      // L levels at c done: blossom j = q - L takes the rest at d.
+      std::copy(state.data(), state.data() + (q + 1) * 4, w.data());
+      for (int r = L + 1; r <= q; r++) level(w.data(), r, d);
+      for (int a = 0; a < 4; a++) out[(q - L) * stride + a] = w[q * 4 + a];
+      if (L < q) level(state.data(), L + 1, c);
     }
-    for (int a = 0; a < 4; a++) out[a] = D[q * 4 + a];
   }
   /**
    * The control points (4 wide each) a box of net n over the rectangle takes: within one span of the surface, the
@@ -296,22 +306,18 @@ private:
     int p = n.p, q = n.q, s = su - k, t = sv - l;
     Scratch<double, 256> rows((p + 1) * (q + 1) * 4), D(std::max(p, q) * 4 + 4);
     // In v first, row by row: rows[i][j] the blossom of row i at (c^(q - j), d^j).
-    for (int i = 0; i <= p; i++)
-      for (int j = 0; j <= q; j++) {
-        for (int m = 0; m <= q; m++)
-          for (int a = 0; a < 4; a++) D[m * 4 + a] = n.at(s - p + i, t - q + m)[a];
-        blossom(D.data(), q, t, n.V, [&](int level) { return level <= q - j ? rv.lo : rv.hi; },
-          rows.data() + (i * (q + 1) + j) * 4);
-      }
+    for (int i = 0; i <= p; i++) {
+      for (int m = 0; m <= q; m++)
+        for (int a = 0; a < 4; a++) D[m * 4 + a] = n.at(s - p + i, t - q + m)[a];
+      blossomAll(D.data(), q, t, n.V, rv.lo, rv.hi, rows.data() + i * (q + 1) * 4, 4);
+    }
     out.resize((p + 1) * (q + 1) * 4);
-    for (int j = 0; j <= q; j++)
-      for (int i = 0; i <= p; i++) {
-        for (int m = 0; m <= p; m++)
-          for (int a = 0; a < 4; a++) D[m * 4 + a] = rows[(m * (q + 1) + j) * 4 + a];
-        // The blossom's own knots in u are the net's; s - p + m indexes them as the rows came.
-        blossom(D.data(), p, s, n.U, [&](int level) { return level <= p - i ? ru.lo : ru.hi; },
-          out.data() + (i * (q + 1) + j) * 4);
-      }
+    for (int j = 0; j <= q; j++) {
+      for (int m = 0; m <= p; m++)
+        for (int a = 0; a < 4; a++) D[m * 4 + a] = rows[(m * (q + 1) + j) * 4 + a];
+      // The blossom's own knots in u are the net's; s - p + m indexes them as the rows came.
+      blossomAll(D.data(), p, s, n.U, ru.lo, ru.hi, out.data() + j * 4, (q + 1) * 4);
+    }
   }
   /**
    * The rounding of net m's control points c over a rectangle: its active poles' own (c are convex combinations of
