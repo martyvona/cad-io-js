@@ -97,8 +97,9 @@ test('healScene: a throw healing here propagates (a caller bug or a trap), unlik
   await assert.rejects(healScene(scene));
 });
 
-test('poolHealer: healJob in the pool by the module given, its progress passed, within HEAL_TIMEOUT_MS', async () => {
-  const { HEAL_TIMEOUT_MS, poolHealer } = await import('../src/index.ts');
+test('poolHealer: healJob in the pool by the module given, its progress passed, within HEAL_CPU_TIMEOUT_MS of CPU '
+  + 'and HEAL_TIMEOUT_MS of wall time', async () => {
+  const { HEAL_CPU_TIMEOUT_MS, HEAL_TIMEOUT_MS, poolHealer } = await import('../src/index.ts');
   const calls: unknown[][] = [];
   const said: string[] = [];
   const pool = { run: async <T>(...a: unknown[]) => {
@@ -109,6 +110,8 @@ test('poolHealer: healJob in the pool by the module given, its progress passed, 
   const req = { model: {} as never, options: {} };
   assert.equal(await poolHealer(pool, 'the-module')(req, (m) => said.push(m)), 'healed');
   assert.deepEqual(calls[0]!.slice(0, 2), [{ module: 'the-module', export: 'healJob' }, req]);
-  assert.equal((calls[0]![2] as { timeoutMs: number }).timeoutMs, HEAL_TIMEOUT_MS);
+  const opts = calls[0]![2] as { timeoutMs: number; cpuTimeoutMs: number };
+  assert.deepEqual([opts.timeoutMs, opts.cpuTimeoutMs], [HEAL_TIMEOUT_MS, HEAL_CPU_TIMEOUT_MS]);
+  assert.ok(HEAL_TIMEOUT_MS > HEAL_CPU_TIMEOUT_MS);
   assert.deepEqual(said, ['half way']);
 });

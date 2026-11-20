@@ -9,11 +9,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 
 #include "cad_geom/surface.h"
+#include "mesh2d_impl.h"
 #include "poles.h"
 
 namespace tesscadio {
@@ -23,11 +26,121 @@ constexpr int kDeviationReport = 64;
 
 using namespace cadgeom;
 
+namespace {
+
+/**
+ * A face's criteria answering from its verdicts of its last two meshings where it can (PartOptions::reuseVerdicts):
+ * keyed by the corners' exact bits in the order given, so an answer is the one the criteria would give. Their one
+ * state, whether any deviation was sampled (SurfaceCriteria::bounded), only ever turns true, and did on the first
+ * asking. Two generations, the older dropped as each meshing starts. Its bytes are counted (estimated per entry) into
+ * the part's total, and past the part's budget it answers from what it holds but keeps nothing new: the same answers,
+ * only asked again.
+ */
+class VerdictMemo final : public SizeField {
+public:
+  VerdictMemo(const SizeField& field, size_t& total, size_t& peak, size_t budget)
+    : field_(field), total_(total), peak_(peak), budget_(budget) {}
+  ~VerdictMemo() override { total_ -= bytes_; }
+  VerdictMemo(const VerdictMemo&) = delete;
+  VerdictMemo& operator=(const VerdictMemo&) = delete;
+  /** A meshing starts: the last one's verdicts kept, the one before's dropped. */
+  void next() {
+    const size_t dropped = old_.size() * kTriBytes + oldMetric_.size() * kPointBytes;
+    total_ -= dropped, bytes_ -= dropped;
+    old_ = std::move(cur_), cur_.clear();
+    oldMetric_ = std::move(curMetric_), curMetric_.clear();
+  }
+  size_t bytes() const { return bytes_; }
+  Metric2 metric(Vec2 p) const override {
+    const PointKey k{bits(p.x), bits(p.y)};
+    if (auto it = curMetric_.find(k); it != curMetric_.end()) return it->second;
+    auto it = oldMetric_.find(k);
+    const Metric2 M = it != oldMetric_.end() ? it->second : field_.metric(p);
+    if (room(kPointBytes)) curMetric_.emplace(k, M);
+    return M;
+  }
+  bool accept(const Vec2 t[3]) const override { return ask(t, kAccept, [&] { return field_.accept(t); }); }
+  bool belowFloor(const Vec2 t[3]) const override { return ask(t, kFloor, [&] { return field_.belowFloor(t); }); }
+  int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+
+private:
+  /**
+   * An entry's bytes as estimated: a hash node (key, value, link, cached hash, the allocator's header) and its bucket,
+   * for 64-bit pointers (WebAssembly's 32-bit ones take less).
+   */
+  static constexpr size_t kTriBytes = 104, kPointBytes = 88;
+  struct TriKey {
+    uint64_t b[6];
+    bool operator==(const TriKey& o) const { return std::equal(b, b + 6, o.b); }
+  };
+  struct PointKey {
+    uint64_t x, y;
+    bool operator==(const PointKey& o) const { return x == o.x && y == o.y; }
+  };
+  static uint64_t mix(uint64_t h, uint64_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h * 0xff51afd7ed558ccdull;
+  }
+  struct TriHash {
+    size_t operator()(const TriKey& k) const {
+      uint64_t h = 0;
+      for (uint64_t v : k.b) h = mix(h, v);
+      return static_cast<size_t>(h ^ (h >> 33));
+    }
+  };
+  struct PointHash {
+    size_t operator()(const PointKey& k) const {
+      const uint64_t h = mix(mix(0, k.x), k.y);
+      return static_cast<size_t>(h ^ (h >> 33));
+    }
+  };
+  static uint64_t bits(double x) {
+    uint64_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return u;
+  }
+  /** Whether an entry of n bytes fits the part's budget, counted if it does. */
+  bool room(size_t n) const {
+    if (total_ + n > budget_) return false;
+    total_ += n, bytes_ += n;
+    peak_ = std::max(peak_, total_);
+    return true;
+  }
+  // Per triangle, two bits per question: known, then the answer.
+  enum : uint8_t { kAccept = 0, kFloor = 2 };
+  template <class F> bool ask(const Vec2 t[3], uint8_t q, F evaluate) const {
+    const TriKey k{{bits(t[0].x), bits(t[0].y), bits(t[1].x), bits(t[1].y), bits(t[2].x), bits(t[2].y)}};
+    uint8_t known = 0;
+    auto it = cur_.find(k);
+    if (it != cur_.end()) known = it->second;
+    else if (auto o = old_.find(k); o != old_.end()) known = o->second;
+    if (!(known >> q & 1)) known |= static_cast<uint8_t>((1 | (evaluate() ? 2 : 0)) << q);
+    if (it != cur_.end()) it->second = known;
+    else if (room(kTriBytes)) cur_.emplace(k, known);
+    return known >> (q + 1) & 1;
+  }
+  const SizeField& field_;
+  size_t &total_, &peak_;
+  const size_t budget_;
+  mutable size_t bytes_ = 0;
+  mutable std::unordered_map<TriKey, uint8_t, TriHash> cur_, old_;
+  mutable std::unordered_map<PointKey, Metric2, PointHash> curMetric_, oldMetric_;
+};
+
+} // namespace
+
 struct PartMesher::Impl {
   const Model& m;
   PartOptions o;
   std::vector<std::unique_ptr<Surface>> surfaces;
   std::vector<std::unique_ptr<SurfaceCriteria>> criteria;
+  /** The memos' bytes together (estimated; declared first, as their destructors count it down). */
+  size_t memoBytes = 0, memoPeak = 0;
+  /** Per face, its criteria's verdicts kept across its meshings (PartOptions::reuseVerdicts), made as first meshed. */
+  std::vector<std::unique_ptr<VerdictMemo>> memos;
+  /** Each face's last meshing's order: its memo's age, the oldest dropped first. */
+  std::vector<long> meshedAt;
+  long meshings = 0;
   std::vector<Status> criteriaStatus;
   std::vector<std::string> criteriaWhy;
   std::unique_ptr<EdgeMesh> em;
@@ -37,6 +150,8 @@ struct PartMesher::Impl {
   std::vector<std::vector<SplitRequest>> wanted;
   /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
   std::vector<size_t> mesherTriangles;
+  /** Each face's rounds with refinement blocked by a ring's segment (FaceMesh::ringBlocked). */
+  std::vector<int> ringBlocked;
   /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
   double floor = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
@@ -175,16 +290,21 @@ struct PartMesher::Impl {
         // into the curves through it), in pieces by the edge rules, at the radius throughout so it stays under the
         // clearance. An end off the row by over half as much again (a curve whose crossing at the shared reach is
         // farther out in this face's fixed coordinate) is reached along its own row of the free coordinate, so the
-        // chain runs beside no other boundary.
+        // chain runs beside no other boundary. The pieces span the chain from end to end: an end on the ring is
+        // where the chain starts in the free coordinate, which can be far along the row from the run's own ends (a
+        // curve's crossing of the ring away from where it meets the pole), and the ring's segments are never split
+        // later.
         const PoleRing& R = *ring;
         const double r = R.radius;
         fan.smooth = R.smooth;
-        const int pieces = ringPieces(s, R, {q0, q1}, r, o.d.linear, o.d.angular);
+        const bool farA = std::fabs(da) > 1.5 * r, farB = std::fabs(db) > 1.5 * r;
+        const double lo = farA ? q0 : freeOf(a.uv, S.isoU), hi = farB ? q1 : freeOf(b.uv, S.isoU);
+        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular);
         std::vector<double> qs;
-        double piece = (q1 - q0) / pieces;
-        if (std::fabs(da) > 1.5 * r) qs.push_back(q0);
-        for (int j = 1; j < pieces; j++) qs.push_back(q0 + j * piece);
-        if (std::fabs(db) > 1.5 * r) qs.push_back(q1);
+        double piece = (hi - lo) / pieces;
+        if (farA) qs.push_back(q0);
+        for (int j = 1; j < pieces; j++) qs.push_back(lo + j * piece);
+        if (farB) qs.push_back(q1);
         fan.chain.push_back(static_cast<int>(out.size()) - 1);
         for (double qj : qs) {
           BoundaryPoint q;
@@ -397,7 +517,10 @@ struct PartMesher::Impl {
       out.cause = fb.cause;
       return;
     }
-    if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
+    if (fb.status == Status::singular) {
+      out.note = "a seam's side in (u, v) not settled by its neighbours";
+      out.seamUnsettled = true;
+    }
     out.againstSense = fb.againstSense;
     out.foldsRepaired = fb.foldsRepaired;
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
@@ -452,8 +575,28 @@ struct PartMesher::Impl {
       for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
     MeshOptions mo;
     mo.maxPoints = o.maxPointsPerFace;
+    mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
-    Mesh2 mesh = mesh2(d, *criteria[f], mo);
+    static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
+    Mesh2Detail detail;
+    const SizeField* field = criteria[f].get();
+    if (o.reuseVerdicts) {
+      // Room for this face's: the other faces' memos dropped, least recently meshed first, while the part's total is
+      // past half its budget.
+      if (memos[f]) memos[f]->next();
+      while (memoBytes > o.verdictBudget / 2) {
+        int oldest = -1;
+        for (int g = 0; g < static_cast<int>(memos.size()); g++)
+          if (g != f && memos[g] && (oldest < 0 || meshedAt[g] < meshedAt[oldest])) oldest = g;
+        if (oldest < 0) break;
+        memos[oldest].reset();
+      }
+      if (!memos[f]) memos[f] = std::make_unique<VerdictMemo>(*criteria[f], memoBytes, memoPeak, o.verdictBudget);
+      meshedAt[f] = meshings++;
+      field = memos[f].get();
+    }
+    Mesh2 mesh = o.countInsertions ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    if (o.countInsertions) std::copy(detail.inserted, detail.inserted + kInsertionKinds, out.inserted);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;
@@ -474,13 +617,21 @@ struct PartMesher::Impl {
       return;
     }
     out.status = Status::ok;
-    if (mesh.status == Status::noConvergence)
+    if (mesh.status == Status::noConvergence) {
       out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
+      out.capped = true;
+    }
     // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
     std::vector<std::pair<int32_t, int32_t>> segs;
     for (const auto& l : d.loops)
       for (size_t k = 0; k < l.size(); k++) segs.push_back({l[k], l[(k + 1) % l.size()]});
     for (size_t k = 0; k + 1 < d.segments.size(); k += 2) segs.push_back({d.segments[k], d.segments[k + 1]});
+    // (A ring's segments, consecutive in a fan's ring, aren't an edge's: counted, as refinement is blocked there.)
+    std::set<std::pair<int32_t, int32_t>> ringSegments;
+    for (const auto& rg : ring)
+      for (size_t j = 0; j + 1 < rg.size(); j++)
+        ringSegments.insert({std::min(rg[j], rg[j + 1]), std::max(rg[j], rg[j + 1])});
+    bool blocked = false;
     for (const SplitWanted& w : mesh.splitWanted) {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
@@ -488,7 +639,11 @@ struct PartMesher::Impl {
       auto [a, b] = segs[w.segment];
       if (spanOf(f, bp[a], bp[b], edge, span, forward))
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
+      else
+        blocked = blocked || ringSegments.count({std::min(a, b), std::max(a, b)});
     }
+    if (blocked) ringBlocked[f]++;
+    out.ringBlocked = ringBlocked[f];
     // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
     out.splitsWanted = static_cast<int>(wanted[f].size());
@@ -553,9 +708,9 @@ struct PartMesher::Impl {
         const Vec2 apex = uvOf(fan.at, 0.5 * (qa + qb), fan.isoU);
         Vec2 tri[3] = {mesh.points[a], mesh.points[b], apex};
         orient(tri);
-        if (!(fan.smooth ? criteria[f]->accept(tri) : criteria[f]->acceptDeviation(tri))) {
+        if (!(fan.smooth ? criteria[f]->acceptFan(tri) : criteria[f]->acceptDeviation(tri))) {
           out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
-          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth))]++;
+          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth, true))]++;
           refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
         }
         // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
@@ -593,6 +748,8 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   int nf = m.faces();
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
+  I.memos.resize(nf);
+  I.meshedAt.assign(nf, 0);
   I.criteriaStatus.assign(nf, Status::unsupported);
   I.criteriaWhy.assign(nf, "");
   I.faces.resize(nf);
@@ -600,6 +757,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.wanted.resize(nf);
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
+  I.ringBlocked.assign(nf, 0);
   I.refused.resize(nf);
   const cadgeom::Tolerances tols(m);
   I.floor = refinementFloor(tols.part(), I.o.d.linear);
@@ -687,6 +845,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       I.at.facesDone++;
     }
   }
+  I.memos.clear();
   I.checkDeviation();
   I.checkFacing();
 }
@@ -695,5 +854,6 @@ PartMesher::~PartMesher() { delete impl_; }
 const FaceMesh& PartMesher::face(int f) const { return impl_->faces[f]; }
 const EdgeMesh& PartMesher::edges() const { return *impl_->em; }
 int PartMesher::rounds() const { return impl_->rounds; }
+size_t PartMesher::verdictPeak() const { return impl_->memoPeak; }
 
 } // namespace tesscadio

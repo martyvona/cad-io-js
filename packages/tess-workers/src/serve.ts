@@ -12,6 +12,19 @@ export const NO_BACKEND: TessellatorInfo = { name: 'none', version: '', license:
 
 const message = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e));
 
+/**
+ * This thread's CPU time in milliseconds (Node's process.threadCpuUsage: a worker's own, not the process's), or
+ * undefined where the host has none (browsers).
+ */
+const threadCpu: (() => number) | undefined = (() => {
+  const p = (globalThis as { process?: { threadCpuUsage?: () => { user: number; system: number } } }).process;
+  const f = p?.threadCpuUsage;
+  return typeof f === 'function' ? () => {
+    const u = f.call(p);
+    return (u.user + u.system) / 1000;
+  } : undefined;
+})();
+
 function buffers(r: TessellationResult): ArrayBuffer[] {
   const out = new Set<ArrayBuffer>();
   for (const a of [r.positions, r.normals, r.indices, r.edgePositions, r.curvePositions, r.points,
@@ -66,7 +79,9 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
       try {
         const f = (await load(msg.job))[msg.job.export] as JobFunction | undefined;
         if (typeof f !== 'function') throw new Error(`${msg.job.module} has no function '${msg.job.export}'`);
-        const output = await f(msg.input, (message) => port.post({ type: 'jobProgress', id, message }, []));
+        const t0 = threadCpu?.();
+        const output = await f(msg.input, (message) => port.post({ type: 'jobProgress', id, message,
+          ...(t0 === undefined ? {} : { cpuMs: threadCpu!() - t0 }) }, []));
         port.post({ type: 'output', id, output }, outputBuffers(output));
       } catch (e) {
         port.post({ type: 'error', id, message: message(e), part: false }, []);
@@ -76,10 +91,13 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
     try {
       if (!tess) throw new Error('worker: no backend loaded');
       const id = msg.id;
-      const result = await tess.tessellate(msg.req, (progress) => port.post({ type: 'progress', id, progress }, []));
+      const t0 = threadCpu?.();
+      const cpu = () => (t0 === undefined ? {} : { cpuMs: threadCpu!() - t0 });
+      const result = await tess.tessellate(msg.req, (progress) => port.post({ type: 'progress', id, progress,
+        ...cpu() }, []));
       const memory = tess.memoryBytes?.();
-      port.post(memory === undefined ? { type: 'result', id: msg.id, result } : { type: 'result', id: msg.id, result,
-        memory }, buffers(result));
+      port.post({ type: 'result', id: msg.id, result, ...(memory === undefined ? {} : { memory }), ...cpu() },
+        buffers(result));
     } catch (e) {
       const part = e instanceof TessellationError || e instanceof WebAssembly.RuntimeError;
       const timeoutMs = e instanceof TessellationError ? e.timeoutMs : undefined;

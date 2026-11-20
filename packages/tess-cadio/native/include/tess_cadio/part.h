@@ -4,6 +4,8 @@
 // meet along their edges), its normals the surface's, its triangles counterclockwise about the face's normal.
 #pragma once
 
+#include <cmath>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
@@ -42,6 +44,12 @@ struct PartOptions {
    */
   int maxPointsPerFace = 100000;
   /**
+   * The smallest angle refinement aims for in each face's triangles, in radians, in the criteria's metric (mesh2d.h's
+   * MeshOptions::minAngle; clamped to [0, kMaxMinAngle], 30 degrees): the triangles' shape, which neither the
+   * deflection nor the angle between normals asks for. 10 degrees by default; 0 for none.
+   */
+  double minAngle = 10 * M_PI / 180;
+  /**
    * Called as each face's meshing starts, and every so often during a long one (mesh2d.h's onWork), if set: for a
    * host to say how far a request got (a timeout). Not throttled here.
    */
@@ -63,7 +71,28 @@ struct PartOptions {
    * and a cause saying so, as one past its deflection does: wrong output however rare.
    */
   bool failTurnedOver = true;
+  /**
+   * Count each face's mesher insertions by what queued them (FaceMesh::inserted). Off by default: it evaluates the
+   * criteria again on every refused triangle the mesher queues (up to 2 x the time); the mesh is the same either way.
+   */
+  bool countInsertions = false;
+  /**
+   * Keep each face's criteria verdicts (accept, belowFloor, the metric) from its last two meshings and answer the
+   * same question again from them: a face meshed again after a split round asks mostly about the triangles it asked
+   * about before. The mesh is the same bits either way (the criteria are functions of a triangle's corners as given);
+   * off to compare, at the cost of evaluating them all again.
+   */
+  bool reuseVerdicts = true;
+  /**
+   * The bytes the kept verdicts may take across the part, as estimated (reuseVerdicts): past half of it the least
+   * recently meshed faces' are dropped as another face's meshing starts, and past all of it nothing more is kept.
+   * The mesh is the same bits whatever the budget.
+   */
+  size_t verdictBudget = size_t{256} << 20;
 };
+
+/** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */
+constexpr int kInsertionKinds = 10;
 
 struct FaceMesh {
   /**
@@ -96,15 +125,29 @@ struct FaceMesh {
   int deviationMeasured = 0;
   /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
   int refusedBy[kRefusalKinds] = {};
+  /**
+   * With PartOptions::countInsertions, its final mesh's Steiner points by what queued the triangle each broke:
+   * [0] its size in the metric, [1] its thinness alone, [2 + k] refused by its criteria, k criteria.h's Refusal.
+   */
+  int inserted[kInsertionKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
+  /**
+   * The meshings (the first and each split round's) in which refinement asked for a pole ring's segment to be split,
+   * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.
+   */
+  int ringBlocked = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
   bool sampled = false;
   /**
    * A note for diagnostics where the face is meshed but not as asked (its boundary's status, refinement stopped at
-   * its point cap), else empty.
+   * its point cap), else empty: what seamUnsettled and capped say, in words.
    */
   std::string note;
+  /** Whether a seam's side in (u, v) wasn't settled by its neighbours (FaceBoundary's Status::singular), meshed. */
+  bool seamUnsettled = false;
+  /** Whether refinement stopped at the point cap (maxPointsPerFace), the mesh kept as it was. */
+  bool capped = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
   /** Its boundary's FaceBoundary::foldsRepaired. */
@@ -122,6 +165,8 @@ public:
   const EdgeMesh& edges() const;
   /** The rounds of splitting run. */
   int rounds() const;
+  /** The most bytes the kept verdicts took at once, as estimated (PartOptions::verdictBudget): for tests. */
+  size_t verdictPeak() const;
 
 private:
   struct Impl;

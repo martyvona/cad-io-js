@@ -97,7 +97,7 @@ public:
     Vec3 axis, double radius, double second, double tolerance)
     : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second),
-      floor_(refinementFloor(tolerance, d.linear)) {
+      floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance) {
     std::vector<Singularity> sing;
     s.singularities(sing);
     for (const Singularity& g : sing)
@@ -168,19 +168,27 @@ public:
     const bool evaluated = corners(t, p);
     if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false);
   }
 
-  int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true)); }
+  bool acceptFan(const Vec2 t[3]) const override {
+    Vec3 p[3];
+    const bool evaluated = corners(t, p);
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true);
+  }
 
-  Refusal refusal(const Vec2 t[3], bool normals) const override {
+  int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
+
+  Refusal refusal(const Vec2 t[3], bool normals, bool fan) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
     if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
-    if (r == Refusal::none && normals) r = normalsRefusal(t, p);
+    if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -303,18 +311,26 @@ private:
    * The normals at the corners (where the surface has one) within the angle of one another and of the flat
    * triangle's own (which a triangle turned over in 3D, as one wide in u near a pole can be, fails).
    */
-  bool normalsWithin(const Vec2 t[3], const Vec3 p[3]) const { return normalsRefusal(t, p) == Refusal::none; }
-  Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3]) const {
+  bool normalsWithin(const Vec2 t[3], const Vec3 p[3], bool fan) const {
+    return normalsRefusal(t, p, fan) == Refusal::none;
+  }
+  /**
+   * (A triangle thinner than the refinement floor, twice its area over its longest side, has its facet held only to
+   * the side its corners' normals face, not to the angle: a needle's facet normal is rounding that refinement can't
+   * mend, ec_turbine-A's fold beside its u = 0 side. Not a smooth pole's fan (`fan`), held to the angle however thin,
+   * as the pole's ring was sized for.)
+   */
+  Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
     Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = s_.normal(t[i].x, t[i].y, n[i]) == Status::ok;
     // (A facet with two corners on a pole line has rounding for a normal: no direction to judge.)
     double gl = norm(g), c = d_.angular > 0 ? std::cos(d_.angular) : 0;
     double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    bool facet = gl > 1e-9 * longest * longest;
+    bool facet = gl > 1e-9 * longest * longest, thin = !fan && gl / longest <= floor_;
     for (int i = 0; i < 3; i++) {
       if (!has[i]) continue;
-      if (facet && dot(g, n[i]) < c * gl) return Refusal::normalFacet;
+      if (facet && (facetAgainst(g, n[i]) || (!thin && dot(g, n[i]) < c * gl))) return Refusal::normalFacet;
       for (int j = i + 1; j < 3; j++)
         if (d_.angular > 0 && has[j] && dot(n[i], n[j]) < c) return Refusal::normalSpread;
     }
@@ -482,7 +498,8 @@ private:
    * A cone's or a torus's deviation bound over the flat triangle p (its corners on the surface), from a distance
    * function g (an upper bound on the distance to the surface, positive inside the solid) at the centroid c: g concave
    * over the triangle, g(x) <= g(c) + grad g(c) . (x - c), the most at a corner. False where the form doesn't hold
-   * (on a cone's axis, a torus's inner half or near its core), the deviation then sampled.
+   * (on a cone's axis, a torus's inner half or near its core, a spindle torus): a torus's deviation then bounded by
+   * its derivatives (makeCriteria), a cone's sampled.
    * Cone: g = -((rho - r0) - k h) / sqrt(1 + k^2) in its meridian plane (rho the distance to the axis, h the height,
    * k = tan of the semi-angle), concave as rho is convex; the facet lies in the solid nappe (convex: rho <= r0 + k h)
    * and from inside it the foot on the generator is outward, rho growing by |g| / sqrt(1 + k^2), so on the nappe's
@@ -521,7 +538,8 @@ private:
         if (!(rc - L > 0) || !(rho - L > 0)) continue;
         // Only where the triangle stays on the outer half (t >= L at the anchor): on the inner half a bound with
         // the Hessian's terms (|x - c|^2 / (2 s_min) above, (1 / rho_min + 1 / s_min) |x - c|^2 / 2 below, the facet
-        // leaving the tube there) runs 5 x past a chord round the axis and doubled the triangles; sampled there.
+        // leaving the tube there) runs 5 x past a chord round the axis and doubled the triangles; the derivatives'
+        // bound there.
         if (t - L < 0) continue;
         double g = r - rc;
         Vec3 grad = (-1 / rc) * (t * rad + h * axis_);
@@ -592,8 +610,15 @@ private:
     s_.eval(p.x, p.y, 0, q);
     return q.p;
   }
-  /** The facet against any corner's normal (where it has one and the facet an area). */
+  /**
+   * The facet against any corner's normal (where it has one and the facet an area). Not judged with a corner within
+   * the tolerance of a pole or apex, as PartMesher's check doesn't judge it there: below the floor at such a point
+   * refinement would chase rounding to the point cap (LMP1 #172881's apex, 100,000 refused triangles of 1e-10 mm).
+   */
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
+    for (const Vec3& q : poles_)
+      for (int i = 0; i < 3; i++)
+        if (norm(p[i] - q) <= tolerance_) return false;
     const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
     const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     if (!(norm(g) > 1e-9 * longest * longest)) return false;
@@ -690,6 +715,7 @@ private:
   double spacing_ = 0;
   /** The surface's poles' and apexes' points. */
   std::vector<Vec3> poles_;
+  double tolerance_;
   /** The refinement floor (belowFloor). */
   double floor_;
   std::vector<Metric2> grid_;
@@ -718,13 +744,15 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   double extent = std::hypot(box.x.hi - box.x.lo, box.y.hi - box.y.lo, box.z.hi - box.z.lo);
   if (!(extent > 0) || !std::isfinite(extent)) extent = 1;
   status = Status::ok;
-  // Bounded by derivBound on planes and cylinders, where it's exact; a sphere's deviation exact. Elsewhere sampled:
-  // a B-spline's derivBound is its knot span's whatever the box (15 x too loose on a rational dome), and on cones and
-  // tori |S(x) - L(x)| through the derivatives' magnitudes counts S'''s tangential parts (a cone's S_uv round it),
-  // which don't take a point off the surface: loose on the long triangles along a cone's lines the metric asks for,
-  // and in (u, v) near an apex or a pole.
+  // Bounded by derivBound on planes, cylinders, B-splines (each box's own sub-net) and tori; a sphere's deviation
+  // exact, a cone's and a torus's closed form first where it holds (distanceBound). A torus's derivative bound covers
+  // where its closed form doesn't, its inner half and a spindle torus (whose closed form never holds), so they keep a
+  // proof rather than a sample. Elsewhere sampled: on cones |S(x) - L(x)| through the derivatives' magnitudes counts
+  // S'''s tangential parts (S_uv round it), which don't take a point off the surface: loose on the long triangles
+  // along its lines the metric asks for, and in (u, v) near the apex.
   int kind = m.surfaceKind(m.faceSurface(f));
-  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_BSPLINE;
+  bool tight = kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_BSPLINE ||
+    kind == CBR_SURFACE_TORUS;
   const double* r = m.surfaceReals(m.faceSurface(f));
   Local::Kind closed = kind == CBR_SURFACE_SPHERE ? Local::Kind::sphere : kind == CBR_SURFACE_CONE ? Local::Kind::cone
     : kind == CBR_SURFACE_TORUS ? Local::Kind::torus : Local::Kind::none;

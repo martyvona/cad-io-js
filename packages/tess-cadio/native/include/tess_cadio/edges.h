@@ -71,6 +71,11 @@ struct EdgeOptions {
    * inversion (as it is where neither projection is ok).
    */
   bool projectMissingPcurves = true;
+  /**
+   * For tests, if set: in place of cad-geom's localFoot where a use without a p-curve is traced sample by sample,
+   * (face row, point, the sample before's (u, v), foot out, its distance out), true where it converged.
+   */
+  std::function<bool(int, Vec3, Vec2, Vec2&, double&)> localFootForTests;
 };
 
 /**
@@ -125,6 +130,14 @@ struct ProjectionCounts {
 struct TraceCounts {
   int local = 0, global = 0;
 };
+/**
+ * The uses whose given p-curve is used (on the edge's points within 100 x the tolerance): how many, and how many of
+ * them landed farther than the tolerance from a sample's 3D point, their inside samples polished onto it.
+ */
+struct GivenPcurveCounts {
+  int used = 0, offTolerance = 0;
+};
+
 /** A sample whose local foot failed, found by the global search instead: its use, edge parameter, distance, why. */
 struct TraceFallback {
   int32_t coedge;
@@ -236,6 +249,8 @@ public:
   const CoedgeSamples& coedge(int c) const;
   /** How the uses the model gives no p-curve were sampled (EdgeOptions::projectMissingPcurves). */
   const ProjectionCounts& projections() const;
+  /** The uses with given p-curves (GivenPcurveCounts), as the samples now stand. */
+  GivenPcurveCounts givenPcurves() const;
   /** The uses traced sample by sample (TraceCounts), each sample counted once however often it's redone. */
   const TraceCounts& traces() const;
   /** Those samples whose local foot failed, in the order found. */
@@ -255,7 +270,8 @@ public:
 
   /**
    * The faces' spacing given after the edges were sampled (their criteria, made from the boxes these samples give):
-   * every edge's spans, a pseudo-edge's too, split until none is longer in 3D than the least of its faces' spacing,
+   * every edge's spans, a pseudo-edge's too, split until none is longer in 3D (its length, not its chord) than the
+   * least of its faces' spacing,
    * through split(), so the samples there are kept and the new ones' uses found as split's are (each p-curve at its
    * parameter, a use with none continued locally). The edges are sampled once, refined only.
    */
