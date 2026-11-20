@@ -293,6 +293,30 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsettled seam; luneOnSeam's by inversion") {
+  {
+    cadgeom::Model m = load("spheres");
+    PartOptions o = options(1e-3, 0.26);
+    o.maxPointsPerFace = 20;
+    o.maxDeviationFactor = 0;  // (kept, however far: the cap's mesh is past d)
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.capped);
+    CHECK(!fm.seamUnsettled);
+  }
+  {
+    cadgeom::Model m = load("luneOnSeam");
+    PartOptions o = options(0.01, 0.02);
+    o.projectMissingPcurves = false;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.seamUnsettled);
+    CHECK(!fm.capped);
+  }
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's

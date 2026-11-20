@@ -404,7 +404,10 @@ struct PartMesher::Impl {
       out.cause = fb.cause;
       return;
     }
-    if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
+    if (fb.status == Status::singular) {
+      out.note = "a seam's side in (u, v) not settled by its neighbours";
+      out.seamUnsettled = true;
+    }
     out.againstSense = fb.againstSense;
     out.foldsRepaired = fb.foldsRepaired;
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
@@ -481,8 +484,10 @@ struct PartMesher::Impl {
       return;
     }
     out.status = Status::ok;
-    if (mesh.status == Status::noConvergence)
+    if (mesh.status == Status::noConvergence) {
       out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
+      out.capped = true;
+    }
     // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
     std::vector<std::pair<int32_t, int32_t>> segs;
     for (const auto& l : d.loops)
