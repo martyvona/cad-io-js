@@ -2293,6 +2293,144 @@ TEST_CASE("the rounds end once no split changes an edge: passBy's face still ask
   CHECK_EQ(pm.rounds(), 0);
 }
 
+namespace {
+// A roof's mesh against its ridge (x = 5): triangles across it (corners either side by more than rounding), refused
+// ones, turned-over ones (a facet against a corner's normal), and its points on the ridge by their normals' side.
+struct RoofCount {
+  int across = 0, refused = 0, turned = 0, left = 0, right = 0;
+};
+RoofCount roofCount(const FaceMesh& fm) {
+  RoofCount c;
+  c.refused = static_cast<int>(fm.rejected.size());
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+    const int32_t* v = &fm.triangles[t];
+    bool lo = false, hi = false, turned = false;
+    const Vec3 g = cadgeom::cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+    for (int k = 0; k < 3; k++) {
+      lo = lo || fm.points[v[k]].x < 5 - 1e-9, hi = hi || fm.points[v[k]].x > 5 + 1e-9;
+      turned = turned || cadgeom::dot(g, fm.normals[v[k]]) < 0;
+    }
+    c.across += lo && hi, c.turned += turned;
+  }
+  for (size_t i = 0; i < fm.points.size(); i++)
+    if (std::fabs(fm.points[i].x - 5) <= 1e-9) (fm.normals[i].x < 0 ? c.left : c.right)++;
+  return c;
+}
+}  // namespace
+
+TEST_CASE("creases as constraints: a roof's ridge kept by the mesh, crossed at its sides (an edge sample placed "
+  "there before the first meshing, or a vertex at a junction), its points a normal for each side") {
+  for (const char* name : {"roof", "roofJunction", "roofJunctionAt"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.01, 0.26);
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    if (c.across || c.refused || c.turned || c.left != c.right || fm.triangles.size() / 3 > 16)
+      std::printf("  %s: %zu triangles, %d across, %d refused, %d turned, ridge points %d left %d right\n", name,
+        fm.triangles.size() / 3, c.across, c.refused, c.turned, c.left, c.right);
+    CHECK_EQ(c.across, 0);
+    CHECK_EQ(c.refused, 0);
+    CHECK_EQ(c.turned, 0);
+    CHECK(c.left >= 2);
+    CHECK_EQ(c.left, c.right);
+    CHECK(fm.triangles.size() / 3 <= 16u);  // (two planes: nothing to refine)
+    // Without: the triangles across the ridge, refused (refinement chasing them to its cap).
+    o.creases = false;
+    o.failCapped = false;
+    o.maxPointsPerFace = 2000;
+    PartMesher plain(m, o);
+    CHECK(roofCount(plain.face(0)).refused > 0);
+  }
+}
+
+TEST_CASE("a crease past half the angle is one: roofShallow's ridge turns 12 degrees, under the profile's 15") {
+  // (Under the angle but close to it, a triangle across the ridge has no room left for anything else: refined
+  // toward it without end.)
+  cadgeom::Model m = load("roofShallow");
+  PartMesher pm(m, options(0.001, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const RoofCount c = roofCount(fm);
+  CHECK_EQ(c.across, 0);
+  CHECK(c.left > 0);
+  CHECK_EQ(c.left, c.right);
+}
+
+TEST_CASE("creases crossing, and one curved in 3D: the hip roof's two ridges share their crossing; the arched "
+  "roof's ridge sampled as an edge is (none asked split), and 4 times coarser (edgeSpacingScale) split in the rounds") {
+  {
+    cadgeom::Model m = load("roofCross");
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofCross: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    // (Each ridge a crease only where its jump passes half the angle: they fade toward the sides, flat there.)
+    int onU = 0, onV = 0, centre = 0;
+    for (const Vec3& p : fm.points) {
+      onU += std::fabs(p.x - 5) <= 1e-9 && std::fabs(p.y - 4) > 1e-9;
+      onV += std::fabs(p.y - 4) <= 1e-9 && std::fabs(p.x - 5) > 1e-9;
+      centre += std::fabs(p.x - 5) <= 1e-9 && std::fabs(p.y - 4) <= 1e-9;
+    }
+    CHECK(onU > 0);
+    CHECK(onV > 0);
+    CHECK(centre >= 2);  // (the crossing: one point, a copy per side)
+    CHECK(fm.rejected.empty());
+  }
+  for (double scale : {1.0, 4.0}) {
+    cadgeom::Model m = load("roofArched");
+    PartOptions o = options(0.01, 0.26);
+    o.edgeSpacingScale = scale;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofArched: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    if (c.across || c.refused || fm.splitsWanted || (scale == 1) != (pm.rounds() == 0))
+      std::printf("  roofArched x %g: %zu triangles, %d across, %d refused, %d rounds, ridge points %d\n", scale,
+        fm.triangles.size() / 3, c.across, c.refused, pm.rounds(), c.left);
+    CHECK_EQ(c.across, 0);
+    CHECK_EQ(c.refused, 0);
+    CHECK_EQ(fm.splitsWanted, 0);
+    if (scale == 1) CHECK_EQ(pm.rounds(), 0);
+    else CHECK(pm.rounds() > 0);
+  }
+}
+
+TEST_CASE("a crease within the face's tolerance of its edge (roofNear's ridge 0.2 mm from it, the part's "
+  "uncertainty 0.5 mm): a constraint still, the strip beyond meshed") {
+  const tessfixtures::Model* t = tessfixtures::model("roofNear");
+  REQUIRE(t);
+  std::vector<uint8_t> b(t->data, t->data + t->size);
+  cadgeom::Model m(b.data(), b.size());
+  const_cast<double*>(m.f64(CBR_PART_UNCERTAINTY))[0] = 0.5;
+  PartMesher pm(m, options(0.01, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  roofNear: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const RoofCount c = roofCount(fm);
+  CHECK_EQ(c.across, 0);
+  CHECK_EQ(c.refused, 0);
+  CHECK(c.right > 0);
+}
+
+TEST_CASE("a face's side on a C0 line of a surface going on past it (roofBeyond ends at the ridge): its normals "
+  "there from inside") {
+  cadgeom::Model m = load("roofBeyond");
+  PartMesher pm(m, options(0.01, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  roofBeyond: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const RoofCount c = roofCount(fm);
+  CHECK(c.left > 0);
+  CHECK_EQ(c.right, 0);
+  CHECK_EQ(c.turned, 0);
+  CHECK_EQ(c.refused, 0);
+}
+
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
   for (const char* name : {"cube", "seamCylinder", "spheres", "band"}) {
     cadgeom::Model m = load(name);

@@ -2166,7 +2166,7 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
   Impl& I = *impl_;
   bool bad = false;
   // Per edge, the new parameters (each at its fraction of its span as it was).
-  std::vector<std::vector<double>> add(I.edges.size());
+  std::vector<std::vector<double>> add(I.edges.size()), exact(I.edges.size());
   for (const SplitRequest& r : requests) {
     if (r.edge < 0 || r.edge >= static_cast<int>(I.edges.size()) || !std::isfinite(r.fraction)) {
       bad = true;
@@ -2181,6 +2181,11 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     // changes, and below the part's tolerance the model can't say where its curve is. The mesher is told such spans
     // are frozen, PartMesher's Domain2::frozen.)
     const std::vector<Vec3>& pts = I.edges[r.edge].s.points;
+    if (r.exact) {
+      if (!(r.fraction > 1e-9 && r.fraction < 1 - 1e-9)) continue;  // (at a sample: that sample)
+      exact[r.edge].push_back(t[r.span] + r.fraction * (t[r.span + 1] - t[r.span]));
+      continue;
+    }
     if (norm(pts[r.span + 1] - pts[r.span]) <= refinementFloor(I.tol, I.o.deflection)) continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
     bool inRing = false;
@@ -2188,7 +2193,7 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     if (!inRing) add[r.edge].push_back(x);
   }
   for (size_t e = 0; e < add.size(); e++) {
-    if (add[e].empty()) continue;
+    if (add[e].empty() && exact[e].empty()) continue;
     Impl::Edge& E = I.edges[e];
     const std::vector<double> t = E.s.t;
     const std::vector<Vec3> pts = E.s.points;
@@ -2203,6 +2208,25 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       double width = std::fabs(t[sp + 1] - t[sp]);
       if (!news.empty() && news.back().first == sp && std::fabs(x - news.back().second) < 0.1 * width) continue;
       news.push_back({sp, x});
+    }
+    // The exact ones in their spans too, each kept (but one at another's parameter), the others' then dropped where
+    // within a tenth of the span of one.
+    if (!exact[e].empty()) {
+      std::vector<std::pair<size_t, double>> both;
+      std::sort(exact[e].begin(), exact[e].end(), before);
+      for (double x : exact[e]) {
+        size_t sp = 0;
+        while (sp + 2 < t.size() && !before(x, t[sp + 1])) sp++;
+        if (!both.empty() && both.back().second == x) continue;
+        both.push_back({sp, x});
+      }
+      for (auto [sp, x] : news) {
+        bool near = false;
+        for (auto [sq, y] : both) near = near || (sq == sp && std::fabs(x - y) < 0.1 * std::fabs(t[sp + 1] - t[sp]));
+        if (!near) both.push_back({sp, x});
+      }
+      std::sort(both.begin(), both.end(), [&](const auto& a, const auto& b) { return before(a.second, b.second); });
+      news = std::move(both);
     }
     E.s.t.clear();
     E.s.points.clear();

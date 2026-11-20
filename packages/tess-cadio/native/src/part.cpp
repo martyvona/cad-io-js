@@ -15,6 +15,7 @@
 #include <tuple>
 #include <unordered_map>
 
+#include "cad_geom/creases.h"
 #include "cad_geom/surface.h"
 #include "mesh2d_impl.h"
 #include "poles.h"
@@ -165,6 +166,28 @@ struct PartMesher::Impl {
     int32_t v[3];
   };
   std::vector<std::vector<Refused>> refused;
+  /**
+   * Per face, its creases (cad_geom/creases.h) as constraints: each piece's line (u = at where isoU, else v = at), its
+   * samples along it (ascending), and at each end on the boundary the edge sample there (edge, parameter; -1 none).
+   */
+  struct CreasePiece {
+    bool isoU = true;
+    double at = 0;
+    /** Within this of the line in its coordinate is on it (rounding: its points, the boundary's too, are on it). */
+    double near = 0;
+    std::vector<double> s;
+    int endEdge[2] = {-1, -1};
+    double endT[2] = {0, 0};
+  };
+  std::vector<std::vector<CreasePiece>> creases;
+  /**
+   * Per face, its loops' (u, v) box's sides on a break of a surface going on past them (findFaceCreases; infinite
+   * where not): its points on one take normals from inside.
+   */
+  std::vector<std::pair<Range, Range>> faceBox;
+  /** Per face, the crease segments its last meshing wanted split: (piece, its segment from s[k] to s[k + 1]). */
+  std::vector<std::set<std::pair<int, int>>> creaseSplits;
+  static Vec2 creaseUv(const CreasePiece& c, double s) { return c.isoU ? Vec2{c.at, s} : Vec2{s, c.at}; }
   int rounds = 0;
   /** The progress of the pass under way (PartOptions::progress). */
   PartProgress at;
@@ -359,6 +382,172 @@ struct PartMesher::Impl {
     return "its boundary not a domain in (u, v) (a loop under 3 points, a segment not closed)";
   }
 
+  /**
+   * The loop point of face boundary fb that is edge `edge`'s sample at parameter t exactly, if any: by its 3D point (a
+   * junction's point carries the edge before it).
+   */
+  bool boundaryPoint(const FaceBoundary& fb, int edge, double t, BoundaryPoint& out) const {
+    const EdgeSamples& es = em->edge(edge);
+    int j = -1;
+    for (size_t k = 0; k < es.t.size() && j < 0; k++)
+      if (es.t[k] == t) j = static_cast<int>(k);
+    if (j < 0) return false;
+    const Vec3 x = es.points[j];
+    for (const auto& L : fb.loops)
+      for (const BoundaryPoint& p : L)
+        if (p.point.x == x.x && p.point.y == x.y && p.point.z == x.z) return out = p, true;
+    return false;
+  }
+
+  /**
+   * Each face's creases (cad_geom/creases.h: iso-lines inside it where the normal jumps past the angle) as
+   * constraints: a piece's end on the boundary crossed with its loop's (u, v) polyline, an edge sample placed there
+   * (EdgeMesh::split's exact: both faces get it); pieces crossing each other share the crossing; then each sampled as
+   * an edge is in 3D (chord within d, at most the face's edge spacing apart). A piece whose boundary end can't be
+   * placed on an edge's span is dropped.
+   */
+  void findFaceCreases() {
+    const int nf = m.faces();
+    creases.assign(nf, {});
+    creaseSplits.assign(nf, {});
+    faceBox.assign(nf, {{INFINITY, -INFINITY}, {INFINITY, -INFINITY}});
+    std::vector<SplitRequest> exact;
+    for (int f = 0; f < nf; f++) {
+      if (!surfaces[f] || !criteria[f]) continue;
+      const FaceBoundary fb = em->face(f);
+      if (fb.status != Status::ok) continue;
+      // (Its edges as meshFace lists them, for spanOf: the first meshing comes after.)
+      for (int i = 0; i < m.faceLoopCount(f); i++) {
+        const int l = m.faceFirstLoop(f) + i;
+        if (m.loopKind(l) == CBR_LOOP_EDGE)
+          for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
+      }
+      for (const auto& L : fb.loops)
+        for (const BoundaryPoint& p : L)
+          if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
+      const Surface& s = *surfaces[f];
+      Range ru{INFINITY, -INFINITY}, rv{INFINITY, -INFINITY};
+      for (const auto& L : fb.loops)
+        for (const BoundaryPoint& p : L)
+          ru.lo = std::min(ru.lo, p.uv.x), ru.hi = std::max(ru.hi, p.uv.x), rv.lo = std::min(rv.lo, p.uv.y),
+          rv.hi = std::max(rv.hi, p.uv.y);
+      if (!(ru.lo < ru.hi && rv.lo < rv.hi)) continue;
+      // The (u, v) tolerance findCreases classifies by, bisects to and extends ends past the boundary by: rounding,
+      // 1e-7 of the box, not the face's tolerance. Both the classification and the crossing are with these loops'
+      // own polyline, and a crease within the face's tolerance of the boundary (trj3's #1349: u = 7, 0.05 of a 1 mm
+      // tolerance's 0.5 from its edge) still has a strip beyond it that triangles across it can't mesh.
+      const double box = std::max(ru.hi - ru.lo, rv.hi - rv.lo);
+      auto uvTol = [&](Vec2) { return 1e-7 * box; };
+      // In (0), out (1) or on (2: within uvTol of a loop's segment) by the loops' even-odd rule.
+      auto inside = [&](const Vec2* p, int n, int* sides) {
+        for (int i = 0; i < n; i++) {
+          const Vec2 x = p[i];
+          const double near = uvTol(x);
+          bool in = false, on = false;
+          for (const auto& L : fb.loops)
+            for (size_t k = 0; k < L.size() && !on; k++) {
+              const Vec2 a = L[k].uv, b = L[(k + 1) % L.size()].uv;
+              const Vec2 e{b.x - a.x, b.y - a.y};
+              const double l2 = e.x * e.x + e.y * e.y;
+              const double w = l2 > 0 ? std::clamp(((x.x - a.x) * e.x + (x.y - a.y) * e.y) / l2, 0.0, 1.0) : 0;
+              on = std::hypot(x.x - a.x - w * e.x, x.y - a.y - w * e.y) <= near;
+              if ((a.y > x.y) != (b.y > x.y) && x.x < a.x + (x.y - a.y) * (b.x - a.x) / (b.y - a.y)) in = !in;
+            }
+          sides[i] = on ? 2 : in ? 0 : 1;
+        }
+      };
+      // (Past half the angle: a jump just under it leaves a triangle across it no room, refined to the cap.)
+      const std::vector<cadgeom::Crease> found = cadgeom::findCreases(s, ru, rv, 0.5 * o.d.angular, inside, uvTol);
+      for (const cadgeom::Crease& c : found) {
+        CreasePiece P;
+        P.isoU = c.isoU, P.at = c.at;
+        double ends[2] = {c.lo, c.hi};
+        bool ok = true;
+        const bool onB[2] = {c.loOnBoundary, c.hiOnBoundary};
+        for (int e = 0; e < 2 && ok; e++) {
+          if (!onB[e]) continue;
+          // The loop's segment the line crosses nearest that end, within the piece.
+          double best = INFINITY, along = 0, frac = 0;
+          const BoundaryPoint *ba = nullptr, *bb = nullptr;
+          for (const auto& L : fb.loops)
+            for (size_t k = 0; k < L.size(); k++) {
+              const BoundaryPoint &a = L[k], &b = L[(k + 1) % L.size()];
+              const double xa = c.isoU ? a.uv.x : a.uv.y, xb = c.isoU ? b.uv.x : b.uv.y;
+              if (xa == xb || (xa - c.at) * (xb - c.at) > 0) continue;
+              const double w = (c.at - xa) / (xb - xa);
+              const double ya = c.isoU ? a.uv.y : a.uv.x, yb = c.isoU ? b.uv.y : b.uv.x, y = ya + w * (yb - ya);
+              if (y < c.lo || y > c.hi || std::fabs(y - ends[e]) >= best) continue;
+              best = std::fabs(y - ends[e]), along = y, frac = w, ba = &a, bb = &b;
+            }
+          int edge, span;
+          bool forward;
+          ok = ba && spanOf(f, *ba, *bb, edge, span, forward);
+          if (!ok) break;
+          const double fr = forward ? frac : 1 - frac;
+          const std::vector<double>& ts = em->edge(edge).t;
+          P.endEdge[e] = edge, P.endT[e] = ts[span] + fr * (ts[span + 1] - ts[span]);
+          if (!(fr > 1e-9 && fr < 1 - 1e-9)) P.endT[e] = fr < 0.5 ? ts[span] : ts[span + 1];
+          else exact.push_back({edge, span, fr, true});
+          ends[e] = along;
+        }
+        if (!ok || !(ends[0] < ends[1])) continue;
+        P.s = {ends[0], ends[1]};
+        creases[f].push_back(P);
+      }
+      // Crossings: a u-line's and a v-line's shared point.
+      for (CreasePiece& A : creases[f])
+        for (CreasePiece& B : creases[f])
+          if (A.isoU && !B.isoU && B.at > A.s.front() && B.at < A.s.back() && A.at > B.s.front() && A.at < B.s.back())
+            A.s.push_back(B.at), B.s.push_back(A.at);
+      // Sampled as an edge: chord within d of the line's middle, no longer than the face's edge spacing (both coarser
+      // with PartOptions::edgeSpacingScale, the chord's sag as its square, left to the split rounds).
+      const double spacing = criteria[f]->edgeSpacing() * o.edgeSpacingScale;
+      const double sag = o.d.linear * o.edgeSpacingScale * o.edgeSpacingScale;
+      for (CreasePiece& P : creases[f]) {
+        std::sort(P.s.begin(), P.s.end());
+        std::vector<double> out{P.s.front()};
+        std::function<void(double, double, int)> sample = [&](double a, double b, int depth) {
+          SurfacePoint pa, pb, pm;
+          const Vec2 ua = creaseUv(P, a), ub = creaseUv(P, b), um = creaseUv(P, 0.5 * (a + b));
+          bool split = depth < 24 && s.eval(ua.x, ua.y, 0, pa) == Status::ok && s.eval(ub.x, ub.y, 0, pb) ==
+            Status::ok && s.eval(um.x, um.y, 0, pm) == Status::ok;
+          split = split && (norm(pm.p - 0.5 * (pa.p + pb.p)) > sag || norm(pb.p - pa.p) > spacing);
+          if (split) sample(a, 0.5 * (a + b), depth + 1), sample(0.5 * (a + b), b, depth + 1);
+          else out.push_back(b);
+        };
+        for (size_t i = 0; i + 1 < P.s.size(); i++) sample(P.s[i], P.s[i + 1], 0);
+        P.s = std::move(out);
+      }
+      std::vector<SurfaceCriteria::Crease> lines;
+      for (CreasePiece& P : creases[f]) {
+        P.near = 1e-9 * (1 + std::fabs(P.at));
+        lines.push_back({P.isoU, P.at, P.near});
+      }
+      // And the box's sides on a break of a surface going on past them (trj3's #1307: u = 6, a C0 knot inside its
+      // B-spline): normals there from inside, not from the span beyond. (Not elsewhere: a pole line's are limits.)
+      const SurfaceDomain D = s.domain();
+      bool sideU[2] = {false, false}, sideV[2] = {false, false};
+      for (int k = 0; k < 4; k++) {
+        const bool isoU = k < 2;
+        const double a = isoU ? (k == 0 ? ru.lo : ru.hi) : (k == 2 ? rv.lo : rv.hi);
+        const Range dom = isoU ? D.u : D.v, other = isoU ? rv : ru;
+        const double w = 1e-3 * box;
+        const Range near{std::max(dom.lo, a - w), std::min(dom.hi, a + w)};
+        if (!(near.lo < a && a < near.hi)) continue;
+        std::vector<double> us, vs;
+        s.breaks(isoU ? near : other, isoU ? other : near, us, vs);
+        const std::vector<double>& b = isoU ? us : vs;
+        if (std::find(b.begin(), b.end(), a) == b.end()) continue;
+        lines.push_back({isoU, a, 1e-9 * (1 + std::fabs(a))});
+        (isoU ? sideU : sideV)[k % 2] = true;
+      }
+      criteria[f]->setCreases(lines);
+      faceBox[f] = {{sideU[0] ? ru.lo : -INFINITY, sideU[1] ? ru.hi : INFINITY},
+        {sideV[0] ? rv.lo : -INFINITY, sideV[1] ? rv.hi : INFINITY}};
+    }
+    if (!exact.empty()) em->split(exact);
+  }
+
   bool spanOf(int f, const BoundaryPoint& a, const BoundaryPoint& b, int& edge, int& span, bool& forward) const {
     auto same = [](Vec3 x, Vec3 y) { return x.x == y.x && x.y == y.y && x.z == y.z; };
     for (int e : edgesOf[f]) {
@@ -516,6 +705,7 @@ struct PartMesher::Impl {
     out = {};
     refused[f].clear();
     wanted[f].clear();
+    if (f < static_cast<int>(creaseSplits.size())) creaseSplits[f].clear();
     edgesOf[f].clear();
     if (!surfaces[f]) {
       out.cause = "its surface not made (a kind or form cad-geom lacks)";
@@ -538,6 +728,18 @@ struct PartMesher::Impl {
     }
     out.againstSense = fb.againstSense;
     out.foldsRepaired = fb.foldsRepaired;
+    // A crease's end on the boundary: the loop's sample there put on the crease's line in this face's (u, v) (its 3D
+    // point the edge's, shared; moved within the face's tolerance), so no triangle beside the end crosses the line.
+    if (f < static_cast<int>(creases.size()))
+      for (const CreasePiece& P : creases[f])
+        for (int e = 0; e < 2; e++) {
+          BoundaryPoint b;
+          if (P.endEdge[e] < 0 || !boundaryPoint(fb, P.endEdge[e], P.endT[e], b)) continue;
+          for (auto& L : fb.loops)
+            for (BoundaryPoint& p : L)
+              if (p.point.x == b.point.x && p.point.y == b.point.y && p.point.z == b.point.z)
+                (P.isoU ? p.uv.x : p.uv.y) = P.at;
+        }
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
     std::vector<Fan> fans;
     if (fb.status == Status::ok) fans = makeFans(f, fb);
@@ -563,6 +765,32 @@ struct PartMesher::Impl {
       for (const BoundaryPoint& p : c) chain.push_back(index(p));
       for (size_t i = 0; i + 1 < chain.size(); i++) d.segments.insert(d.segments.end(), {chain[i], chain[i + 1]});
     }
+    // Its creases' chains: interior constraints too, an end on the boundary the loop's own sample there. Each
+    // segment's (piece, k), for the splits the mesher asks of it; each point's lines, for its normals by side.
+    std::map<std::pair<int32_t, int32_t>, std::pair<int, int>> creaseSegment;
+    std::map<int32_t, std::vector<std::pair<bool, double>>> onCrease;
+    if (f < static_cast<int>(creases.size()))
+      for (size_t k = 0; k < creases[f].size(); k++) {
+        const CreasePiece& P = creases[f][k];
+        std::vector<int32_t> chain;
+        for (size_t i = 0; i < P.s.size(); i++) {
+          const int end = i == 0 ? 0 : i + 1 == P.s.size() ? 1 : -1;
+          BoundaryPoint b;
+          if (!(end >= 0 && P.endEdge[end] >= 0 && boundaryPoint(fb, P.endEdge[end], P.endT[end], b))) {
+            b.kind = BoundaryPoint::vertexPoint, b.uv = creaseUv(P, P.s[i]);
+            SurfacePoint q;
+            surfaces[f]->eval(b.uv.x, b.uv.y, 0, q);
+            b.point = q.p;
+          }
+          chain.push_back(index(b));
+          onCrease[chain.back()].push_back({P.isoU, P.at});
+        }
+        for (size_t i = 0; i + 1 < chain.size(); i++) {
+          d.segments.insert(d.segments.end(), {chain[i], chain[i + 1]});
+          creaseSegment[{std::min(chain[i], chain[i + 1]), std::max(chain[i], chain[i + 1])}] =
+            {static_cast<int>(k), static_cast<int>(i)};
+        }
+      }
     // Its edges: its loops' model edges, and the pseudo-edges its boundary has.
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
@@ -654,6 +882,8 @@ struct PartMesher::Impl {
       auto [a, b] = segs[w.segment];
       if (spanOf(f, bp[a], bp[b], edge, span, forward))
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
+      else if (auto c = creaseSegment.find({std::min(a, b), std::max(a, b)}); c != creaseSegment.end())
+        creaseSplits[f].insert(c->second);
       else
         blocked = blocked || ringSegments.count({std::min(a, b), std::max(a, b)});
     }
@@ -661,7 +891,7 @@ struct PartMesher::Impl {
     out.ringBlocked = ringBlocked[f];
     // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
-    out.splitsWanted = static_cast<int>(wanted[f].size());
+    out.splitsWanted = static_cast<int>(wanted[f].size() + creaseSplits[f].size());
     out.sampled = !criteria[f]->bounded();
     // In 3D: the boundary's points exactly, the mesher's on the surface.
     const Surface& s = *surfaces[f];
@@ -678,9 +908,19 @@ struct PartMesher::Impl {
         s.eval(mesh.points[i].x, mesh.points[i].y, 0, q);
         out.points[i] = q.p;
       }
-      // (At a singular point, the limit where the surface gives one: surface.h's normal() with Status::singular.)
+      // (At a singular point, the limit where the surface gives one: surface.h's normal() with Status::singular. On
+      // the box's side, from inside: the surface may go on past a C0 line there, findFaceCreases.)
+      Vec2 at = mesh.points[i];
+      if (f < static_cast<int>(faceBox.size())) {
+        const auto [bu, bv] = faceBox[f];
+        auto in = [](double& x, Range r) {
+          if (x == r.lo) x = r.lo + 1e-9 * (1 + std::fabs(r.lo));
+          else if (x == r.hi) x = r.hi - 1e-9 * (1 + std::fabs(r.hi));
+        };
+        in(at.x, bu), in(at.y, bv);
+      }
       Vec3 nn;
-      Status ns = s.normal(mesh.points[i].x, mesh.points[i].y, nn);
+      Status ns = s.normal(at.x, at.y, nn);
       if ((ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) && std::fabs(norm(nn) - 1) < 1e-9) {
         out.normals[i] = sense * nn;
         regular[i] = 1;
@@ -688,16 +928,55 @@ struct PartMesher::Impl {
     }
     auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
     std::set<int32_t> refusedHere(mesh.rejected.begin(), mesh.rejected.end());
+    // A point on a crease: a copy per side of its lines a triangle lies on, each with its side's normal (the
+    // surface's there one-sided), the first side met keeping the point itself.
+    std::map<std::pair<int32_t, int>, int32_t> sideCopy;
+    auto bySide = [&](int32_t v, const int32_t* tri) -> int32_t {
+      auto it = onCrease.find(v);
+      if (it == onCrease.end()) return v;
+      const Vec2 g{(mesh.points[tri[0]].x + mesh.points[tri[1]].x + mesh.points[tri[2]].x) / 3,
+        (mesh.points[tri[0]].y + mesh.points[tri[1]].y + mesh.points[tri[2]].y) / 3};
+      Vec2 q = mesh.points[v];
+      int key = 0;
+      for (size_t l = 0; l < it->second.size() && l < 8; l++) {
+        auto [isoU, at] = it->second[l];
+        const double side = isoU ? g.x : g.y;
+        if (side == at) continue;
+        (isoU ? q.x : q.y) = at + (side > at ? 1 : -1) * 1e-9 * (1 + std::fabs(at));
+        key |= (side > at ? 1 : 2) << (2 * l);
+      }
+      Vec3 nn;
+      const Status ns = s.normal(q.x, q.y, nn);
+      const bool reg = (ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) &&
+        std::fabs(norm(nn) - 1) < 1e-9;
+      auto [c, added] = sideCopy.try_emplace({v, key}, v);
+      if (added) {
+        bool first = true;
+        for (const auto& [k, w] : sideCopy) first = first && !(k.first == v && k.second != key);
+        if (!first) {
+          c->second = static_cast<int32_t>(out.points.size());
+          out.points.push_back(out.points[v]);
+          out.normals.push_back(Vec3{0, 0, 0});
+          regular.push_back(0);
+        }
+        if (reg) out.normals[c->second] = sense * nn, regular[c->second] = 1;
+      }
+      return c->second;
+    };
     for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
       int32_t a = mesh.triangles[t], b = mesh.triangles[t + 1], c = mesh.triangles[t + 2];
       if (samePoint(out.points[a], out.points[b]) || samePoint(out.points[b], out.points[c]) ||
         samePoint(out.points[a], out.points[c]))
         continue;  // two corners on a pole line: no triangle in 3D
+      const Vec2 uvTri[3] = {mesh.points[a], mesh.points[b], mesh.points[c]};
+      if (!onCrease.empty()) {
+        const int32_t* tri = &mesh.triangles[t];
+        a = bySide(a, tri), b = bySide(b, tri), c = bySide(c, tri);
+      }
       if (refusedHere.count(static_cast<int32_t>(t / 3))) {
         out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
-        const Vec2 tri[3] = {mesh.points[a], mesh.points[b], mesh.points[c]};
-        out.refusedBy[static_cast<int>(criteria[f]->refusal(tri))]++;
-        refused[f].push_back({{tri[0], tri[1], tri[2]}, {a, b, c}});
+        out.refusedBy[static_cast<int>(criteria[f]->refusal(uvTri))]++;
+        refused[f].push_back({{uvTri[0], uvTri[1], uvTri[2]}, {a, b, c}});
       }
       // Counterclockwise in (u, v) is about S_u x S_v: turned where the face's normal is the opposite.
       if (sense > 0) out.triangles.insert(out.triangles.end(), {a, b, c});
@@ -774,6 +1053,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.mesherTriangles.assign(nf, 0);
   I.ringBlocked.assign(nf, 0);
   I.refused.resize(nf);
+  I.creases.assign(nf, {}), I.creaseSplits.assign(nf, {});
   const cadgeom::Tolerances tols(m);
   I.floor = refinementFloor(tols.part(), I.o.d.linear);
   for (int f = 0; f < nf; f++) {
@@ -834,6 +1114,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
           if (seen.insert({c.edge, c.approach, c.crossing}).second) cuts.push_back(c);
     if (!cuts.empty()) I.em->cutRings(cuts);
   }
+  if (I.o.creases) I.findFaceCreases();
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
   for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
   for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
@@ -843,21 +1124,32 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     for (int f = 0; f < nf; f++)
       for (const SplitRequest& r : I.wanted[f])
         if (seen.insert({r.edge, r.span}).second) requests.push_back(r);
-    if (requests.empty()) break;
+    // And the creases' segments the faces asked split: a sample at the middle, the face meshed again.
+    std::set<int> creased;
+    for (int f = 0; f < nf && f < static_cast<int>(I.creaseSplits.size()); f++) {
+      if (I.creaseSplits[f].empty()) continue;
+      for (auto it = I.creaseSplits[f].rbegin(); it != I.creaseSplits[f].rend(); ++it) {
+        std::vector<double>& cs = I.creases[f][it->first].s;
+        const size_t k = static_cast<size_t>(it->second);
+        if (k + 1 < cs.size()) cs.insert(cs.begin() + k + 1, 0.5 * (cs[k] + cs[k + 1]));
+      }
+      creased.insert(f);
+    }
+    if (requests.empty() && creased.empty()) break;
     I.report({PartProgress::splitting, -1, I.rounds + 1, 0, static_cast<int>(requests.size())});
     // Only the edges the split changed: it drops a request inside a pole's ring or on a span within the refinement
     // floor (EdgeMesh::split), and a face whose edges didn't change would mesh to the same bits again, asking the
-    // same. None changed: the rounds end.
+    // same. None changed (and no crease split): the rounds end.
     std::map<int, size_t> before;
     for (const SplitRequest& r : requests) before.emplace(r.edge, I.em->edge(r.edge).t.size());
-    I.em->split(requests);
+    if (!requests.empty()) I.em->split(requests);
     std::set<int> touched;
     for (auto [e, n] : before)
       if (I.em->edge(e).t.size() != n) touched.insert(e);
-    if (touched.empty()) break;
+    if (touched.empty() && creased.empty()) break;
     std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
-      bool again = false;
+      bool again = creased.count(f) > 0;
       for (int e : touched) again = again || I.edgesOf[f].count(e);
       if (again) redo.push_back(f);
     }

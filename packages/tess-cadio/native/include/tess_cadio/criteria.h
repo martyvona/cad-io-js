@@ -60,6 +60,16 @@ public:
    */
   virtual double edgeSpacing() const = 0;
   /**
+   * A crease inside the face: the iso-line u = at (isoU) or v = at where its normal jumps; a point within `near` of it
+   * in that coordinate (the face's (u, v) tolerance: a boundary point there is the loop's) is on it.
+   */
+  struct Crease {
+    bool isoU;
+    double at, near;
+  };
+  /** The face's creases, for the normals: a triangle's corner on one takes its normal from the triangle's side. */
+  virtual void setCreases(std::vector<Crease> lines) = 0;
+  /**
    * Whether accept() has bounded every triangle's deviation from the surface it judged so far (by derivative bounds
    * or a distance function) rather than sampling it: false for the kinds it samples (extrusions, revolutions,
    * offsets) and wherever a bound wasn't available (near a cone's apex).
