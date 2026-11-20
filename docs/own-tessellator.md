@@ -307,6 +307,33 @@ Each to be put to the user when its step comes, with these alternatives and what
 - **Ray classification or volume sign** for orienting shells on the model, once both exist.
 - **Where derived values live (decided):** a companion analysis buffer keyed by the model's rows and tied to it by the model's hash ("The input": B), so the canonical model stays exactly as imported and the oracle, healing and the tessellator share one record. The alternatives were analysis tables in the model's buffer (A: one object, but source and derived facts in one format and a format bump per new analysis) and values computed in each consumer (C: no format work, nothing shared outside the module).
 
+## Cases to inspect
+
+Particular files, parts and faces, by what they show, for the user to look at in the viewer (each backend, healing on and off) when drawing the line between input beyond repair and input to mesh. Parts are STEP instance ids of the part's shape (`#n`), faces their `ADVANCED_FACE` ids; files are in `test_corpus/files.txt` unless under `test_corpus/models/`. Each entry says what was measured, at which profile and commit where it matters; `corpus_checks/coverage_corpus.log` has the whole list of faces by cause.
+
+### Input that looks beyond repair
+
+- `bug29979_firetherm_12.step` part #174483: 10 faces fail with "a use of an edge whose curve is far off its face's surface", their edges 7.5 to 262 mm off both their faces, bare lines with no p-curves, vertices off too (edges #417105, a vertical 8.5 mm line 152 to 200 mm off faces #279826 and #311928; #53724, 18.5 to 84 mm off #195244 and #271606; #307458, #274916, #115892). OCCT and SMLib mesh all ten, presumably by projecting the lines onto the surfaces; their triangles not yet looked at.
+
+### Where OCCT or SMLib seem wrong and ours right
+
+- `Median_cx-fs01_bicycle.stp` face #21557: a B-spline tube band between two full circles (two outer bounds) less a lens-shaped hole. Ours 3,512 mm^2 exact, 3,510 meshed; OCCT's mesh 401 (STEP route) and 386 (native), its measure 132; SMLib's measure 637. The bicycle's shell closes to 0.16 with ours (of 119,063 mm^2), open by 149 with OCCT's mesh of this face (`docs/backends.md`).
+- `bug24593_285330.stp` part #13: 6 B-spline faces OCCT meshes with 43 to 65% of their area past the angle, 3 of them past d. Ours fails them for 5 to 15 triangles turned against the surface (within d, 0.2% of their area past the angle, with the failure off).
+
+### Faces ours fails
+
+- Triangles turned against the surface on faces otherwise within max(d, tol): 125 faces at medium (t4-criteria 95d6052, the failures off), being fixed. The worst, `bug30014.stp` part #61091 face #125217: a strip 5e-4 wide in u against 1 in v, slivers edge-on to the surface, 98.7% of its area past the angle, 654 triangles against OCCT's 25 and SMLib's 15. `LMP1.step` face #1042701: 275 turned triangles near a pole, of 125,340.
+- `trj3_s1-al-214.stp` part #6704: 13 faces, pole and boundary faults, after its six creased faces were fixed.
+- `bug24383_224013.stp` part #11: 63 faces, not yet classified (its source has a stray B-spline pole, which healing moves).
+- `as1_motor.step` parts #3728 (14 faces) and #6322 (19).
+
+### Parts ours is slow on
+
+Over 120 s of CPU each, alone, at medium (own-tessellator a5357bf):
+- `t4mec.stp` #9 (125 s), `sit-stand` (`test_corpus/models/`, all three files) #1663 (175 s), `as1_motor.step` #3728 (154 s, a third in the triangulation): the B-spline deviation bounds, mostly.
+- Over 300 s: `as1_motor.step` #1070, `bm2_ec_exhaust-A.stp` #9, `trj4_pm2-ec-214.stp` #5727, `trj6_pm4-ec-203.stp` #23172.
+- Edge projection: `trj6_b1-ec-214.stp` #10 (134 s) and `bug29979_firetherm_12.step` #206858 (over 300 s).
+
 ## What exists to build on
 
 - `cad-brep`'s evaluators and closed-form inverses (`geometry.ts`), `edgeParams`, `faceOutlines`, the clamping of B-splines (`clamp.ts`), the bake of similarities (`bake.ts`).
