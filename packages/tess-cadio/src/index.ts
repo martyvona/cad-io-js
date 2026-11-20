@@ -150,7 +150,7 @@ export interface CadioInitOptions {
   /**
    * The smallest angle refinement aims for in each face's triangles, in radians (part.h's PartOptions::minAngle;
    * default 10 degrees, pi / 18; at most 30 degrees, more clamped; 0 none): the triangles' shape, which neither
-   * deflection asks for.
+   * deflection asks for. A request's minAngle (TessellationRequest) takes its place for that request.
    */
   minAngle?: number;
 }
@@ -246,7 +246,8 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_max_points(this.maxPoints);
-    m._tc_set_min_angle(this.minAngle);
+    // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)
+    m._tc_set_min_angle(req.minAngle ?? this.minAngle);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);

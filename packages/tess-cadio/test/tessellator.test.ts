@@ -247,6 +247,13 @@ test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by defau
   assert.equal(byDefault, tenDegrees);
   assert.notEqual(byDefault, none);
   assert.ok(shaped > byDefault && shaped > none, `${none}, ${byDefault}, ${shaped}`);
+  // A request's own minAngle (cad-scene's TessellationRequest) in place of init's, for that request.
+  const t = new CadioTessellator();
+  await t.init();
+  const own = async (minAngle: number) =>
+    (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01, minAngle })).indices.length / 3;
+  assert.equal(await own(0.5), shaped);
+  assert.equal(await own(0), none);
 });
 
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +

@@ -46,13 +46,16 @@ export async function keyPrefix(info: TessellatorInfo): Promise<{ backend: strin
 
 /**
  * The key for a request to a backend: the backend's prefix (`keyPrefix`), then SHA-256 (hex) over the cache format,
- * the backend's name and version, the request's options and its payload. Not whether it asks for edges or measures:
- * a backend's triangles don't depend on them (`Tessellator`), so one entry serves requests with and without.
+ * the backend's name and version, the request's options (its minAngle where given) and its payload. Not whether it
+ * asks for edges or measures: a backend's triangles don't depend on them (`Tessellator`), so one entry serves requests
+ * with and without.
  */
 export async function cacheKey(info: TessellatorInfo, req: TessellationRequest): Promise<string> {
   const head = new TextEncoder().encode(JSON.stringify([
     FORMAT, info.name, info.version, req.format, req.rootId ?? null, req.origin ?? [0, 0, 0],
     req.linearDeflection, req.angularDeflection,
+    // (Only where given: a request without one keys as before, its backend's default.)
+    ...(req.minAngle !== undefined ? [req.minAngle] : []),
   ]));
   const all = new Uint8Array(head.length + 1 + req.data.length);
   all.set(head);
