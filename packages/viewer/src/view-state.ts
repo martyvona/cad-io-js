@@ -24,7 +24,8 @@ import type { ViewName } from './camera.ts';
 import { AXES, type Axis, type PlaneSettings } from './section.ts';
 import type { PickLevel } from './selection.ts';
 import { HEAL_FIXES, type HealFix } from 'cad-heal/options';
-import { defaultFixes, type TessellationSettings } from './tessellation.ts';
+import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
+import { BACKEND_NAMES, defaultFixes, usesCadio, type Backend, type TessellationSettings } from './tessellation.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 
 export type Vec3 = [number, number, number];
@@ -221,6 +222,44 @@ export function renderChanges(r: RenderSettings): Partial<RenderSettings> {
     if (r[k] !== DEFAULT_RENDER[k]) (out as Record<string, unknown>)[k] = r[k];
   }
   return out;
+}
+
+/**
+ * The backends from the address, for the model it opens (address only, as healing): `backend=` and `fallback=` (a
+ * backend, or `none`), `minAngle=` tess-cadio's smallest angle in degrees, `keepFailing=1` its debugging switch; what's
+ * malformed is left out, with a message for each, as is minAngle or keepFailing where tess-cadio wouldn't mesh (the
+ * backends then the address's, else the settings' `current`).
+ */
+export function backendsFromQuery(params: URLSearchParams, current: Pick<TessellationSettings, 'backend' |
+  'fallback'>): { meshing?: Partial<Pick<TessellationSettings, 'backend' | 'fallback' | 'minAngle' | 'keepFailing'>>;
+  problems: string[] } {
+  const problems: string[] = [];
+  const out: Partial<Pick<TessellationSettings, 'backend' | 'fallback' | 'minAngle' | 'keepFailing'>> = {};
+  const backend = params.get('backend'), fallback = params.get('fallback');
+  if (backend !== null) {
+    if ((BACKEND_NAMES as readonly string[]).includes(backend)) out.backend = backend as Backend;
+    else problems.push(`backend: not one of ${BACKEND_NAMES.join(', ')}: ${backend}`);
+  }
+  if (fallback !== null) {
+    if (fallback === 'none' || (BACKEND_NAMES as readonly string[]).includes(fallback)) {
+      out.fallback = fallback as Backend | 'none';
+    } else problems.push(`fallback: not one of ${BACKEND_NAMES.join(', ')}, none: ${fallback}`);
+  }
+  const cadio = usesCadio({ backend: out.backend ?? current.backend, fallback: out.fallback ?? current.fallback });
+  const min = params.get('minAngle');
+  if (min !== null) {
+    const v = Number(min);
+    if (min.trim() === '' || !Number.isFinite(v) || v < 0 || v > MAX_MIN_ANGLE_DEGREES) {
+      problems.push(`minAngle: not a number of degrees from 0 to ${MAX_MIN_ANGLE_DEGREES}: ${min}`);
+    } else if (!cadio) problems.push('minAngle: only tess-cadio (backend=cadio or fallback=cadio) reads it: ignored');
+    else out.minAngle = v;
+  }
+  const keep = bool(params.get('keepFailing'));
+  if (keep !== undefined) {
+    if (keep && !cadio) problems.push('keepFailing: only tess-cadio (backend=cadio or fallback=cadio) has it: ignored');
+    else out.keepFailing = keep;
+  }
+  return Object.keys(out).length ? { meshing: out, problems } : { problems };
 }
 
 /**

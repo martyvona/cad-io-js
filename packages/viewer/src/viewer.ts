@@ -37,7 +37,8 @@ import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
 import type { ImportProgress } from 'step-import';
-import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
+import { clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
+  from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
 
@@ -88,13 +89,17 @@ export interface MeshedWith {
   /** Whether the models were healed, and with which fixes. */
   heal: boolean;
   healFixes: TessellationSettings['healFixes'];
+  /** tess-cadio's smallest angle (degrees) and its debugging switch (each read only where tess-cadio meshed). */
+  minAngle: number;
+  keepFailing: boolean;
 }
 
 /** The settings' MeshedWith (copies). */
 export function meshedWithOf(s: TessellationSettings): MeshedWith {
-  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes } = s;
+  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes, minAngle,
+    keepFailing } = s;
   return { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal,
-    healFixes: { ...healFixes } };
+    healFixes: { ...healFixes }, minAngle, keepFailing };
 }
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
@@ -1008,7 +1013,7 @@ export class Viewer {
           // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           edges.total = ev.edgeParts;
-          const wanted = meshDeflections(deflectionsOf(this.settings));
+          const wanted = wantedOf(this.settings);
           // In slices of about 30 ms, the page drawing and answering in between (LMP1's 1,251 parts in one task took a
           // second), the status line counting.
           const parts = [...graph.placements.keys()];
@@ -1095,7 +1100,7 @@ export class Viewer {
       this.abortLoad?.();
     }
     model.meshedWith = meshedWithOf(this.settings);
-    const wanted = meshDeflections(deflectionsOf(this.settings));
+    const wanted = wantedOf(this.settings);
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
     model.diagnostics = [...graph.scene.diagnostics];

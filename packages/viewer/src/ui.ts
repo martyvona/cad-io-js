@@ -21,7 +21,8 @@ import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { HEAL_FIXES } from 'cad-heal/options';
-import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
+import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
+import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
@@ -687,9 +688,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     Object.assign(settings, profileSettings(DEVICE_PROFILES[viewer.device]));
     shown();
   });
-  step.add(settings, 'backend', ['occt', 'truck', 'smlib']).name('Backend');
+  step.add(settings, 'backend', [...BACKEND_NAMES]).name('Backend');
   // (For the parts the backend fails; the backend itself counts as none.)
-  step.add(settings, 'fallback', ['none', 'occt', 'truck', 'smlib']).name('Fallback');
+  step.add(settings, 'fallback', ['none', ...BACKEND_NAMES]).name('Fallback');
   step.add(settings, 'profile', { Coarse: 'coarse', Medium: 'medium', Fine: 'fine', Custom: 'custom' })
     .name('Profile').onChange((p: typeof settings.profile) => {
       if (p !== 'custom') Object.assign(settings, profileSettings(p));
@@ -708,6 +709,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add(settings, 'heal').name('Heal B-reps');
   const fixes = step.addFolder('Healing fixes').close();
   for (const f of HEAL_FIXES) fixes.add(settings.healFixes, f);
+  // tess-cadio's own settings (read only where it's the backend or the fallback), under a disclosure, closed; its
+  // debugging switch in a folder of its own, named so.
+  const cadio = step.addFolder('tess-cadio').close();
+  cadio.add(settings, 'minAngle', 0, MAX_MIN_ANGLE_DEGREES, 0.5).name('Min angle (degrees)');
+  cadio.addFolder('Debugging').close().add(settings, 'keepFailing').name('Keep faces that would fail');
   step.add({ reload: () => meshAgain() }, 'reload').name('Mesh again');
   step.add({ defaults: () => assign(defaultSettings(DEVICE_PROFILES[viewer.device])) }, 'defaults').name('Defaults');
   step.add({ clear: () => viewer.clearCache().then(() => say('cache cleared'),

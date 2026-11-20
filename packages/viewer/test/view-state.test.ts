@@ -62,6 +62,60 @@ test('render changes: only what differs from the defaults', () => {
   assert.equal(DEFAULT_RENDER.capStyle, 'parts');
 });
 
+test('backendsFromQuery: backend= and fallback= by name, minAngle= and keepFailing= only where tess-cadio meshes; '
+  + 'what\'s malformed said and left out', async () => {
+  const { backendsFromQuery } = await import('../src/view-state.ts');
+  const occt = { backend: 'occt', fallback: 'smlib' } as const;
+  const cadio = { backend: 'cadio', fallback: 'smlib' } as const;
+  const q = (s: string, cur: { backend: 'occt' | 'cadio'; fallback: 'smlib' } = occt) =>
+    backendsFromQuery(new URLSearchParams(s), cur);
+  assert.deepEqual(q(''), { problems: [] });
+  assert.deepEqual(q('backend=cadio'), { meshing: { backend: 'cadio' }, problems: [] });
+  assert.deepEqual(q('backend=truck&fallback=none'), { meshing: { backend: 'truck', fallback: 'none' }, problems: [] });
+  assert.deepEqual(q('backend=cadio&minAngle=0&keepFailing=1'), { meshing: { backend: 'cadio', minAngle: 0,
+    keepFailing: true }, problems: [] });
+  // The fallback's tess-cadio counts; so do the settings' backends where the address names none.
+  assert.deepEqual(q('fallback=cadio&minAngle=20.5'), { meshing: { fallback: 'cadio', minAngle: 20.5 }, problems: [] });
+  assert.deepEqual(q('keepFailing=1', cadio), { meshing: { keepFailing: true }, problems: [] });
+  assert.deepEqual(q('keepFailing=0'), { meshing: { keepFailing: false }, problems: [] });
+  assert.deepEqual(q('minAngle=5&keepFailing=1'), { problems: [
+    'minAngle: only tess-cadio (backend=cadio or fallback=cadio) reads it: ignored',
+    'keepFailing: only tess-cadio (backend=cadio or fallback=cadio) has it: ignored'] });
+  // A backend of the address's own replaces the settings' tess-cadio.
+  assert.deepEqual(q('backend=occt&minAngle=5', cadio), { meshing: { backend: 'occt' }, problems: [
+    'minAngle: only tess-cadio (backend=cadio or fallback=cadio) reads it: ignored'] });
+  for (const v of ['31', '-1', 'x', '']) {
+    assert.deepEqual(q(`minAngle=${v}`, cadio), { problems: [`minAngle: not a number of degrees from 0 to 30: ${v}`] });
+  }
+  assert.deepEqual(q('backend=ours&fallback=cad'), { problems: ['backend: not one of occt, truck, smlib, cadio: ours',
+    'fallback: not one of occt, truck, smlib, cadio, none: cad'] });
+});
+
+test('the settings\' tess-cadio: its minAngle asked (radians) only where it meshes and not its own default; the '
+  + 'level wanted with it; its debugging switch only where it meshes', async () => {
+  const { defaultSettings, keepsFailing, minAngleOf, usesCadio, wantedOf } = await import('../src/tessellation.ts');
+  const { DEFAULT_MIN_ANGLE_DEGREES } = await import('tess-cadio/options');
+  const d = defaultSettings('medium');
+  assert.equal(d.backend, 'occt');
+  assert.equal(d.fallback, 'smlib');
+  assert.equal(d.minAngle, DEFAULT_MIN_ANGLE_DEGREES);
+  assert.equal(d.keepFailing, false);
+  const s = (o: object) => ({ ...d, ...o });
+  assert.ok(!usesCadio(d) && usesCadio(s({ backend: 'cadio' })) && usesCadio(s({ fallback: 'cadio' })));
+  // (A fallback that is the backend is none.)
+  assert.ok(!usesCadio(s({ backend: 'occt', fallback: 'none' })));
+  assert.equal(minAngleOf(s({ minAngle: 5 })), undefined);
+  assert.equal(minAngleOf(s({ backend: 'cadio' })), undefined);
+  assert.equal(minAngleOf(s({ backend: 'cadio', minAngle: 0 })), 0);
+  assert.equal(minAngleOf(s({ fallback: 'cadio', minAngle: 18 })), Math.PI / 10);
+  assert.equal(minAngleOf({ backend: 'cadio', fallback: 'none' }), undefined, 'an older recording\'s settings');
+  assert.deepEqual(wantedOf(d), { linearDeflection: 0.1, angularDeflection: Math.PI / 12 });
+  assert.deepEqual(wantedOf(s({ backend: 'cadio', minAngle: 0 })), { linearDeflection: 0.1,
+    angularDeflection: Math.PI / 12, minAngle: 0 });
+  assert.ok(!keepsFailing(s({ keepFailing: true })) && keepsFailing(s({ backend: 'cadio', keepFailing: true }))
+    && !keepsFailing(s({ backend: 'cadio' })));
+});
+
 test('healingFromQuery: heal=1 or 0, healOn and healOff from the defaults turning healing on, what\'s malformed '
   + 'said and left out', async () => {
   const { healingFromQuery } = await import('../src/view-state.ts');
