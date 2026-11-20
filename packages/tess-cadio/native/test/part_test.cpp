@@ -15,6 +15,7 @@
 #include <random>
 #include <map>
 #include <memory>
+#include <array>
 #include <set>
 #include <string>
 #include <tuple>
@@ -293,17 +294,59 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("PartOptions::minAngle shapes the mesher's triangles: spheres' at 0.5 rad, fewer and thinner at 0") {
+  CHECK_EQ(PartOptions{}.minAngle, 10 * M_PI / 180);
+  // On the spheres model at d 0.01 the triangles' smallest 3D angle follows the target (0.20 rad at none, 0.26 at
+  // 0.5), at the cost of a few more triangles.
+  cadgeom::Model m = load("spheres");
+  auto run = [&](double a, size_t& tris) {
+    PartOptions o = options(0.01, 0.26);
+    o.minAngle = a;
+    PartMesher pm(m, o);
+    double least = 10;
+    tris = 0;
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& fm = pm.face(f);
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+        const Vec3 p[3] = {fm.points[fm.triangles[t]], fm.points[fm.triangles[t + 1]], fm.points[fm.triangles[t + 2]]};
+        for (int k = 0; k < 3; k++) {
+          const Vec3 u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+          least = std::min(least, std::atan2(cadgeom::norm(cadgeom::cross(u, v)), cadgeom::dot(u, v)));
+        }
+      }
+      tris += fm.triangles.size() / 3;
+    }
+    return least;
+  };
+  size_t none = 0, shaped = 0;
+  const double leastNone = run(0, none), leastShaped = run(0.5, shaped);
+  CHECK(leastShaped > leastNone + 0.03);
+  CHECK(leastShaped > 0.25);
+  CHECK(shaped > none);
+}
+
 TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsettled seam; luneOnSeam's by inversion") {
   {
     cadgeom::Model m = load("spheres");
     PartOptions o = options(1e-3, 0.26);
     o.maxPointsPerFace = 20;
     o.maxDeviationFactor = 0;  // (kept, however far: the cap's mesh is past d)
+    o.failCapped = false;
     PartMesher pm(m, o);
     const FaceMesh& fm = pm.face(1);
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(fm.capped);
     CHECK(!fm.seamUnsettled);
+    // By default it fails, said so, its triangles dropped.
+    o.failCapped = true;
+    PartMesher failed(m, o);
+    const FaceMesh& ff = failed.face(1);
+    CHECK(ff.status == cadgeom::Status::noConvergence);
+    CHECK(ff.capped);
+    CHECK(ff.cause.rfind("refinement stopped at its point cap, ", 0) == 0);
+    CHECK(ff.triangles.empty());
+    CHECK(ff.points.empty());
   }
   {
     cadgeom::Model m = load("luneOnSeam");
@@ -366,6 +409,7 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
     REQUIRE(m.ok());
     PartOptions o = options(c.d, 0.26);
     o.maxPointsPerFace = 0;
+    o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
     o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
     o.maxSplitRounds = 0;
     o.maxDeviationFactor = 0;
@@ -477,6 +521,7 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
   };
   PartOptions o = options(0.1, 0.26);
   o.maxPointsPerFace = 0;
+  o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
   o.maxSplitRounds = 0;
   o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
   const double F = PartOptions{}.maxDeviationFactor;
@@ -609,6 +654,7 @@ TEST_CASE("a face meshed with a triangle turned against its surface fails, said 
   REQUIRE(m.ok());
   PartOptions o = options(0.1, 0.26);
   o.maxPointsPerFace = 0;
+  o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
   o.maxSplitRounds = 0;
   o.maxDeviationFactor = 0;
   PartMesher failing(m, o);
@@ -1877,7 +1923,10 @@ TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's
   for (double d : {0.05}) {
     cadgeom::Model m = load("bentApex");
     REQUIRE(m.ok());
-    PartMesher pm(m, options(d, 0.26));
+    // (At 0.35 rad: at the 10-degree default one round's refinement asks a ring segment split, the mesh as good.)
+    PartOptions o = options(d, 0.26);
+    o.minAngle = 0.35;
+    PartMesher pm(m, o);
     const FaceMesh& fm = pm.face(0);
     REQUIRE(fm.status == cadgeom::Status::ok);
     cadgeom::Status st;
@@ -1904,6 +1953,32 @@ TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's
   PartMesher pm(m, po);
   CHECK(pm.face(0).ringBlocked >= 2);
   CHECK(pm.face(0).ringBlocked <= pm.rounds() + 1);
+}
+
+TEST_CASE("a pole inside the fixed coordinate's range: revolvedLineCone's ring on the face's side, up to the apex") {
+  // The revolved line's apex is at v = 2 sqrt 2 in an infinite v range, the surface on both sides of it: the ring on
+  // the face's side (towards the circle at z = 1), not towards the other nappe. Meshed with the default checks, none
+  // refused, every point between z = 1 and the apex, one at it, the area within the deflection's worth of pi sqrt 2.
+  cadgeom::Model m = load("revolvedLineCone");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.01, 10 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  revolvedLineCone: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.rejected.empty());
+  double zlo = INFINITY, zhi = -INFINITY, apex = INFINITY, area = 0;
+  for (const Vec3& q : fm.points)
+    zlo = std::min(zlo, q.z), zhi = std::max(zhi, q.z), apex = std::min(apex, cadgeom::norm(q - Vec3{0, 0, 2}));
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+    const Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+    area += 0.5 * cadgeom::norm(cadgeom::cross(b - a, c - a));
+  }
+  CHECK(zlo > 1 - 1e-9);
+  CHECK(zhi < 2 + 1e-9);
+  CHECK(apex < 1e-9);
+  // (A chordal mesh's area is a little under the surface's: by about d over the perimeter, 2 pi x 0.01.)
+  CHECK(area < M_PI * M_SQRT2 + 1e-9);
+  CHECK(area > M_PI * M_SQRT2 - 2 * M_PI * 0.01);
 }
 
 TEST_CASE("one ring per pole across faces: poleLunes' two lunes meet at a pole, both rings at the smaller's reach") {
@@ -2159,6 +2234,348 @@ TEST_CASE("an edge off its surface, its feet nearly affine (Iron.step #47's kind
       std::printf("  affineFeetOff at %g: %g from its feet, %zu triangles against inversion's %zu\n", d, worst, a, b);
     CHECK(worst <= 0.05 * d);
     CHECK(a <= 1.1 * b && a >= 0.9 * b);
+  }
+}
+
+TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit for bit as asking the criteria again") {
+  // Parts whose faces are meshed again in split rounds (edges 4 times coarser than the faces want, a band's hole, a
+  // cusp), and some meshed once.
+  struct Case {
+    const char* name;
+    double d, angle, scale;
+  };
+  const Case cases[] = {{"seamCylinder", 0.01, 0.26, 4}, {"band", 0.01, 0.26, 4}, {"spheres", 0.01, 0.26, 4},
+    {"twisted", 0.01, 0.26, 4}, {"bandHoleAtVertex", 0.01, 0.26, 1}, {"cuspPocket", 0.3, 0.12, 1},
+    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}};
+  for (const Case& c : cases) {
+    cadgeom::Model m = load(c.name);
+    PartOptions o = options(c.d, c.angle), fresh = o;
+    o.edgeSpacingScale = fresh.edgeSpacingScale = c.scale;
+    fresh.reuseVerdicts = false;
+    // And within a budget of 64 KB: the least recently meshed faces' dropped, then nothing more kept.
+    PartOptions tight = o;
+    tight.verdictBudget = 64 << 10;
+    PartMesher a(m, o), b(m, fresh), t(m, tight);
+    CHECK_EQ(a.rounds(), b.rounds());
+    CHECK_EQ(t.rounds(), b.rounds());
+    CHECK_EQ(b.verdictPeak(), 0u);
+    CHECK(t.verdictPeak() <= tight.verdictBudget);
+    CHECK(a.verdictPeak() > 0u);
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &z = t.face(f), &y = b.face(f);
+      bool same = z.status == y.status && z.triangles == y.triangles && z.rejected == y.rejected &&
+        z.points.size() == y.points.size();
+      for (size_t i = 0; same && i < z.points.size(); i++) same = key(z.points[i]) == key(y.points[i]);
+      if (!same) std::printf("  %s face %d differs within the budget\n", c.name, f);
+      CHECK(same);
+    }
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &x = a.face(f), &y = b.face(f);
+      bool same = x.status == y.status && x.triangles == y.triangles && x.rejected == y.rejected &&
+        x.splitsWanted == y.splitsWanted && x.sampled == y.sampled && x.points.size() == y.points.size();
+      for (size_t i = 0; same && i < x.points.size(); i++)
+        same = key(x.points[i]) == key(y.points[i]) && key(x.normals[i]) == key(y.normals[i]);
+      if (!same) std::printf("  %s face %d differs (rounds %d)\n", c.name, f, a.rounds());
+      CHECK(same);
+    }
+  }
+}
+
+TEST_CASE("the rounds end once no split changes an edge: passBy's face still asks a split EdgeMesh::split drops") {
+  // (Meshing it again on the same edges would ask the same, every round to the cap.)
+  cadgeom::Model m = load("passBy");
+  PartOptions o = options(0.1, 0.26);
+  o.maxDeviationFactor = 0;
+  PartMesher pm(m, o);
+  int wanting = 0;
+  for (int f = 0; f < m.faces(); f++)
+    wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
+  CHECK(wanting > 0);
+  CHECK_EQ(pm.rounds(), 0);
+}
+
+namespace {
+// A roof's mesh against its ridge (x = 5): triangles across it (corners either side by more than rounding), refused
+// ones, turned-over ones (a facet against a corner's normal), and its points on the ridge by their normals' side.
+struct RoofCount {
+  int across = 0, refused = 0, turned = 0, left = 0, right = 0;
+};
+RoofCount roofCount(const FaceMesh& fm) {
+  RoofCount c;
+  c.refused = static_cast<int>(fm.rejected.size());
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+    const int32_t* v = &fm.triangles[t];
+    bool lo = false, hi = false, turned = false;
+    const Vec3 g = cadgeom::cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+    for (int k = 0; k < 3; k++) {
+      lo = lo || fm.points[v[k]].x < 5 - 1e-9, hi = hi || fm.points[v[k]].x > 5 + 1e-9;
+      turned = turned || cadgeom::dot(g, fm.normals[v[k]]) < 0;
+    }
+    c.across += lo && hi, c.turned += turned;
+  }
+  for (size_t i = 0; i < fm.points.size(); i++)
+    if (std::fabs(fm.points[i].x - 5) <= 1e-9) (fm.normals[i].x < 0 ? c.left : c.right)++;
+  return c;
+}
+}  // namespace
+
+TEST_CASE("creases as constraints: a roof's ridge kept by the mesh, crossed at its sides (an edge sample placed "
+  "there before the first meshing, or a vertex at a junction), its points a normal for each side") {
+  for (const char* name : {"roof", "roofJunction", "roofJunctionAt"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.01, 0.26);
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    if (c.across || c.refused || c.turned || c.left != c.right || fm.triangles.size() / 3 > 16)
+      std::printf("  %s: %zu triangles, %d across, %d refused, %d turned, ridge points %d left %d right\n", name,
+        fm.triangles.size() / 3, c.across, c.refused, c.turned, c.left, c.right);
+    CHECK_EQ(c.across, 0);
+    CHECK_EQ(c.refused, 0);
+    CHECK_EQ(c.turned, 0);
+    CHECK(c.left >= 2);
+    CHECK_EQ(c.left, c.right);
+    CHECK(fm.triangles.size() / 3 <= 16u);  // (two planes: nothing to refine)
+    // Without: the triangles across the ridge, refused (refinement chasing them to its cap).
+    o.creases = false;
+    o.failCapped = false;
+    o.maxPointsPerFace = 2000;
+    PartMesher plain(m, o);
+    CHECK(roofCount(plain.face(0)).refused > 0);
+  }
+}
+
+TEST_CASE("a crease past half the angle is one: roofShallow's ridge turns 12 degrees, under the profile's 15") {
+  // (Under the angle but close to it, a triangle across the ridge has no room left for anything else: refined
+  // toward it without end.)
+  cadgeom::Model m = load("roofShallow");
+  PartMesher pm(m, options(0.001, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const RoofCount c = roofCount(fm);
+  CHECK_EQ(c.across, 0);
+  CHECK(c.left > 0);
+  CHECK_EQ(c.left, c.right);
+}
+
+TEST_CASE("creases crossing, and one curved in 3D: the hip roof's two ridges share their crossing; the arched "
+  "roof's ridge sampled as an edge is (none asked split), and 4 times coarser (edgeSpacingScale) split in the rounds") {
+  {
+    cadgeom::Model m = load("roofCross");
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofCross: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    // (Each ridge a crease only where its jump passes half the angle: they fade toward the sides, flat there.)
+    int onU = 0, onV = 0, centre = 0;
+    for (const Vec3& p : fm.points) {
+      onU += std::fabs(p.x - 5) <= 1e-9 && std::fabs(p.y - 4) > 1e-9;
+      onV += std::fabs(p.y - 4) <= 1e-9 && std::fabs(p.x - 5) > 1e-9;
+      centre += std::fabs(p.x - 5) <= 1e-9 && std::fabs(p.y - 4) <= 1e-9;
+    }
+    CHECK(onU > 0);
+    CHECK(onV > 0);
+    CHECK(centre >= 2);  // (the crossing: one point, a copy per side)
+    CHECK(fm.rejected.empty());
+  }
+  for (double scale : {1.0, 4.0}) {
+    cadgeom::Model m = load("roofArched");
+    PartOptions o = options(0.01, 0.26);
+    o.edgeSpacingScale = scale;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofArched: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    if (c.across || c.refused || fm.splitsWanted || (scale == 1) != (pm.rounds() == 0))
+      std::printf("  roofArched x %g: %zu triangles, %d across, %d refused, %d rounds, ridge points %d\n", scale,
+        fm.triangles.size() / 3, c.across, c.refused, pm.rounds(), c.left);
+    CHECK_EQ(c.across, 0);
+    CHECK_EQ(c.refused, 0);
+    CHECK_EQ(fm.splitsWanted, 0);
+    if (scale == 1) CHECK_EQ(pm.rounds(), 0);
+    else CHECK(pm.rounds() > 0);
+  }
+}
+
+TEST_CASE("inexact boundaries, as within a coarse tolerance: a crease's end at a corner the loop reaches along the "
+  "ridge (roofNotch: its sample found by its point, the loop labelling it the edge before); an end whose sample's "
+  "(u, v) is off the line (roofBent's bowed p-curves, the part's uncertainty 0.05 mm: put on it)") {
+  {
+    cadgeom::Model m = load("roofNotch");
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofNotch: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    CHECK_EQ(c.across, 0);
+    CHECK_EQ(c.refused, 0);
+  }
+  {
+    const tessfixtures::Model* t = tessfixtures::model("roofBent");
+    REQUIRE(t);
+    std::vector<uint8_t> b(t->data, t->data + t->size);
+    cadgeom::Model m(b.data(), b.size());
+    const_cast<double*>(m.f64(CBR_PART_UNCERTAINTY))[0] = 0.05;
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  roofBent: %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const RoofCount c = roofCount(fm);
+    CHECK_EQ(c.turned, 0);
+    CHECK_EQ(c.refused, 0);
+  }
+}
+
+TEST_CASE("a crease within the face's tolerance of its edge (roofNear's ridge 0.2 mm from it, the part's "
+  "uncertainty 0.5 mm): a constraint still, the strip beyond meshed") {
+  const tessfixtures::Model* t = tessfixtures::model("roofNear");
+  REQUIRE(t);
+  std::vector<uint8_t> b(t->data, t->data + t->size);
+  cadgeom::Model m(b.data(), b.size());
+  const_cast<double*>(m.f64(CBR_PART_UNCERTAINTY))[0] = 0.5;
+  PartMesher pm(m, options(0.01, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  roofNear: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const RoofCount c = roofCount(fm);
+  CHECK_EQ(c.across, 0);
+  CHECK_EQ(c.refused, 0);
+  CHECK(c.right > 0);
+}
+
+TEST_CASE("a face's side on a C0 line of a surface going on past it (roofBeyond ends at the ridge): its normals "
+  "there from inside") {
+  cadgeom::Model m = load("roofBeyond");
+  PartMesher pm(m, options(0.01, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  roofBeyond: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  const RoofCount c = roofCount(fm);
+  CHECK(c.left > 0);
+  CHECK_EQ(c.right, 0);
+  CHECK_EQ(c.turned, 0);
+  CHECK_EQ(c.refused, 0);
+}
+
+TEST_CASE("countAngles: each face's triangles under minAngle, as counted on the mesh itself in 3D on planes (where "
+  "the metric is uniform), by angle, their area; the same mesh") {
+  // (On a plane the criteria's metric is isotropic and (u, v) an isometry: the metric's angles are the 3D ones.)
+  // (And with a coarse part uncertainty, so short spans are frozen: thin triangles on them.)
+  int faces = 0, thin = 0, nearAngle = 0, onFrozenAll = 0, floorAll = 0;
+  struct Case {
+    const char* name;
+    double uncertainty, angle;
+  };
+  for (const Case c : {Case{"cuspPocket", 0, 0.4}, Case{"cube", 0, 0.4}, Case{"flowerHole", 0, 0.4},
+         Case{"cuspPocket", 0.1, 0.3}}) {
+    const tessfixtures::Model* t = tessfixtures::model(c.name);
+    const fixtures::Model* fx = t ? nullptr : fixtures::model(c.name);
+    std::vector<uint8_t> bytes(t ? t->data : fx->data, (t ? t->data : fx->data) + (t ? t->size : fx->size));
+    cadgeom::Model m(bytes.data(), bytes.size());
+    REQUIRE(m.ok());
+    if (c.uncertainty > 0) const_cast<double*>(m.f64(CBR_PART_UNCERTAINTY))[0] = c.uncertainty;
+    const char* name = c.name;
+    PartOptions o = options(0.01, 0.26), plain = o;
+    o.minAngle = plain.minAngle = c.angle;
+    o.countAngles = true;
+    PartMesher a(m, o), b(m, plain);
+    // The edges' samples, and their spans within the refinement floor (frozen), by 3D point.
+    std::set<std::array<double, 3>> onEdge;
+    std::set<std::pair<std::array<double, 3>, std::array<double, 3>>> frozen;
+    const double floor = refinementFloor(cadgeom::Tolerances(m).part(), o.d.linear);
+    auto key3 = [](Vec3 p) { return std::array<double, 3>{p.x, p.y, p.z}; };
+    for (int e = 0; e < a.edges().edgeCount(); e++) {
+      const std::vector<Vec3>& q = a.edges().edge(e).points;
+      for (size_t j = 0; j < q.size(); j++) {
+        onEdge.insert(key3(q[j]));
+        if (j + 1 < q.size() && cadgeom::norm(q[j + 1] - q[j]) <= floor)
+          frozen.insert({key3(q[j]), key3(q[j + 1])}), frozen.insert({key3(q[j + 1]), key3(q[j])});
+      }
+    }
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &x = a.face(f), &y = b.face(f);
+      CHECK(x.triangles == y.triangles);
+      CHECK_EQ(y.thin, 0);
+      if (x.status != cadgeom::Status::ok || m.surfaceKind(m.faceSurface(f)) != CBR_SURFACE_PLANE) continue;
+      faces++, thin += x.thin;
+      int count = 0, bins[kThinBins] = {}, boundary = 0, onFrozen = 0, atAngle = 0, floorSure = 0, floorMaybe = 0;
+      double area = 0, atArea = 0;
+      for (size_t t = 0; t + 2 < x.triangles.size(); t += 3) {
+        const Vec3 p[3] = {x.points[x.triangles[t]], x.points[x.triangles[t + 1]], x.points[x.triangles[t + 2]]};
+        double least = M_PI;
+        for (int k = 0; k < 3; k++) {
+          const Vec3 u = p[(k + 1) % 3] - p[k], v = p[(k + 2) % 3] - p[k];
+          least = std::min(least, std::atan2(cadgeom::norm(cadgeom::cross(u, v)), cadgeom::dot(u, v)));
+        }
+        // (At the angle within rounding, as off-centres place them: the mesher's arcsine of a sine against this
+        // atan2, either way; their area too.)
+        if (std::fabs(least - c.angle) <= 1e-9 * c.angle)
+          atAngle++, atArea += 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
+        if (!(least < c.angle)) continue;
+        nearAngle += least >= 0.9 * c.angle;
+        boundary += onEdge.count(key3(p[0])) && onEdge.count(key3(p[1])) && onEdge.count(key3(p[2]));
+        // (Within the floor: surely where its box's diagonal is, its longest side within floor / sqrt 2 (a plane's
+        // box over the triangle in its own plane); surely not where a side is past it.)
+        const double longest = std::max({cadgeom::norm(p[1] - p[0]), cadgeom::norm(p[2] - p[1]),
+          cadgeom::norm(p[0] - p[2])});
+        floorSure += longest <= floor / std::sqrt(2.0), floorMaybe += longest <= floor;
+        bool fz = false;
+        for (int k = 0; k < 3; k++) fz = fz || frozen.count({key3(p[k]), key3(p[(k + 1) % 3])});
+        onFrozen += fz;
+        const double deg = least * 180 / M_PI;
+        count++, bins[deg < 1 ? 0 : deg < 2 ? 1 : deg < 5 ? 2 : deg < 8 ? 3 : deg < 10 ? 4 : 5]++;
+        area += 0.5 * cadgeom::norm(cadgeom::cross(p[1] - p[0], p[2] - p[0]));
+      }
+      if (std::abs(count - x.thin) > atAngle)
+        std::printf("  %s face %d: %d under the angle, counted %d, %d at it\n", name, f, count, x.thin, atAngle);
+      CHECK(std::abs(x.thin - count) <= atAngle);
+      for (int k = 0; k + 1 < kThinBins; k++) CHECK_EQ(x.thinByAngle[k], bins[k]);  // (the angles at most 0.4 rad)
+      CHECK(std::abs(x.thinByAngle[kThinBins - 1] - bins[kThinBins - 1]) <= atAngle);
+      CHECK(std::fabs(x.thinArea - area) <= atArea + 1e-9 * (1 + area));
+      CHECK_EQ(x.thinBoundary, boundary);
+      CHECK_EQ(x.thinFrozen, onFrozen);
+      onFrozenAll += onFrozen;
+      CHECK(x.thinFloor >= floorSure);
+      CHECK(x.thinFloor <= floorMaybe);
+      floorAll += floorSure;
+    }
+  }
+  CHECK(faces > 0);
+  CHECK(thin > 0);
+  CHECK(nearAngle > 0);  // (some just under the angle: the threshold itself checked)
+  CHECK(onFrozenAll > 0);
+  CHECK(floorAll > 0);
+  if (!nearAngle || !onFrozenAll) std::printf("  countAngles: %d near the angle, %d on frozen spans\n", nearAngle,
+    onFrozenAll);
+}
+
+TEST_CASE("a use whose curve the projection finds far off its face's surface fails, said so, without inverting its "
+  "samples (edgeFarOff's arc 50 mm out of its plane); respace's uses placed again said with their faces") {
+  {
+    cadgeom::Model m = load("edgeFarOff");
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    CHECK(fm.status == cadgeom::Status::invalidModel);
+    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+  }
+  {
+    // Edges coarser than the faces want: respace splits them, each use placed again reported with its face.
+    cadgeom::Model m = load("spheres");
+    PartOptions o = options(0.01, 0.26);
+    o.edgeSpacingScale = 0.25;
+    bool criteria = false;
+    int named = 0;
+    o.progress = [&](const PartProgress& p) {
+      if (p.phase == PartProgress::criteria) criteria = true;
+      else if (criteria && p.phase == PartProgress::edges && p.row >= 0 && p.row < m.faces()) named++;
+    };
+    PartMesher pm(m, o);
+    CHECK(named > 0);
   }
 }
 

@@ -9,7 +9,15 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 4;
+const API_VERSION = 8;
+
+/**
+ * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
+ * by ", ": the meshed faces' Steiner points by what queued the triangle each broke (part.h's FaceMesh::inserted).
+ */
+export const INSERTED_HEAD = 'points inserted, by what queued their triangle: ';
+export const INSERTED_KINDS = ['size', 'thinness', 'refused (no kind)', 'deviation in closed form', 'deviation sampled',
+  'deviation bounded', 'deviation near a pole', 'a normal against the facet', 'normals apart', 'refused (other kind)'];
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -68,7 +76,12 @@ interface CadioExports {
   _tc_tessellate: Fn;
   _tc_set_project: Fn;
   _tc_set_deviation_factor: Fn;
+  _tc_set_count_insertions: Fn;
+  _tc_set_count_angles: Fn;
+  _tc_set_fail_capped: Fn;
+  _tc_set_fail_turned_over: Fn;
   _tc_set_max_points: Fn;
+  _tc_set_min_angle: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -113,10 +126,33 @@ export interface CadioInitOptions {
    */
   maxDeviationFactor?: number;
   /**
+   * Count the mesher's insertions by what queued them, said in an info diagnostic (INSERTED_HEAD; part.h's
+   * PartOptions::countInsertions): the same mesh, up to 2 x the time; default false.
+   */
+  countInsertions?: boolean;
+  /**
+   * Count each face's triangles whose smallest angle in the metric is under minAngle (part.h's
+   * PartOptions::countAngles): an info diagnostic of their totals, the per-face rows in the module's diagnostics
+   * (tc_diag's "thin"); the same mesh; default false.
+   */
+  countAngles?: boolean;
+  /**
+   * Fail a face whose refinement reached its point cap (part.h's PartOptions::failCapped), and one with a triangle
+   * turned against its surface (failTurnedOver); default true each. False keeps them as meshed, for measuring.
+   */
+  failCapped?: boolean;
+  failTurnedOver?: boolean;
+  /**
    * Steiner points per face at most (part.h's PartOptions::maxPointsPerFace; default 100,000): a refinement that
    * reaches it stops there, the mesh kept and said. For tests and tuning.
    */
   maxPointsPerFace?: number;
+  /**
+   * The smallest angle refinement aims for in each face's triangles, in radians (part.h's PartOptions::minAngle;
+   * default 10 degrees, pi / 18; at most 30 degrees, more clamped; 0 none): the triangles' shape, which neither
+   * deflection asks for. A request's minAngle (TessellationRequest) takes its place for that request.
+   */
+  minAngle?: number;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -137,7 +173,12 @@ function failedMessage(ids: readonly number[], rows: number): string {
 export class CadioTessellator implements Tessellator {
   private project = true;
   private deviationFactor = 1;
+  private countInsertions = false;
+  private countAngles = false;
+  private failCapped = true;
+  private failTurnedOver = true;
   private maxPoints = 0;
+  private minAngle = -1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: false,
@@ -148,7 +189,12 @@ export class CadioTessellator implements Tessellator {
     const { glue, wasm, version } = opts;
     this.project = opts.projectMissingPcurves ?? true;
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
+    this.countInsertions = opts.countInsertions ?? false;
+    this.countAngles = opts.countAngles ?? false;
+    this.failCapped = opts.failCapped ?? true;
+    this.failTurnedOver = opts.failTurnedOver ?? true;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
+    this.minAngle = opts.minAngle ?? -1;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -195,7 +241,13 @@ export class CadioTessellator implements Tessellator {
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
     m._tc_set_deviation_factor(this.deviationFactor);
+    m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
+    m._tc_set_count_angles(this.countAngles ? 1 : 0);
+    m._tc_set_fail_capped(this.failCapped ? 1 : 0);
+    m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_max_points(this.maxPoints);
+    // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)
+    m._tc_set_min_angle(req.minAngle ?? this.minAngle);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
@@ -263,6 +315,20 @@ export class CadioTessellator implements Tessellator {
         + `still refuse: ${Number(diag.refusedTriangles)} triangles, ${Number(diag.poleSlivers)} of them slivers in a `
         + `pole's fan${reasons ? `; by why: ${reasons}` : ''}` });
     }
+    const inserted = list('inserted');
+    if (this.countInsertions && inserted.length === INSERTED_KINDS.length) {
+      diagnostics.push({ severity: 'info', message: INSERTED_HEAD + INSERTED_KINDS.map((k, i) => `${k} ${inserted[i]}`)
+        .join(', ') });
+    }
+    // (Per face, 11 numbers: id, count, 6 bins by angle, boundary, frozen, floor.)
+    const thin = list('thin'), thinArea = list('thinArea');
+    if (this.countAngles && thin.length) {
+      const sum = (k: number) => thin.filter((_, i) => i % 11 === k).reduce((a, x) => a + x, 0);
+      const bins = ['under 1', '1-2', '2-5', '5-8', '8-10', '10 and up'].map((b, k) => `${b} ${sum(2 + k)}`).join(', ');
+      diagnostics.push({ severity: 'info', message: `${thin.length / 11} faces with triangles under the minimum angle: `
+        + `${sum(1)} triangles (by degrees: ${bins}), ${+thinArea.reduce((a, x) => a + x, 0).toPrecision(4)} mm^2; `
+        + `every corner on the boundary ${sum(8)}, an edge frozen ${sum(9)}, within the floor ${sum(10)}` });
+    }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     // (Faces whose refinement asked for a pole ring's segment to be split, which a ring's never is: their triangles
     // there refused for good. With the rounds it asked in.)
@@ -277,7 +343,7 @@ export class CadioTessellator implements Tessellator {
         + 'surface sampled, not bounded (their surfaces\' derivative bounds not yet tight)' });
     }
     note('unsettled', 'with a seam whose side in (u, v) their neighbours didn\'t settle');
-    note('capped', 'with refinement stopped at their point cap');
+    note('capped', 'failed with refinement stopped at their point cap');
     // The uses without p-curves, by how they were sampled: [within 0.05 x the deflection, at the edge's tolerance,
     // by inversion]; said where any fell back from the first.
     const pc = list('projections');

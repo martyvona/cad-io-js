@@ -1074,6 +1074,69 @@ std::unique_ptr<Surface> rawSpline(int p, int q, std::vector<double> uk, std::ve
   return surfaces::makeBSpline(r.data(), in.data(), s);
 }
 
+TEST_CASE("inversion for the distance alone: within 1e-3 tol of the full search's, over fewer rectangles") {
+  // Every B-spline of the reference models (all variants), at points near it and off it (up to a fifth of its size
+  // along a random direction from a point of it), at tol 1e-6 and 1e-2 of its size (a coarse tol keeps many
+  // rectangles the full search must, for feet within it): the distance-only search's distance within eps = 1e-3 tol
+  // of the full search's, its foot the surface's point at its (u, v) and that far from the point, and fewer
+  // rectangles examined at the coarse tol.
+  std::mt19937_64 rng(31);
+  std::uniform_real_distribution<double> U(0, 1), D(-1, 1);
+  long full = 0, fast = 0;
+  int n = 0, bad = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    const Model m(ref.data, ref.size);
+    for (int row = 0; row < m.surfaces(); row++) {
+      if (m.surfaceKind(row) != CBR_SURFACE_BSPLINE) continue;
+      Status st;
+      auto s = makeSurface(m, row, st);
+      if (!s) continue;
+      const SurfaceDomain dom = s->domain();
+      Box3 bb;
+      s->bound(dom.u, dom.v, bb);
+      const double size = std::hypot(bb.x.width(), std::hypot(bb.y.width(), bb.z.width()));
+      for (int k = 0; k < 24; k++) {
+        const double tol = (k % 2 ? 1e-2 : 1e-6) * size;
+        SurfacePoint q;
+        s->eval(dom.u.lo + U(rng) * (dom.u.hi - dom.u.lo), dom.v.lo + U(rng) * (dom.v.hi - dom.v.lo), 0, q);
+        const Vec3 dir{D(rng), D(rng), D(rng)};
+        const Vec3 p = q.p + (0.2 * size * U(rng) / std::fmax(norm(dir), 1e-9)) * dir;
+        long r0 = surfaces::inversionRects;
+        SurfaceInversion a = invertSurface(*s, p, dom.u, dom.v, tol);
+        long r1 = surfaces::inversionRects;
+        SurfaceInversion b = invertSurface(*s, p, dom.u, dom.v, tol, nullptr, nullptr, true);
+        long r2 = surfaces::inversionRects;
+        if (k % 2) full += r1 - r0, fast += r2 - r1;
+        n++;
+        SurfacePoint f;
+        s->eval(b.uv.x, b.uv.y, 0, f);
+        const bool ok = a.status == Status::ok && b.status == Status::ok
+          && std::fabs(b.distance - a.distance) <= 1e-3 * tol + 1e-12 * size && norm(f.p - b.foot) <= 1e-12 * size
+          && std::fabs(norm(b.foot - p) - b.distance) <= 1e-12 * size && b.certainty == Certainty::none
+          && b.alternatives.empty();
+        if (!ok && bad++ < 8)
+          std::printf("  %s %d: full %.17g (%d), distance only %.17g (%d)\n", ref.file, row, a.distance,
+            int(a.status), b.distance, int(b.status));
+      }
+    }
+  }
+  CHECK(n > 50);
+  CHECK_EQ(bad, 0);
+  CHECK(fast < full);
+  // Straight over a flat patch's middle, the search grid's middle is the nearest point: every rectangle is then past
+  // it less eps, so that sample is the answer.
+  auto flat = rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1}, {2, 2}, {{{0, 0, 0}, {0, 10, 0}}, {{10, 0, 0}, {10, 10, 0}}});
+  SurfaceInversion o = invertSurface(*flat, {5, 5, 1}, {0, 1}, {0, 1}, 1e-3, nullptr, nullptr, true);
+  CHECK(o.status == Status::ok);
+  CHECK(std::fabs(o.distance - 1) < 1e-12);
+  CHECK(std::fabs(o.uv.x - 0.5) < 1e-12);
+  CHECK(std::fabs(o.uv.y - 0.5) < 1e-12);
+  if (!(fast < full))
+    std::printf("    %d points: at the coarse tol %ld rectangles for the full search, %ld for the distance\n", n,
+      full, fast);
+}
+
 /** A degree-1 tube round z, its section the square (1, 0), (0, 1), (-1, 0), (0, -1) back to (1, 0), z in [0, 1];
  * the last pole of the row at z = 0 moved by `gap` along x (0: closed exactly). */
 std::unique_ptr<Surface> tube(double gap) {

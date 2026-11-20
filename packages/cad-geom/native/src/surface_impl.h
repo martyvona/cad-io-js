@@ -27,8 +27,20 @@ constexpr double kPi = 3.141592653589793;
 constexpr double kTwoPi = 6.283185307179586;
 constexpr double kHalfPi = 1.5707963267948966;
 
+/** An iso-line of a surface: u = at (isoU), else v = at. */
+struct IsoLine {
+  bool isoU;
+  double at;
+};
+
 class SurfaceImpl : public Surface {
 public:
+  /**
+   * The iso-lines inside ru x rv (strictly) where the surface is only C0 by its form, so its normal can jump there: a
+   * B-spline's knots of multiplicity at least its degree, an extrusion's or revolution's profile breaks; a wrapper's,
+   * its basis's. Candidates only: tangent-continuous ones are among them (findCreases tests the normals).
+   */
+  virtual void c0Lines(Range, Range, std::vector<IsoLine>& out) const { out.clear(); }
   /**
    * S and its partials of total order <= `order` (0 to kMaxOrder) into out[pidx(k, l)]; periodic directions take any
    * value, others outside the domain give outOfDomain with the clamped values; singular where a kind's formula
@@ -116,7 +128,7 @@ std::unique_ptr<SurfaceImpl> makeTrimmed(std::unique_ptr<SurfaceImpl> basis, con
 
 inline Vec3 read3(const double* r) { return {r[0], r[1], r[2]}; }
 inline bool finite(Range r) { return std::isfinite(r.lo) && std::isfinite(r.hi); }
-inline double maxAbs(Vec3 v) { return std::fmax(std::fabs(v.x), std::fmax(std::fabs(v.y), std::fabs(v.z))); }
+inline double maxAbs(Vec3 v) { return maxNum(std::fabs(v.x), maxNum(std::fabs(v.y), std::fabs(v.z))); }
 inline double binom(int n, int k) {
   double b = 1;
   for (int i = 1; i <= k; i++) b = b * (n - k + i) / i;
@@ -128,7 +140,7 @@ inline Interval widen(Interval a, double by) { return {a.lo - by, a.hi + by}; }
 inline Box3 widen(Box3 b, double by) { return {widen(b.x, by), widen(b.y, by), widen(b.z, by)}; }
 inline Box3 pointBox(Vec3 p) { return {Interval::point(p.x), Interval::point(p.y), Interval::point(p.z)}; }
 inline Box3 hull(Box3 a, Box3 b) {
-  auto h = [](Interval x, Interval y) { return Interval{std::fmin(x.lo, y.lo), std::fmax(x.hi, y.hi)}; };
+  auto h = [](Interval x, Interval y) { return Interval{minNum(x.lo, y.lo), maxNum(x.hi, y.hi)}; };
   return {h(a.x, b.x), h(a.y, b.y), h(a.z, b.z)};
 }
 inline Box3 hull(Box3 a, Vec3 p) { return hull(a, pointBox(p)); }
@@ -136,7 +148,7 @@ inline Box3 emptyBox() { return {{kInf, -kInf}, {kInf, -kInf}, {kInf, -kInf}}; }
 inline Box3 entireBox() { return {Interval::entire(), Interval::entire(), Interval::entire()}; }
 inline Box3 ballBox(Vec3 c, double r) { return widen(pointBox(c), r); }
 inline Box3 meet(Box3 a, Box3 b) {
-  auto m = [](Interval x, Interval y) { return Interval{std::fmax(x.lo, y.lo), std::fmin(x.hi, y.hi)}; };
+  auto m = [](Interval x, Interval y) { return Interval{maxNum(x.lo, y.lo), minNum(x.hi, y.hi)}; };
   return {m(a.x, b.x), m(a.y, b.y), m(a.z, b.z)};
 }
 inline Box3 operator+(const Box3& a, const Box3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
@@ -148,7 +160,7 @@ inline Box3 crossBox(const Box3& a, const Box3& b) {
 }
 /** The box of a fixed vector times an interval. */
 inline Box3 scaled(Interval s, Vec3 v) { return s * pointBox(v); }
-inline double boxMag(const Box3& b) { return std::fmax(b.x.mag(), std::fmax(b.y.mag(), b.z.mag())); }
+inline double boxMag(const Box3& b) { return maxNum(b.x.mag(), maxNum(b.y.mag(), b.z.mag())); }
 /** An upper bound on |v| for v in the box. */
 inline double boxNorm(const Box3& b) {
   double x = b.x.mag(), y = b.y.mag(), z = b.z.mag();

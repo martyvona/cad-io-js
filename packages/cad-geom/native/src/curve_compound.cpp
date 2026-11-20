@@ -56,7 +56,7 @@ public:
 
 private:
   Range clip(Range r) const {
-    Range c{std::fmax(r.lo, r_.lo), std::fmin(r.hi, r_.hi)};
+    Range c{maxNum(r.lo, r_.lo), minNum(r.hi, r_.hi)};
     return c.lo <= c.hi ? c : Range{c.lo, c.lo};
   }
   std::unique_ptr<CurveImpl> b_;
@@ -112,7 +112,7 @@ public:
       double b;
       Status e = s_[k].curve->derivBoundN(g, order, b);
       if (e != Status::ok) s = e;
-      out = std::fmax(out, b * std::pow(std::fabs(scale(k)), order) * (1 + 4 * kEps));
+      out = maxNum(out, b * std::pow(std::fabs(scale(k)), order) * (1 + 4 * kEps));
     });
     return s;
   }
@@ -162,13 +162,13 @@ private:
   /** Each segment r meets: its index, the local range (sorted) and the global one. */
   template <class F> void forPieces(Range r, F f) const {
     double n = static_cast<double>(s_.size());
-    r = {std::fmax(r.lo, 0.0), std::fmin(r.hi, n)};
+    r = {maxNum(r.lo, 0.0), minNum(r.hi, n)};
     if (r.lo > r.hi) return;
     for (int k = segment(r.lo); k < static_cast<int>(s_.size()); k++) {
-      double a = std::fmax(r.lo, double(k)), b = std::fmin(r.hi, double(k + 1));
+      double a = maxNum(r.lo, double(k)), b = minNum(r.hi, double(k + 1));
       if (a > b) break;
       double la = local(k, a), lb = local(k, b);
-      f(k, Range{std::fmin(la, lb), std::fmax(la, lb)}, Range{a, b});
+      f(k, Range{minNum(la, lb), maxNum(la, lb)}, Range{a, b});
       // A range ending on a joint holds the next segment's start too: C(k + 1) is that segment's (derivs).
       if (b >= r.hi && !(b == k + 1 && k + 1 < n)) break;
     }
@@ -273,7 +273,7 @@ private:
       double m = 0.5 * r.lo + 0.5 * r.hi, a[kMaxOrder + 1], b[kMaxOrder + 1];
       if ((s = unitBounds({r.lo, m}, order, a, depth + 1)) != Status::ok) return s;
       if ((s = unitBounds({m, r.hi}, order, b, depth + 1)) != Status::ok) return s;
-      for (int k = 0; k <= order; k++) U[k] = std::fmax(a[k], b[k]);
+      for (int k = 0; k <= order; k++) U[k] = maxNum(a[k], b[k]);
       return Status::ok;
     }
     double vn = b_->dim() == 3 ? norm(v_) * (1 + 4 * kEps) : 1;
@@ -334,7 +334,7 @@ std::unique_ptr<CurveImpl> makeTrimmed(std::unique_ptr<CurveImpl> basis, const d
       if (sense && t2 <= t1) t2 += dom.period;
       if (!sense && t2 >= t1) t2 -= dom.period;
     }
-    range = {std::fmin(t1, t2), std::fmax(t1, t2)};
+    range = {minNum(t1, t2), maxNum(t1, t2)};
   }
   return std::make_unique<Trimmed>(std::move(basis), range);
 }

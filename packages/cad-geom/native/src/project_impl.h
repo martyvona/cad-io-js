@@ -39,7 +39,10 @@ struct Job {
   std::vector<Singularity> sing;
   /** The curve's breaks over r (its ends included). */
   std::vector<double> breaks;
-  /** The surface's breaks inside its domain (knots, a profile's), where its partials may jump: the trace's rate. */
+  /**
+   * The surface's breaks inside its domain (knots, a profile's), and a periodic direction's seam, where its partials
+   * may jump: the trace's rate.
+   */
   std::vector<double> uBreaks, vBreaks;
 };
 
@@ -57,9 +60,10 @@ Vec2 at(const PcurvePiece& p, double t);
 
 /**
  * The largest |S(p(t)) - C(t)| over the piece, measured on each smooth span (the curve's and the piece's breaks) at
- * evenly spaced points, then refined by golden-section search around the worst of them.
+ * 64 evenly spaced points, then refined by golden-section search around each local maximum within half of the worst
+ * (not a bound: a bump narrower than the spacing can be missed); `worstT`, where given, gets the parameter it is at.
  */
-double measure(const Job& job, const PcurvePiece& p);
+double measure(const Job& job, const PcurvePiece& p, double* worstT = nullptr);
 
 /**
  * The point's local foot on s from uv (damped Newton on the squared distance), in a periodic direction within half a
@@ -75,6 +79,11 @@ void trace(const Job& job, Pcurve& out);
 
 /** fit::curve2's calls from trace, counted for tests (how many attempts a fit took); never reset. */
 extern long traceFits;
+/**
+ * The spans within which a segment past a side is first fitted whole (trace); 0 cuts it straight away. Tests set it
+ * to see the cutting on curves whose corners a whole fit takes in its stride.
+ */
+extern int wholeFirstSpans;
 
 /** projectCurve with the table's forms given directly (projectCurve reads them from its PcurveSource). */
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,

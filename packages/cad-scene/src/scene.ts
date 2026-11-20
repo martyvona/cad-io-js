@@ -243,6 +243,8 @@ export interface Lod {
   linearDeflection?: number;
   /** Maximum angle between adjacent normals, radians: likewise. */
   angularDeflection?: number;
+  /** The smallest angle asked of its triangles, radians (TessellationRequest's minAngle), where one was given. */
+  minAngle?: number;
   /** The tessellator that made it: its name and version. */
   backend?: string;
 }

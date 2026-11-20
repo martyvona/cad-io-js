@@ -187,7 +187,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   std::priority_queue<Item> queue;
   int64_t seq = 0;
   std::set<std::pair<int32_t, uint32_t>> finals;
-  const double minAngle = std::clamp(options.minAngle, 0.0, M_PI / 3), minSine = detSin(minAngle);
+  const double minAngle = std::clamp(options.minAngle, 0.0, kMaxMinAngle), minSine = detSin(minAngle);
   // (l / 2) / tan(minAngle / 2), the off-centre's height over its edge, as a factor of l.
   const double offHeight = minAngle > 0 ? 0.5 * detCos(0.5 * minAngle) / detSin(0.5 * minAngle) : 1e300;
   auto consider = [&](int32_t t) {
@@ -204,7 +204,8 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     double key = std::max({q.longest / std::sqrt(2.0), thin, accepted ? 0.0 : 2.0});
     if (key <= 1) return;
     uint8_t cause = q.longest / std::sqrt(2.0) >= thin ? 0 : 1;
-    if (!accepted) cause = detail ? static_cast<uint8_t>(2 + std::clamp(field.refusalKind(p), 0, 7)) : 2;
+    if (!accepted)
+      cause = detail && options.refusalKinds ? static_cast<uint8_t>(2 + std::clamp(field.refusalKind(p), 0, 7)) : 2;
     queue.push({key, seq++, t, R.gen, cause});
   };
   for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) consider(t);
@@ -393,6 +394,16 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     int32_t index = static_cast<int32_t>(out.triangles.size() / 3);
     out.triangles.insert(out.triangles.end(), {R.v[0], R.v[1], R.v[2]});
     if (!field.accept(p)) out.rejected.push_back(index);
+    if (!detail) continue;
+    const Quality q = quality(average(metricAt(R.v[0]), metricAt(R.v[1]), metricAt(R.v[2])), p);
+    if (!(q.sine < minSine)) continue;
+    uint8_t flags = 0;
+    if (R.v[0] < n && R.v[1] < n && R.v[2] < n) flags |= kThinBoundary;
+    for (int i = 0; i < 3; i++)
+      if (frozen.count(pairKey(R.v[(i + 1) % 3], R.v[(i + 2) % 3]))) flags |= kThinFrozen;
+    if (field.belowFloor(p)) flags |= kThinFloor;
+    D.thin.push_back(index), D.thinAngle.push_back(std::asin(std::clamp(q.sine, 0.0, 1.0)));
+    D.thinFlags.push_back(flags);
   }
   return out;
 }

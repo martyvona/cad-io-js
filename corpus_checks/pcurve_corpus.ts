@@ -2,9 +2,11 @@
 // of every part's B-rep model in the corpus: each coedge's edge curve projected onto its face's surface over its edge's
 // range, as the face API does where the model has no p-curve, whether or not it has one.
 //   - What was made: status and method by surface kind, the error against the tolerance (cad-geom's tolerance.h: the
-//     largest of the part's uncertainty, the edge's and 1e-9 x the part's size, else 1e-7 mm), ambiguous feet;
+//     largest of the part's uncertainty, else 1e-5 mm, the edge's and 1e-9 x the part's size), ambiguous feet;
 //     failures listed; traces stopped short, by why (project.h's StopWhy), where and how far their last foot was;
-//     traced ends against their vertices' feet (project.h's EndCheck).
+//     traced ends against their vertices' feet (project.h's EndCheck); and each ok traced result checked densely,
+//     its (u, v) at 257 parameters on the face's own surface (faceEval) against its curve: within the error it
+//     reported (which status ok promises within tol), or past it.
 //   - Against the model's own p-curve where it has one, at 7 parameters of the edge's curve: the model's p-curve off
 //     its curve there (not at the curve's parameter, against Part 42, or off: the source's); else both in 3D within
 //     10 x tol and in (u, v) the same, a whole number of periods apart, or neither (a pole's free parameter, a surface
@@ -53,6 +55,7 @@ const tally = (t: Tally, key: string, ex?: string) => {
 const fresh = () => ({
   files: 0, parts: 0, faces: 0, coedges: 0, planted: 0, caught: [] as string[], plantedAt: [] as string[],
   made: {} as Tally, error: {} as Tally, ambiguous: {} as Tally, stopped: {} as Tally, ends: {} as Tally,
+  dense: {} as Tally,
   model: {} as Tally,
   seam: {} as Tally,
   occtRoute: {} as Tally, occtError: {} as Tally, occtUv: {} as Tally, occtSeam: {} as Tally,
@@ -105,14 +108,14 @@ function occtPcurve(face: number, edge: number, tol: number): { r: number; info:
 }
 
 /**
- * The 3D tolerance projectCoedge takes by default (cad-geom's tolerance.h): the largest of the part's uncertainty,
- * the edge's and 1e-9 x the part's size (`size`, its vertices' box diagonal), else 1e-7.
+ * The 3D tolerance projectCoedge takes by default (cad-geom's tolerance.h): the largest of the part's uncertainty
+ * (1e-5 where it gives none), the edge's and 1e-9 x the part's size (`size`, its vertices' box diagonal).
  */
 function edgeTol(d: BrepData, e: number, size: number): number {
   const u = d.part.uncertainty[0], t = d.edge.tolerance[e]!;
-  let best = Math.max(Number.isFinite(u) ? u! : 0, Number.isFinite(size) ? 1e-9 * size : 0);
+  let best = Math.max(Number.isFinite(u) && u! > 0 ? u! : 1e-5, Number.isFinite(size) ? 1e-9 * size : 0);
   if (Number.isFinite(t) && t > best) best = t;
-  return best > 0 ? best : 1e-7;
+  return best;
 }
 
 /**
@@ -268,6 +271,19 @@ export const check: FileCheck<undefined, Result> = {
               tally(R.made, `${p.status}: ${p.method} (${sk})`, p.status === 'ok' ? undefined
                 : `${ce}: error ${p.error.toPrecision(3)}, off the surface ${p.offSurface.toPrecision(3)}, tol ${tol}`);
               if (p.status === 'ok') tally(R.error, `${bucket(p.error, tol)} (${p.method})`);
+              if (p.status === 'ok' && (p.method === 'traced' || p.method === 'affineFeet')) {
+                // Densely: the pieces' (u, v) at 257 parameters on the face's own surface against the curve.
+                const M = 257, tt = Array.from({ length: M }, (_, i) => t0 + (t1 - t0) * i / (M - 1));
+                const q = g.projectCoedge(c, NaN, tt) as Pcurve;
+                const sv = g.faceEval(f, q.uv, 0).values, cv = g.evalCurve(ci, tt, 0).values;
+                let dense = 0;
+                for (let i = 0; i < M; i++) dense = Math.max(dense, Math.hypot(sv[3 * i]! - cv[3 * i]!,
+                  sv[3 * i + 1]! - cv[3 * i + 1]!, sv[3 * i + 2]! - cv[3 * i + 2]!));
+                const over = dense > p.error * (1 + 1e-6) + 1e-12 * (1 + tol);
+                tally(R.dense, `${over ? 'past' : 'within'} the error reported (${p.method})`,
+                  over ? `${ce}: ${dense.toPrecision(4)} against ${p.error.toPrecision(4)}, tol ${tol}` : undefined);
+                if (dense > tol * (1 + 1e-9)) tally(R.dense, 'past tol', `${ce}: ${dense.toPrecision(4)}, tol ${tol}`);
+              }
               for (const [i, k] of p.endCheck.entries())
                 if (k !== 'unchecked') tally(R.ends, `${k} (${sk})`, k === 'same' ? undefined : `${ce}: its `
                   + `${i ? 'end' : 'start'} (${p.status})`
@@ -488,6 +504,8 @@ if (import.meta.main) {
   printTally('Ambiguous feet', all.ambiguous);
   printTally('Traces stopped short, by why and surface', all.stopped);
   printTally('Traced ends against their vertices\' feet (the end search), by surface', all.ends);
+  printTally('Ok traced results densely (257 parameters on the face\'s own surface) against the error they report',
+    all.dense);
   printGaps('invalidModel: the gap off the surface against 1e-9 x the part\'s size (its vertices\' box), its '
     + 'uncertainty and the face\'s tolerance', all.gap);
   printTally('Against the model\'s p-curves, at the curve\'s parameters', all.model);

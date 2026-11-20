@@ -19,6 +19,7 @@
 
 #include <cmath>
 
+#include "cad_geom/creases.h"
 #include "cad_geom/curve.h"
 #include "cad_geom/geom2d.h"
 #include "cad_geom/project.h"
@@ -1048,6 +1049,43 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
 }
 
 /**
+ * The face's C0 creases (creases.h's findCreases) where the normals jump by more than minAngle (radians), over its
+ * loops' (u, v) box, clipped to the face by classify2, its ends to the face's (u, v) tolerance: their count (minus the
+ * face's status), into the scratch 7 each: isoU (1: u = at), at, lo, hi, the largest jump, and whether lo and hi are
+ * on the boundary (1) or inside the face.
+ */
+int32_t cg_face_creases(int32_t h, int32_t face, double minAngle, double tol3d) {
+  FaceLoops f = faceLoops(h, face, tol3d);
+  scratch.clear();
+  if (f.status) return -f.status;
+  // The loops' box in (u, v), from their pieces at 17 points each.
+  Range ru{INFINITY, -INFINITY}, rv{INFINITY, -INFINITY};
+  for (const Loop2& l : f.loops)
+    for (const LoopPiece& p : l.pieces)
+      for (int i = 0; i <= 16; i++) {
+        CurvePoint q;
+        if (p.curve->eval(p.range.lo + (p.range.hi - p.range.lo) * i / 16, 0, q) != Status::ok) continue;
+        ru = {minNum(ru.lo, q.p.x), maxNum(ru.hi, q.p.x)};
+        rv = {minNum(rv.lo, q.p.y), maxNum(rv.hi, q.p.y)};
+      }
+  if (!(ru.lo < ru.hi) || !(rv.lo < rv.hi)) return 0;
+  auto inside = [&](const Vec2* p, int n, int* out) {
+    std::vector<double> t(n);
+    std::vector<Side> side(n);
+    std::vector<Status> st(n);
+    for (int i = 0; i < n; i++) t[i] = uvTolerance(f, p[i]);
+    classify2(f.loops, p, t.data(), n, f.periods, side.data(), st.data());
+    for (int i = 0; i < n; i++)
+      out[i] = st[i] != Status::ok || side[i] == Side::out ? 1 : side[i] == Side::in ? 0 : 2;
+  };
+  auto tol = [&](Vec2 p) { return uvTolerance(f, p); };
+  for (const Crease& c : findCreases(*f.surface, ru, rv, minAngle, inside, tol))
+    scratch.insert(scratch.end(),
+      {c.isoU ? 1.0 : 0.0, c.at, c.lo, c.hi, c.jump, c.loOnBoundary ? 1.0 : 0.0, c.hiOnBoundary ? 1.0 : 0.0});
+  return static_cast<int32_t>(scratch.size() / 7);
+}
+
+/**
  * The pieces as geom2d takes them, the face's edge loops' coedges in order (reversed, and each piece too, where the
  * face's sense isn't its surface's; a coedge two pieces where its use crosses its p-curve's ends): per piece its
  * coedge, the p-curve's parameters where it starts and ends (3 each) into the scratch; their count, or minus the
@@ -1155,6 +1193,29 @@ int32_t cg_surface_local_foot(int32_t h, int32_t row, const double* points, cons
   const Surface* f = surface(h, row, s);
   if (!f) return static_cast<int32_t>(s);
   localFeet(*f, points, starts, n, uv, point, distance, status, side);
+  return 0;
+}
+
+/**
+ * Face `face`'s surface as it closes in fact (its periods the face's: (u, v) past a period reduced, as projections'
+ * p-curves unwrapped past one need) at n (u, v) pairs, as cg_surface_eval.
+ */
+int32_t cg_face_eval(int32_t h, int32_t face, const double* uv, int32_t n, int32_t order, double* out,
+  uint8_t* status) {
+  Entry* e = entry(h);
+  if (!e || face < 0 || face >= e->model.faces()) return static_cast<int32_t>(Status::invalidModel);
+  Status s;
+  const Surface* f = faceSurface(h, face, s);
+  if (!f) return static_cast<int32_t>(s);
+  const int w = order == 0 ? 1 : order == 1 ? 3 : 6;
+  for (int32_t i = 0; i < n; i++) {
+    SurfacePoint q;
+    status[i] = static_cast<uint8_t>(f->eval(uv[2 * i], uv[2 * i + 1], order, q));
+    double* o = out + 3 * w * i;
+    put(o, q.p);
+    if (order >= 1) put(o + 3, q.du), put(o + 6, q.dv);
+    if (order >= 2) put(o + 9, q.duu), put(o + 12, q.duv), put(o + 15, q.dvv);
+  }
   return 0;
 }
 

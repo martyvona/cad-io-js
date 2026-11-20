@@ -40,7 +40,7 @@ Status SurfaceImpl::normal(double u, double v, Vec3& out) const {
   Status s = derivs(u, v, 2, d);
   if (s != Status::ok && s != Status::outOfDomain) return s;
   Vec3 su = d[pidx(1, 0)], sv = d[pidx(0, 1)], n = cross(su, sv);
-  double big = std::fmax(norm(su), norm(sv));
+  double big = maxNum(norm(su), norm(sv));
   if (big > 0 && norm(n) > 1e-12 * big * big) {
     out = (1 / norm(n)) * n;
     return s;
@@ -76,7 +76,7 @@ Status centredBox(const SurfaceImpl& s, Range ru, Range rv, int k, int l, Box3& 
   Vec3 d[kPartials];
   Status e = s.derivs(mu, mv, k + l, d);
   if (e != Status::ok && e != Status::outOfDomain) return e;
-  double hu = std::fmax(mu - ru.lo, ru.hi - mu), hv = std::fmax(mv - rv.lo, rv.hi - mv);
+  double hu = maxNum(mu - ru.lo, ru.hi - mu), hv = maxNum(mv - rv.lo, rv.hi - mv);
   Vec3 c = d[pidx(k, l)];
   // Widened by the evaluation's own rounding: relative to the partial, and for a point to its local size.
   double r = (boxNorm(bu) * hu + boxNorm(bv) * hv) * (1 + 8 * kEps);
@@ -273,7 +273,7 @@ double uvDistance(Vec2 a, Vec2 b, const SurfaceDomain& dom) {
   auto d = [](double x, double period) {
     if (!(period > 0)) return x;
     double r = std::fmod(x, period);
-    return std::fmin(r, period - r);
+    return minNum(r, period - r);
   };
   return std::hypot(d(std::fabs(a.x - b.x), dom.uPeriod), d(std::fabs(a.y - b.y), dom.vPeriod));
 }
@@ -316,14 +316,17 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
   double best = norm(q.p - p);
   bool converged = false;
   int it = 0;
-  // The surface's breaks inside its domain (knots, a profile's): on a C0 one (a crease) the partials jump, and the
-  // evaluation gives one side's.
+  // The surface's breaks inside its domain (knots, a profile's) and a periodic direction's seam: on a C0 one (a
+  // crease) the partials jump, and the evaluation gives one side's.
   std::vector<double> bu, bv;
   s.breaks(dom.u, dom.v, bu, bv);
   auto interior = [](std::vector<double>& b, Range r) {
     b.erase(std::remove_if(b.begin(), b.end(), [&](double x) { return !(x > r.lo && x < r.hi); }), b.end());
   };
   interior(bu, dom.u), interior(bv, dom.v);
+  // (A periodic direction's seam is one too: a closed profile's corner can be there.)
+  if (perU) bu.insert(bu.begin(), dom.u.lo);
+  if (perV) bv.insert(bv.begin(), dom.v.lo);
   // The Newton step from x with the partials sq; false where the normal matrix degenerates. Held against a side of
   // the domain (a direction that isn't periodic): along that side instead, the other coordinate's Newton step alone;
   // in a corner, held there.
@@ -333,7 +336,7 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
                  c = dot(sq.dv, sq.dv);
     const double det = a * c - b * b;
     // (A collapsed direction, a pole row's, too: there the relative test alone passes on S_u's rounding.)
-    if (!(det > 1e-12 * a * c && a > 0) || std::fmin(a, c) <= 1e-24 * std::fmax(a, c)) return false;
+    if (!(det > 1e-12 * a * c && a > 0) || minNum(a, c) <= 1e-24 * maxNum(a, c)) return false;
     n = {x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
     const bool heldU = !perU && (n.x < dom.u.lo || n.x > dom.u.hi);
     const bool heldV = !perV && (n.y < dom.v.lo || n.y > dom.v.hi);
@@ -358,11 +361,13 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
       if (bs.empty()) continue;
       const Range r = k ? dom.v : dom.u;
       const double period = k ? dom.vPeriod : dom.uPeriod, xk = k ? x.y : x.x;
-      const double xr = period > 0 ? r.lo + std::fmod(std::fmod(xk - r.lo, period) + period, period) : xk;
+      double xr = period > 0 ? r.lo + std::fmod(std::fmod(xk - r.lo, period) + period, period) : xk;
+      if (period > 0 && xr >= r.hi - 1e-12 * (1 + std::fabs(r.hi))) xr -= period;  // just below the seam
       auto at = std::lower_bound(bs.begin(), bs.end(), xr - 1e-12 * (1 + std::fabs(xr)));
       if (at == bs.end() || std::fabs(*at - xr) > 1e-12 * (1 + std::fabs(xr))) continue;
-      const double lo = at == bs.begin() ? r.lo : *(at - 1), hi = at + 1 == bs.end() ? r.hi : *(at + 1);
-      const double step = std::fmin(1e-9 * (r.hi - r.lo), 0.25 * std::fmin(*at - lo, hi - *at));
+      const double lo = at != bs.begin() ? *(at - 1) : period > 0 ? (bs.size() > 1 ? bs.back() : *at) - period : r.lo;
+      const double hi = at + 1 != bs.end() ? *(at + 1) : period > 0 ? bs.front() + period : r.hi;
+      const double step = minNum(1e-9 * (r.hi - r.lo), 0.25 * minNum(*at - lo, hi - *at));
       Vec2 xb = x, xa = x;
       (k ? xb.y : xb.x) = xk + (*at - xr) - step, (k ? xa.y : xa.x) = xk + (*at - xr) + step;
       SurfacePoint qb, qa;
@@ -404,13 +409,13 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
 }
 
 SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint,
-  std::vector<SurfaceFoot>* all) {
+  std::vector<SurfaceFoot>* all, bool distanceOnly) {
   SurfaceInversion out;
   const SurfaceImpl* impl = dynamic_cast<const SurfaceImpl*>(&s0);
   if (!impl) return out;
   const SurfaceImpl& s = *impl;
   SurfaceDomain dom = s.domain();
-  tol = std::fmax(tol, 0.0);
+  tol = maxNum(tol, 0.0);
   if (!(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) {
     out.status = Status::outOfDomain;
     return out;
@@ -425,8 +430,8 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   bool wrapV = dom.vPeriod > 0 && rv.hi - rv.lo >= dom.vPeriod * (1 - 8 * kEps);
   if (wrapU) ru.hi = ru.lo + dom.uPeriod;
   if (wrapV) rv.hi = rv.lo + dom.vPeriod;
-  if (dom.uPeriod == 0) ru = {std::fmax(ru.lo, dom.u.lo), std::fmin(ru.hi, dom.u.hi)};
-  if (dom.vPeriod == 0) rv = {std::fmax(rv.lo, dom.v.lo), std::fmin(rv.hi, dom.v.hi)};
+  if (dom.uPeriod == 0) ru = {maxNum(ru.lo, dom.u.lo), minNum(ru.hi, dom.u.hi)};
+  if (dom.vPeriod == 0) rv = {maxNum(rv.lo, dom.v.lo), minNum(rv.hi, dom.v.hi)};
   if (!(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) {
     out.status = Status::outOfDomain;
     return out;
@@ -437,8 +442,8 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   if (!finite(ru) || !finite(rv)) {
     Range wu, wv;
     s.within(p, norm(at(seed) - p) * (1 + 1e-9) + tol, wu, wv);
-    ru = {std::fmax(ru.lo, wu.lo), std::fmin(ru.hi, wu.hi)};
-    rv = {std::fmax(rv.lo, wv.lo), std::fmin(rv.hi, wv.hi)};
+    ru = {maxNum(ru.lo, wu.lo), minNum(ru.hi, wu.hi)};
+    rv = {maxNum(rv.lo, wv.lo), minNum(rv.hi, wv.hi)};
     if (!finite(ru) || !finite(rv) || !(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) {
       out.status = Status::unsupported;
       return out;
@@ -451,8 +456,17 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   auto add = [&](Vec2 uv) {
     Vec3 f = at(uv);
     double d = norm(f - p);
-    ub = std::fmin(ub, d);
+    ub = minNum(ub, d);
     cands.push_back({uv, d, f});
+  };
+  // What a rectangle's lower bound must not pass to be searched: the nearest found plus tol (every foot within tol
+  // of it, for the alternatives), or for a distance alone less eps. A point that lowers the bound is then a
+  // candidate too, so the distance returned is the bound.
+  const double eps = 1e-3 * tol, slack = distanceOnly ? -eps : tol;
+  auto bound = [&](Vec2 uv, Vec3 f) {
+    const double d = norm(f - p);
+    if (d < ub && distanceOnly) cands.push_back({uv, d, f});
+    ub = minNum(ub, d);
   };
   int budget = 40000;
   bool exhausted = false;
@@ -481,20 +495,20 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
     const std::vector<double>& vs = grid.vs;
     for (size_t i = 0, k = 0; i + 1 < us.size(); i++)
       for (size_t j = 0; j + 1 < vs.size(); j++, k++) {
-        ub = std::fmin(ub, norm(grid.mid[k] - p));
+        bound({0.5 * us[i] + 0.5 * us[i + 1], 0.5 * vs[j] + 0.5 * vs[j + 1]}, grid.mid[k]);
         queue.push({{us[i], us[i + 1]}, {vs[j], vs[j + 1]}, grid.ok[k] ? boxDistance(grid.box[k], p) : 0.0});
       }
     while (!queue.empty()) {
       Node n = queue.top();
       queue.pop();
-      if (n.lb > ub + tol) continue;
+      if (n.lb > ub + slack) continue;
       inversionRects++;
       Range a = n.u, b = n.v;
       Vec2 mid{0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi};
       if (--budget < 0) {
         // A continuum of feet (a centre of curvature) or a search too fine: what's left sampled at its middles.
         exhausted = true;
-        leftLb = std::fmin(leftLb, n.lb);
+        leftLb = minNum(leftLb, n.lb);
         add(mid);
         continue;
       }
@@ -516,15 +530,15 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
         diam = std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width()));
       bool tiny = diam <= tol || (ok && diam <= 24 * kEps * boxMag(b0));
       double wu = a.hi - a.lo, wv = b.hi - b.lo;
-      bool thin = wu <= 4 * kEps * std::fmax(std::fabs(a.lo), std::fabs(a.hi))
-        && wv <= 4 * kEps * std::fmax(std::fabs(b.lo), std::fabs(b.hi));
+      bool thin = wu <= 4 * kEps * maxNum(std::fabs(a.lo), std::fabs(a.hi))
+        && wv <= 4 * kEps * maxNum(std::fabs(b.lo), std::fabs(b.hi));
       if (convex) {
         // A minimum pushed against a side inside the search range isn't one of S's: the rectangle beyond holds it.
         bool push[4];
         Vec2 x = convexMinimum(s, p, a, b, mid, push);
         bool inner = (push[0] && a.lo > ru.lo) || (push[1] && a.hi < ru.hi) || (push[2] && b.lo > rv.lo)
           || (push[3] && b.hi < rv.hi);
-        if (inner) ub = std::fmin(ub, norm(at(x) - p));
+        if (inner) bound(x, at(x));
         else add(x);
         continue;
       }
@@ -550,17 +564,17 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
       else for (double f : {0.0, 0.5, 1.0}) {
         double v = b.lo + f * wv, u = a.lo + f * wu;
         Vec3 um = at({mid.x, v}), vm = at({u, mid.y});
-        lu = std::fmax(lu, norm(um - at({a.lo, v})) + norm(at({a.hi, v}) - um));
-        lv = std::fmax(lv, norm(vm - at({u, b.lo})) + norm(at({u, b.hi}) - vm));
+        lu = maxNum(lu, norm(um - at({a.lo, v})) + norm(at({a.hi, v}) - um));
+        lv = maxNum(lv, norm(vm - at({u, b.lo})) + norm(at({u, b.hi}) - vm));
       }
       if (!(lu > 0 || lv > 0)) lu = wu, lv = wv;
-      ub = std::fmin(ub, norm(at(mid) - p));
+      bound(mid, at(mid));
       Range h[2][2];
       if (lu >= lv) h[0][0] = {a.lo, mid.x}, h[0][1] = b, h[1][0] = {mid.x, a.hi}, h[1][1] = b;
       else h[0][0] = a, h[0][1] = {b.lo, mid.y}, h[1][0] = a, h[1][1] = {mid.y, b.hi};
       for (auto& c : h) {
         double lb = lower(c[0], c[1]);
-        if (lb <= ub + tol) queue.push({c[0], c[1], lb});
+        if (lb <= ub + slack) queue.push({c[0], c[1], lb});
       }
     }
   }
@@ -569,7 +583,14 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   std::sort(cands.begin(), cands.end(), [](const Candidate& x, const Candidate& y) {
     return x.d < y.d || (x.d == y.d && (x.uv.x < y.uv.x || (x.uv.x == y.uv.x && x.uv.y < y.uv.y)));
   });
-  if (exhausted && leftLb < cands[0].d - tol) out.status = Status::noConvergence;
+  if (exhausted && leftLb < cands[0].d - (distanceOnly ? eps : tol)) out.status = Status::noConvergence;
+  if (distanceOnly) {
+    const Candidate& best = cands[0];
+    out.uv = best.uv, out.foot = best.foot, out.distance = best.d, out.certainty = Certainty::none;
+    if (wrapU && out.uv.x >= ru.hi) out.uv.x -= dom.uPeriod;
+    if (wrapV && out.uv.y >= rv.hi) out.uv.y -= dom.vPeriod;
+    return out;
+  }
   if (all) {
     all->clear();
     for (const Candidate& k : cands) {

@@ -6,6 +6,7 @@
 // consistently (docs/own-tessellator.md, "Simulation of simplicity").
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -72,13 +73,27 @@ struct Domain2 {
   std::vector<uint8_t> frozen;
 };
 
+/**
+ * The largest smallest angle refinement aims for (30 degrees): past it Delaunay refinement isn't guaranteed to end,
+ * and it doesn't (spheres run away at 40).
+ */
+constexpr double kMaxMinAngle = 30 * M_PI / 180;
+
 struct MeshOptions {
   /** Steiner points at most (a runaway refinement stops with Status::noConvergence, the mesh valid). */
   int maxPoints = 1000000;
-  /** The smallest angle refinement aims for, in radians, measured in the metric. */
-  double minAngle = 0.35;
+  /**
+   * The smallest angle refinement aims for, in radians, measured in the metric: 10 degrees by default, clamped to
+   * [0, kMaxMinAngle].
+   */
+  double minAngle = 10 * M_PI / 180;
   /** Called every 1024 triangles refinement takes up, if set: a long refinement's heartbeat (progress reports). */
   std::function<void()> onWork;
+  /**
+   * With a Mesh2Detail (mesh2d_impl.h), the insertions counted by the caller's refusal kinds (SizeField::refusalKind:
+   * the criteria evaluated again on each refused triangle queued); false counts them all as refused alike.
+   */
+  bool refusalKinds = true;
 };
 
 /**

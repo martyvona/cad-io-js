@@ -8,7 +8,11 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <limits>
+#include <random>
+#include <vector>
 
 #include "check.h"
 
@@ -123,6 +127,54 @@ TEST_CASE("double-double: random sums, products and quotients within a few u^2 o
 }
 
 // ---- Intervals ----
+
+TEST_CASE("intervals: the outward steps are nextafter's, at zeros, infinities, NaN, subnormals and random doubles") {
+  const double inf = std::numeric_limits<double>::infinity(), dmin = std::numeric_limits<double>::denorm_min();
+  const double nmin = std::numeric_limits<double>::min(), dmax = std::numeric_limits<double>::max();
+  std::vector<double> xs = {0.0, -0.0, inf, -inf, dmin, -dmin, nmin, -nmin, dmax, -dmax, 1.0, -1.0, 0.1, -0.1,
+    1e-310, -1e-310, 3e300, -3e300};
+  std::mt19937_64 rng(11);
+  for (int i = 0; i < 2000; i++) {
+    uint64_t b = rng();
+    double x;
+    std::memcpy(&x, &b, sizeof x);
+    if (std::isfinite(x)) xs.push_back(x);
+  }
+  int bad = 0;
+  for (double x : xs) {
+    const double u = interval_detail::up(x), d = interval_detail::down(x);
+    const double nu = std::nextafter(x, inf), nd = std::nextafter(x, -inf);
+    uint64_t a, b, c, e;
+    std::memcpy(&a, &u, 8), std::memcpy(&b, &nu, 8), std::memcpy(&c, &d, 8), std::memcpy(&e, &nd, 8);
+    if ((a != b || c != e) && bad++ < 5)
+      std::printf("  %.17g: up %.17g / %.17g, down %.17g / %.17g\n", x, u, nu, d, nd);
+  }
+  CHECK_EQ(bad, 0);
+  CHECK(std::isnan(interval_detail::up(std::nan(""))));
+  CHECK(std::isnan(interval_detail::down(std::nan(""))));
+}
+
+TEST_CASE("minNum and maxNum are fmin's and fmax's: NaNs, infinities, zeros, subnormals and random doubles") {
+  const double inf = std::numeric_limits<double>::infinity(), nan = std::nan("");
+  std::vector<double> xs = {0.0, -0.0, 1.0, -1.0, inf, -inf, nan, std::numeric_limits<double>::denorm_min(),
+    -std::numeric_limits<double>::max(), 1e-310};
+  std::mt19937_64 rng(12);
+  for (int i = 0; i < 200; i++) {
+    uint64_t b = rng();
+    double x;
+    std::memcpy(&x, &b, sizeof x);
+    xs.push_back(x);
+  }
+  // Equal as values, NaN as NaN (fmin's sign of a zero against the other zero is unspecified).
+  auto same = [](double a, double b) { return a == b || (a != a && b != b); };
+  int bad = 0;
+  for (double a : xs)
+    for (double b : xs)
+      if ((!same(minNum(a, b), std::fmin(a, b)) || !same(maxNum(a, b), std::fmax(a, b))) && bad++ < 5)
+        std::printf("  %.17g, %.17g: min %.17g / %.17g, max %.17g / %.17g\n", a, b, minNum(a, b), std::fmin(a, b),
+          maxNum(a, b), std::fmax(a, b));
+  CHECK_EQ(bad, 0);
+}
 
 TEST_CASE("intervals: exactly representable cases, tight to one ulp") {
   Interval a{1, 2}, b{3, 4};

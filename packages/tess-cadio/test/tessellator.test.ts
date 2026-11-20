@@ -8,9 +8,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
-import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam,
-  luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
+import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, knotAtEnd, loopless,
+  luneOnSeam, luneQuarter, meridianHemisphere, narrowStrip, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
@@ -183,13 +183,14 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
     assert.ok(strict.indices.length < never.indices.length);
   });
 
-test('init({maxPointsPerFace}): a face that reaches it said as capped, not as an unsettled seam', { skip },
+test('init({maxPointsPerFace}): a face that reaches it fails, said as capped, not as an unsettled seam', { skip },
   async () => {
   const t = new CadioTessellator();
   await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0 });
   const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
-  assert.ok(r.diagnostics.some((x) => /^\d+ faces with refinement stopped at their point cap$/.test(x.message)),
+  assert.ok(r.diagnostics.some((x) => /^\d+ faces failed with refinement stopped at their point cap$/.test(x.message)),
     JSON.stringify(r.diagnostics));
+  assert.ok(r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message)));
   assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
   const u = new CadioTessellator();
   await u.init();
@@ -197,10 +198,69 @@ test('init({maxPointsPerFace}): a face that reaches it said as capped, not as an
   assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
 });
 
+test('init({failCapped, failTurnedOver}): false keeps a capped face, meshed; by default it fails', { skip },
+  async () => {
+  const faces = async (opts: { failCapped?: boolean }) => {
+    const t = new CadioTessellator();
+    await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0, ...opts });
+    const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
+    return r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message));
+  };
+  assert.equal(await faces({}), true);
+  assert.equal(await faces({ failCapped: false }), false);
+  // torusOuterHalf with next to no refinement: a triangle turned against its surface, failing its face but with
+  // failTurnedOver false.
+  const turned = async (failTurnedOver: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ maxPointsPerFace: 1, failCapped: false, maxDeviationFactor: 0, failTurnedOver });
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(torusOuterHalf().finish().buffer),
+      linearDeflection: 0.1 });
+    return r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message));
+  };
+  assert.equal(await turned(true), true);
+  assert.equal(await turned(false), false);
+});
+
+test('init({countAngles}): the faces\' triangles under the minimum angle said, by angle; none without it',
+  { skip }, async () => {
+  const run = async (countAngles: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ countAngles, minAngle: 0.4 });
+    return (await t.tessellate({ ...req('cube'), data: new Uint8Array(narrowStrip().finish().buffer),
+      linearDeflection: 0.01 })).diagnostics.map((x) => x.message);
+  };
+  const re = /^\d+ faces with triangles under the minimum angle: (\d+) triangles \(by degrees: under 1 \d+, 1-2 \d+, /;
+  const said = (await run(true)).map((x) => re.exec(x)).find((x) => x);
+  assert.ok(said && Number(said[1]) > 0, String(said));
+  assert.ok(!(await run(false)).some((x) => re.test(x)));
+});
+
+test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by default, more triangles at 0.5 rad',
+  { skip }, async () => {
+  const count = async (minAngle?: number) => {
+    const t = new CadioTessellator();
+    await t.init(minAngle === undefined ? {} : { minAngle });
+    return (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01 })).indices.length / 3;
+  };
+  const [none, byDefault, tenDegrees, shaped] = [await count(0), await count(), await count(Math.PI / 18),
+    await count(0.5)];
+  assert.equal(byDefault, tenDegrees);
+  assert.notEqual(byDefault, none);
+  assert.ok(shaped > byDefault && shaped > none, `${none}, ${byDefault}, ${shaped}`);
+  // A request's own minAngle (cad-scene's TessellationRequest) in place of init's, for that request.
+  const t = new CadioTessellator();
+  await t.init();
+  const own = async (minAngle: number) =>
+    (await t.tessellate({ ...req('spheres'), linearDeflection: 0.01, minAngle })).indices.length / 3;
+  assert.equal(await own(0.5), shaped);
+  assert.equal(await own(0), none);
+});
+
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
   'not at 0.05', { skip }, async () => {
+  // (At 0.35 rad: at the 10-degree default bentApex at 0.05 asks a ring segment split once too.)
   const t = new CadioTessellator();
-  await t.init({ maxDeviationFactor: 0 });
+  await t.init({ maxDeviationFactor: 0, minAngle: 0.35 });
   const re = /^1 faces with refinement blocked by a fixed ring segment: #\d+ \((\d+) rounds\)$/;
   const blocked = async (d: number) => {
     const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bentApex().finish().buffer),
@@ -363,3 +423,58 @@ test('uses without p-curves counted by how they were sampled, said where one fel
   assert.deepEqual([n, inverted], [4, 0]);
   assert.ok(atTol >= 1 && within + atTol === 4, `${within}, ${atTol}`);
 });
+
+test('init({countInsertions}): the points inserted by what queued them, said; the mesh the same; off by default',
+  { skip }, async () => {
+    const run = async (on: boolean | undefined, data: Uint8Array) => {
+      const t = new CadioTessellator();
+      await t.init(on === undefined ? {} : { countInsertions: on });
+      return t.tessellate({ ...req('cube'), data, edges: false });
+    };
+    const counts = (r: TessellationResult) => {
+      const d = r.diagnostics.filter((x) => x.message.startsWith(INSERTED_HEAD));
+      if (!d.length) return undefined;
+      assert.equal(d.length, 1);
+      assert.equal(d[0]!.severity, 'info');
+      const parts = d[0]!.message.slice(INSERTED_HEAD.length).split(', ');
+      assert.deepEqual(parts.map((x) => x.slice(0, x.lastIndexOf(' '))), INSERTED_KINDS);
+      return new Map(parts.map((x) => [x.slice(0, x.lastIndexOf(' ')), Number(x.slice(x.lastIndexOf(' ') + 1))]));
+    };
+    // Independently: a face's vertices off its boundary in its triangles (no seam, pole or split boundary on these).
+    const interior = (r: TessellationResult) => {
+      let n = 0;
+      for (const f of r.faces) {
+        const used = new Set<number>(), side = new Map<string, number>();
+        for (let k = f.start; k < f.start + f.count; k += 3) {
+          for (let c = 0; c < 3; c++) {
+            const a = r.indices[k + c]!, b = r.indices[k + (c + 1) % 3]!;
+            used.add(a);
+            const key = a < b ? `${a},${b}` : `${b},${a}`;
+            side.set(key, (side.get(key) ?? 0) + 1);
+          }
+        }
+        const boundary = new Set([...side].filter(([, m]) => m === 1).flatMap(([k]) => k.split(',').map(Number)));
+        n += [...used].filter((v) => !boundary.has(v)).length;
+      }
+      return n;
+    };
+    const sum = (c: Map<string, number>) => [...c.values()].reduce((a, b) => a + b, 0);
+    for (const [name, data] of [['bumpPatch', bumpPatch()], ['knotAtEnd', knotAtEnd()]] as const) {
+      const bytesOf = new Uint8Array(data.finish().buffer);
+      const on = await run(true, bytesOf), off = await run(false, bytesOf), dflt = await run(undefined, bytesOf);
+      const c = counts(on);
+      assert.ok(c, name);
+      assert.equal(sum(c), interior(on), name);
+      assert.ok(sum(c) > 0, name);
+      // (A B-spline has no closed form.)
+      assert.equal(c.get('deviation in closed form'), 0, name);
+      assert.equal(counts(off), undefined), assert.equal(counts(dflt), undefined);
+      const strip = (r: TessellationResult) => ({ ...r, diagnostics: r.diagnostics.filter((x) =>
+        !x.message.startsWith(INSERTED_HEAD)) });
+      assert.equal(bytes(strip(on)), bytes(off), name);
+    }
+    // A sphere's deviation is in closed form: some by it, none sampled or bounded.
+    const sp = counts(await run(true, new Uint8Array(MODELS.spheres().finish().buffer)))!;
+    assert.ok(sp.get('deviation in closed form')! > 0);
+    assert.equal(sp.get('deviation sampled'), 0), assert.equal(sp.get('deviation bounded'), 0);
+  });

@@ -462,6 +462,35 @@ export class Geometry {
   }
 
   /** As localFoot on a face's surface as it closes in fact (its periods the face's). */
+  /**
+   * evalSurface on face `face`'s surface as it closes in fact (its periods the face's: (u, v) a period past its domain
+   * reduced, as a projection's p-curve unwrapped past it needs). Status invalidModel for no such face.
+   */
+  faceEval(face: number, uv: ArrayLike<number>, order: 0 | 1 | 2 = 1): SurfaceEvals {
+    const n = uv.length / 2, w = order === 0 ? 1 : order === 1 ? 3 : 6;
+    const [s, values, statuses] = this.call('face_eval', face, { f64: uv }, n, order, { out: 'f64', n: 3 * w * n },
+      { out: 'u8', n });
+    return { status: STATUS[s]!, values: values as Float64Array, statuses: statuses as Uint8Array };
+  }
+
+  /**
+   * The face's C0 creases (creases.h): iso-lines where its surface is only C0 by its form and its normals jump by more
+   * than minAngle (radians), clipped to the face: u = at for v in [lo, hi] (isoU), else v = at for u in [lo, hi]; jump
+   * the largest (radians); an end on the boundary lies past the face's loop by one to two of its (u, v) tolerances,
+   * any other inside the face, where the jump falls to minAngle.
+   */
+  faceCreases(face: number, minAngle: number, tol3d = NaN):
+    { status: FaceStatus; creases: { isoU: boolean; at: number; lo: number; hi: number; jump: number;
+      loOnBoundary: boolean; hiOnBoundary: boolean }[] } {
+    const [n] = this.call('face_creases', face, minAngle, tol3d);
+    if (n! < 0) return { status: faceStatus(-n!), creases: [] };
+    const v = this.scratch(), creases = [];
+    for (let i = 0; i < n!; i++)
+      creases.push({ isoU: v[7 * i] === 1, at: v[7 * i + 1]!, lo: v[7 * i + 2]!, hi: v[7 * i + 3]!,
+        jump: v[7 * i + 4]!, loOnBoundary: v[7 * i + 5] === 1, hiOnBoundary: v[7 * i + 6] === 1 });
+    return { status: 'ok', creases };
+  }
+
   faceLocalFoot(face: number, points: ArrayLike<number>, starts: ArrayLike<number>): LocalFeet {
     return this.localFeet('face_local_foot', face, points, starts);
   }

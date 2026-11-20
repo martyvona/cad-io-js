@@ -53,16 +53,20 @@ export function measuresFrom(j: unknown): Measures | undefined {
 export function levelJson(l: Lod): Json {
   return { ...(l.linearDeflection !== undefined ? { linearDeflection: l.linearDeflection } : {}),
     ...(l.angularDeflection !== undefined ? { angularDeflection: l.angularDeflection } : {}),
+    ...(l.minAngle !== undefined ? { minAngle: l.minAngle } : {}),
     ...(l.backend !== undefined ? { backend: l.backend } : {}) };
 }
 
 /** A level's settings from our extras' JSON: those that are there and of the right type. */
-export function levelFrom(j: unknown): Pick<Lod, 'linearDeflection' | 'angularDeflection' | 'backend'> {
+export function levelFrom(j: unknown): Pick<Lod, 'linearDeflection' | 'angularDeflection' | 'minAngle' | 'backend'> {
   const o = j && typeof j === 'object' && !Array.isArray(j) ? j as Json : {};
   const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : undefined);
   const lin = n(o.linearDeflection), ang = n(o.angularDeflection);
+  // (A smallest angle of 0 is one: no shape asked.)
+  const min = typeof o.minAngle === 'number' && Number.isFinite(o.minAngle) && o.minAngle >= 0 ? o.minAngle : undefined;
   return { ...(lin !== undefined ? { linearDeflection: lin } : {}),
     ...(ang !== undefined ? { angularDeflection: ang } : {}),
+    ...(min !== undefined ? { minAngle: min } : {}),
     ...(typeof o.backend === 'string' ? { backend: o.backend } : {}) };
 }
 

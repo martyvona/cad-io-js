@@ -24,6 +24,8 @@ export interface TessellateOptions {
   linearDeflection?: number;
   /** Maximum angle between adjacent mesh normals, in radians (default the profile's). */
   angularDeflection?: number;
+  /** The smallest angle asked of the triangles, radians (TessellationRequest's minAngle); default the backend's. */
+  minAngle?: number;
   edges?: boolean;
   /** Only these parts (indices); default every brep part the backend supports. */
   parts?: readonly number[];
@@ -222,7 +224,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       const join = opts.join ?? true, fill = opts.fill ?? true;
       let r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
-        linearDeflection, angularDeflection,
+        linearDeflection, angularDeflection, ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}),
         edges: join || fill || opts.edges, ...(measure ? { measures: true } : {}),
       });
       if (join) r = joinResult(brep.model, r, linearDeflection);
@@ -300,12 +302,14 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   const meshes = new Map<number, Mesh>();
   todo.forEach((i, k) => {
     const part = scene.parts[i]!;
-    const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection, backend: madeBy[k]! };
+    const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection,
+      ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}), backend: madeBy[k]! };
     if (found[k]) {
       meshes.set(i, found[k]);
       addLod(part, { mesh: found[k], ...lod });
     } else part.lods = part.lods.filter((l) => !(l.from === 'tessellated' && l.backend === madeBy[k] &&
-      l.linearDeflection === linearDeflection && l.angularDeflection === angularDeflection));
+      l.linearDeflection === linearDeflection && l.angularDeflection === angularDeflection &&
+      l.minAngle === opts.minAngle));
   });
   // The model's sphere again from the meshes alone, which can shrink an estimate (decision 3); a file's kept.
   if (scene.bounds?.from !== 'source') scene.bounds = sceneBounds(scene, { meshesOnly: true }) ?? scene.bounds;

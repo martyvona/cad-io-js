@@ -117,6 +117,8 @@ test('the key changes with the backend, every request option and the payload, an
   assert.equal(await cacheKey(info, { ...req, measures: true }), k);
   assert.equal(await cacheKey(info, { ...req, edges: false }), k);
   assert.equal(await cacheKey(info, { ...req, edges: undefined }), k);
+  // A request without a smallest angle keys as one always did (its backend's default).
+  assert.equal(await cacheKey(info, { ...req, minAngle: undefined }), k);
   const changed: [TessellatorInfo, TessellationRequest][] = [
     [{ ...info, name: 'other' }, req],
     [{ ...info, version: '2' }, req],
@@ -127,6 +129,8 @@ test('the key changes with the backend, every request option and the payload, an
     [info, { ...req, origin: undefined }],
     [info, { ...req, linearDeflection: 0.2 }],
     [info, { ...req, angularDeflection: 0.4 }],
+    [info, { ...req, minAngle: 0.2 }],
+    [info, { ...req, minAngle: 0 }],
     [info, { ...req, data: new Uint8Array([1, 2, 4]) }],
     [info, { ...req, data: new Uint8Array([1, 2]) }],
   ];

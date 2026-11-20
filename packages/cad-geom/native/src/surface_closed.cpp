@@ -60,6 +60,12 @@ public:
     newU_ = u, newV_ = v;
   }
   SurfaceDomain domain() const override { return dom_; }
+  void c0Lines(Range ru, Range rv, std::vector<IsoLine>& out) const override {
+    s_->c0Lines(ru, rv, out);
+    // The seam a closing made: its basis's ends meet there, often at an angle.
+    if (newU_) out.push_back({true, dom_.u.lo});
+    if (newV_) out.push_back({false, dom_.v.lo});
+  }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     return s_->derivs(ru(u), rv(v), order, out);
   }
@@ -74,7 +80,7 @@ public:
         // A period or more: every period's breaks.
         double k0 = std::floor((x.lo - r.lo) / P);
         for (double k = k0; r.lo + k * P <= x.hi; k++) {
-          Range piece{std::fmax(x.lo, r.lo + k * P), std::fmin(x.hi, r.lo + (k + 1) * P)};
+          Range piece{maxNum(x.lo, r.lo + k * P), minNum(x.hi, r.lo + (k + 1) * P)};
           if (piece.lo > piece.hi) continue;
           Range red{piece.lo - k * P, piece.hi - k * P};
           isU ? s_->breaks(red, b, one, other) : s_->breaks(a, red, other, one);
@@ -148,7 +154,7 @@ std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
   bool fu = finite(d.u), fv = finite(d.v);
   // Closed in fact: the two ends one curve at 9 points of the other range, or of [-1, 1] where that is infinite (an
   // extrusion's ends differ by its profile's whatever v is; no other kind with an infinite range closes in fact).
-  auto window = [](Range r) { return finite(r) ? r : Range{std::fmax(r.lo, -1.0), std::fmin(r.hi, 1.0)}; };
+  auto window = [](Range r) { return finite(r) ? r : Range{maxNum(r.lo, -1.0), minNum(r.hi, 1.0)}; };
   // And wide: the longest iso-curve along the direction, at the same 9 points, as a polyline of kAcrossSteps steps,
   // at least kAcross x tol; a sliver narrower than that is degenerate, not closed (its sides are boundaries).
   auto closes = [&](bool isU) {
@@ -168,7 +174,7 @@ std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
         len += norm(q - prev);
         prev = q;
       }
-      across = std::fmax(across, len);
+      across = maxNum(across, len);
     }
     return across >= kAcross * tol;
   };
@@ -193,7 +199,7 @@ std::unique_ptr<Surface> closeInFact(std::unique_ptr<Surface> s, double tol) {
         len += norm(q - prev);
         prev = q;
       }
-      longest = std::fmax(longest, len);
+      longest = maxNum(longest, len);
     }
     return longest >= kAcross * tol;
   };

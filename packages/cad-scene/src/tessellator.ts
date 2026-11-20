@@ -33,6 +33,11 @@ export interface TessellationRequest {
   linearDeflection: number;
   /** Maximum angle between adjacent mesh normals, in radians. */
   angularDeflection: number;
+  /**
+   * The smallest angle a backend that refines for shape aims for in its triangles, in radians (tess-cadio's minAngle:
+   * 10 degrees by default, at most 30). Absent: the backend's default; backends without one ignore it.
+   */
+  minAngle?: number;
   /** Also return B-rep edges as polylines. */
   edges?: boolean;
   /**

@@ -376,6 +376,158 @@ export function bumpPatch(half = false): BrepBuilder {
   return b;
 }
 
+/**
+ * A roof: a ruled B-spline (degree 1 both ways, a simple knot at u = 1/2: C0 there) over x = 10 u, y = 4 v, its ridge
+ * z = h at u = 1/2 between two planes (h 2: 21.8 degrees up and down, normals 43.6 apart): one crease along v. The
+ * face is u in [u0, u1], v in [0, 1]; its sides along u are each one edge (a polyline through the ridge, degree 1
+ * with its knot there) or, with `junction`, two lines meeting at a vertex on the ridge.
+ */
+export function roof(u0 = 0, u1 = 1, junction = false, h = 2, rotate = 0, bend = 0): BrepBuilder {
+  const b = new BrepBuilder();
+  const P = (u: number, v: number) => [10 * u, 4 * v, u <= 0.5 ? 2 * h * u : 2 * h * (1 - u)];
+  const poles = [0, 0.5, 1].map((u) => [0, 1].map((v) => P(u, v)));
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 0.5, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 1, 2], vMultiplicities: [2, 2], poles, uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const corner = (u: number, v: number) => b.addVertex({ point: P(u, v) });
+  const v00 = corner(u0, 0), v10 = corner(u1, 0), v11 = corner(u1, 1), v01 = corner(u0, 1);
+  const crosses = u0 < 0.5 && u1 > 0.5;
+  // A side along u at v from ua to ub: its coedges (forward along the loop).
+  const along = (v: number, ua: number, ub: number, va: number, vb: number) => {
+    const piece = (pa: number, pb: number, start: number, end: number) => {
+      // (At a junction the edges end at its vertex, off the surface: their samples there not the surface's point.)
+      const at = (q: number) => (junction && q === 0.5 ? [P(q, v)[0]!, P(q, v)[1]!, P(q, v)[2]! + 1e-7] : P(q, v));
+      const A = at(pa), B = at(pb), d = [B[0]! - A[0]!, B[1]! - A[1]!, B[2]! - A[2]!];
+      const line = b.addCurve({ kind: 'line', point: A, direction: d, magnitude: 1 });
+      const pcurve = b.addCurve(line2([pa, v], [pb - pa, 0]));
+      return { edge: b.addEdge({ curve: line, start, end, sameSense: true, range: [0, 1] }),
+        orientation: 'forward' as const, pcurve };
+    };
+    if (!crosses) return [piece(ua, ub, va, vb)];
+    if (junction) {
+      // (The vertex 1e-7 off the surface, as real data's are within their tolerance: its point not the surface's.)
+      const ridge = P(0.5, v), mid = b.addVertex({ point: [ridge[0]!, ridge[1]!, ridge[2]! + 1e-7] });
+      return [piece(ua, 0.5, va, mid), piece(0.5, ub, mid, vb)];
+    }
+    // One edge through the ridge: a polyline, its parameter the fraction of the way from ua to ub.
+    const curve = b.addCurve({ kind: 'bspline', degree: 1, knots: [0, (0.5 - ua) / (ub - ua), 1],
+      multiplicities: [2, 1, 2], poles: [P(ua, v), P(0.5, v), P(ub, v)], closed: false, selfIntersect: false,
+      form: 'unspecified' });
+    // (`bend`: the p-curve a quadratic bowed by bend / 2 in u at its middle, the ridge's sample there in (u, v) off
+    // the crease's line by that, its 3D point on it: an inexact p-curve within the tolerance.)
+    const pcurve = bend === 0 ? b.addCurve(line2([ua, v], [ub - ua, 0])) : b.addCurve({ kind: 'bspline', degree: 2,
+      knots: [0, 1], multiplicities: [3, 3], poles: [[ua, v], [0.5 * (ua + ub) + bend, v], [ub, v]], closed: false,
+      selfIntersect: false, form: 'unspecified' });
+    return [{ edge: b.addEdge({ curve, start: va, end: vb, sameSense: true, range: [0, 1] }),
+      orientation: 'forward' as const, pcurve }];
+  };
+  const across = (u: number, va: number, vb: number, from: number, to: number) => {
+    const A = P(u, from), B = P(u, to);
+    const line = b.addCurve({ kind: 'line', point: A, direction: [B[0]! - A[0]!, B[1]! - A[1]!, B[2]! - A[2]!],
+      magnitude: 1 });
+    return { edge: b.addEdge({ curve: line, start: va, end: vb, sameSense: true, range: [0, 1] }),
+      orientation: 'forward' as const, pcurve: b.addCurve(line2([u, from], [0, to - from])) };
+  };
+  const all = [...along(0, u0, u1, v00, v10), across(u1, v10, v11, 0, 1), ...along(1, u1, u0, v11, v01),
+    across(u0, v01, v00, 1, 0)];
+  // (`rotate`: the loop starting that many coedges on: at the junction's vertex, the crossing on the edge after it.)
+  const coedges = [...all.slice(rotate), ...all.slice(0, rotate)];
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * The roof with its top left corner cut out, u in [0, 1/2] x v in [0.6, 1]: the cut's side u = 1/2 lies along the
+ * ridge, so the crease (the ridge below v = 0.6) ends at the cut's corner, which the loop reaches along the ridge.
+ * The crease's crossing there is on the edge after the corner (the one along the ridge has none), whose first sample
+ * the loop labels with the edge before. The corner's vertex is 1e-7 off the surface, the edges ending at it.
+ */
+export function roofNotch(): BrepBuilder {
+  const b = new BrepBuilder();
+  const P = (u: number, v: number) => [10 * u, 4 * v, u <= 0.5 ? 4 * u : 4 * (1 - u)];
+  const poles = [0, 0.5, 1].map((u) => [0, 1].map((v) => P(u, v)));
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 0.5, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 1, 2], vMultiplicities: [2, 2], poles, uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const corner = P(0.5, 0.6), off = [corner[0]!, corner[1]!, corner[2]! + 1e-7];
+  const uv = [[0, 0], [1, 0], [1, 1], [0.5, 1], [0.5, 0.6], [0, 0.6]];
+  const xyz = uv.map(([u, v], k) => (k === 4 ? off : P(u!, v!)));
+  const vs = xyz.map((point) => b.addVertex({ point }));
+  const coedges = uv.map((a, k) => {
+    const c = uv[(k + 1) % uv.length]!, A = xyz[k]!, C = xyz[(k + 1) % uv.length]!;
+    // (The bottom side through the ridge: a polyline, its knot at the ridge.)
+    const curve = k === 0 ? b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 0.5, 1], multiplicities: [2, 1, 2],
+      poles: [A, P(0.5, 0), C], closed: false, selfIntersect: false, form: 'unspecified' })
+      : b.addCurve({ kind: 'line', point: A, direction: [C[0]! - A[0]!, C[1]! - A[1]!, C[2]! - A[2]!], magnitude: 1 });
+    return { edge: b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % uv.length]!, sameSense: true, range: [0, 1] }),
+      orientation: 'forward' as const, pcurve: b.addCurve(line2(a, [c[0]! - a[0]!, c[1]! - a[1]!])) };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * Two creases crossing (`cross`, a hip roof: degree 1 both ways, knots at u = 1/2, v = 0.4, the middle pole raised
+ * by 2: four bilinear patches) or one curved in 3D (`arched`: the roof's ridge along v on a quadratic in v, its middle
+ * row raised by 3). Over x = 10 u, y = 10 v; bounded by its four sides (polylines through the knots, p-curves
+ * straight).
+ */
+export function creasedPatch(kind: 'cross' | 'arched'): BrepBuilder {
+  const b = new BrepBuilder();
+  const cross = kind === 'cross';
+  // (The hip's v knot at 0.4: the u-ridge's samples by halving never land on the v-ridge.)
+  const vs = cross ? [0, 0.4, 1] : [0, 0.5, 1];
+  const z = (i: number, j: number) => cross ? (i === 1 && j === 1 ? 2 : 0) : (i === 1 ? 2 : 0) + (j === 1 ? 3 : 0);
+  const poles = [0, 1, 2].map((i) => [0, 1, 2].map((j) => [10 * [0, 0.5, 1][i]!, 10 * vs[j]!, z(i, j)]));
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: cross ? 1 : 2, uKnots: [0, 0.5, 1],
+    vKnots: cross ? [0, 0.4, 1] : [0, 1], uMultiplicities: [2, 1, 2], vMultiplicities: cross ? [2, 1, 2] : [3, 3],
+    poles, uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  // Each side: the surface's boundary curve there, as a B-spline of its own, its p-curve the side.
+  const side = (fixedU: boolean, at: number, from: number, to: number, start: number, end: number) => {
+    const k = fixedU ? (at === 0 ? 0 : 2) : (at === 0 ? 0 : 2);
+    const row = [0, 1, 2].map((m) => (fixedU ? poles[k]![m]! : poles[m]![k]!));
+    const ordered = from < to ? row : [...row].reverse();
+    const deg = fixedU && !cross ? 2 : 1;
+    const knot = fixedU ? (cross ? (from < to ? 0.4 : 0.6) : 0.5) : 0.5;
+    const curve = b.addCurve({ kind: 'bspline', degree: deg, knots: deg === 2 ? [0, 1] : [0, knot, 1],
+      multiplicities: deg === 2 ? [3, 3] : [2, 1, 2], poles: ordered, closed: false, selfIntersect: false,
+      form: 'unspecified' });
+    const a = fixedU ? [at, from] : [from, at], d = fixedU ? [0, to - from] : [to - from, 0];
+    return { edge: b.addEdge({ curve, start, end, sameSense: true, range: [0, 1] }), orientation: 'forward' as const,
+      pcurve: b.addCurve(line2(a, d)) };
+  };
+  const P = (i: number, j: number) => b.addVertex({ point: poles[i]![j]! });
+  const v00 = P(0, 0), v10 = P(2, 0), v11 = P(2, 2), v01 = P(0, 2);
+  const coedges = [side(false, 0, 0, 1, v00, v10), side(true, 1, 0, 1, v10, v11), side(false, 1, 1, 0, v11, v01),
+    side(true, 0, 1, 0, v01, v00)];
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A 10 mm square on z = 0, no p-curves, its top side an arc through its corners bowing 50 mm up out of the plane
+ * (a circle in y = 10, centre z = 24.75, radius 25.25): an edge far off its face's surface, which the projection
+ * finds so.
+ */
+export function edgeFarOff(): BrepBuilder {
+  const b = new BrepBuilder();
+  const c = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]];
+  const vs = c.map((point) => b.addVertex({ point }));
+  const line = (j: number) => {
+    const p = c[j]!, q = c[(j + 1) % 4]!;
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
+      magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] });
+  };
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [5, 10, 24.75], axis: [0, -1, 0],
+    xDir: [1, 0, 0] }, radius: 25.25 }), start: vs[2]!, end: vs[3]!, sameSense: true,
+    range: [-Math.atan2(24.75, 5), Math.PI + Math.atan2(24.75, 5)] });
+  const edges = [line(0), line(1), arc, line(3)];
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: edges.map((edge) => ({ edge,
+      orientation: 'forward' as const })) }] }));
+  return b;
+}
+
 export function twisted(): BrepBuilder {
   const b = new BrepBuilder();
   const p = [[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 1]];
@@ -1378,6 +1530,25 @@ export function torusWide(): BrepBuilder {
   return b;
 }
 
+/**
+ * A double cone: the line from (2, 0, 0) towards (0, 0, 2) revolved about z, an unbounded profile (v over all reals,
+ * its apex (0, 0, 2) inside that range, at v = 2 sqrt 2). The face from the circle at z = 1 (radius 1, its vertex at
+ * (1, 0, 1)) up to the apex: area pi sqrt 2.
+ */
+export function revolvedLineCone(): BrepBuilder {
+  const b = new BrepBuilder();
+  const s = Math.SQRT1_2;
+  const profile = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [-s, 0, s], magnitude: 1 });
+  const surface = b.addSurface({ kind: 'revolution', curve: profile, axisOrigin: [0, 0, 0], axisDirection: [0, 0, 1] });
+  const v = b.addVertex({ point: [1, 0, 1] });
+  const circle = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 1], axis: [0, 0, 1], xDir: [1, 0, 0] },
+    radius: 1 });
+  const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true });
+  sheet(b, b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: e, orientation: 'forward' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1740,7 +1911,11 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
-  fineProjection, knotAtEnd, cornerFold,
+  fineProjection, knotAtEnd, cornerFold, roof: () => roof(), roofJunction: () => roof(0, 1, true),
+  roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
+  roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
+  roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
+  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff,
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
@@ -1754,5 +1929,6 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldFlat: () => uFold(0),
   uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
+  revolvedLineCone,
   arcChord,
   bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
