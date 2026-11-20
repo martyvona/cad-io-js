@@ -39,6 +39,8 @@ struct Job {
   std::vector<Singularity> sing;
   /** The curve's breaks over r (its ends included). */
   std::vector<double> breaks;
+  /** The surface's breaks inside its domain (knots, a profile's), where its partials may jump: the trace's rate. */
+  std::vector<double> uBreaks, vBreaks;
 };
 
 /** The piece's `curve` from its form (kind, reals, ints; kind 0 from `affine` over `basis`); false if it can't be. */

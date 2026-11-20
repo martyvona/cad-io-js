@@ -316,26 +316,69 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
   double best = norm(q.p - p);
   bool converged = false;
   int it = 0;
-  for (; it < 32 && !converged; it++) {
-    const Vec3 e = q.p - p;
-    const double gu = dot(e, q.du), gv = dot(e, q.dv), a = dot(q.du, q.du), b = dot(q.du, q.dv), c = dot(q.dv, q.dv);
+  // The surface's breaks inside its domain (knots, a profile's): on a C0 one (a crease) the partials jump, and the
+  // evaluation gives one side's.
+  std::vector<double> bu, bv;
+  s.breaks(dom.u, dom.v, bu, bv);
+  auto interior = [](std::vector<double>& b, Range r) {
+    b.erase(std::remove_if(b.begin(), b.end(), [&](double x) { return !(x > r.lo && x < r.hi); }), b.end());
+  };
+  interior(bu, dom.u), interior(bv, dom.v);
+  // The Newton step from x with the partials sq; false where the normal matrix degenerates. Held against a side of
+  // the domain (a direction that isn't periodic): along that side instead, the other coordinate's Newton step alone;
+  // in a corner, held there.
+  auto newton = [&](const SurfacePoint& sq, Vec2 x, Vec2& n) {
+    const Vec3 e = sq.p - p;
+    const double gu = dot(e, sq.du), gv = dot(e, sq.dv), a = dot(sq.du, sq.du), b = dot(sq.du, sq.dv),
+                 c = dot(sq.dv, sq.dv);
     const double det = a * c - b * b;
     // (A collapsed direction, a pole row's, too: there the relative test alone passes on S_u's rounding.)
-    if (!(det > 1e-12 * a * c && a > 0) || std::fmin(a, c) <= 1e-24 * std::fmax(a, c)) {
-      out.status = Status::singular, out.uv = x, out.point = q.p, out.distance = best, out.iterations = it;
-      return out;
-    }
-    Vec2 n{x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
-    // Held against a side of the domain (a direction that isn't periodic): along that side instead, the other
-    // coordinate's Newton step alone; in a corner, held there.
+    if (!(det > 1e-12 * a * c && a > 0) || std::fmin(a, c) <= 1e-24 * std::fmax(a, c)) return false;
+    n = {x.x - (c * gu - b * gv) / det, x.y - (a * gv - b * gu) / det};
     const bool heldU = !perU && (n.x < dom.u.lo || n.x > dom.u.hi);
     const bool heldV = !perV && (n.y < dom.v.lo || n.y > dom.v.hi);
     if (heldU && !heldV) n = {std::clamp(n.x, dom.u.lo, dom.u.hi), x.y - gv / c};
     if (heldV && !heldU) n = {x.x - gu / a, std::clamp(n.y, dom.v.lo, dom.v.hi)};
     if (!perU) n.x = std::clamp(n.x, dom.u.lo, dom.u.hi);
     if (!perV) n.y = std::clamp(n.y, dom.v.lo, dom.v.hi);
+    return true;
+  };
+  for (; it < 32 && !converged; it++) {
+    Vec2 n;
+    if (!newton(q, x, n)) {
+      out.status = Status::singular, out.uv = x, out.point = q.p, out.distance = best, out.iterations = it;
+      return out;
+    }
+    // On a break, the step of the side it heads into: each side's partials (just below and just above it), the
+    // evaluation's own step kept where it heads into a side whose step agrees, else the one side's whose step
+    // heads into it (a polyline extrusion's corner: the other leg's S_u is across the first, its step there 0).
+    SurfacePoint used = q;
+    for (int k = 0; k < 2; k++) {
+      const std::vector<double>& bs = k ? bv : bu;
+      if (bs.empty()) continue;
+      const Range r = k ? dom.v : dom.u;
+      const double period = k ? dom.vPeriod : dom.uPeriod, xk = k ? x.y : x.x;
+      const double xr = period > 0 ? r.lo + std::fmod(std::fmod(xk - r.lo, period) + period, period) : xk;
+      auto at = std::lower_bound(bs.begin(), bs.end(), xr - 1e-12 * (1 + std::fabs(xr)));
+      if (at == bs.end() || std::fabs(*at - xr) > 1e-12 * (1 + std::fabs(xr))) continue;
+      const double lo = at == bs.begin() ? r.lo : *(at - 1), hi = at + 1 == bs.end() ? r.hi : *(at + 1);
+      const double step = std::fmin(1e-9 * (r.hi - r.lo), 0.25 * std::fmin(*at - lo, hi - *at));
+      Vec2 xb = x, xa = x;
+      (k ? xb.y : xb.x) = xk + (*at - xr) - step, (k ? xa.y : xa.x) = xk + (*at - xr) + step;
+      SurfacePoint qb, qa;
+      Vec2 nb, na;
+      const bool okB = s.eval(xb.x, xb.y, 1, qb) == Status::ok && newton(qb, x, nb);
+      const bool okA = s.eval(xa.x, xa.y, 1, qa) == Status::ok && newton(qa, x, na);
+      const double tiny = 1e-12 * (r.hi - r.lo);
+      const double own = k ? n.y - x.y : n.x - x.x;
+      const bool intoBelow = okB && (k ? nb.y - x.y : nb.x - x.x) < -tiny;
+      const bool intoAbove = okA && (k ? na.y - x.y : na.x - x.x) > tiny;
+      if ((own > tiny && intoAbove) || (own < -tiny && intoBelow)) continue;
+      if (intoBelow && !intoAbove) n = nb, used = qb;
+      else if (intoAbove && !intoBelow) n = na, used = qa;
+    }
     // At a foot the step it takes is nothing: in 3D within rounding of p or a millionth of its distance.
-    if (norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-12 * (1 + norm(p)), 1e-6 * best)) {
+    if (norm((n.x - x.x) * used.du + (n.y - x.y) * used.dv) <= std::max(1e-12 * (1 + norm(p)), 1e-6 * best)) {
       converged = true;
       break;
     }
@@ -344,7 +387,7 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
     const double d = norm(qn.p - p);
     if (!(d < best)) {
       // (No nearer: the surface's own rounding, where the step left is that small, or a stall away from a foot.)
-      converged = norm((n.x - x.x) * q.du + (n.y - x.y) * q.dv) <= std::max(1e-9 * (1 + norm(p)), 1e-4 * best);
+      converged = norm((n.x - x.x) * used.du + (n.y - x.y) * used.dv) <= std::max(1e-9 * (1 + norm(p)), 1e-4 * best);
       break;
     }
     x = n, q = qn, best = d;
