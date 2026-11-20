@@ -88,6 +88,11 @@ struct PartOptions {
    */
   bool countInsertions = false;
   /**
+   * Count each face's final triangles whose smallest angle in the metric is under minAngle (FaceMesh::thin): their
+   * number, by that angle, their area, and what holds them there. Off by default; the mesh is the same either way.
+   */
+  bool countAngles = false;
+  /**
    * Keep each face's criteria verdicts (accept, belowFloor, the metric) from its last two meshings and answer the
    * same question again from them: a face meshed again after a split round asks mostly about the triangles it asked
    * about before. The mesh is the same bits either way (the criteria are functions of a triangle's corners as given);
@@ -101,6 +106,9 @@ struct PartOptions {
    */
   size_t verdictBudget = size_t{256} << 20;
 };
+
+/** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */
+constexpr int kThinBins = 6;
 
 /** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */
 constexpr int kInsertionKinds = 10;
@@ -141,6 +149,14 @@ struct FaceMesh {
    * [0] its size in the metric, [1] its thinness alone, [2 + k] refused by its criteria, k criteria.h's Refusal.
    */
   int inserted[kInsertionKinds] = {};
+  /**
+   * With PartOptions::countAngles: its mesher's triangles whose smallest angle in the metric is under minAngle; by
+   * that angle (degrees: under 1, 1 to 2, 2 to 5, 5 to 8, 8 to 10, 10 and up); their area in 3D; and how many have
+   * every corner on the boundary, an edge on a frozen segment (an edge's span within the refinement floor), or lie
+   * within the floor (criteria.h's belowFloor), each counted where it holds.
+   */
+  int thin = 0, thinByAngle[kThinBins] = {}, thinBoundary = 0, thinFrozen = 0, thinFloor = 0;
+  double thinArea = 0;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /**

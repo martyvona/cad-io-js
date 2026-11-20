@@ -62,7 +62,8 @@ struct EdgeOptions {
   double maxSpacing = std::numeric_limits<double>::infinity();
   /**
    * Called as the construction goes, if set: (done, total, face) over the model's edges sampled and then their uses
-   * placed, `face` the use's face row (-1 for an edge).
+   * placed, `face` the use's face row (-1 for an edge); and as split() (respace's too) places a use again: (the use,
+   * the model's uses, its face row).
    */
   std::function<void(int, int, int)> progress;
   /**

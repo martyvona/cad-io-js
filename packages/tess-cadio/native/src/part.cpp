@@ -838,7 +838,9 @@ struct PartMesher::Impl {
       meshedAt[f] = meshings++;
       field = memos[f].get();
     }
-    Mesh2 mesh = o.countInsertions ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    const bool detailed = o.countInsertions || o.countAngles;
+    mo.refusalKinds = o.countInsertions;
+    Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
     if (o.countInsertions) std::copy(detail.inserted, detail.inserted + kInsertionKinds, out.inserted);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
@@ -927,6 +929,20 @@ struct PartMesher::Impl {
       }
     }
     auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
+    // The thin triangles (PartOptions::countAngles), but those with two corners on a pole line (no triangle in 3D).
+    if (o.countAngles)
+      for (size_t k = 0; k < detail.thin.size(); k++) {
+        const int32_t* v = &mesh.triangles[3 * static_cast<size_t>(detail.thin[k])];
+        const Vec3 &a = out.points[v[0]], &b = out.points[v[1]], &c = out.points[v[2]];
+        if (samePoint(a, b) || samePoint(b, c) || samePoint(a, c)) continue;
+        const double deg = detail.thinAngle[k] * 180 / M_PI;
+        const uint8_t fl = detail.thinFlags[k];
+        out.thin++;
+        out.thinByAngle[deg < 1 ? 0 : deg < 2 ? 1 : deg < 5 ? 2 : deg < 8 ? 3 : deg < 10 ? 4 : 5]++;
+        out.thinArea += 0.5 * norm(cross(b - a, c - a));
+        out.thinBoundary += (fl & kThinBoundary) != 0, out.thinFrozen += (fl & kThinFrozen) != 0;
+        out.thinFloor += (fl & kThinFloor) != 0;
+      }
     std::set<int32_t> refusedHere(mesh.rejected.begin(), mesh.rejected.end());
     // A point on a crease: a copy per side of its lines a triangle lies on, each with its side's normal (the
     // surface's there one-sided), the first side met keeping the point itself.

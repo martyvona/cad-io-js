@@ -46,6 +46,8 @@ int maxPoints = PartOptions{}.maxPointsPerFace;
 double minAngle = PartOptions{}.minAngle;
 // PartOptions::countInsertions for the next calls.
 bool countInsertions = false;
+// PartOptions::countAngles for the next calls.
+bool countAngles = false;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -63,7 +65,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 6; }
+int tc_api_version() { return 7; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -92,6 +94,11 @@ void tc_set_min_angle(double radians) {
  */
 void tc_set_count_insertions(int on) { countInsertions = on != 0; }
 
+/**
+ * Whether the next calls count each face's triangles under the minimum angle (PartOptions::countAngles; default 0).
+ */
+void tc_set_count_angles(int on) { countAngles = on != 0; }
+
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,
   int wantEdges) {
   result = {};
@@ -112,6 +119,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.maxPointsPerFace = maxPoints;
   opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
+  opts.countAngles = countAngles;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
@@ -120,7 +128,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
   std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped;
   std::vector<uint32_t> folded;
-  std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0);
+  std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
+  std::string thinArea = "[";
   uint32_t folds = 0;
   std::vector<std::string> failedCause;
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
@@ -140,6 +149,15 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       }
       for (int32_t v : fm.triangles) result.indices.push_back(base + static_cast<uint32_t>(v));
       for (int k = 0; k < kInsertionKinds; k++) inserted[k] += static_cast<uint32_t>(fm.inserted[k]);
+      if (fm.thin) {
+        thin.insert(thin.end(), {faceId[f], static_cast<uint32_t>(fm.thin)});
+        for (int k = 0; k < kThinBins; k++) thin.push_back(static_cast<uint32_t>(fm.thinByAngle[k]));
+        thin.insert(thin.end(), {static_cast<uint32_t>(fm.thinBoundary), static_cast<uint32_t>(fm.thinFrozen),
+          static_cast<uint32_t>(fm.thinFloor)});
+        char a[32];
+        std::snprintf(a, sizeof a, "%.6g", fm.thinArea);
+        thinArea += (thinArea.size() > 1 ? "," : "") + std::string(a);
+      }
       if (!fm.rejected.empty()) {
         refused.push_back(faceId[f]);
         refusedTriangles += fm.rejected.size();
@@ -252,7 +270,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
     ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) + ",\"ringBlocked\":" +
     ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" + ids(capped) +
-    ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"folds\":" +
+    ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"thin\":" + ids(thin) +
+    ",\"thinArea\":" + thinArea + "]" + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
     std::to_string(tc.local) + "," + std::to_string(tc.global) + "],\"traceFallbacks\":" + fallbacks + ",\"rounds\":" +
@@ -282,6 +301,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "unsettled", "sampled" (faces whose deviation accept() sampled rather than bounded: SurfaceCriteria::bounded),
  * "refusedBy" (the refused triangles by why: criteria.h's Refusal as indices, [0] unused), "inserted" (with
  * tc_set_count_insertions, the meshed faces' Steiner points by what queued them: part.h's FaceMesh::inserted, summed),
+ * "thin" and "thinArea" (with tc_set_count_angles, per meshed face with triangles under the minimum angle, 11 numbers
+ * [face id, count, by angle under 1, 2, 5, 8, 10 degrees and the rest, every corner on the boundary, an edge frozen,
+ * within the floor] and its area of them in mm^2: FaceMesh::thin and the rest),
  * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "folded" and "folds"
  * (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,

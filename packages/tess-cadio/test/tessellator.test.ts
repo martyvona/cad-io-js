@@ -10,7 +10,7 @@ import { openEdges, oracleMeasures, type TessellationProgress, type Tessellation
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
 import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, knotAtEnd, loopless,
-  luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+  luneOnSeam, luneQuarter, meridianHemisphere, narrowStrip, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
@@ -196,6 +196,20 @@ test('init({maxPointsPerFace}): a face that reaches it fails, said as capped, no
   await u.init();
   const ru = await u.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
   assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
+});
+
+test('init({countAngles}): the faces\' triangles under the minimum angle said, by angle; none without it',
+  { skip }, async () => {
+  const run = async (countAngles: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ countAngles, minAngle: 0.4 });
+    return (await t.tessellate({ ...req('cube'), data: new Uint8Array(narrowStrip().finish().buffer),
+      linearDeflection: 0.01 })).diagnostics.map((x) => x.message);
+  };
+  const re = /^\d+ faces with triangles under the minimum angle: (\d+) triangles \(by degrees: under 1 \d+, 1-2 \d+, /;
+  const said = (await run(true)).map((x) => re.exec(x)).find((x) => x);
+  assert.ok(said && Number(said[1]) > 0, String(said));
+  assert.ok(!(await run(false)).some((x) => re.test(x)));
 });
 
 test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by default, more triangles at 0.5 rad',

@@ -316,6 +316,11 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
 /** x shifted by a whole number of periods to be nearest `to` (period 0: unchanged). */
 /** A projected p-curve for meshing within this times the deflection of its feet, where the curve allows. */
 constexpr double kMeshTolerance = 0.05;
+/**
+ * A use without a p-curve whose curve the projection finds farther off its face's surface than both this many edge
+ * tolerances and this many deflections fails (projectMissing): no placing it by inversion.
+ */
+constexpr double kOffSurfaceTolerances = 100, kOffSurfaceDeflections = 10;
 
 double nearest(double x, double to, double period) {
   return period > 0 ? x + std::round((to - x) / period) * period : x;
@@ -368,6 +373,7 @@ struct EdgeMesh::Impl {
     Vec2 vertexUv[2];
     std::map<double, SurfaceInversion> inverted;  // by edge parameter: each sample inverted once
     double givenMiss = 0;                // a given p-curve used: its inside samples' largest distance from their points
+    double offSurface = 0;               // its curve this far off its face's surface (projectMissing): not inverted
     CoedgeSamples s;
   };
   struct Crossing {
@@ -688,6 +694,11 @@ struct EdgeMesh::Impl {
     C.ambiguous[0] = C.ambiguous[1] = false;
     if (E.s.t.empty() || C.face < 0 || !faces[C.face].s) {
       s.status = E.s.t.empty() ? E.s.status : Status::unsupported;
+      return;
+    }
+    if (C.offSurface > 0) {
+      s.status = Status::invalidModel;
+      s.gap = C.offSurface;
       return;
     }
     const Face& F = faces[C.face];
@@ -1063,6 +1074,14 @@ struct EdgeMesh::Impl {
       } else if (ok) {
         projections.withinMesh++;
       }
+      // (A curve far off the surface, by the projection's measure, fails its use: inverting each of its samples, a
+      // global search each, finds only that it is (bug29979 #174483's edge #417105, 200 mm off face #279826's
+      // B-spline, 730 samples at 0.5 s each). Within this, by inversion: a sloppy model's edges still placed.)
+      if (!ok && p.status == Status::invalidModel &&
+        p.offSurface > std::max(kOffSurfaceTolerances * edgeTol, kOffSurfaceDeflections * o.deflection)) {
+        C.offSurface = p.offSurface;
+        continue;
+      }
       if (!ok) {
         projections.byInversion++;
         continue;
@@ -1350,6 +1369,7 @@ struct EdgeMesh::Impl {
       if (E.s.status != Status::ok) return E.s.t.empty() ? "an edge not sampled (its curve not made or not bounded)"
         : "an edge's sampling stopped at its depth or sample cap";
       if (s.status == Status::singular) return "a seam's side in (u, v) not settled by its neighbours";
+      if (coedges[c].offSurface > 0) return "a use of an edge whose curve is far off its face's surface";
       if (s.status != Status::ok) return s.uv.empty() ? "a use of an edge with no samples on its face"
         : "a use of an edge not placed on its face (its p-curve or inversion)";
     }
@@ -2239,7 +2259,11 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
         E.s.points.push_back(E.geom->at(news[k].second));
       }
     }
-    for (int c : E.coedges) I.computeCoedge(c);
+    // (Each use placed again said, its face named: a slow one, a use by inversion on a costly surface, names itself.)
+    for (int c : E.coedges) {
+      if (I.o.progress) I.o.progress(c, I.m.coedges(), I.coedges[c].face);
+      I.computeCoedge(c);
+    }
   }
   return bad ? Status::invalidModel : Status::ok;
 }
