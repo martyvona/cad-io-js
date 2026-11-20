@@ -1844,6 +1844,44 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   }
 }
 
+TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's: within d, its refinement unblocked") {
+  // The boundary meets the apex's row over v 0.6 to 0.4, its curves crossing the ring near v 0.95 and 0.05: pieces
+  // over the run alone would leave the ring a chord across most of v, which refinement asks to split and can't.
+  // At d 0.05: every triangle within the deflection at its centroid and sides' middles (by inversion), nothing
+  // refused, no round blocked by a ring's segment. (Finer, the triangles across from the ring want it split finer than
+  // its own chords do, and it isn't: at 0.01, 6 rounds blocked.)
+  for (double d : {0.05}) {
+    cadgeom::Model m = load("bentApex");
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(d, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
+    const cadgeom::SurfaceDomain dom = s->domain();
+    int far = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const int32_t* v = &fm.triangles[t];
+      Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+      for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]), 0.5 * (p[2] + p[0])})
+        far += cadgeom::invertSurface(*s, q, dom.u, dom.v, 1e-12).distance > d * (1 + 1e-9);
+    }
+    if (far || fm.ringBlocked || !fm.rejected.empty())
+      std::printf("  bentApex at %g: %d points beyond d, %d rounds blocked, %zu refused of %zu\n", d, far,
+        fm.ringBlocked, fm.rejected.size(), fm.triangles.size() / 3);
+    CHECK_EQ(far, 0);
+    CHECK_EQ(fm.ringBlocked, 0);
+    CHECK(fm.rejected.empty());
+  }  // At 0.01 the ring stays as cut while refinement asks for it split: counted, meshing by meshing
+  // (FaceMesh::ringBlocked).
+  cadgeom::Model m = load("bentApex");
+  PartOptions po = options(0.01, 0.26);
+  po.maxDeviationFactor = 1e9;
+  PartMesher pm(m, po);
+  CHECK(pm.face(0).ringBlocked >= 2);
+  CHECK(pm.face(0).ringBlocked <= pm.rounds() + 1);
+}
+
 TEST_CASE("one ring per pole across faces: poleLunes' two lunes meet at a pole, both rings at the smaller's reach") {
   // The unit sphere's lune and a radius 3 sphere's meet at (0, 0, 1). Each face's fan corners other than the pole,
   // those nearest it (its ring): the same distance from the pole in both faces, the unit lune's own reach (a lune on

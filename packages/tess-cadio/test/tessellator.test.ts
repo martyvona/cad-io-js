@@ -9,8 +9,9 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, progressReporter, VERSION } from '../src/index.ts';
-import { affineFeetOff, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter,
-  meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold } from '../native/test/models.ts';
+import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam,
+  luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+  from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -181,6 +182,20 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
     assert.ok(!failed(never), JSON.stringify(never.diagnostics));
     assert.ok(strict.indices.length < never.indices.length);
   });
+
+test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
+  'not at 0.05', { skip }, async () => {
+  const t = new CadioTessellator();
+  await t.init({ maxDeviationFactor: 0 });
+  const re = /^1 faces with refinement blocked by a fixed ring segment: #\d+ \((\d+) rounds\)$/;
+  const blocked = async (d: number) => {
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bentApex().finish().buffer),
+      linearDeflection: d });
+    return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
+  };
+  assert.ok(Number(await blocked(0.01)) >= 2);
+  assert.equal(await blocked(0.05), undefined);
+});
 
 test('faces with deviations sampled, said: a B-spline dome\'s at its pole; a torus\'s inner half (bounded by its ' +
   'derivatives where its closed form fails), a sphere\'s, a B-spline\'s without a pole not',
