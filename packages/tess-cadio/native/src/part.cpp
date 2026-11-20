@@ -494,6 +494,17 @@ struct PartMesher::Impl {
     }
   }
 
+  /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
+  void failCapped() {
+    if (!o.failCapped) return;
+    for (FaceMesh& fm : faces) {
+      if (fm.status != Status::ok || !fm.capped) continue;
+      fm.status = Status::noConvergence;
+      fm.cause = "refinement stopped at its point cap, " + std::to_string(fm.triangles.size() / 3) + " triangles";
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
   void meshFace(int f) {
     at.row = f;
     if (o.progress) o.progress(at);
@@ -846,6 +857,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     }
   }
   I.memos.clear();
+  I.failCapped();
   I.checkDeviation();
   I.checkFacing();
 }

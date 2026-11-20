@@ -183,13 +183,14 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
     assert.ok(strict.indices.length < never.indices.length);
   });
 
-test('init({maxPointsPerFace}): a face that reaches it said as capped, not as an unsettled seam', { skip },
+test('init({maxPointsPerFace}): a face that reaches it fails, said as capped, not as an unsettled seam', { skip },
   async () => {
   const t = new CadioTessellator();
   await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0 });
   const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
-  assert.ok(r.diagnostics.some((x) => /^\d+ faces with refinement stopped at their point cap$/.test(x.message)),
+  assert.ok(r.diagnostics.some((x) => /^\d+ faces failed with refinement stopped at their point cap$/.test(x.message)),
     JSON.stringify(r.diagnostics));
+  assert.ok(r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message)));
   assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
   const u = new CadioTessellator();
   await u.init();
