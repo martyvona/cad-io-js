@@ -136,26 +136,31 @@ export function healJob(req: HealRequest, progress: (what: string) => void): Pro
 }
 
 /**
- * How long one part may heal in a worker (wall time, ms) before its worker is stopped and the part kept as imported,
- * with a warning naming where healing was: so a hung part can't hang a load. 15 minutes: 1.7 x the slowest part
- * measured (bug29979_firetherm_12 #206858, 538 s with 6 files healing at once), so a loaded host or a browser doesn't
- * stop a part that would finish. Healing on the caller's own thread has no limit (it can't be stopped).
+ * How long one part may heal in a worker before its worker is stopped and the part kept as imported, with a warning
+ * naming where healing was, so a hung part can't hang a load: HEAL_CPU_TIMEOUT_MS of the worker thread's CPU time
+ * (checked at each progress message healing sends), so a loaded host doesn't change which parts finish; 15 minutes,
+ * 1.7 x the slowest part measured (bug29979_firetherm_12 #206858, 538 s). HEAL_TIMEOUT_MS of wall time is the
+ * backstop where there's no thread CPU time (browsers) or no progress comes. Healing on the caller's own thread has
+ * no limit (it can't be stopped).
  */
-export const HEAL_TIMEOUT_MS = 15 * 60_000;
+export const HEAL_CPU_TIMEOUT_MS = 15 * 60_000;
+export const HEAL_TIMEOUT_MS = 2 * HEAL_CPU_TIMEOUT_MS;
 
 /** What poolHealer needs of a pool: tess-workers' PoolTessellator.run. */
 export interface JobRunner {
   run<T>(job: { module: string; export: string }, input: unknown,
-    opts?: { onProgress?: (message: string) => void; timeoutMs?: number }): Promise<T>;
+    opts?: { onProgress?: (message: string) => void; timeoutMs?: number; cpuTimeoutMs?: number }): Promise<T>;
 }
 
 /**
- * A PartHealer running healJob in `pool`'s workers, each part within HEAL_TIMEOUT_MS; `module` the specifier the
- * workers import cad-heal by (a URL, or the key a bundled worker entry gives it).
+ * A PartHealer running healJob in `pool`'s workers, each part within HEAL_CPU_TIMEOUT_MS of CPU time and
+ * HEAL_TIMEOUT_MS of wall time; `module` the specifier the workers import cad-heal by (a URL, or the key a bundled
+ * worker entry gives it).
  */
 export function poolHealer(pool: JobRunner, module: string): PartHealer {
   const job = { module, export: 'healJob' };
-  return (req, progress) => pool.run<HealedPart>(job, req, { onProgress: progress, timeoutMs: HEAL_TIMEOUT_MS });
+  return (req, progress) => pool.run<HealedPart>(job, req, { onProgress: progress, timeoutMs: HEAL_TIMEOUT_MS,
+    cpuTimeoutMs: HEAL_CPU_TIMEOUT_MS });
 }
 
 export interface HealSceneOptions extends HealOptions {
