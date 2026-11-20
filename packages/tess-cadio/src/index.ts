@@ -9,7 +9,7 @@ import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationR
 import { sha256 } from 'cad-scene';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 7;
+const API_VERSION = 8;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -78,6 +78,8 @@ interface CadioExports {
   _tc_set_deviation_factor: Fn;
   _tc_set_count_insertions: Fn;
   _tc_set_count_angles: Fn;
+  _tc_set_fail_capped: Fn;
+  _tc_set_fail_turned_over: Fn;
   _tc_set_max_points: Fn;
   _tc_set_min_angle: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
@@ -135,6 +137,12 @@ export interface CadioInitOptions {
    */
   countAngles?: boolean;
   /**
+   * Fail a face whose refinement reached its point cap (part.h's PartOptions::failCapped), and one with a triangle
+   * turned against its surface (failTurnedOver); default true each. False keeps them as meshed, for measuring.
+   */
+  failCapped?: boolean;
+  failTurnedOver?: boolean;
+  /**
    * Steiner points per face at most (part.h's PartOptions::maxPointsPerFace; default 100,000): a refinement that
    * reaches it stops there, the mesh kept and said. For tests and tuning.
    */
@@ -167,6 +175,8 @@ export class CadioTessellator implements Tessellator {
   private deviationFactor = 1;
   private countInsertions = false;
   private countAngles = false;
+  private failCapped = true;
+  private failTurnedOver = true;
   private maxPoints = 0;
   private minAngle = -1;
   readonly info: TessellatorInfo = {
@@ -181,6 +191,8 @@ export class CadioTessellator implements Tessellator {
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
     this.countInsertions = opts.countInsertions ?? false;
     this.countAngles = opts.countAngles ?? false;
+    this.failCapped = opts.failCapped ?? true;
+    this.failTurnedOver = opts.failTurnedOver ?? true;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
     this.minAngle = opts.minAngle ?? -1;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
@@ -231,6 +243,8 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_deviation_factor(this.deviationFactor);
     m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
     m._tc_set_count_angles(this.countAngles ? 1 : 0);
+    m._tc_set_fail_capped(this.failCapped ? 1 : 0);
+    m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_max_points(this.maxPoints);
     m._tc_set_min_angle(this.minAngle);
     try {
