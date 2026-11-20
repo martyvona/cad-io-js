@@ -138,10 +138,10 @@ export function healJob(req: HealRequest, progress: (what: string) => void): Pro
 /**
  * How long one part may heal in a worker before its worker is stopped and the part kept as imported, with a warning
  * naming where healing was, so a hung part can't hang a load: HEAL_CPU_TIMEOUT_MS of the worker thread's CPU time
- * (checked at each progress message healing sends), so a loaded host doesn't change which parts finish; 15 minutes,
- * 1.7 x the slowest part measured (bug29979_firetherm_12 #206858, 538 s). HEAL_TIMEOUT_MS of wall time is the
- * backstop where there's no thread CPU time (browsers) or no progress comes. Healing on the caller's own thread has
- * no limit (it can't be stopped).
+ * (tess-workers' cpuTimeoutMs: checked at each progress message and on the pool's timer), so a loaded host doesn't
+ * change which parts finish; 15 minutes, 1.7 x the slowest part measured (bug29979_firetherm_12 #206858, 538 s).
+ * HEAL_TIMEOUT_MS of wall time is the backstop where there's no thread CPU time (browsers). Healing on the caller's
+ * own thread has no limit (it can't be stopped).
  */
 export const HEAL_CPU_TIMEOUT_MS = 15 * 60_000;
 export const HEAL_TIMEOUT_MS = 2 * HEAL_CPU_TIMEOUT_MS;

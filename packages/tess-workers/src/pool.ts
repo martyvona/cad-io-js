@@ -18,12 +18,14 @@ export interface PoolOptions {
   timeoutMs?: number;
   /**
    * Per request, the worker thread's CPU time in milliseconds, so a loaded host doesn't change which parts time out:
-   * checked at each progress the backend reports (a request is stopped at the first past it, so by up to the gap
-   * between two), the request then rejected as `timeoutMs`'s are. Where the backend reports none, or the host gives
-   * no thread CPU time (browsers), only `timeoutMs` applies: set it as the backstop (a multiple of this). 0: none.
-   * Default 0.
+   * checked at each progress the backend reports and, where the worker handle can read its thread's CPU time from
+   * outside (Node's `cpuUsageMs`), every `cpuPollMs` as well, so a long step that reports nothing is stopped too; the
+   * request then rejected as `timeoutMs`'s are. Where the host gives no thread CPU time (browsers), only `timeoutMs`
+   * applies: set it as the backstop (a multiple of this). 0: none. Default 0.
    */
   cpuTimeoutMs?: number;
+  /** How often, in ms, a busy worker's CPU time is read for `cpuTimeoutMs` and jobs' limits. Default 1000. */
+  cpuPollMs?: number;
   /** Recycle a worker after this many parts. 0: never. Default 0. */
   maxPartsPerWorker?: number;
   /**
@@ -40,9 +42,8 @@ export interface WorkerTessellatorOptions extends PoolOptions {
 
 /**
  * A job's options: progress, and its own limits (ms; 0, the default, none: unlike a part's meshing): `timeoutMs` on
- * wall time, `cpuTimeoutMs` on the worker thread's CPU time, checked at each progress message the job sends (so it
- * applies only to jobs that send them, and only where the host gives thread CPU time: keep `timeoutMs` as the
- * backstop).
+ * wall time, `cpuTimeoutMs` on the worker thread's CPU time, checked at each progress message the job sends and on
+ * the pool's `cpuPollMs` timer (only where the host gives thread CPU time: keep `timeoutMs` as the backstop).
  */
 export interface RunOptions {
   onProgress?: (message: string) => void;
@@ -80,9 +81,14 @@ interface Slot {
   parts: number;
   job?: Job;
   timer?: ReturnType<typeof setTimeout>;
+  /** The CPU limit's timer, while a request or job with one runs. */
+  poll?: ReturnType<typeof setInterval>;
   /** When its request was posted (performance.now()). */
   started?: number;
 }
+
+/** 1 s: a step that reports nothing overruns its CPU limit by at most about this. */
+export const DEFAULT_CPU_POLL_MS = 1000;
 
 /**
  * 120 s: the corpus's slowest part takes about 61 s with OCCT on an Apple M4 at 0.1 mm with measures
@@ -101,6 +107,7 @@ export class PoolTessellator implements Tessellator {
   private readonly backend: BackendSpec | undefined;
   readonly timeoutMs: number;
   readonly cpuTimeoutMs: number;
+  readonly cpuPollMs: number;
   private readonly maxParts: number;
   private readonly times = new WeakMap<TessellationResult, RequestTimes>();
   private readonly maxMemory: number;
@@ -119,6 +126,7 @@ export class PoolTessellator implements Tessellator {
     this.workers = Math.max(1, Math.floor(opts.workers ?? defaultWorkers()));
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.cpuTimeoutMs = opts.cpuTimeoutMs ?? 0;
+    this.cpuPollMs = opts.cpuPollMs ?? DEFAULT_CPU_POLL_MS;
     this.maxParts = opts.maxPartsPerWorker ?? 0;
     this.maxMemory = opts.maxMemoryBytes ?? 256 * 2 ** 20;
   }
@@ -221,12 +229,7 @@ export class PoolTessellator implements Tessellator {
           const job = s.job;
           job.last = msg.message;
           job.onJobProgress?.(msg.message);
-          if (job.cpuTimeoutMs && msg.cpuMs !== undefined && msg.cpuMs > job.cpuTimeoutMs) {
-            const what = job.msg.type === 'run' ? job.msg.job.export : '';
-            this.kill(s, new Error(`job ${what} timed out after ${job.cpuTimeoutMs} ms of CPU time (last: `
-              + `${msg.message})`));
-            this.pump();
-          }
+          if (msg.cpuMs !== undefined) this.checkCpu(s, job, msg.cpuMs);
         }
         return;
       }
@@ -244,13 +247,10 @@ export class PoolTessellator implements Tessellator {
       }
       case 'progress': {
         if (s.job && s.job.id === msg.id) {
-          s.job.last = msg.progress.message;
-          s.job.onProgress?.(msg.progress);
-          if (this.cpuTimeoutMs > 0 && msg.cpuMs !== undefined && msg.cpuMs > this.cpuTimeoutMs) {
-            this.kill(s, new TessellationError(`tessellation timed out after ${this.cpuTimeoutMs} ms of CPU time`
-              + ` (last: ${msg.progress.message})`, this.cpuTimeoutMs));
-            this.pump();
-          }
+          const job = s.job;
+          job.last = msg.progress.message;
+          job.onProgress?.(msg.progress);
+          if (msg.cpuMs !== undefined) this.checkCpu(s, job, msg.cpuMs);
         }
         return;
       }
@@ -285,8 +285,43 @@ export class PoolTessellator implements Tessellator {
     s.h.unref?.();
   }
 
+  /** A request's or job's CPU limit (a job's its own, a request's the pool's); 0 none. */
+  private cpuLimit(job: Job): number {
+    return job.msg.type === 'run' ? job.cpuTimeoutMs ?? 0 : this.cpuTimeoutMs;
+  }
+
+  /** Stop `job` on `s` if `cpuMs`, its worker thread's CPU time on it so far, is past its limit. */
+  private checkCpu(s: Slot, job: Job, cpuMs: number): void {
+    const limit = this.cpuLimit(job);
+    if (!(limit > 0) || !(cpuMs > limit) || s.job !== job) return;
+    const last = job.last === undefined ? '' : ` (last: ${job.last})`;
+    this.kill(s, job.msg.type === 'run'
+      ? new Error(`job ${job.msg.job.export} timed out after ${limit} ms of CPU time${last}`)
+      : new TessellationError(`tessellation timed out after ${limit} ms of CPU time${last}`, limit));
+    this.pump();
+  }
+
+  /**
+   * Reads the worker's CPU time every cpuPollMs while `job` runs, from the handle (outside the worker), so a step that
+   * sends no progress still meets the limit. The baseline is read as the job is posted, so the time counted is the
+   * job's (with the message's delivery); a reading that comes back after the job ended, or from a stopped worker, is
+   * dropped.
+   */
+  private watchCpu(s: Slot, job: Job): void {
+    const read = s.h.cpuUsageMs?.bind(s.h);
+    if (!read || !(this.cpuLimit(job) > 0) || !(this.cpuPollMs > 0)) return;
+    const base = read().catch(() => undefined);
+    s.poll = setInterval(() => {
+      void Promise.all([base, read().catch(() => undefined)]).then(([b, now]) => {
+        if (b !== undefined && now !== undefined) this.checkCpu(s, job, now - b);
+      });
+    }, this.cpuPollMs);
+  }
+
   private finish(s: Slot): Job | undefined {
     clearTimeout(s.timer);
+    clearInterval(s.poll);
+    s.poll = undefined;
     s.started = undefined;
     const job = s.job;
     s.job = undefined;
@@ -312,6 +347,7 @@ export class PoolTessellator implements Tessellator {
       s.job = job;
       s.h.ref?.();
       s.started = performance.now();
+      this.watchCpu(s, job);
       s.h.post(job.msg);
       if (job.timeoutMs > 0) {
         const what = job.msg.type === 'run' ? `job ${job.msg.job.export}` : 'tessellation';
