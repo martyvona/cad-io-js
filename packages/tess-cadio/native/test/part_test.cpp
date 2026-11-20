@@ -2553,6 +2553,32 @@ TEST_CASE("countAngles: each face's triangles under minAngle, as counted on the 
     onFrozenAll);
 }
 
+TEST_CASE("a use whose curve the projection finds far off its face's surface fails, said so, without inverting its "
+  "samples (edgeFarOff's arc 50 mm out of its plane); respace's uses placed again said with their faces") {
+  {
+    cadgeom::Model m = load("edgeFarOff");
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    CHECK(fm.status == cadgeom::Status::invalidModel);
+    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+  }
+  {
+    // Edges coarser than the faces want: respace splits them, each use placed again reported with its face.
+    cadgeom::Model m = load("spheres");
+    PartOptions o = options(0.01, 0.26);
+    o.edgeSpacingScale = 0.25;
+    bool criteria = false;
+    int named = 0;
+    o.progress = [&](const PartProgress& p) {
+      if (p.phase == PartProgress::criteria) criteria = true;
+      else if (criteria && p.phase == PartProgress::edges && p.row >= 0 && p.row < m.faces()) named++;
+    };
+    PartMesher pm(m, o);
+    CHECK(named > 0);
+  }
+}
+
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
   for (const char* name : {"cube", "seamCylinder", "spheres", "band"}) {
     cadgeom::Model m = load(name);

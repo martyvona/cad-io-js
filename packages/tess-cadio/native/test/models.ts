@@ -504,6 +504,30 @@ export function creasedPatch(kind: 'cross' | 'arched'): BrepBuilder {
   return b;
 }
 
+/**
+ * A 10 mm square on z = 0, no p-curves, its top side an arc through its corners bowing 50 mm up out of the plane
+ * (a circle in y = 10, centre z = 24.75, radius 25.25): an edge far off its face's surface, which the projection
+ * finds so.
+ */
+export function edgeFarOff(): BrepBuilder {
+  const b = new BrepBuilder();
+  const c = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]];
+  const vs = c.map((point) => b.addVertex({ point }));
+  const line = (j: number) => {
+    const p = c[j]!, q = c[(j + 1) % 4]!;
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
+      magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] });
+  };
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [5, 10, 24.75], axis: [0, -1, 0],
+    xDir: [1, 0, 0] }, radius: 25.25 }), start: vs[2]!, end: vs[3]!, sameSense: true,
+    range: [-Math.atan2(24.75, 5), Math.PI + Math.atan2(24.75, 5)] });
+  const edges = [line(0), line(1), arc, line(3)];
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: edges.map((edge) => ({ edge,
+      orientation: 'forward' as const })) }] }));
+  return b;
+}
+
 export function twisted(): BrepBuilder {
   const b = new BrepBuilder();
   const p = [[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 1]];
@@ -1891,7 +1915,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
-  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch,
+  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff,
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
