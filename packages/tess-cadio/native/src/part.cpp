@@ -38,6 +38,8 @@ struct PartMesher::Impl {
   std::vector<std::vector<SplitRequest>> wanted;
   /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
   std::vector<size_t> mesherTriangles;
+  /** Each face's rounds with refinement blocked by a ring's segment (FaceMesh::ringBlocked). */
+  std::vector<int> ringBlocked;
   /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
   double floor = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
@@ -176,16 +178,21 @@ struct PartMesher::Impl {
         // into the curves through it), in pieces by the edge rules, at the radius throughout so it stays under the
         // clearance. An end off the row by over half as much again (a curve whose crossing at the shared reach is
         // farther out in this face's fixed coordinate) is reached along its own row of the free coordinate, so the
-        // chain runs beside no other boundary.
+        // chain runs beside no other boundary. The pieces span the chain from end to end: an end on the ring is
+        // where the chain starts in the free coordinate, which can be far along the row from the run's own ends (a
+        // curve's crossing of the ring away from where it meets the pole), and the ring's segments are never split
+        // later.
         const PoleRing& R = *ring;
         const double r = R.radius;
         fan.smooth = R.smooth;
-        const int pieces = ringPieces(s, R, {q0, q1}, r, o.d.linear, o.d.angular);
+        const bool farA = std::fabs(da) > 1.5 * r, farB = std::fabs(db) > 1.5 * r;
+        const double lo = farA ? q0 : freeOf(a.uv, S.isoU), hi = farB ? q1 : freeOf(b.uv, S.isoU);
+        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular);
         std::vector<double> qs;
-        double piece = (q1 - q0) / pieces;
-        if (std::fabs(da) > 1.5 * r) qs.push_back(q0);
-        for (int j = 1; j < pieces; j++) qs.push_back(q0 + j * piece);
-        if (std::fabs(db) > 1.5 * r) qs.push_back(q1);
+        double piece = (hi - lo) / pieces;
+        if (farA) qs.push_back(q0);
+        for (int j = 1; j < pieces; j++) qs.push_back(lo + j * piece);
+        if (farB) qs.push_back(q1);
         fan.chain.push_back(static_cast<int>(out.size()) - 1);
         for (double qj : qs) {
           BoundaryPoint q;
@@ -398,7 +405,10 @@ struct PartMesher::Impl {
       out.cause = fb.cause;
       return;
     }
-    if (fb.status == Status::singular) out.note = "a seam's side in (u, v) not settled by its neighbours";
+    if (fb.status == Status::singular) {
+      out.note = "a seam's side in (u, v) not settled by its neighbours";
+      out.seamUnsettled = true;
+    }
     out.againstSense = fb.againstSense;
     out.foldsRepaired = fb.foldsRepaired;
     // (Not where the seam's side wasn't settled: such a boundary is a guess, and its face stays singular.)
@@ -478,13 +488,21 @@ struct PartMesher::Impl {
       return;
     }
     out.status = Status::ok;
-    if (mesh.status == Status::noConvergence)
+    if (mesh.status == Status::noConvergence) {
       out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
+      out.capped = true;
+    }
     // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
     std::vector<std::pair<int32_t, int32_t>> segs;
     for (const auto& l : d.loops)
       for (size_t k = 0; k < l.size(); k++) segs.push_back({l[k], l[(k + 1) % l.size()]});
     for (size_t k = 0; k + 1 < d.segments.size(); k += 2) segs.push_back({d.segments[k], d.segments[k + 1]});
+    // (A ring's segments, consecutive in a fan's ring, aren't an edge's: counted, as refinement is blocked there.)
+    std::set<std::pair<int32_t, int32_t>> ringSegments;
+    for (const auto& rg : ring)
+      for (size_t j = 0; j + 1 < rg.size(); j++)
+        ringSegments.insert({std::min(rg[j], rg[j + 1]), std::max(rg[j], rg[j + 1])});
+    bool blocked = false;
     for (const SplitWanted& w : mesh.splitWanted) {
       if (w.segment < 0 || w.segment >= static_cast<int32_t>(segs.size())) continue;
       int edge, span;
@@ -492,7 +510,11 @@ struct PartMesher::Impl {
       auto [a, b] = segs[w.segment];
       if (spanOf(f, bp[a], bp[b], edge, span, forward))
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
+      else
+        blocked = blocked || ringSegments.count({std::min(a, b), std::max(a, b)});
     }
+    if (blocked) ringBlocked[f]++;
+    out.ringBlocked = ringBlocked[f];
     // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
     out.splitsWanted = static_cast<int>(wanted[f].size());
@@ -557,9 +579,9 @@ struct PartMesher::Impl {
         const Vec2 apex = uvOf(fan.at, 0.5 * (qa + qb), fan.isoU);
         Vec2 tri[3] = {mesh.points[a], mesh.points[b], apex};
         orient(tri);
-        if (!(fan.smooth ? criteria[f]->accept(tri) : criteria[f]->acceptDeviation(tri))) {
+        if (!(fan.smooth ? criteria[f]->acceptFan(tri) : criteria[f]->acceptDeviation(tri))) {
           out.rejected.push_back(static_cast<int32_t>(out.triangles.size() / 3));
-          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth))]++;
+          out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth, true))]++;
           refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
         }
         // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
@@ -604,6 +626,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.wanted.resize(nf);
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
+  I.ringBlocked.assign(nf, 0);
   I.refused.resize(nf);
   const cadgeom::Tolerances tols(m);
   I.floor = refinementFloor(tols.part(), I.o.d.linear);

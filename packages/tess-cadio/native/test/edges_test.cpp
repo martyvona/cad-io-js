@@ -508,6 +508,100 @@ TEST_CASE("a seam: two copies of one edge's samples at u = 0 and 2 pi, by p-curv
   }
 }
 
+TEST_CASE("a vertex's foot per use: a seam vertex's copy on its next sample's side, a pole's free coordinate its") {
+  // seamByInversion's vertex on the seam is used by both of the seam's copies and by both circles (each closed at
+  // it), none with a p-curve: each use's ends at the copy its next sample continues on, no period between them.
+  {
+    cadgeom::Model m = load("seamByInversion");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-3;
+    EdgeMesh em(m, o);
+    int ends = 0;
+    for (int c = 0; c < m.coedges(); c++) {
+      const CoedgeSamples& s = em.coedge(c);
+      REQUIRE(s.status == cadgeom::Status::ok);
+      REQUIRE(s.uv.size() >= 2u);
+      const size_t n = s.uv.size();
+      for (auto [a, b] : {std::pair{s.uv[0], s.uv[1]}, std::pair{s.uv[n - 1], s.uv[n - 2]}}) {
+        if (std::fabs(a.x - b.x) > 1) std::printf("  coedge %d: end at u %g, next at %g\n", c, a.x, b.x);
+        CHECK(std::fabs(a.x - b.x) < 1);
+        ends++;
+      }
+    }
+    CHECK_EQ(ends, 2 * m.coedges());
+  }
+  // uFoldVertex's vertex has two feet, one on each arm of the U (u in [0, 1] and [2, 3]), the nearer on the other
+  // arm: the use's ends on its own arm, by its next samples.
+  {
+    cadgeom::Model m = load("uFoldVertex");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& s = em.coedge(0);
+    REQUIRE(s.status == cadgeom::Status::ok);
+    const size_t n = s.uv.size();
+    REQUIRE(n >= 3u);
+    for (size_t i : {size_t(0), n - 1}) {
+      if (!(s.uv[i].x < 1)) std::printf("  uFoldVertex: end %zu at u %g\n", i, s.uv[i].x);
+      CHECK(s.uv[i].x < 1);
+    }
+  }
+  // pcurveOnlyWest's helix has only its p-curve, ending at the seam vertex's copy u = 2 pi, its range by inversion:
+  // its parameters there of the copy the p-curve passes, 0 to its length.
+  {
+    cadgeom::Model m = load("pcurveOnlyWest");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-3;
+    EdgeMesh em(m, o);
+    CHECK_EQ(checkEdges(m, em, o, "pcurveOnlyWest"), 0);
+    CHECK_EQ(checkCoedges(m, em, 1e-9, "pcurveOnlyWest"), 0);
+    const EdgeSamples& h = em.edge(2);
+    REQUIRE(h.status == cadgeom::Status::ok);
+    const double len = std::hypot(M_PI / 2, 2);
+    if (!(std::fabs(h.t.front()) < 1e-9 && std::fabs(h.t.back() - len) < 1e-9))
+      std::printf("  pcurveOnlyWest: t %g to %g\n", h.t.front(), h.t.back());
+    CHECK(std::fabs(h.t.front()) < 1e-9);
+    CHECK(std::fabs(h.t.back() - len) < 1e-9);
+    CHECK(em.face(0).status == cadgeom::Status::ok);
+  }
+  // meridianHemisphere's vertex is the south pole, its great circle there at both ends: its free coordinate (u)
+  // there the next sample's, by continuation.
+  {
+    cadgeom::Model m = load("meridianHemisphere");
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-3;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& s = em.coedge(0);
+    REQUIRE(s.status == cadgeom::Status::ok);
+    const size_t n = s.uv.size();
+    REQUIRE(n >= 3u);
+    CHECK(std::fabs(s.uv[0].y + M_PI / 2) < 1e-9);
+    CHECK(std::fabs(s.uv[n - 1].y + M_PI / 2) < 1e-9);
+    CHECK(std::fabs(s.uv[0].x - s.uv[1].x) < 1e-9);
+    CHECK(std::fabs(s.uv[n - 1].x - s.uv[n - 2].x) < 1e-9);
+  }
+}
+
+TEST_CASE("no fold judged between points within the tolerance: a meridian's sample at the pole beside its pole line") {
+  // The south vertex 1e-11 off the pole either way across either meridian, so the 3D turn at a meridian's sample
+  // beside the pole line's point (after it, or before) is rounding of either sign: no fold.
+  for (const char* name : {"luneOffPole", "luneOffPoleBack", "luneOffPoleC", "luneOffPoleCBack"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 1e-2;
+    EdgeMesh em(m, o);
+    const FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    if (fb.foldsRepaired) std::printf("  %s: %d folds repaired\n", name, fb.foldsRepaired);
+    CHECK_EQ(fb.foldsRepaired, 0);
+  }
+}
+
 TEST_CASE("a band with no seam edge: one cut, a pseudo-edge used both ways, away from the circles' vertex") {
   for (const char* name : {"band", "bandByInversion"}) {
     cadgeom::Model m = load(name);
@@ -914,6 +1008,57 @@ TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on 
     CHECK(f.distance > 0.1);
   }
   CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
+}
+
+TEST_CASE("a given p-curve off its edge's points past the tolerance: used, its inside samples polished onto them") {
+  // pcurveShifted: its p-curve 0.3 off in u at a tolerance of 0.005 (within the 0.5 allowed): from the p-curve, every
+  // inside sample's (u, v) now on its point within the tolerance, the use counted as given and off; pcurveCircle's,
+  // through its p-curve, on its points: given, not off.
+  cadgeom::Model m = load("pcurveShifted");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.01;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& cs = em.coedge(0);
+  REQUIRE(cs.fromPcurve);
+  REQUIRE(cs.uv.size() > 4);
+  double worst = 0;
+  for (size_t i = 1; i + 1 < cs.uv.size(); i++) {
+    const Vec3 P = em.edge(0).points[cs.index[i]];
+    worst = std::fmax(worst, std::hypot(cs.uv[i].x - P.x, cs.uv[i].y - P.y));
+  }
+  if (!(worst <= 0.005)) std::printf("  pcurveShifted: an inside sample %g off its point\n", worst);
+  CHECK(worst <= 0.005);
+  CHECK_EQ(em.givenPcurves().used, 1);
+  CHECK_EQ(em.givenPcurves().offTolerance, 1);
+  cadgeom::Model c = load("pcurveCircle");
+  REQUIRE(c.ok());
+  EdgeMesh ec(c, o);
+  CHECK(ec.givenPcurves().used >= 1);
+  CHECK_EQ(ec.givenPcurves().offTolerance, 0);
+}
+
+TEST_CASE("respace judges a span by its length, as sampling does: arcChord's arc split at a spacing over its chord") {
+  // The arc is 1 long and 0.9974 across: at spacing 0.9996 (between them, and over the 0.99935 that two chords of it
+  // give), sampling at that spacing gives the arc 2 spans, and respace does too, so the loop has 3 points; the chord
+  // stays one span.
+  cadgeom::Model m = load("arcChord");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  o.angle = 0.26;
+  EdgeMesh em(m, o);
+  REQUIRE(em.edge(0).t.size() == 2u);
+  REQUIRE(em.respace({0.9996}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(0).t.size(), 3u);
+  CHECK_EQ(em.edge(1).t.size(), 2u);
+  EdgeOptions at = o;
+  at.maxSpacing = 0.9996;
+  EdgeMesh sampled(m, at);
+  CHECK_EQ(sampled.edge(0).t.size(), em.edge(0).t.size());
+  const FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  CHECK_EQ(fb.loops[0].size(), 3u);
 }
 
 TEST_CASE("respace: every span split to the faces' spacing, the samples there kept, the uses redone") {

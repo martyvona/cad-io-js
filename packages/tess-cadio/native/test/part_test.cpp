@@ -293,6 +293,30 @@ TEST_CASE("curved faces (a seam cylinder, a band, a hemisphere, a cap, a lune): 
   }
 }
 
+TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsettled seam; luneOnSeam's by inversion") {
+  {
+    cadgeom::Model m = load("spheres");
+    PartOptions o = options(1e-3, 0.26);
+    o.maxPointsPerFace = 20;
+    o.maxDeviationFactor = 0;  // (kept, however far: the cap's mesh is past d)
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(1);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.capped);
+    CHECK(!fm.seamUnsettled);
+  }
+  {
+    cadgeom::Model m = load("luneOnSeam");
+    PartOptions o = options(0.01, 0.02);
+    o.projectMissingPcurves = false;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.seamUnsettled);
+    CHECK(!fm.capped);
+  }
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's
@@ -486,7 +510,13 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
       const double limit = F * std::fmax(0.1, tol);
       if (!(W > F * 0.1) || std::fabs(W - limit) < 0.01)
         std::printf("  face %g, part %g: worst %g, limit %g\n", face, part, W, limit);
-      REQUIRE(W > F * 0.1);
+      // (Past d, but where the part's tolerance puts the refinement floor at 0.2: its boundary triangles, thinner than
+      // that, aren't held to the angle for their facets, and those left refused are within d.)
+      if (std::isfinite(part)) {
+        CHECK(W <= limit);
+      } else {
+        REQUIRE(W > F * 0.1);
+      }
       PartMesher pm(m, o);
       const FaceMesh& fm = pm.face(1);
       CHECK_EQ(fm.status == cadgeom::Status::noConvergence, W > limit);
@@ -973,10 +1003,10 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
   CHECK(criteria("torusOuterHalf", 0, {{0, 2 * M_PI}, {-M_PI / 2, M_PI / 2}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("bumpPatch", 0, {{0, 4}, {0, 4}}, 0.01, 0.26, s)->bounded());
   CHECK(criteria("twisted", 0, {{0, 1}, {0, 1}}, 0.01, 0.26, s)->bounded());
-  // Random triangles on a cylinder, a sphere, a torus and two B-splines: none accepted on the bounded ones (all but
-  // the torus)
-  // whose deviation, sampled densely (its barycentric grid against the surface's nearest point), is over the
-  // deflection.
+  // Random triangles on a cylinder, a sphere, two B-splines, a cone and both halves of a torus: none accepted on the
+  // bounded ones whose deviation, sampled densely (its barycentric grid against the surface's nearest point), is over
+  // the deflection. The torus's inner half, where its closed form doesn't hold, is bounded by its derivatives, so it
+  // stays bounded once judged.
   {
     std::mt19937 rng(11);
     std::uniform_real_distribution<double> u01(0, 1);
@@ -1018,6 +1048,7 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
           CHECK(!ok);
         }
       }
+      if (fc.box.y.lo > 1) CHECK(c->bounded());
     }
     CHECK(over > 100);
     CHECK(accepted > 100);
@@ -1284,6 +1315,44 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     const Vec2 round[3] = {{0, 2}, {2 * M_PI, 2}, {2 * M_PI, 2 + 1e-6}};
     CHECK(!c->belowFloor(round));
     CHECK(!c->accept(round));
+  }
+  // Below the floor, a turned-over facet with a corner within the tolerance of a pole: not judged, accepted (at a
+  // degenerate spot refinement would chase it to the point cap); the same facet away from the pole refused.
+  {
+    auto sp = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 0.01, 0.26, s);
+    const double e = 2e-4;
+    const Vec2 atPole[3] = {{1, M_PI / 2}, {1 + e, M_PI / 2 - e}, {1, M_PI / 2 - e}};
+    const Vec2 atPoleOver[3] = {atPole[0], atPole[2], atPole[1]};
+    const Vec2 away[3] = {{1, 0.5}, {1, 0.5 + e}, {1 + e, 0.5}};
+    const Vec2 awayOver[3] = {away[0], away[2], away[1]};
+    REQUIRE(sp->belowFloor(atPoleOver));
+    REQUIRE(sp->belowFloor(awayOver));
+    // (One of each pair is turned over: away from the pole exactly one is refused, at it neither.)
+    CHECK(sp->accept(away) != sp->accept(awayOver));
+    CHECK(sp->accept(atPole));
+    CHECK(sp->accept(atPoleOver));
+  }
+  // Thin triangles (twice the area over the longest side within the refinement floor, max(tolerance, 0.1 x d) = 0.1
+  // at d 1): the facet not held to the angle, only to its corners' side. On the radius 2 cylinder three points round
+  // it 0.2 rad apart, the middle 0.005 along it: about 0.011 thick, its facet 64 degrees off its corners' normals,
+  // which are within 0.2 rad of one another: accepted at 15 degrees; turned over, refused; as a smooth pole's fan
+  // (acceptFan), held to the angle however thin, refused. A thick one past the angle (0.2 rad round, 2 along, about
+  // 0.4 mm thick, at 0.01 rad) refused for its facet.
+  {
+    auto t = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 1.0, 0.26, s);
+    const Vec2 thin[3] = {{1, 2}, {1.2, 2}, {1.1, 2.005}};
+    const Vec2 thinOver[3] = {{1, 2}, {1.1, 2.005}, {1.2, 2}};
+    CHECK(!t->belowFloor(thin));
+    CHECK(t->accept(thin));
+    CHECK(t->refusal(thin) == Refusal::none);
+    CHECK(!t->accept(thinOver));
+    CHECK(t->refusal(thinOver) == Refusal::normalFacet);
+    CHECK(!t->acceptFan(thin));
+    CHECK(t->refusal(thin, true, true) == Refusal::normalFacet);
+    auto k = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 1.0, 0.01, s);
+    const Vec2 thick[3] = {{1, 2}, {1.2, 2}, {1, 4}};
+    CHECK(!k->accept(thick));
+    CHECK(k->refusal(thick) == Refusal::normalFacet);
   }
   // On the unit sphere near its pole: a triangle wide in u, its far corner nearer the pole, turned over in 3D (its
   // facet's normal against the surface's), refused, though within the deflection and its corners' normals close; one
@@ -1797,6 +1866,44 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
       for (int k = 0; k < 3; k++) fans += cadgeom::norm(fm.points[fm.triangles[3 * r + k]]) < 1e-12;
     CHECK_EQ(fans, 0);
   }
+}
+
+TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's: within d, its refinement unblocked") {
+  // The boundary meets the apex's row over v 0.6 to 0.4, its curves crossing the ring near v 0.95 and 0.05: pieces
+  // over the run alone would leave the ring a chord across most of v, which refinement asks to split and can't.
+  // At d 0.05: every triangle within the deflection at its centroid and sides' middles (by inversion), nothing
+  // refused, no round blocked by a ring's segment. (Finer, the triangles across from the ring want it split finer than
+  // its own chords do, and it isn't: at 0.01, 6 rounds blocked.)
+  for (double d : {0.05}) {
+    cadgeom::Model m = load("bentApex");
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(d, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
+    const cadgeom::SurfaceDomain dom = s->domain();
+    int far = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const int32_t* v = &fm.triangles[t];
+      Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+      for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]), 0.5 * (p[2] + p[0])})
+        far += cadgeom::invertSurface(*s, q, dom.u, dom.v, 1e-12).distance > d * (1 + 1e-9);
+    }
+    if (far || fm.ringBlocked || !fm.rejected.empty())
+      std::printf("  bentApex at %g: %d points beyond d, %d rounds blocked, %zu refused of %zu\n", d, far,
+        fm.ringBlocked, fm.rejected.size(), fm.triangles.size() / 3);
+    CHECK_EQ(far, 0);
+    CHECK_EQ(fm.ringBlocked, 0);
+    CHECK(fm.rejected.empty());
+  }  // At 0.01 the ring stays as cut while refinement asks for it split: counted, meshing by meshing
+  // (FaceMesh::ringBlocked).
+  cadgeom::Model m = load("bentApex");
+  PartOptions po = options(0.01, 0.26);
+  po.maxDeviationFactor = 1e9;
+  PartMesher pm(m, po);
+  CHECK(pm.face(0).ringBlocked >= 2);
+  CHECK(pm.face(0).ringBlocked <= pm.rounds() + 1);
 }
 
 TEST_CASE("one ring per pole across faces: poleLunes' two lunes meet at a pole, both rings at the smaller's reach") {

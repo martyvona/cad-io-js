@@ -170,6 +170,21 @@ test('batches: shapes, statuses per item and per row, alternatives from the scra
     const r = sp.invertSurface(0, q, [si.u[0], si.u[1], si.v[0], si.v[1]], 1e-9);
     assert.equal(STATUS[r.statuses[0]!], 'ok');
     assert.ok(r.distance[0]! < 1e-9);
+    // A local foot from nearby, by the surface's row and by its face; the end search at a vertex; a projection's
+    // stop fields.
+    for (const f of [sp.localFoot(0, q, [0.25, 0.15]), sp.faceLocalFoot(0, q, [0.25, 0.15])]) {
+      assert.equal(f.status, 'ok');
+      assert.equal(STATUS[f.statuses[0]!], 'ok');
+      assert.equal(f.side[0], -1);
+      assert.ok(Math.abs(f.uv[0]! - 0.3) < 1e-9 && Math.abs(f.uv[1]! - 0.2) < 1e-9);
+      assert.ok(f.distance[0]! < 1e-9 && len([f.point[0]! - q[0]!, f.point[1]! - q[1]!, f.point[2]! - q[2]!]) < 1e-9);
+    }
+    const ends = sp.endFeet(0, 0, 1e-6);
+    assert.equal(ends.status, 'ok');
+    assert.ok(ends.feet.length >= 1 && ends.feet[0]!.distance < 1e-6);
+    assert.deepEqual(sp.endFeet(0, 1e6, 1e-6), { status: 'invalidModel', feet: [] });
+    const pc = sp.projectCoedge(0);
+    if ('pieces' in pc && pc.status === 'ok') assert.equal(pc.stopped, false);
   }
 });
 
@@ -850,6 +865,14 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
       coedges: [{ edge: e, orientation: 'forward' }] }] });
     b.addItem({ kind: 'face', ref: f });
   }
+  // A face on the cylinder bounded by the tilted ellipse, closed at its vertex (0, 1, tan 0.5): coedge 2, traced.
+  {
+    const v = b.addVertex({ point: [0, 1, Math.tan(tilt)] });
+    const e = b.addEdge({ curve: ellipse, start: v, end: v, sameSense: true });
+    const f = b.addFace({ surface: cylinder, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward' }] }] });
+    b.addItem({ kind: 'face', ref: f });
+  }
   using g = new Geometry(module, new Uint8Array(b.finish().buffer));
   const close = (a: ArrayLike<number>, want: number[], at: string) =>
     want.forEach((w, i) => assert.ok(Math.abs(a[i]! - w) <= 1e-12 * (1 + Math.abs(w)), `${at} [${i}]: ${a[i]}`));
@@ -907,6 +930,13 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   // At a tolerance the gap is within, it's made.
   const c2 = g.projectCoedge(1, 2e-3);
   assert.ok('pieces' in c2 && c2.status === 'ok');
+  // Not traced: unchecked. The ellipse's coedge, traced once round: its start the vertex's foot, its end the same a
+  // period over.
+  assert.deepEqual([c0.endCheck, c0.endAlternatives.map((a) => a.length)], [['unchecked', 'unchecked'], [0, 0]]);
+  const c3 = g.projectCoedge(2);
+  assert.ok('pieces' in c3);
+  assert.deepEqual([c3.status, c3.method, c3.certainty, c3.endCheck], ['ok', 'traced', 'unique', ['same', 'periods']]);
+  assert.deepEqual(c3.endAlternatives.map((a) => a.length), [0, 0]);
   g.setProjectMissingPcurves(false);
   assert.equal(g.faceInfo(0).status, 'noPcurve');
   assert.equal(g.evalCoedge(0, [0]).status, 'noPcurve');

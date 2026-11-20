@@ -62,7 +62,7 @@ public:
   /**
    * Whether accept() has bounded every triangle's deviation from the surface it judged so far (by derivative bounds
    * or a distance function) rather than sampling it: false for the kinds it samples (extrusions, revolutions,
-   * offsets) and wherever a bound wasn't available (a cone's axis, a torus's inner half).
+   * offsets) and wherever a bound wasn't available (near a cone's apex).
    */
   virtual bool bounded() const = 0;
   /**
@@ -71,8 +71,16 @@ public:
    * there to hold a triangle's to.
    */
   virtual bool acceptDeviation(const cadgeom::Vec2 tri[3]) const = 0;
-  /** Why accept() (normals true) or acceptDeviation() refuses the triangle; Refusal::none where it doesn't. */
-  virtual Refusal refusal(const cadgeom::Vec2 tri[3], bool normals = true) const = 0;
+  /**
+   * accept() for a smooth pole's fan (poles.h): its facet held to the angle however thin (a thinner triangle's isn't,
+   * only refused turned against a corner's normal: criteria.cpp's normalsRefusal).
+   */
+  virtual bool acceptFan(const cadgeom::Vec2 tri[3]) const = 0;
+  /**
+   * Why accept() (normals true; acceptFan(), fan true too) or acceptDeviation() refuses the triangle; Refusal::none
+   * where it doesn't.
+   */
+  virtual Refusal refusal(const cadgeom::Vec2 tri[3], bool normals = true, bool fan = false) const = 0;
   /**
    * An upper bound on how far the flat triangle on the surface's points at its corners strays from the surface (a
    * sphere's or a distance function's closed form, else the derivative bounds over its (u, v) box, or with `pieces`

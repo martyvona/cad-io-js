@@ -1521,8 +1521,9 @@ TEST_CASE("B-spline derivative bounds shrink with the box: at +-0.001 within 2 x
 TEST_CASE("B-spline partial boxes within one span: orders 0 to 3 hold dense samples, tight, asked in any order") {
   // The boxes of one rectangle's partials share its nets (one sub-net, the partials by its differences, blossomed
   // where those round too much): every B-spline of the reference models, a bump and its twin with the same knots
-  // (asked in turn over the same rectangle), the rational dome and bilinear patch, and a degree-8 ribbon 1e4 from
-  // the origin (where the differences of a rectangle a millionth wide round too much: the fallback). Rectangles from
+  // (asked in turn over the same rectangle), the rational dome and bilinear patch, a degree-8 ribbon 1e4 from the
+  // origin (where the differences of a rectangle a millionth wide round too much: the fallback) and a bicubic whose
+  // first knot span is 1e-7 wide (its nets' rounding by pole, so only that span's poles take it). Rectangles from
   // 0.3 of a span to 1e-7 of it, the partials asked in a shuffled order, two rectangles sharing their u range; each
   // box against a 7 x 7 grid of the partial, and no wider than the grid's spread plus 1e-3 of its size (plus a
   // rounding floor; polynomial surfaces), so a net differenced where it rounds too much (its error carried) is caught
@@ -1571,6 +1572,12 @@ TEST_CASE("B-spline partial boxes within one span: orders 0 to 3 hold dense samp
     for (int i = 0; i < 9; i++)
       for (int j = 0; j < 9; j++) R[i][j] = {1e4 + 0.2 * i + J(g), 2e4 + 0.2 * j + J(g), 3e4 * (i + j) / 16.0 + J(g)};
     all.push_back({"degree-8 ribbon", rawSpline(8, 8, {0, 1}, {9, 9}, {0, 1}, {9, 9}, R)});
+    // A bicubic whose u knots start with a span 1e-7 wide (trj4_pm2-ec #5727 face #21856's v knots): its second
+    // differences there divide by it twice, which a net's one rounding bound spread over the whole surface.
+    std::vector<std::vector<Vec3>> T(6, std::vector<Vec3>(4));
+    for (int i = 0; i < 6; i++)
+      for (int j = 0; j < 4; j++) T[i][j] = {2.0 * i + 0.3 * j * j, 3.0 * j, 0.5 * (i % 2) + 0.2 * i * j};
+    all.push_back({"a tiny first span", rawSpline(3, 3, {0, 1e-7, 0.5, 1}, {4, 1, 1, 4}, {0, 1}, {4, 4}, T)});
   }
   REQUIRE(all.size() > twins + 4);
   std::mt19937_64 rng(23);

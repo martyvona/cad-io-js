@@ -36,6 +36,12 @@ struct Node {
   Vec2 uv, duv;
 };
 
+/** Where and why a march stopped short. */
+struct Stop {
+  StopWhy why = StopWhy::none;
+  double t = NAN, distance = NAN;
+};
+
 struct Frame2 {
   double a, b, c;  // the first fundamental form
   double ha, hb, hc;  // the Hessian
@@ -61,9 +67,9 @@ double conditioning(double a, double b, double c) {
   return m + r > 0 ? (m - r) / (m + r) : 0;
 }
 
-/** The feet's rate d(u, v)/dt; `fold` where H is singular (the first fundamental form taken instead). */
-Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold) {
-  const Frame2 f = forms(job, t, uv);
+/** The feet's rate d(u, v)/dt with the surface's partials at `at` (uv, or beside it); `fold` where H is singular. */
+Vec2 rateAt(const Job& job, double t, Vec2 at, bool& fold) {
+  const Frame2 f = forms(job, t, at);
   double a = f.ha, b = f.hb, c = f.hc;
   const double det = a * c - b * b, scale = f.a * f.c;
   fold = !(det > 1e-10 * scale);
@@ -72,6 +78,44 @@ Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold) {
   a += mu, c += mu;
   const double d = a * c - b * b;
   return {(c * f.rhs.x - b * f.rhs.y) / d, (a * f.rhs.y - b * f.rhs.x) / d};
+}
+
+/**
+ * The feet's rate d(u, v)/dt (the first fundamental form taken where H is singular: `fold`), leaving uv as t moves by
+ * `dir` (0: either way). On a break of the surface (a knot: a C0 one is a crease, where the partials jump and the
+ * evaluation gives one side's), the side the feet move into: the partials just below and just above the break, and
+ * the side whose rate moves into it where the evaluation's own doesn't (a polyline extrusion's corner: the next
+ * span's S_u is across the curve, its rate there 0).
+ */
+Vec2 rate(const Job& job, double t, Vec2 uv, bool& fold, double dir = 0) {
+  Vec2 r = rateAt(job, t, uv, fold);
+  if (dir == 0) return r;
+  for (int k = 0; k < 2; k++) {
+    const std::vector<double>& bs = k ? job.vBreaks : job.uBreaks;
+    if (bs.empty()) continue;
+    const Range dom = k ? job.dom.v : job.dom.u;
+    const double period = k ? job.dom.vPeriod : job.dom.uPeriod, x = k ? uv.y : uv.x;
+    const double xr = period > 0 ? dom.lo + std::fmod(std::fmod(x - dom.lo, period) + period, period) : x;
+    auto it = std::lower_bound(bs.begin(), bs.end(), xr - 1e-12 * (1 + std::fabs(xr)));
+    if (it == bs.end() || std::fabs(*it - xr) > 1e-12 * (1 + std::fabs(xr))) continue;
+    // Beside it by a little of the narrower neighbouring span, in uv's own (unreduced) coordinates.
+    const double lo = it == bs.begin() ? dom.lo : *(it - 1), hi = it + 1 == bs.end() ? dom.hi : *(it + 1);
+    const double step = std::fmin(1e-9 * (dom.hi - dom.lo), 0.25 * std::fmin(*it - lo, hi - *it));
+    const double base = x + (*it - xr);
+    Vec2 below = uv, above = uv;
+    (k ? below.y : below.x) = base - step, (k ? above.y : above.x) = base + step;
+    bool fb = false, fa = false;
+    const Vec2 rb = rateAt(job, t, below, fb), ra = rateAt(job, t, above, fa);
+    const double tiny = 1e-9 * (std::fabs(r.x) + std::fabs(r.y) + std::fabs(rb.x) + std::fabs(rb.y) + std::fabs(ra.x)
+      + std::fabs(ra.y));
+    const double mb = dir * (k ? rb.y : rb.x), ma = dir * (k ? ra.y : ra.x), m = dir * (k ? r.y : r.x);
+    const bool intoBelow = mb < -tiny, intoAbove = ma > tiny;
+    // The evaluation's own already moves into its side (its partials are that side's): kept.
+    if ((m > tiny && intoAbove) || (m < -tiny && intoBelow)) continue;
+    if (intoBelow && !intoAbove) r = rb, fold = fb;
+    else if (intoAbove && !intoBelow) r = ra, fold = fa;
+  }
+  return r;
 }
 
 Vec3 pointOf(const Surface& s, Vec2 uv) {
@@ -96,10 +140,12 @@ struct Segment {
 
 /**
  * From node `from` toward tEnd (either way), appending nodes; stops early (returns true) at a pole end when the form
- * degenerates, the end node then extrapolated: the free parameter at its rate, the fixed one the pole line's.
+ * degenerates, the end node then extrapolated: the free parameter at its rate, the fixed one the pole line's. False
+ * where it can't go on, `stop` saying where (its last node) and why: the reason the last step was refused at the
+ * smallest step, the corrector's failure told apart by the last node's form (degenerate) or Hessian (fold).
  */
 bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, std::vector<Node>& out,
-  std::vector<double>& folds) {
+  std::vector<double>& folds, Stop& stop) {
   const double span = job.r.hi - job.r.lo;
   double t = from.t;
   Vec2 uv = from.uv, duv = from.duv;
@@ -113,35 +159,65 @@ bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, s
   stops.push_back(tEnd);
   size_t next = 0;
   int guard = 0;
+  StopWhy refused = StopWhy::noConvergence;
+  bool lastFold = false;
+  {
+    // Leaving the first node the way the march goes (on a crease, the side it goes into).
+    bool f0 = false;
+    duv = rate(job, t, uv, f0, dir);
+    lastFold = f0;
+  }
+  auto stopHere = [&](StopWhy why) {
+    if (why == StopWhy::noConvergence) {
+      const Frame2 f = forms(job, t, uv);
+      if (conditioning(f.a, f.b, f.c) < 1e-8) why = StopWhy::degenerate;
+      else if (lastFold) why = StopWhy::fold;
+    }
+    stop = {why, t, norm(pointOf(job.s, uv) - curveAt(job.c, t))};
+  };
   while (next < stops.size() && guard++ < 200000) {
-    const double stop = stops[next];
+    const double target = stops[next];
     double tn = t + dir * h;
-    if ((tn - stop) * dir >= 0) tn = stop;
+    if ((tn - target) * dir >= 0) tn = target;
     Vec2 guess = uv + (tn - t) * duv;
     Vec2 uvc = guess;
     const Vec3 cp = curveAt(job.c, tn), c0 = curveAt(job.c, t);
     footFrom(job.s, job.dom, cp, uvc, 12);
+    // Beside a pole the rate in the free (periodic) direction is huge and the feet swing round there: a step can jump
+    // across the swing, or Newton land whole turns off, at one place in 3D, so the checks below pass it. Refused: a
+    // correction in a periodic direction past both a sixteenth of the period and a quarter of the predicted move
+    // there. Smaller steps follow the swing.
+    auto slips = [&](double c, double g, double last, double period) {
+      return period > 0 && std::fabs(c - g) > 0.0625 * period && std::fabs(c - g) > 0.25 * std::fabs(g - last);
+    };
+    const bool slipped = slips(uvc.x, guess.x, uv.x, job.dom.uPeriod) || slips(uvc.y, guess.y, uv.y, job.dom.vPeriod);
     const Vec3 sp = pointOf(job.s, uvc), sg = pointOf(job.s, guess), s0 = pointOf(job.s, uv);
     const double chord = norm(cp - c0);
     // The predictor good to a tenth of the step, and no jump: the new foot no farther from the last than the curve
     // moved, give or take the tolerance.
-    bool good = norm(sp - sg) <= 0.1 * chord + 0.5 * job.tol && norm(sp - s0) <= 2 * chord + 2 * job.tol;
+    const bool near = norm(sp - s0) <= 2 * chord + 2 * job.tol;
+    bool good = norm(sp - sg) <= 0.1 * chord + 0.5 * job.tol && near && !slipped;
+    refused = near ? StopWhy::noConvergence : StopWhy::jump;
     // A foot on a pole line, the curve farther than tol from the pole: Newton stuck there (the pole's free parameter
     // has no gradient), not a foot (a curve passing near a pole, the predictor overshooting onto its line). A smaller
     // step keeps the guess off it. (A pole the curve reaches is within tol of it, so never refused here.)
     if (good)
       for (const Singularity& g : job.sing) {
         if (g.kind == Singularity::normalVanishes || (g.isoU ? uvc.x : uvc.y) != g.at) continue;
-        if (norm(sp - cp) > job.tol) good = false;
+        if (norm(sp - cp) > job.tol) good = false, refused = StopWhy::poleLine;
       }
     if (!good) {
       h *= 0.5;
-      if (h < 1e-13 * span) return false;
+      if (h < 1e-13 * span) {
+        stopHere(refused);
+        return false;
+      }
       continue;
     }
     bool fold = false;
-    Vec2 d = rate(job, tn, uvc, fold);
+    Vec2 d = rate(job, tn, uvc, fold, dir);
     if (fold) folds.push_back(tn);
+    lastFold = fold;
     const Frame2 f = forms(job, tn, uvc);
     if (poleEnd && conditioning(f.a, f.b, f.c) < 1e-8) {
       // Near the pole: carry the free parameter on at the last node's rate, the fixed one onto the pole line.
@@ -160,8 +236,9 @@ bool march(const Job& job, Node from, double tEnd, const Singularity* poleEnd, s
     h = std::min(h, span / 8);
     t = tn, uv = uvc, duv = d;
     out.push_back({t, uv, duv});
-    if (t == stop) next++;
+    if (t == target) next++;
   }
+  if (next < stops.size()) stopHere(StopWhy::noConvergence);
   return next >= stops.size();
 }
 
@@ -250,6 +327,12 @@ void trace(const Job& job, Pcurve& out) {
   std::vector<double> folds;
   std::vector<std::pair<double, SurfaceInversion>> checks;
   bool allOk = true;
+  // The first stop along the range, and the feet's distance from the curve where the trace had them.
+  Stop first;
+  double reached = 0;
+  auto note = [&](const Stop& s) {
+    if (s.why != StopWhy::none && !(s.t >= first.t)) first = s;
+  };
   for (Segment& sg : segs) {
     // Seeds: a known end off a pole, else the most central unique global inversion.
     Node seed{NAN, {}, {}};
@@ -273,6 +356,7 @@ void trace(const Job& job, Pcurve& out) {
     }
     if (std::isnan(seed.t)) {
       allOk = false;
+      note({StopWhy::noConvergence, sg.t.lo, NAN});
       continue;
     }
     footFrom(job.s, job.dom, curveAt(job.c, seed.t), seed.uv, 30);
@@ -280,18 +364,26 @@ void trace(const Job& job, Pcurve& out) {
     seed.duv = rate(job, seed.t, seed.uv, fold);
     if (fold) folds.push_back(seed.t);
     std::vector<Node> back, fwd;
-    bool okB = seed.t <= sg.t.lo || march(job, seed, sg.t.lo, sg.poleLo, back, folds);
-    bool okF = seed.t >= sg.t.hi || march(job, seed, sg.t.hi, sg.poleHi, fwd, folds);
+    Stop sb, sf;
+    bool okB = seed.t <= sg.t.lo || march(job, seed, sg.t.lo, sg.poleLo, back, folds, sb);
+    bool okF = seed.t >= sg.t.hi || march(job, seed, sg.t.hi, sg.poleHi, fwd, folds, sf);
+    note(sb), note(sf);
     std::reverse(back.begin(), back.end());
     sg.nodes = back;
     sg.nodes.push_back(seed);
     sg.nodes.insert(sg.nodes.end(), fwd.begin(), fwd.end());
     // The pole ends' nodes: their fixed parameter on the pole line exactly.
     sg.ok = okB && okF && sg.nodes.size() >= 2 && sg.nodes.front().t == sg.t.lo && sg.nodes.back().t == sg.t.hi;
+    if (okB && okF && !sg.ok) note({StopWhy::noConvergence, sg.nodes.empty() ? sg.t.lo : sg.nodes.back().t, NAN});
+    for (const Node& n : sg.nodes) reached = std::max(reached, norm(pointOf(job.s, n.uv) - curveAt(job.c, n.t)));
     allOk = allOk && sg.ok;
   }
   if (!allOk) {
-    out.status = Status::noConvergence;
+    out.stopped = true;
+    out.stopAt = first.t, out.stopDistance = first.distance;
+    out.stopWhy = first.why == StopWhy::none ? StopWhy::noConvergence : first.why;
+    out.offSurface = reached;
+    out.status = reached > job.tol ? Status::invalidModel : Status::noConvergence;
     return;
   }
   // Consecutive segments meet at a pole: the next one taken whole periods on to continue the fixed parameter, its

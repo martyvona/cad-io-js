@@ -39,8 +39,9 @@ struct Result {
 };
 Result result;
 bool project = true;
-// PartOptions::maxDeviationFactor for the next calls.
+// PartOptions::maxDeviationFactor and maxPointsPerFace for the next calls.
 double deviationFactor = 1.0;
+int maxPoints = PartOptions{}.maxPointsPerFace;
 // PartOptions::countInsertions for the next calls.
 bool countInsertions = false;
 
@@ -60,7 +61,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 4; }
+int tc_api_version() { return 5; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -71,6 +72,9 @@ void tc_set_project(int on) { project = on != 0; }
 
 /** The next calls' PartOptions::maxDeviationFactor (default 1; 0 or less: never). */
 void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
+
+/** The next calls' PartOptions::maxPointsPerFace (default 100,000; under 1: the default). */
+void tc_set_max_points(int points) { maxPoints = points > 0 ? points : PartOptions{}.maxPointsPerFace; }
 
 /**
  * Whether the next calls count the mesher's insertions by what queued them (PartOptions::countInsertions; default
@@ -95,6 +99,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.d.angular = angular;
   opts.projectMissingPcurves = project;
   opts.maxDeviationFactor = deviationFactor;
+  opts.maxPointsPerFace = maxPoints;
   opts.countInsertions = countInsertions;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
@@ -102,6 +107,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   };
   PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
+  std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped;
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0);
   uint32_t folds = 0;
@@ -140,8 +146,10 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
         }
       }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
+      if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
       if (fm.sampled) sampled.push_back(faceId[f]);
-      if (!fm.note.empty()) unsettled.push_back(faceId[f]);
+      if (fm.seamUnsettled) unsettled.push_back(faceId[f]);
+      if (fm.capped) capped.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
       if (fm.foldsRepaired) folded.push_back(faceId[f]), folds += static_cast<uint32_t>(fm.foldsRepaired);
     } else {
@@ -231,7 +239,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) +
+    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) + ",\"ringBlocked\":" +
+    ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" + ids(capped) +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
@@ -267,7 +276,10 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
  * byInversion]), "traces" (the samples of uses traced sample by sample, [local, global]: EdgeMesh::traces) and
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
- * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex)}.
+ * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex), "ringBlocked" and
+ * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
+ * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces whose refinement stopped at the point
+ * cap: FaceMesh::capped)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }

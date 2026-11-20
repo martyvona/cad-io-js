@@ -111,13 +111,22 @@ struct FaceMesh {
   int inserted[kInsertionKinds] = {};
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
+  /**
+   * The meshings (the first and each split round's) in which refinement asked for a pole ring's segment to be split,
+   * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.
+   */
+  int ringBlocked = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
   bool sampled = false;
   /**
    * A note for diagnostics where the face is meshed but not as asked (its boundary's status, refinement stopped at
-   * its point cap), else empty.
+   * its point cap), else empty: what seamUnsettled and capped say, in words.
    */
   std::string note;
+  /** Whether a seam's side in (u, v) wasn't settled by its neighbours (FaceBoundary's Status::singular), meshed. */
+  bool seamUnsettled = false;
+  /** Whether refinement stopped at the point cap (maxPointsPerFace), the mesh kept as it was. */
+  bool capped = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
   /** Its boundary's FaceBoundary::foldsRepaired. */

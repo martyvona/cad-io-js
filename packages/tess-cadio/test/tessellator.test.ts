@@ -9,8 +9,9 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
-import { affineFeetOff, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, loopless, luneOnSeam, luneQuarter,
-  knotAtEnd, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold } from '../native/test/models.ts';
+import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, knotAtEnd, loopless,
+  luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+  from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
 const skip = fs.existsSync(dist) ? false : 'tess-cadio\'s module not built (run packages/tess-cadio/build.sh module)';
@@ -182,8 +183,36 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
     assert.ok(strict.indices.length < never.indices.length);
   });
 
-test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spline dome\'s at its pole; ' +
-  'a sphere\'s, a B-spline\'s without one not',
+test('init({maxPointsPerFace}): a face that reaches it said as capped, not as an unsettled seam', { skip },
+  async () => {
+  const t = new CadioTessellator();
+  await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0 });
+  const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
+  assert.ok(r.diagnostics.some((x) => /^\d+ faces with refinement stopped at their point cap$/.test(x.message)),
+    JSON.stringify(r.diagnostics));
+  assert.ok(!r.diagnostics.some((x) => /seam whose side/.test(x.message)));
+  const u = new CadioTessellator();
+  await u.init();
+  const ru = await u.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
+  assert.ok(!ru.diagnostics.some((x) => /point cap/.test(x.message)));
+});
+
+test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
+  'not at 0.05', { skip }, async () => {
+  const t = new CadioTessellator();
+  await t.init({ maxDeviationFactor: 0 });
+  const re = /^1 faces with refinement blocked by a fixed ring segment: #\d+ \((\d+) rounds\)$/;
+  const blocked = async (d: number) => {
+    const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bentApex().finish().buffer),
+      linearDeflection: d });
+    return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
+  };
+  assert.ok(Number(await blocked(0.01)) >= 2);
+  assert.equal(await blocked(0.05), undefined);
+});
+
+test('faces with deviations sampled, said: a B-spline dome\'s at its pole; a torus\'s inner half (bounded by its ' +
+  'derivatives where its closed form fails), a sphere\'s, a B-spline\'s without a pole not',
   { skip }, async () => {
     const t = await tessellator();
     const re = /^(\d+) faces meshed with their deviation from the surface sampled, not bounded/;
@@ -191,7 +220,7 @@ test('faces with deviations sampled, said: a torus\'s by its inner half, a B-spl
       const r = await t.tessellate({ ...req('cube'), data });
       return r.diagnostics.map((x) => re.exec(x.message)).find((m) => m)?.[1];
     };
-    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), '1');
+    assert.equal(await sampled(new Uint8Array(torusOuterHalf().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(bsplineDome().finish().buffer)), '1');
     assert.equal(await sampled(new Uint8Array(bumpPatch().finish().buffer)), undefined);
     assert.equal(await sampled(new Uint8Array(MODELS.seamCylinder().finish().buffer)), undefined);
