@@ -1352,6 +1352,32 @@ export function arcChord(): BrepBuilder {
   return b;
 }
 
+/**
+ * A piece of a torus (major radius 5, minor 1) between u 0 and pi + 0.4 and v 0 and pi, both periodic: its sides the
+ * tube circles at u = 0 (on the u seam) and at the far u, and the outer and inner equators' arcs (v = 0 on the v seam,
+ * and v = pi). No p-curves; the loop starts at the u seam's use. Over half a period wide in u, so the far tube's
+ * nearest copy to the seam's is the wrong one: only a recognized seam use leaves the regular uses to place it.
+ */
+export function torusWide(): BrepBuilder {
+  const b = new BrepBuilder();
+  const u1 = Math.PI + 0.4, c = Math.cos(u1), s = Math.sin(u1);
+  const v00 = b.addVertex({ point: [6, 0, 0] }), v10 = b.addVertex({ point: [6 * c, 6 * s, 0] });
+  const v11 = b.addVertex({ point: [4 * c, 4 * s, 0] }), v0p = b.addVertex({ point: [4, 0, 0] });
+  const tube = (cu: number, su: number) => b.addCurve({ kind: 'circle',
+    position: { origin: [5 * cu, 5 * su, 0], axis: [su, -cu, 0], xDir: [cu, su, 0] }, radius: 1 });
+  const at0 = b.addEdge({ curve: tube(1, 0), start: v00, end: v0p, sameSense: true, range: [0, Math.PI] });
+  const atFar = b.addEdge({ curve: tube(c, s), start: v10, end: v11, sameSense: true, range: [0, Math.PI] });
+  const outer = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 6 }), start: v00, end: v10,
+    sameSense: true, range: [0, u1] });
+  const inner = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 4 }), start: v0p, end: v11,
+    sameSense: true, range: [0, u1] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: 5, minorRadius: 1 }),
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: at0, orientation: 'reversed' }, { edge: outer, orientation: 'forward' },
+      { edge: atFar, orientation: 'forward' }, { edge: inner, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** Across the seam (u from -pi / 2 to pi / 2), by its p-curves, by p-curves a period apart, without any. */
 export const halfCylinderPcurves = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'same');
 export const halfCylinderApart = (): BrepBuilder => halfCylinder(-Math.PI / 2, 'apart');
@@ -1717,7 +1743,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   fineProjection, knotAtEnd, cornerFold,
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
-  bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly: () => pcurveOnly(),
+  bandByInversion, bore, nistBore, seamByInversion, torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
   pcurveOnlyWest: () => pcurveOnly(true), luneQuarter, luneOnSeam, luneOffPole, luneOffPoleBack,
   luneOffPoleC, luneOffPoleCBack, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
@@ -1725,7 +1751,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
-  narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldFlat: () => uFold(0), uFoldVertex: () => uFold(0, 0.25, 0.13),
+  narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldFlat: () => uFold(0),
+  uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
   arcChord,
   bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };

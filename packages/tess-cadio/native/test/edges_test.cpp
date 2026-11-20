@@ -996,6 +996,35 @@ TEST_CASE("a local foot stuck where it started while its point moved falls back 
   CHECK_EQ(checkCoedges(m, em, 1e-9, "uFoldFlat stuck"), 0);
 }
 
+TEST_CASE("a local foot a rounding's worth off a seam is on it, as the global search judges: its seam use recognized") {
+  // torusWide traced sample by sample (projection off), with a stub local foot 1e-10 off the torus's foot in u (1e-9
+  // in 3D, within the tolerance; past 1e-12 of the period): its tube at u = 0 is still a seam use, placed from its
+  // neighbours, so the far tube (over half a period away) isn't put at the seam's nearer copy; the loop over u 0 to
+  // pi + 0.4, valid.
+  cadgeom::Model m = load("torusWide");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-2;
+  o.projectMissingPcurves = false;
+  o.localFootForTests = [&](int, Vec3 p, Vec2 start, Vec2& foot, double& distance) {
+    const double rho = std::hypot(p.x, p.y);
+    const double u = start.x + std::remainder(std::atan2(p.y, p.x) - start.x, 2 * M_PI) + 1e-10;
+    const double v = start.y + std::remainder(std::atan2(p.z, rho - 5) - start.y, 2 * M_PI);
+    foot = {u, v};
+    const Vec3 q{(5 + std::cos(v)) * std::cos(u), (5 + std::cos(v)) * std::sin(u), std::sin(v)};
+    distance = cadgeom::norm(p - q);
+    return true;
+  };
+  EdgeMesh em(m, o);
+  REQUIRE(em.traces().local > 0);
+  const FaceBoundary fb = em.face(0);
+  if (fb.status != cadgeom::Status::ok) std::printf("  torusWide off by 1e-10: %s\n", fb.cause.c_str());
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  double lo = INFINITY, hi = -INFINITY;
+  for (const BoundaryPoint& q : fb.loops[0]) lo = std::min(lo, q.uv.x), hi = std::max(hi, q.uv.x);
+  CHECK(std::fabs(hi - lo - (M_PI + 0.4)) < 1e-6);
+}
+
 TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on its own arm of a thin U") {
   // uFold: the loop's middle 0.07 off its arm towards the other, 0.03 from it. Every inside sample's foot continued
   // from the one before, on the face's arm (u within [0, 1]); none fell back on the global search.

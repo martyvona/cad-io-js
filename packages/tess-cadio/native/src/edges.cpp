@@ -810,11 +810,15 @@ struct EdgeMesh::Impl {
             } else {
               si.status = Status::ok, si.uv = foot, si.distance = d, si.foot = surfaceAt(C.face, foot);
               si.certainty = Certainty::unique;
+              // On a seam as the global search judges it (cad-geom's invertSurface): the foot within the tolerance of
+              // the seam's line at its other coordinate. Not by its parameter: a foot continued by Newton is off the
+              // seam by its rounding there (pr1db #1339's 2.06e-12 at a period of 2), which left a seam use
+              // unrecognized and the loop's other uses a period away.
               for (int dd = 0; dd < 2; dd++) {
                 if (!(F.period[dd] > 0)) continue;
-                const double w = dd ? foot.y : foot.x, lo = dd ? F.dom.v.lo : F.dom.u.lo;
-                const double r = std::remainder(w - lo, F.period[dd]);
-                (dd ? si.onSeamV : si.onSeamU) = std::fabs(r) <= 1e-12 * F.period[dd];
+                const double lo = dd ? F.dom.v.lo : F.dom.u.lo;
+                const Vec2 at = dd ? Vec2{foot.x, lo} : Vec2{lo, foot.y};
+                (dd ? si.onSeamV : si.onSeamU) = norm(surfaceAt(C.face, at) - si.foot) <= tol;
               }
               local = true;
               traces.local++;
