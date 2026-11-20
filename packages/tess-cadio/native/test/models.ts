@@ -83,23 +83,32 @@ export function offVertex(): BrepBuilder {
 /**
  * A triangle on a cylinder of radius 2 in (u, v): the bottom arc from u = 0 to pi / 2, a line up to v = 2, and back
  * down a helix that has no 3D curve, only its p-curve (the line from (pi / 2, 2) to (0, 0), its use's range given).
+ * pcurveOnlyWest: its mirror across the seam, the arc from 3 pi / 2 to 2 pi and the helix's p-curve from
+ * (3 pi / 2, 2) to (2 pi, 0), no range given: its parameters at its vertices by inversion, the seam vertex's foot
+ * the copy at u = 2 pi.
  */
-export function pcurveOnly(): BrepBuilder {
+export function pcurveOnly(west = false): BrepBuilder {
   const b = new BrepBuilder();
   const arc = b.addCurve({ kind: 'circle', position: AXIS, radius: 2 });
-  const up = b.addCurve({ kind: 'line', point: [0, 2, 0], direction: [0, 0, 1], magnitude: 1 });
-  const va = b.addVertex({ point: [2, 0, 0] }), vb = b.addVertex({ point: [0, 2, 0] });
-  const vc = b.addVertex({ point: [0, 2, 2] });
-  const ea = b.addEdge({ curve: arc, start: va, end: vb, sameSense: true, range: [0, Math.PI / 2] });
+  const s = west ? -1 : 1, u0 = west ? 2 * Math.PI : 0, u1 = u0 + s * Math.PI / 2;
+  const up = b.addCurve({ kind: 'line', point: [0, 2 * s, 0], direction: [0, 0, 1], magnitude: 1 });
+  const va = b.addVertex({ point: [2, 0, 0] }), vb = b.addVertex({ point: [0, 2 * s, 0] });
+  const vc = b.addVertex({ point: [0, 2 * s, 2] });
+  const ea = west ? b.addEdge({ curve: arc, start: vb, end: va, sameSense: true, range: [u1, u0] })
+    : b.addEdge({ curve: arc, start: va, end: vb, sameSense: true, range: [0, Math.PI / 2] });
   const eu = b.addEdge({ curve: up, start: vb, end: vc, sameSense: true, range: [0, 2] });
   const len = Math.hypot(Math.PI / 2, 2);
-  const helix = b.addCurve(line2([Math.PI / 2, 2], [-Math.PI / 2 / len, -2 / len]));
+  const helix = b.addCurve(line2([u1, 2], [-s * Math.PI / 2 / len, -2 / len]));
   const eh = b.addEdge({ start: vc, end: va, sameSense: true });
+  const coedges: Coedge[] = west ? [
+    { edge: ea, orientation: 'forward', pcurve: b.addCurve(line2([0, 0], [1, 0])) },
+    { edge: eh, orientation: 'reversed', pcurve: helix },
+    { edge: eu, orientation: 'reversed', pcurve: b.addCurve(line2([u1, 0], [0, 1])) }] : [
+    { edge: ea, orientation: 'forward', pcurve: b.addCurve(line2([0, 0], [1, 0])) },
+    { edge: eu, orientation: 'forward', pcurve: b.addCurve(line2([Math.PI / 2, 0], [0, 1])) },
+    { edge: eh, orientation: 'forward', pcurve: helix, range: [0, len] }];
   const face = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: true,
-    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
-      { edge: ea, orientation: 'forward', pcurve: b.addCurve(line2([0, 0], [1, 0])) },
-      { edge: eu, orientation: 'forward', pcurve: b.addCurve(line2([Math.PI / 2, 0], [0, 1])) },
-      { edge: eh, orientation: 'forward', pcurve: helix, range: [0, len] }] }] });
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
   sheet(b, face);
   return b;
 }
@@ -1261,10 +1270,12 @@ export function narrowStrip(scale = 1, uncertainty = 1): BrepBuilder {
  * 0.07 off it towards the other arm, nearer that one (0.03). Each sample's global foot there is on the other arm; a
  * foot continued from the sample before stays on its own. uFoldAway: its middle 0.3 off the arm on the far side, past
  * the tolerance but within the samples' spacing: continued too. uFoldFar: 3 off, past both: the global search there.
+ * uFoldVertex: the arms 0.25 apart, the edge on the first arm, its vertex (tolerance 0.2) 0.13 off it and 0.12 from
+ * the other: two feet, the nearer on the other arm, the edge's next samples on its own.
  */
-export function uFold(middle = 0.07): BrepBuilder {
+export function uFold(middle = 0.07, g = 0.1, vertexY?: number): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 0.1 });
-  const g = 0.1, profile = [[0, 0], [10, 0], [10, g], [0, g]];
+  const profile = [[0, 0], [10, 0], [10, g], [0, g]];
   const poles = profile.map(([x, y]) => [0, 10].map((z) => [x!, y!, z]));
   const surface = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1, 2, 3], vKnots: [0, 1],
     uMultiplicities: [2, 1, 1, 2], vMultiplicities: [2, 2], poles, uClosed: false, vClosed: false,
@@ -1273,7 +1284,8 @@ export function uFold(middle = 0.07): BrepBuilder {
   const loop = off.map((y, k) => [5 + 3 * Math.cos(2 * Math.PI * k / 8), y, 5 + 3 * Math.sin(2 * Math.PI * k / 8)]);
   const curve = b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1, 2, 3, 4, 5, 6], multiplicities: [4, 1, 1, 1, 1,
     1, 4], poles: loop, closed: true, selfIntersect: false, form: 'unspecified' });
-  const v = b.addVertex({ point: loop[0]! });
+  const v = vertexY === undefined ? b.addVertex({ point: loop[0]! })
+    : b.addVertex({ point: [loop[0]![0]!, vertexY, loop[0]![2]!], tolerance: 0.2 });
   const e = b.addEdge({ curve, start: v, end: v, sameSense: true, range: [0, 6] });
   sheet(b, b.addFace({ surface, sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e, orientation: 'forward' }] }] }));
@@ -1645,12 +1657,13 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   fineProjection, knotAtEnd, cornerFold,
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
-  bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly, luneQuarter, luneOnSeam, cap, splineEdge,
+  bandByInversion, bore, nistBore, seamByInversion, offVertex, pcurveOnly: () => pcurveOnly(),
+  pcurveOnlyWest: () => pcurveOnly(true), luneQuarter, luneOnSeam, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,
   halfCylinderApart, halfCylinderBare, halfCylinderWest, arcBand, cuspPocket: cuspPocket_,
   cuspPocketMirrored, flowerHole, lobes,
   slitFromCorner, lunePinch, spindleApex: () => spindleCorner(0.005),
   tinyCap: () => capWithin(0.01), capWithinPole, narrowStrip: () => narrowStrip(),
-  narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(),
+  narrowStripSmall: () => narrowStrip(0.05, 1e-3), uFold: () => uFold(), uFoldVertex: () => uFold(0, 0.25, 0.13),
   uFoldAway: () => uFold(-0.3), uFoldFar: () => uFold(-3), pcurveShifted, poleLunes, poleLens, curlBack, passBy,
   wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
