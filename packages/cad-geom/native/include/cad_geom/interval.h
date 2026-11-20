@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 
 #include "vec.h"
@@ -30,8 +32,22 @@ struct Interval {
 };
 
 namespace interval_detail {
-inline double down(double x) { return std::nextafter(x, -std::numeric_limits<double>::infinity()); }
-inline double up(double x) { return std::nextafter(x, std::numeric_limits<double>::infinity()); }
+/**
+ * The next double up, as std::nextafter(x, +inf) gives it (+inf and NaN themselves, 0 the least subnormal, -inf the
+ * most negative finite), by a step of the bit pattern: in WebAssembly nextafter is a library call, and every interval
+ * operation makes two.
+ */
+inline double up(double x) {
+  if (!(x < std::numeric_limits<double>::infinity())) return x;
+  if (x == 0) return std::numeric_limits<double>::denorm_min();
+  uint64_t b;
+  std::memcpy(&b, &x, sizeof b);
+  b = x > 0 ? b + 1 : b - 1;
+  std::memcpy(&x, &b, sizeof b);
+  return x;
+}
+/** The next double down, as std::nextafter(x, -inf) gives it. */
+inline double down(double x) { return -up(-x); }
 } // namespace interval_detail
 
 inline Interval operator+(Interval a, Interval b) {
