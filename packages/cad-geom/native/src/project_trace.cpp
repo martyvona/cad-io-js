@@ -28,6 +28,7 @@ namespace cadgeom {
 namespace project {
 
 long traceFits = 0;
+int wholeFirstSpans = 64;
 
 namespace {
 
@@ -281,6 +282,226 @@ PcurvePiece fromBSpline(const BSpline& b, Range t) {
   return p;
 }
 
+/**
+ * How far past a side (of tol) a stretch is cut around: a quarter, not tol, as the fit's tolerance is at least tol and
+ * a corner a fair part of it is what drives the fit, and so a curve within tol (projected at a tolerance grown past
+ * its distance) is cut as it was at its own, and gets its distance as its error, not a whole fit's.
+ */
+constexpr double kSideGap = 0.25;
+
+/** A stretch of a segment to fit alone: on a side of the domain (0 u lo, 1 u hi, 2 v lo, 3 v hi) or not (-1). */
+struct SideRange {
+  Range t;
+  int side = -1;
+};
+
+/** The side of the domain the foot is clamped to (as sides): a finite bound of a non-periodic direction, exactly. */
+int sideOf(const Job& job, Vec2 uv) {
+  if (!(job.dom.uPeriod > 0)) {
+    if (uv.x == job.dom.u.lo && std::isfinite(uv.x)) return 0;
+    if (uv.x == job.dom.u.hi && std::isfinite(uv.x)) return 1;
+  }
+  if (!(job.dom.vPeriod > 0)) {
+    if (uv.y == job.dom.v.lo && std::isfinite(uv.y)) return 2;
+    if (uv.y == job.dom.v.hi && std::isfinite(uv.y)) return 3;
+  }
+  return -1;
+}
+
+/**
+ * The foot at t as the fit samples it: footAt's, and where that is clamped to a side, refined by Newton along the
+ * side's free parameter alone (footFrom's steps there are its 2D ones cut off at the side, which converge in the free
+ * parameter slowly: the fit then follows their noise).
+ */
+Vec2 fitFoot(const Job& job, const std::vector<Node>& nodes, double t) {
+  Vec2 uv = footAt(job, nodes, t);
+  const int side = sideOf(job, uv);
+  if (side < 0) return uv;
+  const bool freeV = side < 2;
+  const Range r = freeV ? job.dom.v : job.dom.u;
+  const double period = freeV ? job.dom.vPeriod : job.dom.uPeriod;
+  const Vec3 p = curveAt(job.c, t);
+  SurfacePoint sp;
+  job.s.eval(uv.x, uv.y, 2, sp);
+  double best = norm(sp.p - p);
+  for (int it = 0; it < 30 && best > 0; it++) {
+    const Vec3 d = sp.p - p, Sx = freeV ? sp.dv : sp.du, Sxx = freeV ? sp.dvv : sp.duu;
+    double h = dot(Sx, Sx) + dot(d, Sxx);
+    if (!(h > 0)) h = dot(Sx, Sx);
+    if (!(h > 0)) break;
+    double step = -dot(d, Sx) / h;
+    bool moved = false;
+    for (int k = 0; k < 30 && step != 0; k++, step *= 0.5) {
+      Vec2 q = uv;
+      double& x = freeV ? q.y : q.x;
+      x += step;
+      if (!(period > 0)) x = std::clamp(x, r.lo, r.hi);
+      SurfacePoint sq;
+      job.s.eval(q.x, q.y, 2, sq);
+      const double dq = norm(sq.p - p);
+      if (dq < best) {
+        moved = (freeV ? q.y != uv.y : q.x != uv.x);
+        uv = q, sp = sq, best = dq;
+        break;
+      }
+    }
+    if (!moved || std::fabs(step) <= 1e-15 * (1 + std::fabs(freeV ? uv.y : uv.x))) break;
+  }
+  return uv;
+}
+
+/**
+ * The segment cut where its feet reach or leave a side of the domain, around each stretch on a side where the curve
+ * is off the surface by more than kSideGap tol there: the feet are clamped to the side along it, so they turn a
+ * corner at each crossing, which a single fit follows only by halving its spans there round after round. Stretches
+ * are found, where a node's foot is on a side, among footAt's feet at the nodes and at 511 points between; each
+ * crossing is bisected between the samples either side to where the foot goes onto the side, the pieces either side
+ * then interpolating the same foot there. A stretch on the side nearer the surface (a curve along the side) isn't
+ * cut: its corner is well within the fit's tolerance. Without such a stretch, the segment whole.
+ */
+std::vector<SideRange> sideRanges(const Job& job, const Segment& sg) {
+  const std::vector<Node>& nodes = sg.nodes;
+  std::vector<SideRange> out;
+  const double span = sg.t.hi - sg.t.lo;
+  // Only a segment with a node's foot on a side is looked at closer (the grid below costs 511 feet).
+  bool onSide = false;
+  for (const Node& x : nodes) onSide = onSide || sideOf(job, x.uv) >= 0;
+  if (!onSide) return {{sg.t, -1}};
+  // The feet at the nodes, and on a grid between (a stretch on a side, or off it, can be shorter than a step).
+  struct Sample {
+    double t;
+    int side;
+    double gap;
+  };
+  std::vector<Sample> n;
+  {
+    constexpr int G = 512;
+    std::vector<double> ts;
+    for (const Node& x : nodes) ts.push_back(x.t);
+    for (int i = 1; i < G; i++) ts.push_back(sg.t.lo + span * i / G);
+    std::sort(ts.begin(), ts.end());
+    ts.erase(std::unique(ts.begin(), ts.end()), ts.end());
+    for (double t : ts) {
+      const Vec2 uv = footAt(job, nodes, t);
+      n.push_back({t, sideOf(job, uv), norm(pointOf(job.s, uv) - curveAt(job.c, t))});
+    }
+  }
+  // Runs of samples on one side (or none), with the curve's largest distance along each.
+  struct Run {
+    size_t first, last;
+    int side;
+    double gap;
+  };
+  std::vector<Run> runs;
+  for (size_t i = 0; i < n.size(); i++) {
+    if (!runs.empty() && runs.back().side == n[i].side)
+      runs.back().last = i, runs.back().gap = std::max(runs.back().gap, n[i].gap);
+    else runs.push_back({i, i, n[i].side, n[i].gap});
+  }
+  bool any = false;
+  for (const Run& r : runs) any = any || (r.side >= 0 && r.gap > kSideGap * job.tol);
+  if (!any) return {{sg.t, -1}};
+  // Each boundary between runs bisected, between the last sample of one and the first of the next.
+  std::vector<double> cuts;
+  for (size_t k = 0; k + 1 < runs.size(); k++) {
+    const Run &A = runs[k], &B = runs[k + 1];
+    if (!((A.side >= 0 && A.gap > kSideGap * job.tol) || (B.side >= 0 && B.gap > kSideGap * job.tol))) {
+      cuts.push_back(NAN);
+      continue;
+    }
+    double lo = n[A.last].t, hi = n[B.first].t;
+    for (int it = 0; it < 60 && hi - lo > 1e-12 * span; it++) {
+      const double m = 0.5 * lo + 0.5 * hi;
+      (sideOf(job, footAt(job, nodes, m)) == A.side ? lo : hi) = m;
+    }
+    // The cut on the side's end of the bracket, so the foot there is on the side exactly.
+    cuts.push_back(A.side >= 0 ? lo : hi);
+  }
+  double lo = sg.t.lo;
+  int side = runs[0].side;
+  for (size_t k = 0; k < cuts.size(); k++) {
+    if (std::isnan(cuts[k])) {
+      // Not cut here: the stretch goes on, on no single side.
+      side = -1;
+      continue;
+    }
+    // A range is on a side only where it is one run on that side, cut both ends (its feet all on the side).
+    if (cuts[k] > lo) out.push_back({{lo, cuts[k]}, side});
+    lo = cuts[k], side = runs[k + 1].side;
+  }
+  out.push_back({{lo, sg.t.hi}, side});
+  // A stretch on a side shorter than 1e-6 of the segment (a curve touching the side, its feet on it at a point) has
+  // no corner to cut: it joins its neighbours off the sides (both, as one, where both are), so a cut beside a stretch
+  // on a side stays.
+  std::vector<SideRange> merged;
+  for (size_t k = 0; k < out.size(); k++) {
+    const bool touch = out[k].side >= 0 && out[k].t.hi - out[k].t.lo < 1e-6 * span;
+    const bool prevOff = !merged.empty() && merged.back().side < 0, nextOff = k + 1 < out.size() && out[k + 1].side < 0;
+    if (!touch || !(prevOff || nextOff)) {
+      merged.push_back(out[k]);
+      continue;
+    }
+    Range t = out[k].t;
+    if (prevOff) t.lo = merged.back().t.lo, merged.pop_back();
+    if (nextOff) t.hi = out[++k].t.hi;
+    merged.push_back({t, -1});
+  }
+  // Any other range that short (two cuts all but at one place, the feet leaving a side and coming back) is absorbed by
+  // the one before (the first by the next): a sliver between pieces is only a corner for the fit at their join.
+  std::vector<SideRange> kept;
+  for (const SideRange& r : merged) {
+    if (r.t.hi - r.t.lo >= 1e-6 * span || merged.size() == 1) kept.push_back(r);
+    else if (!kept.empty()) kept.back().t.hi = r.t.hi;
+    else kept.push_back({r.t, -1});
+  }
+  for (size_t k = 0; k + 1 < kept.size(); k++)
+    if (kept[k].t.hi - kept[k].t.lo < 1e-6 * span) kept[k + 1].t.lo = kept[k].t.lo, kept.erase(kept.begin() + k--);
+  return kept;
+}
+
+/**
+ * Pieces end to end over consecutive ranges (a cut segment's) as one cubic B-spline, C0 at the joins (each a knot of
+ * multiplicity 3, the next piece's first pole the last one's), lines as cubics with evenly spaced poles: the same
+ * curve, as one p-curve, as a segment's always was; ambiguous where one is (its error is measured after, by
+ * projectForms, as every piece's).
+ */
+PcurvePiece joinPieces(const std::vector<PcurvePiece>& ps) {
+  BSpline all;
+  all.degree = 3, all.dim = 2;
+  bool ambiguous = false;
+  for (size_t k = 0; k < ps.size(); k++) {
+    const PcurvePiece& q = ps[k];
+    std::vector<double> K, P;
+    if (q.kind == CBR_CURVE_BSPLINE && q.ints[0] == 3) {
+      // The model's form: distinct knots then poles, multiplicities after the 7 ints.
+      const int n = q.ints[1], nk = q.ints[2];
+      for (int i = 0; i < nk; i++)
+        for (int m = 0; m < q.ints[7 + i]; m++) K.push_back(q.reals[i]);
+      P.assign(q.reals.begin() + nk, q.reals.begin() + nk + 2 * n);
+    } else {
+      const Vec2 a = at(q, q.t.lo), b = at(q, q.t.hi);
+      K = {q.t.lo, q.t.lo, q.t.lo, q.t.lo, q.t.hi, q.t.hi, q.t.hi, q.t.hi};
+      for (int i = 0; i < 4; i++) {
+        const Vec2 x = a + (i / 3.0) * (b - a);
+        P.insert(P.end(), {x.x, x.y});
+      }
+    }
+    if (k == 0) {
+      all.knots = K, all.poles = P;
+    } else {
+      // Drop the last knot of the joined (keeping the join's multiplicity 3) and the next's first 4, and the next's
+      // first pole (the join's).
+      all.knots.pop_back();
+      all.knots.insert(all.knots.end(), K.begin() + 4, K.end());
+      all.poles.insert(all.poles.end(), P.begin() + 2, P.end());
+    }
+    ambiguous = ambiguous || q.certainty == Certainty::ambiguous;
+  }
+  PcurvePiece out = fromBSpline(all, {ps.front().t.lo, ps.back().t.hi});
+  out.certainty = ambiguous ? Certainty::ambiguous : Certainty::unique;
+  return out;
+}
+
 } // namespace
 
 void trace(const Job& job, Pcurve& out) {
@@ -458,85 +679,162 @@ void trace(const Job& job, Pcurve& out) {
       if (std::fabs(jump.from.x - jump.to.x) > 0 || std::fabs(jump.from.y - jump.to.y) > 0)
         out.pieces.push_back(std::move(jump));
     }
-    // The p-curve's 3D tolerance against the feet, for the line and the fit: tol, or a quarter of the curve's distance
-    // from the surface where that's more (the curve then off by over 4 tol: invalidModel whatever the p-curve), so the
-    // p-curve is as near as the curve allows without its feet fitted ever finer (feet clamped where the curve runs
-    // past the surface's edge have corners, which a fit only follows by halving its spans there round after round).
-    const double fitTol = std::max(job.tol, 0.25 * out.offSurface);
-    const Vec2 a = sg.nodes.front().uv, b = sg.nodes.back().uv;
-    const double w = sg.t.hi - sg.t.lo;
-    const Vec2 vel = (1 / w) * (b - a);
-    bool affine = norm(vel) > 0;
-    for (const Node& n : sg.nodes) {
-      if (!affine) break;
-      const Vec2 l = a + (n.t - sg.t.lo) * vel;
-      affine = norm(pointOf(job.s, l) - pointOf(job.s, n.uv)) <= 0.25 * fitTol;
-    }
-    if (affine) {
-      PcurvePiece p = linePiece(sg.t, a, vel);
-      p.certainty = Certainty::unique;
-      const double e = measure(job, p);
-      if (e <= job.tol || e <= out.offSurface + 0.25 * fitTol) {
-        p.error = e;
-        out.pieces.push_back(std::move(p));
-        continue;
+    // Each range fitted alone (a line where its feet are affine), its pieces into dst, its fits' spans counted in
+    // used, capped set where a fit ran into `spans`; false where no fit is made.
+    // The ranges to fit (the segment whole unless cut below), and the feet fitted: in a segment cut at a side,
+    // refined along a side where clamped to it; else footAt's as they are (raw), so a segment that isn't cut is
+    // fitted exactly as without the cutting.
+    std::vector<SideRange> ranges{{sg.t, -1}};
+    bool raw = true;
+    auto foot = [&](double t) { return raw ? footAt(job, sg.nodes, t) : fitFoot(job, sg.nodes, t); };
+    std::function<bool(Range, int, int, int, std::vector<PcurvePiece>&, int&, bool&)> fitRange =
+      [&](Range tr, int side, int depth, int spans, std::vector<PcurvePiece>& dst, int& used, bool& capped) -> bool {
+      // The p-curve's 3D tolerance against the feet, for the line and the fit: tol, or a quarter of the curve's
+      // distance from the surface where that's more (the curve then off by over 4 tol: invalidModel whatever the
+      // p-curve), so the p-curve is as near as the curve allows without its feet fitted ever finer.
+      const double fitTol = std::max(job.tol, 0.25 * out.offSurface);
+      // The range's ends: the feet there (a segment's own end nodes where it is the segment, so as before).
+      const Vec2 a = foot(tr.lo), b = foot(tr.hi);
+      const double w = tr.hi - tr.lo;
+      const Vec2 vel = (1 / w) * (b - a);
+      bool affine = norm(vel) > 0;
+      for (const Node& n : sg.nodes) {
+        if (!affine) break;
+        if (n.t < tr.lo || n.t > tr.hi) continue;
+        const Vec2 l = a + (n.t - tr.lo) * vel;
+        affine = norm(pointOf(job.s, l) - pointOf(job.s, foot(n.t))) <= 0.25 * fitTol;
       }
-    }
-    anyFit = true;
-    // The fit judged in 3D: the spline's point on the surface against the foot's, to the fit's tolerance where the
-    // curve is within tol of the surface (its error is measured after, between samples too), to a quarter of it where
-    // it's farther (invalidModel: its error, which healing grows the edge's tolerance to, stays near the curve's own
-    // distance), tightened while the error measured is over tol and over the curve's distance from the surface plus
-    // a quarter of the fit's tolerance, and while each tightening gains a quarter of it. (Judged in (u, v), at the
-    // tolerance the surface's largest stretch gives, a direction it hardly stretches in, beside a pole, a collapsed
-    // side or a degenerate corner, asked far more than its 3D effect, of feet barely determined there: fits ran to
-    // their cap.)
-    double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
-    const std::vector<Node>& nodes = sg.nodes;
-    std::function<Vec2(double)> f = [&](double t) { return footAt(job, nodes, t); };
-    const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
-      return norm(pointOf(job.s, a) - pointOf(job.s, b));
+      if (affine) {
+        PcurvePiece p = linePiece(tr, a, vel);
+        p.certainty = Certainty::unique;
+        const double e = measure(job, p);
+        if (e <= job.tol || e <= out.offSurface + 0.25 * fitTol) {
+          p.error = e;
+          dst.push_back(std::move(p));
+          return true;
+        }
+      }
+      anyFit = true;
+      // The fit judged in 3D: the spline's point on the surface against the foot's, to the fit's tolerance where the
+      // curve is within tol of the surface (its error is measured after, between samples too), to a quarter of it where
+      // it's farther (invalidModel: its error, which healing grows the edge's tolerance to, stays near the curve's own
+      // distance), tightened while the error measured is over tol and over the curve's distance from the surface plus
+      // a quarter of the fit's tolerance, and while each tightening gains a quarter of it. (Judged in (u, v), at the
+      // tolerance the surface's largest stretch gives, a direction it hardly stretches in, beside a pole, a collapsed
+      // side or a degenerate corner, asked far more than its 3D effect, of feet barely determined there: fits ran to
+      // their cap.)
+      double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
+      const std::vector<Node>& nodes = sg.nodes;
+      std::function<Vec2(double)> f = [&](double t) { return foot(t); };
+      const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
+        return norm(pointOf(job.s, a) - pointOf(job.s, b));
+      };
+      PcurvePiece best;
+      double bestErr = kInf, bestWorstT = NAN, bestLocal = NAN;
+      Status bestSt = Status::ok;
+      for (int attempt = 0; attempt < 5; attempt++) {
+        BSpline bs;
+        double fitErr = 0;
+        traceFits++;
+        const Status st = fit::curve2(f, tr, 3, tol3, bs, fitErr, in3d, spans);
+        if (st != Status::ok && st != Status::noConvergence) break;
+        if (st == Status::noConvergence) capped = true;
+        // On a side: that side's iso-line exactly (the fit of a constant coordinate is it to rounding only).
+        if (side >= 0)
+          for (size_t k = side < 2 ? 0 : 1; k < bs.poles.size(); k += bs.dim)
+            bs.poles[k] = side == 0 ? job.dom.u.lo : side == 1 ? job.dom.u.hi : side == 2 ? job.dom.v.lo
+              : job.dom.v.hi;
+        PcurvePiece p = fromBSpline(bs, tr);
+        if (!p.curve) break;
+        double worstT = NAN, local = NAN;
+        const double e = measure(job, p, &worstT), before = bestErr;
+        if (e > job.tol && !(out.offSurface + 0.25 * fitTol >= e)) {
+          // The curve's own distance from its foot where the fit is worst (projectForms' offSurface does the same):
+          // a curve off the surface there by about the error stops the tightening now, not a round later.
+          const LocalFoot lf = localFoot(job.s, curveAt(job.c, worstT), at(p, worstT));
+          if (lf.status == Status::ok) out.offSurface = std::max(out.offSurface, lf.distance), local = lf.distance;
+        }
+        if (e < bestErr) bestErr = e, bestWorstT = worstT, bestLocal = local, bestSt = st, best = std::move(p);
+        // (No p-curve beats the curve's own distance from the surface; where that's within tol, one within tol is
+        // there, so only a curve farther off than tol stops at its distance, and only once fitted to a quarter of the
+        // fit's tolerance, as such a curve is from the start: found that far off by the first fit, it is refitted so.)
+        if (bestErr <= job.tol || st != Status::ok
+          || (out.offSurface > job.tol && tol3 <= 0.25 * fitTol && bestErr <= out.offSurface + 0.25 * fitTol))
+          break;
+        // Tightening that gains less than a quarter of it: the curve is off the surface between the samples too.
+        if (!(e < before - 0.25 * fitTol)) break;
+        // Below the fit's own error too, or a fit whose samples miss its worst comes back the same.
+        tol3 = std::min(0.25 * tol3, 0.25 * fitErr);
+      }
+      if (!best.curve) return false;
+      // In a cut segment, a fit that converged, past tol and past the curve's own distance where it's worst by more
+      // than a quarter of the fit's tolerance: its checks missed a feature of the feet there (a bump narrower than
+      // their spacing, which tightening doesn't find either). Cut there, each side fitted alone (both interpolating
+      // the foot there), with half the spans each, at most 6 deep. (A fit that ran out of spans has feet rough all
+      // along, which cutting only makes dearer.)
+      if (!raw && bestSt == Status::ok && bestErr > job.tol && bestLocal + 0.25 * fitTol < bestErr && depth < 6
+        && bestWorstT > tr.lo + 1e-6 * w && bestWorstT < tr.hi - 1e-6 * w)
+        return fitRange(Range{tr.lo, bestWorstT}, side, depth + 1, spans / 2, dst, used, capped)
+          && fitRange(Range{bestWorstT, tr.hi}, side, depth + 1, spans - spans / 2, dst, used, capped);
+      best.error = bestErr;
+      best.certainty = Certainty::unique;
+      for (double t : out.tAmbiguous)
+        if (t >= tr.lo && t <= tr.hi) best.certainty = Certainty::ambiguous;
+      used += best.ints.size() > 1 ? best.ints[1] - 3 : 1;
+      dst.push_back(std::move(best));
+      return true;
     };
-    PcurvePiece best;
-    double bestErr = kInf;
-    for (int attempt = 0; attempt < 5; attempt++) {
-      BSpline bs;
-      double fitErr = 0;
-      traceFits++;
-      const Status st = fit::curve2(f, sg.t, 3, tol3, bs, fitErr, in3d);
-      if (st != Status::ok && st != Status::noConvergence) break;
-      PcurvePiece p = fromBSpline(bs, sg.t);
-      if (!p.curve) break;
-      double worstT = NAN;
-      const double e = measure(job, p, &worstT), before = bestErr;
-      if (e > job.tol && !(out.offSurface + 0.25 * fitTol >= e)) {
-        // The curve's own distance from its foot where the fit is worst (projectForms' offSurface does the same):
-        // a curve off the surface there by about the error stops the tightening now, not a round later.
-        const LocalFoot lf = localFoot(job.s, curveAt(job.c, worstT), at(p, worstT));
-        if (lf.status == Status::ok) out.offSurface = std::max(out.offSurface, lf.distance);
-      }
-      if (e < bestErr) bestErr = e, best = std::move(p);
-      // (No p-curve beats the curve's own distance from the surface; where that's within tol, one within tol is
-      // there, so only a curve farther off than tol stops at its distance, and only once fitted to a quarter of the
-      // fit's tolerance, as such a curve is from the start: found that far off by the first fit, it is refitted so.)
-      if (bestErr <= job.tol || st != Status::ok
-        || (out.offSurface > job.tol && tol3 <= 0.25 * fitTol && bestErr <= out.offSurface + 0.25 * fitTol))
-        break;
-      // Tightening that gains less than a quarter of it: the curve is off the surface between the samples too.
-      if (!(e < before - 0.25 * fitTol)) break;
-      // Below the fit's own error too, or a fit whose samples miss its worst comes back the same.
-      tol3 = std::min(0.25 * tol3, 0.25 * fitErr);
-    }
-    if (!best.curve) {
+    // A segment with a node's foot on a side, the curve farther than kSideGap tol from it there, is first fitted
+    // whole as uncut within wholeFirstSpans (64): where that fits it (no attempt runs into them, and its error within
+    // tol where the curve is: else that error makes it noConvergence), its corners are mild and it is kept, as it
+    // was. Else it is cut (sideRanges), the ranges sharing a whole fit's 1024 spans by their lengths (at least 16
+    // each), so a segment's fits together cost about one whole one, not one each; where one runs into its share
+    // (feet rough along it, which cutting doesn't smooth), the cutting stops and the segment is fitted whole, as
+    // uncut.
+    const double segW = sg.t.hi - sg.t.lo;
+    std::vector<PcurvePiece> cut;
+    int used = 0;
+    bool capped = false;
+    auto fail = [&] {
       out.status = Status::noConvergence;
       out.pieces.clear();
-      return;
+    };
+    bool past = false;
+    for (const Node& n : sg.nodes)
+      past = past
+        || (sideOf(job, n.uv) >= 0 && norm(pointOf(job.s, n.uv) - curveAt(job.c, n.t)) > kSideGap * job.tol);
+    if (past) {
+      if (wholeFirstSpans > 0) {
+        if (!fitRange(sg.t, -1, 6, wholeFirstSpans, cut, used, capped)) return fail();
+        double e = 0;
+        for (const PcurvePiece& q : cut) e = std::max(e, q.error);
+        if (!capped && (e <= job.tol || out.offSurface > job.tol)) {
+          for (PcurvePiece& q : cut) out.pieces.push_back(std::move(q));
+          continue;
+        }
+        cut.clear(), used = 0, capped = false;
+      }
+      ranges = sideRanges(job, sg);
+      raw = ranges.size() == 1 && ranges[0].side < 0;
     }
-    best.error = bestErr;
-    best.certainty = Certainty::unique;
-    for (double t : out.tAmbiguous)
-      if (t >= sg.t.lo && t <= sg.t.hi) best.certainty = Certainty::ambiguous;
-    out.pieces.push_back(std::move(best));
+    for (const SideRange& sr : ranges) {
+      const int spans = ranges.size() > 1 ? std::max(16, static_cast<int>(1024 * (sr.t.hi - sr.t.lo) / segW)) : 1024;
+      if (!fitRange(sr.t, sr.side, 0, spans, cut, used, capped)) return fail();
+      if (capped && ranges.size() > 1) break;
+    }
+    if (capped && ranges.size() > 1) {
+      std::vector<PcurvePiece> whole;
+      int wu = 0;
+      bool wc = false;
+      raw = true;
+      if (fitRange(sg.t, -1, 6, 1024, whole, wu, wc)) cut = std::move(whole);
+    }
+    if (cut.size() > 1) {
+      PcurvePiece joined = joinPieces(cut);
+      cut.clear();
+      cut.push_back(std::move(joined));
+    }
+    for (PcurvePiece& q : cut) out.pieces.push_back(std::move(q));
   }
   if (!anyFit) out.method = PcurveMethod::affineFeet;
 }
