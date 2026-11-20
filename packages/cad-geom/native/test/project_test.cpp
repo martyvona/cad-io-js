@@ -925,6 +925,38 @@ TEST_CASE("the error measure: the largest deviation between samples, against den
     }
     CHECK_NEAR(project::measure(job, p), dense, 1e-9, 0);
   }
+  // One smooth span with two bumps: a Bezier of degree n over a flat patch, its height H at pole 1 (a narrow bump at
+  // t = 1 / n, the highest, 0.37 H) and k H at pole n / 2 (a broad one at the middle). Degree 60, k = 2: at a
+  // spacing of 1 / 16 the narrow one's samples are under half the worst sample (the broad one's), so only 64 samples
+  // a span find it. Degree 200, k = 4: narrower than 1 / 64, its nearest sample is over half the worst but under the
+  // broad one's, so only refining every local maximum within half of the worst finds it.
+  const int32_t fi[] = {1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 2, 2, 2, 2};
+  const double fr[] = {0, 1, 0, 1, 0, 0, 0, 0, 10, 0, 10, 0, 0, 10, 10, 0};
+  Status st;
+  std::unique_ptr<Surface> flat = surfaces::makeBSpline(fr, fi, st);
+  REQUIRE(flat);
+  const double H = 1e-3;
+  for (auto [n, k] : {std::pair<int, double>{60, 2}, std::pair<int, double>{200, 4}}) {
+    std::vector<double> cr = {0, 1};
+    for (int i = 0; i <= n; i++) cr.insert(cr.end(), {10.0 * i / n, 5, i == 1 ? H : i == n / 2 ? k * H : 0});
+    const int32_t ci[] = {n, n + 1, 2, 0, 0, 0, 0, n + 1, n + 1};
+    std::unique_ptr<Curve> bumps = curves::makeBSpline(cr.data(), ci, 3, st);
+    REQUIRE(bumps);
+    project::Job job{*bumps, {0, 1}, *flat, 1e-7, nullptr, {}, {}, flat->domain(), {}, {}};
+    bumps->breaks(job.r, job.breaks);
+    PcurvePiece line = project::linePiece({0, 1}, {0, 0.5}, {1, 0});
+    double dense = 0;
+    for (int i = 0; i <= 20000; i++) {
+      CurvePoint c;
+      bumps->eval(i / 20000.0, 0, c);
+      dense = std::fmax(dense, std::fabs(c.p.z));
+    }
+    const double m = project::measure(job, line);
+    CHECK(m >= dense * (1 - 1e-9));
+    CHECK(m <= dense * (1 + 1e-4));
+    CHECK(dense > 0.3 * H);
+    if (!(m >= dense * (1 - 1e-9))) std::printf("    degree %d: measured %g, dense %g\n", n, m, dense);
+  }
 }
 
 /**

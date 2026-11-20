@@ -60,8 +60,8 @@ Vec2 at(const PcurvePiece& p, double t);
 
 /**
  * The largest |S(p(t)) - C(t)| over the piece, measured on each smooth span (the curve's and the piece's breaks) at
- * evenly spaced points, then refined by golden-section search around the worst of them; `worstT`, where given, gets
- * the parameter it is at.
+ * 64 evenly spaced points, then refined by golden-section search around each local maximum within half of the worst
+ * (not a bound: a bump narrower than the spacing can be missed); `worstT`, where given, gets the parameter it is at.
  */
 double measure(const Job& job, const PcurvePiece& p, double* worstT = nullptr);
 
