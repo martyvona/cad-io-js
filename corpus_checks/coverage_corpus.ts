@@ -24,9 +24,15 @@
 //                triangles by smallest angle and aspect in 3D (quantiles, and faces by their worst), its triangles per
 //                face against SMLib's, each face's worst deviation from its surface sampled at its largest triangles'
 //                centroids and sides' middles (by cad-geom's inversion), the faces some backend leaves past 1.1 x the
-//                deflection listed; with PLANT=survey, ours given a needle and a copy of its largest triangle lifted
-//                3 x the deflection off it on the planted face, which must show as its worst angle under 0.1 degrees
-//                and deviation past 1.5 x (3 x less what the face itself strays)
+//                deflection listed; the normals' check: each triangle against the profile's angle, from the
+//                surface's normals at its corners' feet (their spread, and the facet's turn from each), per backend
+//                over those faces and ours over every face it meshes (faces, triangles and mesh area past the angle,
+//                faces by their worst excess and by their area's share past it, those within the deflection that
+//                miss it; triangles with a corner at a pole or apex left out and counted apart), the faces where one
+//                misses listed; with PLANT=survey, ours given a needle, a copy of its largest triangle lifted 3 x the
+//                deflection off it, and that triangle with its third corner raised to tilt it 75 degrees, on the
+//                planted face, which must show as its worst angle under 0.1 degrees, deviation past 1.5 x (3 x less
+//                what the face itself strays) and the tilted triangle judged past 30 degrees
 //   INSERTIONS=1 ours counts its mesher's insertions by what queued them (tess-cadio's countInsertions), tallied over
 //                the parts it meshes: the same meshes, but up to 2 x its CPU time, so its times and the parts over
 //                CPU_MS aren't comparable with a run without it; with PLANT=insertions, ours's count by size said a
@@ -59,12 +65,15 @@ import { addInto, division, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
 import { Geometry } from '../packages/cad-geom/src/index.ts';
 import {
-  ASPECT_PER_DECADE, DEVIATION_BOUNDS, RATIO_BINS, addShapes, angleEdge, aspectEdge, deviationBin, faceDeviation,
-  faceTriangles, freshShapes, quantile, ratioBin, triangleShape,
+  AREA_BOUNDS, ASPECT_PER_DECADE, DEVIATION_BOUNDS, EXCESS_BOUNDS, RATIO_BINS, addShapes, angleEdge, areaBin,
+  addAngles, aspectEdge, deviationBin, faceAngles, faceDeviation, faceTriangles, freshAngles, freshShapes, quantile,
+  ratioBin, triangleShape, type Angles, type FaceAngles,
 } from './shape_survey.ts';
 
 const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
+/** The profile's angle in degrees, the normals' check's limit. */
+const ANG_DEG = (ANG * 180) / Math.PI;
 const PLANT = process.env.PLANT ?? '';
 const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'survey', 'insertions'];
 const SURVEY = process.env.SURVEY === '1';
@@ -140,7 +149,7 @@ const refFailed = (expect: string, occtOk: boolean, smlibOk: boolean) =>
 
 /** PLANT's bug on one part, in place on copies; returns what the planted case must be judged as. */
 function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
-  { expect: string; face?: number } | undefined {
+  { expect: string; face?: number; tilted?: number } | undefined {
   // (A part without faces has no face to judge a plant by.)
   if (!faces) return undefined;
   const emptyFirst = (b: Backend) => {
@@ -195,10 +204,12 @@ function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
 }
 
 /**
- * PLANT=survey: on the first face all three mesh, ours's result given two triangles more in a range of their own (a
- * copy of the face's largest lifted 3 x the deflection along its normal, and a needle along its longest side).
+ * PLANT=survey: on the first face all three mesh, ours's result given three triangles more in a range of their own
+ * (a copy of the face's largest lifted 3 x the deflection along its normal, a needle along one of its sides, and it
+ * with its third corner raised to tilt it 75 degrees about that side); `tilted` the last one's start in the indices.
  */
-function plantSurvey(o: Record<Backend, TessellationResult | Error>): { expect: string; face?: number } | undefined {
+function plantSurvey(o: Record<Backend, TessellationResult | Error>):
+  { expect: string; face?: number; tilted?: number } | undefined {
   if (BACKENDS.some((b) => o[b] instanceof Error)) return undefined;
   const rs = BACKENDS.map((b) => o[b] as TessellationResult);
   const tris = rs.map(faceTriangles);
@@ -219,17 +230,21 @@ function plantSurvey(o: Record<Backend, TessellationResult | Error>): { expect: 
   if (!(len > 0)) return undefined;
   const lift = n.map((x) => (3 * LIN * x) / len);
   const up = [a, b, c].map((x) => x.map((y, q) => y + lift[q]!));
+  // The tilted: c raised along the normal by its height over ab times tan 75 degrees.
+  const h = len / Math.hypot(...u);
+  const tilt = c.map((y, q) => y + (h * Math.tan((75 * Math.PI) / 180) * n[q]!) / len);
   // The needle: a, b and a point 1e-4 of the way from ab's middle to c (about 0.01 degrees where the triangle is
   // about equilateral, less where flatter).
   const m = [0, 1, 2].map((q) => (a[q]! + b[q]!) / 2 + 1e-4 * (c[q]! - (a[q]! + b[q]!) / 2));
-  const base = p.length / 3, positions = new Float32Array(p.length + 18);
+  const base = p.length / 3, positions = new Float32Array(p.length + 27);
   positions.set(p);
-  positions.set([...up.flat(), ...a, ...b, ...m], p.length);
-  const indices = new Uint32Array(ix.length + 6);
+  positions.set([...up.flat(), ...a, ...b, ...m, ...a, ...b, ...tilt], p.length);
+  const indices = new Uint32Array(ix.length + 9);
   indices.set(ix);
-  indices.set([base, base + 1, base + 2, base + 3, base + 4, base + 5], ix.length);
-  o.cadio = { ...r, positions, indices, faces: [...r.faces, { entityId: id, start: ix.length, count: 6 }] };
-  return { expect: 'survey: worst angle under 0.1 degrees, deviation past 1.5 x', face: id };
+  indices.set(Array.from({ length: 9 }, (_, q) => base + q), ix.length);
+  o.cadio = { ...r, positions, indices, faces: [...r.faces, { entityId: id, start: ix.length, count: 9 }] };
+  return { expect: 'survey: worst angle under 0.1 degrees, deviation past 1.5 x, the tilted triangle past 30 '
+    + 'degrees', face: id, tilted: ix.length + 6 };
 }
 
 const statuses = () => Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<PartStatus, number>;
@@ -274,6 +289,12 @@ const fresh = () => ({
     uninverted: { cadio: 0, occt: 0, smlib: 0 },
     over: [] as string[],
     deviationMs: 0,
+    // The normals' check over the faces all three mesh, ours's over every face it meshes, the faces where one misses
+    // (listed), and the time it took.
+    angles: { cadio: freshAngles(), occt: freshAngles(), smlib: freshAngles() },
+    oursAngles: freshAngles(),
+    angleFaces: [] as string[],
+    anglesMs: 0,
   },
   // INSERTIONS: ours's points inserted over the parts it meshes, by INSERTED_KINDS, and the parts that said none.
   inserted: INSERTED_KINDS.map(() => 0),
@@ -283,19 +304,23 @@ type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
 
 /**
- * SURVEY on one part (results as planted): the faces all three mesh into T.survey; ours's worst angle and deviation
- * on each of them, for PLANT=survey.
+ * SURVEY on one part (results as planted): the faces all three mesh into T.survey; the normals' check on those and on
+ * the rest ours meshes; ours's worst angle, deviation and (with `tilted`, a triangle's start in ours's indices) that
+ * triangle's normals' angle on each face all three mesh, for PLANT=survey.
  */
 async function surveyPart(T: Tallies, where: string, d: BrepData, buffer: ArrayBuffer | ArrayBufferView,
-  r: Record<Backend, TessellationResult | Error>, ids: readonly number[]):
-  Promise<Map<number, { angle: number; deviation: number }>> {
-  const out = new Map<number, { angle: number; deviation: number }>();
-  if (BACKENDS.some((b) => r[b] instanceof Error)) return out;
-  const rs = BACKENDS.map((b) => r[b] as TessellationResult);
-  const tris = rs.map(faceTriangles);
+  r: Record<Backend, TessellationResult | Error>, ids: readonly number[], tilted?: number):
+  Promise<Map<number, { angle: number; deviation: number; tilted: number }>> {
+  const out = new Map<number, { angle: number; deviation: number; tilted: number }>();
+  if (r.cadio instanceof Error) return out;
+  const refs = !BACKENDS.some((b) => r[b] instanceof Error);
+  const rs = BACKENDS.map((b) => (r[b] instanceof Error ? undefined : r[b] as TessellationResult));
+  const tris = rs.map((x) => (x ? faceTriangles(x) : new Map<number, number[]>()));
   const rowOf = new Map(ids.map((id, row) => [id, row]));
-  const all = [...rowOf.keys()].filter((id) => tris.every((t) => t.has(id)));
-  if (!all.length) return out;
+  const all = refs ? [...rowOf.keys()].filter((id) => tris.every((t) => t.has(id))) : [];
+  const common = new Set(all);
+  const oursOnly = [...rowOf.keys()].filter((id) => tris[0]!.has(id) && !common.has(id));
+  if (!all.length && !oursOnly.length) return out;
   const S = T.survey;
   S.faces += all.length;
   BACKENDS.forEach((b, i) => addShapes(rs[i]!, tris[i]!, all, S.shapes[b]));
@@ -304,9 +329,14 @@ async function surveyPart(T: Tallies, where: string, d: BrepData, buffer: ArrayB
     S.ratio.cadio[ratioBin(n[0]!, n[2]!)]!++;
     S.ratio.occt[ratioBin(n[1]!, n[2]!)]!++;
   }
-  const t0 = performance.now();
   const g = await Geometry.open(buffer);
+  const kindOf = (row: number) => (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
+  const said = (f: FaceAngles) => `${f.missed} of ${f.triangles} triangles (${f.spread} by spread), worst ${
+    f.worst.toFixed(1)} deg (+${(f.worst - ANG_DEG).toFixed(1)}), ${((100 * f.missedArea) / f.area).toPrecision(2)}% `
+    + 'of its area';
   try {
+    let t0 = performance.now();
+    const worsts = new Map<number, number[]>();
     for (const id of all) {
       const row = rowOf.get(id)!, surface = d.face.surface[row]!;
       const worst = BACKENDS.map((b, i) => {
@@ -315,23 +345,45 @@ async function surveyPart(T: Tallies, where: string, d: BrepData, buffer: ArrayB
         else S.deviation[b][deviationBin(fd.worst / LIN)]!++;
         return fd.worst;
       });
+      worsts.set(id, worst);
       if (worst.some((w) => w > 1.1 * LIN)) {
-        const kind = (decode.surface(d, surface) as { kind: string }).kind;
-        S.over.push(`${where} face #${id} (${kind}): ${BACKENDS.map((b, i) => `${LABEL[b]} ${
+        S.over.push(`${where} face #${id} (${kindOf(row)}): ${BACKENDS.map((b, i) => `${LABEL[b]} ${
           Number.isNaN(worst[i]!) ? 'not inverted' : `${(worst[i]! / LIN).toFixed(2)} x`}`).join(', ')}`);
       }
-      let angle = 60;
-      const ours = rs[0]!;
-      for (const k of tris[0]!.get(id)!) {
-        angle = Math.min(angle, triangleShape(ours.positions, ours.indices[k]!, ours.indices[k + 1]!,
-          ours.indices[k + 2]!).angle);
-      }
-      out.set(id, { angle, deviation: worst[0]! });
     }
+    S.deviationMs += performance.now() - t0;
+    t0 = performance.now();
+    for (const id of [...all, ...oursOnly]) {
+      const row = rowOf.get(id)!, surface = d.face.surface[row]!, both = common.has(id);
+      let tiltedAt = NaN;
+      const fa = BACKENDS.map((b, i) => (i > 0 && !both ? undefined
+        : faceAngles(g, surface, rs[i]!, tris[i]!.get(id)!, 1e-6 * LIN, ANG_DEG,
+          i === 0 && tilted !== undefined ? (k, deg) => { if (k === tilted) tiltedAt = deg; } : undefined)));
+      addAngles(S.oursAngles, fa[0]!, ANG_DEG);
+      if (both) {
+        const worst = worsts.get(id)!;
+        BACKENDS.forEach((b, i) => {
+          addAngles(S.angles[b], fa[i]!, ANG_DEG);
+          if (worst[i]! <= LIN) S.angles[b].within++, S.angles[b].withinMissed += fa[i]!.missed ? 1 : 0;
+        });
+        let angle = 60;
+        const ours = rs[0]!;
+        for (const k of tris[0]!.get(id)!) {
+          angle = Math.min(angle, triangleShape(ours.positions, ours.indices[k]!, ours.indices[k + 1]!,
+            ours.indices[k + 2]!).angle);
+        }
+        out.set(id, { angle, deviation: worst[0]!, tilted: tiltedAt });
+      }
+      if (fa.some((f) => f?.missed)) {
+        S.angleFaces.push(`${where} face #${id} (${kindOf(row)}): ${BACKENDS.map((b, i) => `${LABEL[b]} ${
+          !fa[i] ? 'not compared' : fa[i]!.missed ? said(fa[i]!) : `none, worst ${fa[i]!.worst.toFixed(1)} deg`}${
+          both ? `, deviation ${(worsts.get(id)![i]! / LIN).toFixed(2)} x` : ''}`).join('; ')}`);
+      }
+    }
+    S.anglesMs += performance.now() - t0;
   } finally {
     g.dispose();
   }
-  S.deviationMs += performance.now() - t0;
   return out;
 }
 
@@ -421,16 +473,17 @@ export const check: FileCheck<string, Tallies> = {
       if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
       if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
       const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
-      const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids) : undefined;
+      const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids, planted?.tilted)
+        : undefined;
       const modelIds = new Set(ids);
       for (const id of ours.meshed) if (!modelIds.has(id)) T.foreign++;
       let meshedHere = 0, failedHere = 0, plantSeen = insertionPlantSeen;
       let plantGot = '';
       if (planted && PLANT === 'survey') {
         const x = surveyed!.get(planted.face!);
-        if (x && x.angle < 0.1 && x.deviation > 1.5 * LIN) plantSeen = true;
-        plantGot = x ? `; got ${x.angle.toPrecision(3)} degrees, ${(x.deviation / LIN).toPrecision(3)} x`
-          : '; not surveyed';
+        if (x && x.angle < 0.1 && x.deviation > 1.5 * LIN && x.tilted > 30) plantSeen = true;
+        plantGot = x ? `; got ${x.angle.toPrecision(3)} degrees, ${(x.deviation / LIN).toPrecision(3)} x, tilted `
+          + `${x.tilted.toPrecision(3)} degrees` : '; not surveyed';
       }
       for (let row = 0; row < rows; row++) {
         const id = ids[row]!;
@@ -510,6 +563,27 @@ function surveyReport(T: Tallies): void {
     console.log(`    ${LABEL[b]} faces by worst sampled deviation over the deflection: ${S.deviation[b].map((n, k) =>
       `${bounds[k]} ${n}`).join(', ')}; not inverted ${S.uninverted[b]}`);
   }
+  console.log(`  the normals' check at the profile's ${ANG_DEG.toFixed(1)} degrees (a triangle's corners' surface `
+    + `normals spread past it, or its facet's normal turned past it from a corner's); took `
+    + `${(S.anglesMs / 1000).toFixed(0)} s:`);
+  for (const b of BACKENDS) angleLine(`${LABEL[b]} on the faces all three mesh`, S.angles[b], true);
+  angleLine('ours on every face it meshes', S.oursAngles, false);
+}
+
+/** One line of the normals' check's tallies. */
+function angleLine(label: string, A: Angles, within: boolean): void {
+  const pc = (a: number, b: number) => `${b ? ((100 * a) / b).toPrecision(3) : '0'}%`;
+  const ex = EXCESS_BOUNDS.map((x, k) => (x === Infinity ? `over ${EXCESS_BOUNDS[k - 1]}` : `<= ${x}`));
+  const sh = AREA_BOUNDS.map((x) => `<= ${100 * x}%`);
+  console.log(`    ${label}: faces past it ${A.facesMissed} of ${A.faces} (${pc(A.facesMissed, A.faces)}), triangles `
+    + `${A.missed} of ${A.triangles} (${pc(A.missed, A.triangles)}), mesh area ${pc(A.missedArea, A.area)}; by the `
+    + `corners' spread alone (the rest by the facet) ${A.facesSpread} faces, ${A.spread} triangles, mesh area `
+    + `${pc(A.spreadArea, A.area)}; faces by `
+    + `worst excess (deg) ${A.excess.map((n, k) => `${ex[k]} ${n}`).join(', ')}; by their area's share past it `
+    + `${A.share.map((n, k) => `${sh[k]} ${n}`).join(', ')}${within ? `; within the deflection (sampled) ${A.within} `
+    + `faces, ${A.withinMissed} of them past it` : ''}; left out, a corner at a pole or apex: ${A.excluded} triangles `
+    + `on ${A.facesExcluded} faces (${pc(A.excludedArea, A.area)} of the area); a corner not inverted: `
+    + `${A.unmeasured} triangles (${pc(A.unmeasuredArea, A.area)} of the area)`);
 }
 
 /** Lists named on the command line (comma-separated), else the defaults; paths relative to the repository. */
@@ -581,6 +655,9 @@ function report(label: string, T: Tallies): void {
     console.log(`\n### Faces all three mesh where one leaves a sampled point past 1.1 x the deflection `
       + `(${T.survey.over.length}): each backend's worst over the deflection`);
     for (const x of [...T.survey.over].sort()) console.log(`  ${x}`);
+    console.log(`\n### Faces where one backend's triangles miss the profile's angle (${T.survey.angleFaces.length}): `
+      + 'each backend\'s triangles past it, its worst and excess, its area past it, its sampled deviation');
+    for (const x of [...T.survey.angleFaces].sort()) console.log(`  ${x}`);
   }
   console.log();
 }
