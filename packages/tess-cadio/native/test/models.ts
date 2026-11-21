@@ -2,6 +2,8 @@
 // the smallest with the case named. `fixtures.ts` writes them, and cad-brep's, as a header.
 import { BrepBuilder } from '../../../cad-brep/src/builder.ts';
 import type { Coedge, Curve } from '../../../cad-brep/src/types.ts';
+import { ANALYSIS_TABLES } from '../../../cad-brep/src/analysis-layout.ts';
+import { type AnalysisRows, writeAnalysis } from '../../../cad-brep/src/analysis.ts';
 
 const AXIS = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
 const line2 = (point: number[], direction: number[]): Curve => ({ kind: 'line', point, direction, magnitude: 1 });
@@ -310,6 +312,22 @@ export function pcurveShifted(): BrepBuilder {
   const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 3 }), start: v, end: v,
     sameSense: true, range: [0, 2 * Math.PI] });
   const pc = b.addCurve({ kind: 'circle', position: { origin: [0.3, 0], xDir: [1, 0] }, radius: 3 });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward', pcurve: pc }] }] }));
+  return b;
+}
+
+/**
+ * pcurveShifted's disc with its p-curve 0.003 off in u, within the tolerance (0.005): kept as given, unless healing
+ * made it (pcurveNearHealed's analysis), when it's placed as a projection is, its samples at their points' feet.
+ */
+export function pcurveNear(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.005 });
+  const v = b.addVertex({ point: [3, 0, 0] });
+  const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 3 }), start: v, end: v,
+    sameSense: true, range: [0, 2 * Math.PI] });
+  const pc = b.addCurve({ kind: 'circle', position: { origin: [0.003, 0], xDir: [1, 0] }, radius: 3 });
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true,
       coedges: [{ edge: e, orientation: 'forward', pcurve: pc }] }] }));
@@ -1932,7 +1950,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
-  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing,
+  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
@@ -1950,3 +1968,51 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   revolvedLineCone,
   arcChord,
   bentApex, wrongEndPcurve: () => wrongEndPcurve(), wigglePcurve: () => wrongEndPcurve(true) };
+
+/**
+ * An analysis buffer (cad-brep's analysis-layout.ts) of a model's rows: every column of the vertex, edge and coedge
+ * tables at its default (0, f64 NaN), the values given in their place, and the trace rows given; the model's hash
+ * zero (tess-cadio doesn't check it).
+ */
+function analysisOf(model: BrepBuilder, given: { vertex?: Record<string, number[]>; edge?: Record<string, number[]>;
+  coedge?: Record<string, number[]>; trace?: Record<string, number[]> }): Uint8Array {
+  const d = model.finish();
+  const rows = { vertex: d.vertex.point.length / 3, edge: d.edge.start.length, coedge: d.coedge.edge.length };
+  const tables: Record<string, Record<string, ArrayLike<number>>> = {
+    analysis: { model: new Uint32Array(8), uncertainty: [d.part.uncertainty?.[0] ?? NaN] } as never };
+  for (const t of ['vertex', 'edge', 'coedge'] as const) {
+    const cols: Record<string, ArrayLike<number>> = {};
+    for (const [name, type, width] of ANALYSIS_TABLES[t] as readonly (readonly [string, string, number])[])
+      cols[name] = given[t]?.[name] ?? new Array(rows[t] * width).fill(type === 'f64' ? NaN : 0);
+    tables[t] = cols;
+  }
+  if (given.trace) {
+    const n = given.trace.coedge!.length, cols: Record<string, ArrayLike<number>> = {};
+    for (const [name, type] of ANALYSIS_TABLES.trace as readonly (readonly [string, string, number])[])
+      cols[name] = given.trace[name] ?? new Array(n).fill(type === 'f64' ? NaN : 0);
+    tables.trace = cols;
+  }
+  return new Uint8Array(writeAnalysis(tables as AnalysisRows).buffer);
+}
+
+/**
+ * Analysis buffers for the C++ tests, by name, each of one of MODELS (its `model`): pcurveNearHealed its coedge's
+ * p-curve healing's (a trace at 0.005); lunesEdgePast poleLunes's first edge's tolerance grown past repair (from
+ * 1e-5), lunesVertexPast its first vertex's, sphereVertexPast wholeSphereVertex's vertex (its face's loop).
+ */
+export const ANALYSES: Record<string, { model: keyof typeof MODELS; data: () => Uint8Array }> = {
+  pcurveNearHealed: { model: 'pcurveNear', data: () => analysisOf(pcurveNear(),
+    { coedge: { pcurveFrom: [3] }, trace: { coedge: [0], status: [0], tol: [0.005] } }) },
+  lunesEdgePast: { model: 'poleLunes', data: () => {
+    const n = MODELS.poleLunes().finish().edge.start.length;
+    return analysisOf(MODELS.poleLunes(), { edge: { toleranceError: [1, ...new Array(n - 1).fill(0)],
+      givenTolerance: new Array(n).fill(1e-5) } });
+  } },
+  sphereVertexPast: { model: 'wholeSphereVertex', data: () => analysisOf(MODELS.wholeSphereVertex(),
+    { vertex: { toleranceError: [1], givenTolerance: [1e-5] } }) },
+  lunesVertexPast: { model: 'poleLunes', data: () => {
+    const n = MODELS.poleLunes().finish().vertex.point.length / 3;
+    return analysisOf(MODELS.poleLunes(), { vertex: { toleranceError: [1, ...new Array(n - 1).fill(0)],
+      givenTolerance: new Array(n).fill(1e-5) } });
+  } },
+};

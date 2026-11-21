@@ -113,6 +113,18 @@ test('tessellateScene: minAngle passed to each request and kept on its level whe
   }
 });
 
+test('tessellateScene: a part\'s analysis (healed) passed with its request, its bytes; a part without one none',
+  async () => {
+  const t = fake(), s = scene();
+  const healed = s.parts.find((p) => p.brep && tagOf(new Uint8Array(p.brep.model.buffer)) === 3)!;
+  const bytes = new Uint8Array([7, 6, 5, 4, 3, 2, 1, 0]);
+  healed.brep!.analysis = { buffer: bytes.buffer } as never;
+  await tessellateScene(s, t);
+  const p3 = t.seen.find((q) => tagOf(q.data) === 3)!;
+  assert.deepEqual(p3.analysis, bytes);
+  for (const q of t.seen.filter((x) => tagOf(x.data) !== 3)) assert.ok(!('analysis' in q));
+});
+
 test('tessellateScene outlines: faces with no triangles or no range outlined; a failed part all outlines', async () => {
   const s = scene();
   const asked: { part: number; faces: number[]; linearDeflection: number }[] = [];

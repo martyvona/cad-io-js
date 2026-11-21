@@ -16,6 +16,11 @@ export interface TessellatorInfo {
   supportsEdges: boolean;
   /** Whether results include wireframe curves and points (`curves`, `points`). */
   supportsCurves: boolean;
+  /**
+   * Whether the backend reads a request's `analysis` (its meshes depend on it, so a cache keys on it); absent or
+   * false: it ignores it.
+   */
+  readsAnalysis?: boolean;
 }
 
 export interface TessellationRequest {
@@ -38,6 +43,14 @@ export interface TessellationRequest {
    * 10 degrees by default, at most 30). Absent: the backend's default; backends without one ignore it.
    */
   minAngle?: number;
+  /**
+   * The part's analysis buffer (cad-brep's analysis-layout.ts, `BrepAnalysis.buffer`), of `data`'s model, where
+   * healing gave one: present only for a healed part, and may be absent for one (a caller that doesn't pass it, a
+   * rigid copy, which drops it). A backend that reads it (TessellatorInfo.readsAnalysis) takes what it says of the
+   * model (healed p-curves' provenance and tolerances, tolerances past repair) and must mesh the model as given
+   * without it; others ignore it. Copied to workers with the request, not transferred.
+   */
+  analysis?: Uint8Array;
   /** Also return B-rep edges as polylines. */
   edges?: boolean;
   /**

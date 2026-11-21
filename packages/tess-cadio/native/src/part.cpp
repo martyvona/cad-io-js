@@ -208,6 +208,7 @@ struct PartMesher::Impl {
     e.projectMissingPcurves = o.projectMissingPcurves;
     e.deflection = o.d.linear;
     e.angle = o.d.angular;
+    e.analysis = o.analysis, e.analysisSize = o.analysisSize;
     return e;
   }
 
