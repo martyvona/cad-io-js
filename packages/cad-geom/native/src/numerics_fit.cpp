@@ -107,7 +107,10 @@ struct Fitter {
     double lo = std::max(a, a + (best - 1) * h), hi = std::min(b, a + (best + 1) * h);
     const double g = 0.5 * (std::sqrt(5.0) - 1);
     double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), e1 = error(c, x1), e2 = error(c, x2);
-    for (int it = 0; it < 30; it++) {
+    // Every step is a new foot (a Newton each: most of a fit's cost), so the search stops where its two inner errors
+    // agree to 1e-8: at a smooth maximum the error is flat and they soon do, at a kink (where it falls linearly) they
+    // don't until the bracket is about that narrow, so the error reported stays within 1e-6 of the true one.
+    for (int it = 0; it < 30 && !(std::fabs(e1 - e2) <= 1e-8 * std::max(e1, e2)); it++) {
       if (e1 > e2) {
         hi = x2, x2 = x1, e2 = e1, x1 = hi - g * (hi - lo), e1 = error(c, x1);
       } else {
