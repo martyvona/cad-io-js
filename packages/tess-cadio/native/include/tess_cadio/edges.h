@@ -287,6 +287,12 @@ public:
    * chord is within the refinement floor (criteria.h), is dropped.
    */
   Status split(const std::vector<SplitRequest>& requests);
+  /**
+   * Whether split() drops every point in edge e's span `span` for its end: an end span with no point within 0.9 of
+   * the way from the edge's end past the reach that drops a sample near an end (min(tol, d / 10)). PartMesher
+   * freezes it, as one within the refinement floor.
+   */
+  bool endSpanFrozen(int e, int span) const;
 
   /**
    * The faces' spacing given after the edges were sampled (their criteria, made from the boxes these samples give):

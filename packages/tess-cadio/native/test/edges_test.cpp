@@ -865,6 +865,52 @@ TEST_CASE("a seam use by inversion that no neighbour places: Status::singular, n
   CHECK(!valid.againstSense);
 }
 
+TEST_CASE("a split in an edge's end span kept past the near-end drop (min(tol, d / 10) of the end), toward the span's "
+  "other sample; in an end span with no room for one, dropped") {
+  // (d = 10 tol: the reach, min(tol, d / 10), and the refinement floor, max(tol, d / 10), the same, so a span past
+  // the floor may still have its middle within the reach: trj6 pm4-ec-203's tori, tol 0.01 at d 0.1.)
+  cadgeom::Model m = load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 10 * cadgeom::Tolerances(m).part();
+  o.maxSpacing = 0.25;
+  EdgeMesh em(m, o);
+  const int e = 0;
+  const double within = std::fmin(cadgeom::Tolerances(m).part(), 0.1 * o.deflection);
+  const Vec3 end = em.edge(e).points.front();
+  // (The first span cut to 1.5 x the reach by an exact split: its middle, 0.75 x, would be dropped.)
+  const double first = cadgeom::norm(em.edge(e).points[1] - end);
+  REQUIRE(first > 2 * within);
+  REQUIRE(em.split({{e, 0, 1.5 * within / first, true}}) == cadgeom::Status::ok);
+  REQUIRE(std::fabs(cadgeom::norm(em.edge(e).points[1] - end) - 1.5 * within) <= 1e-6 * within);
+  CHECK(!em.endSpanFrozen(e, 0));
+  const size_t n = em.edge(e).t.size();
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  REQUIRE(em.edge(e).t.size() == n + 1);
+  const double kept = cadgeom::norm(em.edge(e).points[1] - end);
+  CHECK(kept > within);
+  CHECK(kept < 1.1 * within);
+  // Now the first span is just past the reach: 0.9 of the way isn't, so it's frozen and a split there dropped. A
+  // span inside the edge never frozen for it (the next, within the floor), nor one out of range; the one after, out
+  // to the edge's sample, split.
+  CHECK(em.endSpanFrozen(e, 0));
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 1);
+  CHECK(!em.endSpanFrozen(e, 1));
+  CHECK(!em.endSpanFrozen(-1, 0));
+  CHECK(em.split({{e, 2, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 2);
+  // The last span made as short (an exact split 1.01 x the reach from the far end): frozen, the ones inside not.
+  const std::vector<Vec3>& q = em.edge(e).points;
+  const size_t k = q.size();
+  const double last = cadgeom::norm(q[k - 1] - q[k - 2]);
+  REQUIRE(em.split({{e, static_cast<int32_t>(k - 2), 1 - 1.01 * within / last, true}}) == cadgeom::Status::ok);
+  const int spans = static_cast<int>(em.edge(e).t.size()) - 1;
+  CHECK(em.endSpanFrozen(e, spans - 1));
+  CHECK(!em.endSpanFrozen(e, 1));
+  CHECK(!em.endSpanFrozen(e, spans - 2));
+}
+
 TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing between, never refilled") {
   // The cube's edge 0 (shared by two faces), sampled at 0.25: a ring from its start vertex to 0.4 of the way along.
   cadgeom::Model m = load("cube");

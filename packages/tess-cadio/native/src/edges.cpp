@@ -37,6 +37,9 @@ constexpr double kInf = std::numeric_limits<double>::infinity();
 /** Refinement's limits: levels of subdivision, and samples per edge (a curve whose bounds never shrink). */
 constexpr int kMaxDepth = 60;
 constexpr size_t kMaxSamples = 1000000;
+/** A split's point in an edge's end span kept this much past dropNearEnds' reach of the end, so rounding doesn't
+ * drop it. */
+constexpr double kNearEndMargin = 1.01;
 /** Pole lines: at least this many points per period. */
 constexpr int kMinPolePoints = 16;
 
@@ -2433,6 +2436,17 @@ GivenPcurveCounts EdgeMesh::givenPcurves() const {
 const std::vector<TraceFallback>& EdgeMesh::traceFallbacks() const { return impl_->traceFallbacks; }
 FaceBoundary EdgeMesh::face(int f) const { return impl_->face(f); }
 
+bool EdgeMesh::endSpanFrozen(int e, int span) const {
+  const Impl& I = *impl_;
+  if (e < 0 || e >= static_cast<int>(I.edges.size())) return false;
+  const std::vector<double>& t = I.edges[e].s.t;
+  if (t.size() <= 2 || !(span == 0 || span + 2 == static_cast<int>(t.size()))) return false;
+  const bool first = span == 0;
+  const Vec3 end = first ? I.edges[e].s.points.front() : I.edges[e].s.points.back();
+  const double g = first ? t[0] + 0.9 * (t[1] - t[0]) : t.back() + 0.9 * (t[t.size() - 2] - t.back());
+  return !(norm(I.edges[e].geom->at(g) - end) > kNearEndMargin * std::fmin(I.tol, 0.1 * I.o.deflection));
+}
+
 Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
   Impl& I = *impl_;
   bool bad = false;
@@ -2459,6 +2473,29 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     }
     if (norm(pts[r.span + 1] - pts[r.span]) <= refinementFloor(I.tol, I.o.deflection)) continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
+    // (In an edge's end span the point is kept past dropNearEnds' reach of the end, toward the span's other sample,
+    // or the split dropped where even 0.9 of the way isn't: PartMesher freezes such a span, endSpanFrozen.)
+    if (t.size() > 2 && (r.span == 0 || r.span + 2 == static_cast<int>(t.size()))) {
+      const bool first = r.span == 0;
+      const Vec3 end = first ? pts.front() : pts.back();
+      const double within = kNearEndMargin * std::fmin(I.tol, 0.1 * I.o.deflection);
+      // (g: the fraction of the span from the end.)
+      auto at = [&](double g) {
+        return first ? t[0] + g * (t[1] - t[0]) : t.back() + g * (t[t.size() - 2] - t.back());
+      };
+      auto clear = [&](double g) { return norm(I.edges[r.edge].geom->at(at(g)) - end) > within; };
+      double g = first ? f : 1 - f;
+      if (!clear(g)) {
+        if (!clear(0.9)) continue;
+        double lo = g, hi = 0.9;
+        for (int it = 0; it < 40; it++) {
+          const double mid = 0.5 * (lo + hi);
+          (clear(mid) ? hi : lo) = mid;
+        }
+        g = hi;
+      }
+      x = at(g);
+    }
     bool inRing = false;
     for (const Range& g : I.edges[r.edge].s.rings) inRing = inRing || (x > g.lo && x < g.hi);
     if (!inRing) add[r.edge].push_back(x);

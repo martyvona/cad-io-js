@@ -35,6 +35,11 @@ const CASES: Case[] = [
   // boundary through its own point with its ring smaller).
   { file: 'models/arm/arm-ap242.step', part: 114, faces: [1197, 1201], why: 'no shrink at a free-form pole' },
   { file: 'models/onshape/LMP1.step', part: 172522, faces: [1049041], why: 'a shrink failing a face undone' },
+  // Tori whose turned slivers encroach an edge's end span a little longer than the reach of its near-end drop
+  // (min(tol, d / 10), tol 0.01 at d 0.1): the split's point kept past it, and the end span left too short for
+  // another frozen (EdgeMesh::split, endSpanFrozen).
+  { file: 'third_party/gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp', part: 43110, faces: [23796, 23984],
+    why: 'an end span\'s split past the near-end drop, then frozen' },
 ];
 
 const t = new CadioTessellator();
