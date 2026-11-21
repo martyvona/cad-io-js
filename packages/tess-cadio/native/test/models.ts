@@ -309,22 +309,26 @@ export function clampedCorner(uncertainty = 0.1): BrepBuilder {
 /**
  * A flat bilinear B-spline patch over [0, 1]^2 on z = 0 under an uncertainty of 0.01, a square loop from u = 0.2 to
  * 0.8 whose top edge, a polyline 0.001 past v = 1 (its feet clamped onto that side), steps back along it: 0.8, 0.52,
- * 0.53, 0.5, 0.2 in u (LMP1 #1054461's edge #543108, its curve wandering along the side).
+ * 0.53 (0.0005 further out), 0.54, 0.5, 0.2 in u (LMP1 #1054461's edge #543108, its curve wandering along it).
+ * lineWobble: the same at
+ * y = 0.9, inside the patch, its loop reversing on a line nothing clamps it to.
  */
-export function sideWobble(): BrepBuilder {
+export function sideWobble(y = 1.001): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 0.01 });
   const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
     uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 1, 0]], [[1, 0, 0], [1, 1, 0]]],
     uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
-  const y = 1.001, c = [[0.2, 0.2, 0], [0.8, 0.2, 0], [0.8, y, 0], [0.2, y, 0]];
+  const c = [[0.2, 0.2, 0], [0.8, 0.2, 0], [0.8, y, 0], [0.2, y, 0]];
   const vs = c.map((point) => b.addVertex({ point }));
   const line = (j: number) => {
     const p = c[j]!, q = c[(j + 1) % 4]!;
     return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
       magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] });
   };
-  const top = b.addEdge({ curve: b.addCurve({ kind: 'polyline', points: [c[2]!, [0.52, y, 0], [0.53, y, 0],
-    [0.5, y, 0], c[3]!] }), start: vs[2]!, end: vs[3]!, sameSense: true, range: [0, 4] });
+  // (The sample stepping back 0.0005 further out past the side: off the bridging chord in 3D, its foot still on it.)
+  const back = [0.53, y > 1 ? y + 5e-4 : y, 0];
+  const top = b.addEdge({ curve: b.addCurve({ kind: 'polyline', points: [c[2]!, [0.52, y, 0], back, [0.54, y, 0],
+    [0.5, y, 0], c[3]!] }), start: vs[2]!, end: vs[3]!, sameSense: true, range: [0, 5] });
   sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
     coedges: [line(0), line(1), top, line(3)].map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
   return b;
@@ -2001,7 +2005,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
   clampedCorner: () => clampedCorner(),
-  clampedCornerTight: () => clampedCorner(0.01), sideWobble,
+  clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,

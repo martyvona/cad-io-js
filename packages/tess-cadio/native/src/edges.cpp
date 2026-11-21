@@ -815,6 +815,18 @@ struct EdgeMesh::Impl {
         }
       }
     }
+    // And anywhere, a sample whose use's two steps are antiparallel in (u, v): the loop back on its own line (a
+    // meridian beside a pole, LMP1 #1063478's edge #563292, its sample 1 nearer the pole than its vertex).
+    for (int c : E.coedges) {
+      const CoedgeSamples& cs = coedges[c].s;
+      if (cs.uv.size() != cs.index.size()) continue;
+      for (size_t j = 1; j + 1 < cs.uv.size(); j++) {
+        const Vec2 ab = cs.uv[j] - cs.uv[j - 1], bc = cs.uv[j + 1] - cs.uv[j];
+        const double la = std::hypot(ab.x, ab.y), lb = std::hypot(bc.x, bc.y);
+        if (!(la > 0 && lb > 0) || std::fabs(ab.x * bc.y - ab.y * bc.x) > 1e-9 * la * lb || dot(ab, bc) >= 0) continue;
+        if (cs.index[j] > 0 && static_cast<size_t>(cs.index[j]) + 1 < n) drop[cs.index[j]] = 1;
+      }
+    }
     // Each block of them kept where the chord bridging it strays past the deflection from any of their points.
     bool any = false;
     for (size_t k = 1; k + 1 < n;) {

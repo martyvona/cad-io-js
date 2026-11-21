@@ -389,21 +389,28 @@ TEST_CASE("an edge's inside sample within min(the part's tolerance, d / 10) of i
 
 TEST_CASE("an edge's sample stepping back along a side its feet are clamped onto dropped from the edge (sideWobble), "
   "the chord bridging it within the deflection: the loop no longer reverses there, the face meshed") {
-  // (Its top edge's samples 0.8, 0.52, 0.53, 0.5, 0.2 in u on v = 1: 0.53 steps back; dropped, 0.52 to 0.5 bridges
-  // it within 0.01 of it. At d = 0.005 the chord strays past d from it: kept.)
+  // (Its top edge's samples 0.8, 0.52, 0.53, 0.54, 0.5, 0.2 in u on v = 1: the loop turns back at 0.52 and 0.54 and
+  // runs back between, all three dropped where 0.8 to 0.5 bridges them within d (0.53's point 0.0005 off it); at
+  // d = 0.0002 kept. Inside the patch only the turns go, 0.53 kept: the loop no longer reverses either way.)
   cadgeom::Model m = load("sideWobble");
   REQUIRE(m.ok());
   EdgeOptions eo;
   eo.deflection = 0.1;
   EdgeMesh em(m, eo);
-  CHECK_EQ(em.edge(0).points.size(), 4u);  // (the top edge, made first)
-  eo.deflection = 0.005;
+  CHECK_EQ(em.edge(0).points.size(), 3u);  // (the top edge, made first)
+  eo.deflection = 0.0002;
   EdgeMesh fine(m, eo);
-  CHECK_EQ(fine.edge(0).points.size(), 5u);
+  CHECK_EQ(fine.edge(0).points.size(), 6u);
   PartMesher pm(m, options(0.1, 0.26));
   const FaceMesh& fm = pm.face(0);
   if (fm.status != cadgeom::Status::ok) std::printf("  sideWobble: %s\n", fm.cause.c_str());
   CHECK(fm.status == cadgeom::Status::ok);
+  // And inside the patch (lineWobble, y = 0.9): the loop reverses on a line no side clamps it to, the same drop.
+  cadgeom::Model w = load("lineWobble");
+  REQUIRE(w.ok());
+  eo.deflection = 0.1;
+  EdgeMesh ew(w, eo);
+  CHECK_EQ(ew.edge(0).points.size(), 4u);
 }
 
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
