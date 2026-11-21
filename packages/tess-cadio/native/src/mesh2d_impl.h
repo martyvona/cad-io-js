@@ -23,6 +23,12 @@ struct Mesh2Detail {
    */
   int inserted[10] = {};
   /**
+   * Triangles queued again after surviving the point inserted for them; those left past kRequeues; and at the end, the
+   * triangles refinement would still queue (bad) that were neither made final nor left so: dropped, none if every
+   * bad triangle is judged.
+   */
+  int requeued = 0, requeuesSpent = 0, leftUnjudged = 0;
+  /**
    * The final triangles whose smallest angle in the metric is under MeshOptions::minAngle (clamped), by index into
    * Mesh2::triangles; that angle (radians: the arcsine of the least corner sine, for counts only); and each one's
    * flags: kThinBoundary every corner a domain point, kThinFrozen an edge a frozen segment, kThinFloor within the

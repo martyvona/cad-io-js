@@ -19,6 +19,7 @@
 // angles or lengths of the triangles on it (splitting it wouldn't end that: the next one along would be wanted), so a
 // domain fine enough reports nothing. Quality near the boundary is so limited by the boundary's own spacing.
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <queue>
 #include <set>
@@ -45,6 +46,11 @@ constexpr size_t kHalvingCavity = 1024;
  */
 constexpr double kShortSegment = 4;
 constexpr double kLongSegment = 4;
+/**
+ * Times a triangle that survives the point inserted for it is queued again before it's left as it is: each time
+ * another point is placed for it, so it can't loop.
+ */
+constexpr int kRequeues = 3;
 
 using cdt::kBoundary;
 using cdt::kGhost;
@@ -187,6 +193,8 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   std::priority_queue<Item> queue;
   int64_t seq = 0;
   std::set<std::pair<int32_t, uint32_t>> finals;
+  // Per triangle, how often it survived the point inserted for it (kRequeues).
+  std::map<std::pair<int32_t, uint32_t>, int> survived;
   const double minAngle = std::clamp(options.minAngle, 0.0, kMaxMinAngle), minSine = detSin(minAngle);
   // (l / 2) / tan(minAngle / 2), the off-centre's height over its edge, as a factor of l.
   const double offHeight = minAngle > 0 ? 0.5 * detCos(0.5 * minAngle) / detSin(0.5 * minAngle) : 1e300;
@@ -348,8 +356,23 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     steiner++;
     D.inserted[it.cause]++;
     for (int32_t t : created) consider(t);
+    // Its point placed outside it (a sliver's usually is), the cavity from where it landed stopped short of it by a
+    // constrained edge: still there, unchanged, its refusal standing. Queued again, kRequeues times at most.
+    if (!T.tris()[it.t].dead && T.tris()[it.t].gen == it.gen) {
+      if (++survived[{it.t, it.gen}] <= kRequeues) consider(it.t), D.requeued++;
+      else D.requeuesSpent++;
+    }
   }
   D.finalTriangles = static_cast<int>(finals.size());
+  if (detail && out.status == Status::ok)
+    for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) {
+      const cdt::Tri& R = T.tris()[t];
+      if (R.dead || !R.inside || R.v[2] == kGhost || finals.count({t, R.gen})) continue;
+      if (auto s = survived.find({t, R.gen}); s != survived.end() && s->second > kRequeues) continue;
+      const size_t before = queue.size();
+      consider(t);
+      if (queue.size() > before) D.leftUnjudged++, queue.pop();
+    }
   // The segments to split: those whose refused triangle is still there, unchanged, and either the segment itself
   // longer than sqrt 2 in its endpoints' metric or the triangle still refused by accept().
   std::set<uint64_t> split;
