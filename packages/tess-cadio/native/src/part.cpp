@@ -943,12 +943,14 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
-    // The segments the edges won't split (an edge's span whose chord is within the refinement floor, as
-    // EdgeMesh::split has it): frozen, so the mesher inserts past them rather than asking.
+    // The segments the edges won't split (an edge's span whose chord is within the refinement floor, or an end
+    // span too short to take a point past the edge's near-end drop, as EdgeMesh::split has them): frozen, so the
+    // mesher inserts past them rather than asking.
     auto frozenSpan = [&](int32_t a, int32_t b) -> uint8_t {
       int edge, span;
       bool forward;
-      return a != b && norm(bp[b].point - bp[a].point) <= floor && spanOf(f, bp[a], bp[b], edge, span, forward);
+      if (a == b || !spanOf(f, bp[a], bp[b], edge, span, forward)) return 0;
+      return norm(bp[b].point - bp[a].point) <= floor || em->endSpanFrozen(edge, span);
     };
     for (const auto& l : d.loops)
       for (size_t k = 0; k < l.size(); k++) d.frozen.push_back(frozenSpan(l[k], l[(k + 1) % l.size()]));
