@@ -123,6 +123,8 @@ Lane 2's package is `cad-oracle` (C++ on cad-geom's core, `native/include/cad_or
 
 Lane 2 can start its lengths, and lane 4 its ray-surface intersection, once T1's curve and surface contracts exist, before T1 merges. Checks: `area_occt` and `area_model` extended to every kind (against OCCT's and SMLib's measures, classified), volumes against closed forms and OCCT's, lane 3's and lane 4's orientations against each other (two independent methods), the analysis report over the corpus and the user's models.
 
+**Then, wiring (one lane, not yet done):** `cad-oracle` replaces cad-scene's TypeScript area oracle (`area-oracle.ts`, elementary surfaces only) wherever the library uses one: the measures backends' results carry and `tessellateScene` corrects (`oracleMeasures`, `ORACLE_DISAGREE`), and the judging of meshes that sends faces to the fallback (`fallback.ts`), at a judging precision, in the tessellation workers and the browser as the backends run; its volumes then orient a solid's shells on the model where today the meshes are turned (`orientResult`). Until then `cad-oracle` runs only in the corpus checks (`oracle_corpus`, `heal_effect`).
+
 ### Phase T3: healing (four lanes, a pass on the model, on by default)
 
 Its order and contents set by T2's analysis report (what the corpus and the user's models need most); likely lanes:
