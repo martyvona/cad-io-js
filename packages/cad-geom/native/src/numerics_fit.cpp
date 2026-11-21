@@ -11,7 +11,14 @@
 #include <limits>
 #include <unordered_map>
 
+// Scalar Eigen on every target: vectorized (NEON natively, nothing in WebAssembly), its reductions sum in another
+// order and round otherwise, and a fit's poles, then its feet and a face's boundary, differ between targets. Defined
+// here, before Eigen, so every build of this file gets it, not only build.sh's.
+#define EIGEN_DONT_VECTORIZE
 #include <Eigen/Dense>
+#ifdef EIGEN_VECTORIZE
+#error "Eigen vectorized: fits would differ between targets"
+#endif
 
 #include "cad_geom/numerics.h"
 
