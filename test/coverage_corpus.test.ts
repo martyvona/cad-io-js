@@ -1,11 +1,14 @@
 // corpus_checks/coverage_corpus.ts: a run in which no file was checked fails, saying so, rather than printing an
-// empty report and exiting 0. (A backend that won't start fails it too: runner.ts, test/runner.test.ts.)
+// empty report and exiting 0 (a backend that won't start fails it too: runner.ts, test/runner.test.ts); HEAL=1 heals
+// the parts before the backends mesh them.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { healTestScene, stepOf } from '../packages/cad-heal/test/scene.ts';
+import { beyondRepair } from '../corpus_checks/cadio_causes.ts';
 
 const SCRIPT = new URL('../corpus_checks/coverage_corpus.ts', import.meta.url).pathname;
 
@@ -20,6 +23,84 @@ test('coverage_corpus: no file to check is an error, a nonzero exit naming the l
     assert.ok(r.stderr.includes(`Error: coverage: no file ran: 0 listed (${list}), 0 over 1000 MB, 0 failed`),
       r.stderr);
     assert.doesNotMatch(r.stdout, /^## /m, 'no report');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const MODULES = ['tess-cadio/dist/tess_cadio.wasm', 'tess-occt/dist/occt_tess.wasm', 'tess-smlib/dist/smlib_tess.wasm']
+  .filter((m) => !fs.existsSync(new URL(`../packages/${m}`, import.meta.url)));
+const THIRD_PARTY = new URL('../test_corpus/third_party/', import.meta.url).pathname;
+
+test('coverage_corpus: HEAL=1 heals the parts before meshing; without it they are meshed as imported',
+  { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}` : false }, () => {
+  // cad-heal's test scene: its part "stray" has a B-spline edge with a pole thrown far out, so ours fails its face as
+  // far off (beyond repair) as imported, and meshes it once strayPole has moved the pole.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-heal-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'heal.step'), stepOf(healTestScene()));
+    const list = path.join(dir, 'list.txt');
+    fs.writeFileSync(list, `${path.relative(THIRD_PARTY, path.join(dir, 'heal.step'))}\n`);
+    const run = (heal: string) => {
+      const r = spawnSync(process.execPath, [SCRIPT, list], { encoding: 'utf8',
+        env: { ...process.env, CHILDREN: '1', HEAL: heal } });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout;
+    };
+    const off = run('0'), on = run('1');
+    assert.match(off, /; healing off; /);
+    assert.match(on, /; healing on \(cad-heal's default fixes\); /);
+    assert.match(off, /ours: faces beyond repair \(input, apart from our failures\): 1 of 9 /);
+    assert.match(off, /heal\.step #\d+ face #\d+ \(plane\): invalidModel: a use of an edge whose curve is far off/);
+    assert.match(on, /ours parts: ok 4, partial 0, no triangles 0, /);
+    assert.match(on, /ours: faces beyond repair \(input, apart from our failures\): 0 of 9 /);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('beyondRepair: the far-off cause, and healing\'s past-repair one for an edge or a vertex whatever its id and '
+  + 'sizes; nothing else', () => {
+  for (const c of ["invalidModel: a use of an edge whose curve is far off its face's surface",
+    'invalidModel: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair',
+    'invalidModel: a vertex (#74) whose tolerance healing grew from 1e-05 to 3.32 mm, past repair',
+    'invalidModel: an edge (#1) whose tolerance healing grew from 0.000102 to 1.2e+03 mm, past repair']) {
+    assert.ok(beyondRepair(c), c);
+  }
+  for (const c of ['invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)',
+    'noConvergence: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair',
+    'invalidModel: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm',
+    'invalidModel: a face (#3) whose tolerance healing grew from 1e-05 to 289 mm, past repair',
+    'invalidModel: an edge (#x) whose tolerance healing grew from 1e-05 to 289 mm, past repair',
+    'invalidModel: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair, and more',
+    "invalidModel: a use of an edge whose curve is far off its face's surface (planted)", 'part over 120 s CPU',
+    'planted: invalidModel: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair']) {
+    assert.ok(!beyondRepair(c), c);
+  }
+});
+
+const B25415 = 'gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp';
+test('coverage_corpus: HEAL=1 passes each healed part\'s analysis, so faces through edges healing grew past repair '
+  + 'count as beyond repair', { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}`
+    : !fs.existsSync(path.join(THIRD_PARTY, B25415)) ? 'corpus not pulled' : false }, () => {
+  // bug25415 #418: two line edges 2.39 and 0.44 mm off their plane faces on a part of uncertainty 1e-5. As imported,
+  // 2 faces far off (beyond repair) and 5 failed; healed, tolerances grown up to 3.32 mm, 13 faces past repair.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-past-'));
+  try {
+    const list = path.join(dir, 'list.txt');
+    fs.writeFileSync(list, `${B25415}\n`);
+    const run = (heal: string) => {
+      const r = spawnSync(process.execPath, [SCRIPT, list], { encoding: 'utf8',
+        env: { ...process.env, CHILDREN: '1', HEAL: heal } });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout;
+    };
+    const off = run('0'), on = run('1');
+    assert.match(off, /ours: faces beyond repair \(input, apart from our failures\): 2 of 14 /);
+    assert.match(on, /ours: faces beyond repair \(input, apart from our failures\): 13 of 14 /);
+    assert.match(on, /faces without triangles failed 0 of 14 /);
+    assert.match(on,
+      /: invalidModel: a vertex \(#66\) whose tolerance healing grew from 1e-05 to 3\.32 mm, past repair; /);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
