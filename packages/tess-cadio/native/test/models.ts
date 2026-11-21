@@ -997,6 +997,41 @@ function bandWithHole(away: boolean): BrepBuilder {
     ] }));
   return b;
 }
+/**
+ * A band of a unit cylinder, v 0 to 3, its circles of arcs with vertices at u = 0, 1, 2.9 and 4.6 (unsplit at d = 0.5
+ * with no angle), and two slots, v 1 to 2: A across u = 0 (-0.3 to 0.3), so the period's start won't do as the cut,
+ * and B from 1.05 to 2.85, whose inside is the widest gap between the loops' points' u (1.8: the next 1.7), its
+ * middle crossing each circle once: the cut must miss B too (lightarm-ap203 #92840's slot).
+ */
+export function bandTwoSlots(): BrepBuilder {
+  const b = new BrepBuilder();
+  const at = (u: number, z: number) => [Math.cos(u), Math.sin(u), z];
+  const circle = (z: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] }, radius: 1 });
+  const fwd = (edge: number) => ({ edge, orientation: 'forward' as const });
+  const ring = (z: number) => {
+    const us = [0, 1, 2.9, 4.6], vs = us.map((u) => b.addVertex({ point: at(u, z) })), c = circle(z);
+    return us.map((u, i) => b.addEdge({ curve: c, start: vs[i]!, end: vs[(i + 1) % 4]!, sameSense: true,
+      range: [u, i + 1 < 4 ? us[i + 1]! : 2 * Math.PI] }));
+  };
+  const slot = (ua: number, ub: number) => {
+    const h = [at(ua, 1), at(ua, 2), at(ub, 2), at(ub, 1)].map((point) => b.addVertex({ point }));
+    const up = (u: number) => b.addCurve({ kind: 'line', point: at(u, 0), direction: [0, 0, 1], magnitude: 1 });
+    return [b.addEdge({ curve: up(ua), start: h[0]!, end: h[1]!, sameSense: true, range: [1, 2] }),
+      b.addEdge({ curve: circle(2), start: h[1]!, end: h[2]!, sameSense: true, range: [ua, ub] }),
+      b.addEdge({ curve: up(ub), start: h[2]!, end: h[3]!, sameSense: false, range: [2, 1] }),
+      b.addEdge({ curve: circle(1), start: h[3]!, end: h[0]!, sameSense: false, range: [ub, ua] })].map(fwd);
+  };
+  const bottom = ring(0), top = ring(3);
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [
+      { kind: 'edge', bound: 'outer', sense: true, coedges: bottom.map(fwd) },
+      { kind: 'edge', bound: 'inner', sense: true,
+        coedges: [...top].reverse().map((edge) => ({ edge, orientation: 'reversed' as const })) },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: slot(-0.3, 0.3) },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: slot(1.05, 2.85) },
+    ] }));
+  return b;
+}
 export const bandHoleAtVertex = (): BrepBuilder => bandWithHole(false);
 export const bandHoleOnCut = (): BrepBuilder => bandWithHole(true);
 
@@ -2006,6 +2041,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
   clampedCorner: () => clampedCorner(),
   clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
+  bandTwoSlots,
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
