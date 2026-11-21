@@ -314,7 +314,11 @@ Particular files, parts and faces, by what they show, for the user to look at in
 
 ### Input that looks beyond repair
 
-- `bug29979_firetherm_12.step` part #174483: 10 faces fail with "a use of an edge whose curve is far off its face's surface", their edges 7.5 to 262 mm off both their faces, bare lines with no p-curves, vertices off too (edges #417105, a vertical 8.5 mm line 152 to 200 mm off faces #279826 and #311928; #53724, 18.5 to 84 mm off #195244 and #271606; #307458, #274916, #115892). OCCT and SMLib mesh all ten, presumably by projecting the lines onto the surfaces; their triangles not yet looked at.
+Faces whose edges lie far off their surfaces, checked independently (dense points of each 3D curve inverted over the surface's whole box), healing growing their tolerances past its error limit (so beyond repair by that rule):
+- `bug29979_firetherm_12.step` part #174483, 10 faces, its line and circle edges 7.5 to 263 mm off: #128930 (edge #274916, 163 mm), #131755 (#115892, 179), #195244 and #271606 (#53724, 22.5 and 84.6), #279826 and #311928 (#417105, a vertical 8.5 mm line, 200 and 179), #334072 (#274916, 136.5), #35147 (#307458, a circle, 262.5), #36207 (#115892, 125.6), #367230 (#307458, 7.47). Bare lines with no p-curves, vertices off too; healing grows one tolerance to 289 mm, and the healed part then runs past 600 s of CPU. OCCT and SMLib mesh all ten, presumably by projecting the curves; their triangles not yet looked at.
+- `bug25415` part #418, planes #125 and #94: two line edges 2.39 and 0.44 mm off on a part 8.73 mm across, uncertainty 1e-5; healing grows a vertex to 3.32 mm. SMLib's mesh is 2.39 mm from the curve too.
+
+Not beyond repair, for contrast: `bug24383_224013.stp` #11's 30 faces are far off as written only through a stray pole, which healing moves; `LMP1.step` #172428 #1039682 and #172434 #1039897 were our trace following a spurious branch, fixed.
 
 ### Where OCCT or SMLib seem wrong and ours right
 
