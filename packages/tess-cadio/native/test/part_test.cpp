@@ -413,6 +413,18 @@ TEST_CASE("an edge's sample stepping back along a side its feet are clamped onto
   CHECK_EQ(ew.edge(0).points.size(), 4u);
 }
 
+TEST_CASE("a pole's ring inside every edge's approach to the pole (poleDip): its arc, one span with no sample of its "
+  "own, its curve nearer the pole than its ends, counted by its nearest point; the face meshed") {
+  // (At d = 0.1 with the angle all but off, the arc is one span: its two ends, labelled with the meridians, are all
+  // the ring's clearance saw, the ring then outside the curve's dip and its pieces crossing the arc once it's split.)
+  cadgeom::Model m = load("poleDip");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 3));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  poleDip: %s\n", fm.cause.c_str());
+  CHECK(fm.status == cadgeom::Status::ok);
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's
