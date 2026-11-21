@@ -773,6 +773,27 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
       }
 }
 
+TEST_CASE("a flat ring narrower than its circles' chords sag (thinRing): every crossing span split in one round, "
+  "meshed within the rounds") {
+  // (The circles' polygons cross each other many times in (u, v): mesh2 names every crossing, each a round splits;
+  // the first pair alone a round wouldn't get through within maxSplitRounds.)
+  cadgeom::Model m = load("thinRing");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  thinRing: %s, after %d rounds\n", fm.cause.c_str(), pm.rounds());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  double area = 0;
+  for (size_t t = 0; t < fm.triangles.size(); t += 3) {
+    Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+    area += 0.5 * cadgeom::cross(b - a, c - a).z;
+  }
+  // (Each circle's polygon inside it, by its sag: the ring's area, within the outer chords' and inner chords' loss.)
+  const double want = M_PI * (1.002 * 1.002 - 1);
+  if (!(std::fabs(area - want) < 0.02 * want)) std::printf("  thinRing: area %.9g want %.9g\n", area, want);
+  CHECK(std::fabs(area - want) < 0.02 * want);
+}
+
 TEST_CASE("a band narrower than its circles' chords bow (thinBand): its circles split until nothing is refused") {
   // (Each triangle spans the band, every corner on the boundary: refinement's candidates leave the domain, naming the
   // circle they cross, which the rounds split.)

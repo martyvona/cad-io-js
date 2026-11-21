@@ -202,6 +202,23 @@ export function thinBand(): BrepBuilder {
   return b;
 }
 
+/**
+ * A flat ring 0.002 wide (circles of radius 1.002 and 1 about one centre), the inner circle's vertex half a turn from
+ * the outer's: at a deflection far over the width, each circle's chords cross the other's many times in (u, v).
+ */
+export function thinRing(): BrepBuilder {
+  const b = new BrepBuilder();
+  const circle = (radius: number, xDir: number[]) => b.addCurve({ kind: 'circle',
+    position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir }, radius });
+  const v0 = b.addVertex({ point: [1.002, 0, 0] }), v1 = b.addVertex({ point: [-1, 0, 0] });
+  const e0 = b.addEdge({ curve: circle(1.002, [1, 0, 0]), start: v0, end: v0, sameSense: true });
+  const e1 = b.addEdge({ curve: circle(1, [-1, 0, 0]), start: v1, end: v1, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: e0, orientation: 'forward' }] },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: e1, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** A B-spline edge (a quarter-circle-like cubic) on a plane, and a straight edge closing it: curvature varying. */
 export function splineEdge(): BrepBuilder {
   const b = new BrepBuilder();
@@ -1915,7 +1932,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
-  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff,
+  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing,
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
   bandByInversion, bore, nistBore, seamByInversion, torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
