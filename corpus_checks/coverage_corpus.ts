@@ -7,7 +7,8 @@
 //     status, else our "faces failed to mesh, by cause" diagnostic, else "not in our diagnostics") and its surface
 //     kind; crossed with whether OCCT and SMLib give it triangles (the matrix);
 //   - each face without our triangles in a class: beyond repair (input the user has decided is past repair, by its
-//     cause: BEYOND_REPAIR), counted apart from our failures and out of their percentage, else a failure;
+//     cause: cadio_causes.ts's beyondRepair), counted apart from our failures and out of their percentage, else a
+//     failure;
 //   - every part and face ours doesn't mesh listed in full at the end, per list (the coverage's record).
 // The references are the raw backends, as smlib_occt.ts runs them: no fallback, join or fill.
 // Usage: node corpus_checks/coverage_corpus.ts [list[,list...]] [max MB, default 1000]   (progress on standard error)
@@ -21,7 +22,8 @@
 //                without faces not planted), occt and smlib (that reference's first meshed face emptied: must be
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause diagnostic of
 //                two entries: must be ours failed with the planted cause), beyond (our first meshed face emptied and
-//                named with a cause beyond repair: must be counted beyond repair, not failed)
+//                named with a cause beyond repair: must be counted beyond repair, not failed), pastrepair (the same
+//                with healing's past-repair cause, an edge's id and sizes in it)
 //   SURVEY=1     the mesh survey too (shape_survey.ts), over the faces all three backends mesh: each backend's
 //                triangles by smallest angle and aspect in 3D (quantiles, and faces by their worst), its triangles per
 //                face against SMLib's, each face's worst deviation from its surface sampled at its largest triangles'
@@ -35,6 +37,8 @@
 //                deflection off it, and that triangle with its third corner raised to tilt it 75 degrees, on the
 //                planted face, which must show as its worst angle under 0.1 degrees, deviation past 1.5 x (3 x less
 //                what the face itself strays) and the tilted triangle judged past 30 degrees
+//   HEAL=1       each file's parts healed at import (cad-heal's default fixes, step-import's ImportOptions.heal)
+//                before any backend meshes them, as the viewer's Heal B-reps does; the alone reruns too
 //   DENSITY=<prefix> with SURVEY, a line per face all three mesh into <prefix>.<pid>.tsv (one file per process, for
 //                face_density.ts): the part, face id, surface kind, the deflection, its smallest radius of curvature
 //                at ours's vertices' feet (shape_survey.ts's minRadius; Infinity if flat), and per backend (ours, OCCT,
@@ -64,7 +68,7 @@ import { MESH_PROFILES } from '../packages/cad-scene/src/index.ts';
 import { type BrepData, decode } from '../packages/cad-brep/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
+import { BEYOND_REPAIR, beyondRepair, CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
 import { INSERTED_HEAD, INSERTED_KINDS } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
 import { addInto, division, initAll, runFiles, type FileCheck } from './runner.ts';
@@ -84,8 +88,16 @@ const DENSITY = process.env.DENSITY ?? '';
 /** The profile's angle in degrees, the normals' check's limit. */
 const ANG_DEG = (ANG * 180) / Math.PI;
 const PLANT = process.env.PLANT ?? '';
-const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'survey', 'insertions'];
+const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'pastrepair', 'survey', 'insertions'];
 const SURVEY = process.env.SURVEY === '1';
+const HEAL = process.env.HEAL === '1';
+/** The import's options: healing on with HEAL, else off whatever step-import's default. */
+const IMPORT = { heal: { heal: HEAL } };
+/** A file imported as the run asks (both the run's and the alone reruns' imports). */
+const imported = (f: string) => importStep(readStep(f), IMPORT);
+/** A healed part's analysis for its request, as tessellateScene passes it (none for a part as imported). */
+const analysisOf = (p: { brep?: { analysis?: { buffer: ArrayBufferLike } } }) =>
+  (p.brep?.analysis ? { analysis: new Uint8Array(p.brep.analysis.buffer) } : {});
 const INSERTIONS = process.env.INSERTIONS === '1';
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
 const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
@@ -105,7 +117,6 @@ const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
  * Our causes for faces whose input is beyond repair (own-tessellator.md, the coverage goal): counted apart from our
  * failures. As failedCauses gives them, "status: cause".
  */
-const BEYOND_REPAIR = new Set(["invalidModel: a use of an edge whose curve is far off its face's surface"]);
 const BEYOND = 'beyond repair', FAILURE = 'failure';
 
 const BACKENDS = ['cadio', 'occt', 'smlib'] as const;
@@ -199,11 +210,12 @@ function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
       + `(#999999999, #999999998); planted: cause 3 1 (#${id})` }] };
     return { expect: 'planted: cause 3', face: id };
   }
-  if (PLANT === 'beyond') {
+  if (PLANT === 'beyond' || PLANT === 'pastrepair') {
     const id = emptyFirst('cadio');
     if (id === undefined) return undefined;
     const r = o.cadio as TessellationResult;
-    const [status, cause] = [...BEYOND_REPAIR][0]!.split(': ');
+    const [status, cause] = PLANT === 'beyond' ? [...BEYOND_REPAIR][0]!.split(': ')
+      : ['invalidModel', 'an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair'];
     o.cadio = { ...r, diagnostics: [...r.diagnostics, { severity: 'info', message: `${CAUSES_HEAD}${status}: `
       + `${cause} 1 (#${id})` }] };
     return { expect: BEYOND, face: id };
@@ -277,7 +289,7 @@ const fresh = () => ({
   status: { cadio: statuses(), occt: statuses(), smlib: statuses() },
   // Faces each backend gives no triangles (whole parts' failures included); ours's beyond repair not among them.
   facesFailed: { cadio: 0, occt: 0, smlib: 0 },
-  // Faces ours gives no triangles whose input is beyond repair (BEYOND_REPAIR), and by cause with its surface kind.
+  // Faces ours gives no triangles whose input is beyond repair (beyondRepair), and by cause with its surface kind.
   beyondRepair: 0,
   beyondCauses: new Map<string, number>(),
   // Key: our verdict ("ours meshes" or our cause), a tab, the references' column.
@@ -454,10 +466,11 @@ export const check: FileCheck<string, Tallies> = {
     if (fs.statSync(f).size > maxBytes) { T.skippedBig++; return T; }
     T.files++;
     const name = shortName(f);
-    const { scene } = await importStep(readStep(f));
+    const { scene } = await imported(f);
     const parts = scene.parts.filter((p) => p.brep);
     const results = await Promise.all(parts.map(async (p) => {
       const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
+        ...analysisOf(p),
         origin: p.origin, linearDeflection: LIN, angularDeflection: ANG, edges: true };
       // (Ours timed by the pool, from its start in a worker: its wall and its thread's CPU time.)
       const rs = await Promise.all(BACKENDS.map((b) => pools[b].tessellate(req).catch((e: Error) => e)));
@@ -541,7 +554,7 @@ export const check: FileCheck<string, Tallies> = {
         // (A part with no triangles may still name each face's cause: those first, the part's status for the rest.)
         const why = causes.get(id) ?? (partFailed ? `part ${ours.status}` : 'not in our diagnostics');
         const kind = (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
-        const cls = BEYOND_REPAIR.has(why) ? BEYOND : FAILURE;
+        const cls = beyondRepair(why) ? BEYOND : FAILURE;
         bump(T.matrix, `${why}\t${col}`);
         bump(T.classes, cls);
         if (cls === BEYOND) {
@@ -758,7 +771,8 @@ if (import.meta.main) {
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, ${PROFILE} profile (${LIN} mm, ${ANG} rad), `
     + `ours's limit ${CPU_MS / 1000} s of CPU (${4 * CPU_MS / 1000} s of wall the backstop), the references' `
-    + `${TIMEOUT_MS / 1000} s of wall, slow over ${SLOW_MS / 1000} s of CPU; `
+    + `${TIMEOUT_MS / 1000} s of wall, slow over ${SLOW_MS / 1000} s of CPU; healing ${HEAL ? 'on (cad-heal\'s default '
+      + 'fixes)' : 'off'}; `
     + `${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${workers} workers per backend`);
   console.log();
   for (const [l, T] of per) report(l, T);
@@ -784,11 +798,12 @@ if (import.meta.main) {
       byFile.set(file!, [...(byFile.get(file!) ?? []), rest]);
     }
     for (const [file, rows] of byFile) {
-      const { scene } = await importStep(readStep(file));
+      const { scene } = await imported(file);
       for (const [id, where, why] of rows) {
         const p = scene.parts.find((q) => q.brep && q.sources[0]!.id === Number(id));
         if (!p) { console.log(`  ${where}: not found again`); continue; }
         const r = await alone.tessellate({ format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
+          ...analysisOf(p),
           origin: p.origin, linearDeflection: LIN, angularDeflection: ANG, edges: true }).catch((e: Error) => e);
         const ids = Array.from({ length: p.brep!.model.face.surface.length }, (_, i) => p.brep!.model.face.id[i]!);
         const o = outcome(r, ids);
