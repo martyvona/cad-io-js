@@ -329,6 +329,9 @@ Particular files, parts and faces, by what they show, for the user to look at in
 - `as1_motor.step` parts #3728 (14 faces) and #6322 (19).
 - The demo models (`test_corpus/demo/`) at medium: `ohmm-ap242.step` fails 3 of 2,593 faces, #50243 (part #1179, a B-spline, one triangle turned beside a segment within the floor) and the planes #51019 (part #1199) and #51056 (part #1200), their boundaries crossing themselves in (u, v); `rpbp-ap242.step` fails none of 2,561. Each part under 1 s.
 
+- The user's models: `sit-stand` (`test_corpus/models/`, all three files) cylinder #40120 (part #1663) past its deflection at 1.45x, kept 1,900 triangles at 1.94 x d (OCCT 239 within d, SMLib 253); `LMP1.step` #172690's torus #1056598, triangles turned, kept 23,256 within d with 60.5% of its area past the angle (OCCT 1,080).
+- Faces refined to the point cap far past what they need (own-tessellator a5357bf, kept at 600 s of CPU): `t4mec.stp` #472, a B-spline, 202,894 triangles still 40 x d and 92.6% of its area past the angle (OCCT 7,586, SMLib 3,584); `trj4_pm2-ec-214.stp` #21856 and `trj6_pm4-ec-203.stp` #22252, one B-spline, 214,109 at 8.85 x d (OCCT 512); `as1_motor.step`'s large cylinders (radii 2 to 46 m), 266k to 299k triangles (OCCT 1,690 to 2,548), the metric's anisotropy floored in (u, v) instead of in 3D.
+
 ### Parts ours is slow on
 
 Over 120 s of CPU each, alone, at medium (own-tessellator a5357bf):
