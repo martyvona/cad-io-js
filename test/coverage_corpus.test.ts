@@ -105,3 +105,40 @@ test('coverage_corpus: HEAL=1 passes each healed part\'s analysis, so faces thro
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('coverage_corpus: ROUNDS= tallies our split rounds per part and lists those from 16 up, a TSV line each',
+  { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}`
+    : !fs.existsSync(path.join(THIRD_PARTY, B25415)) ? 'corpus not pulled' : false }, () => {
+  // bug25415 #418, as imported: its refinement runs to the cap of 24 rounds (its far-off edges' faces), in a moment.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-rounds-'));
+  try {
+    const list = path.join(dir, 'list.txt');
+    fs.writeFileSync(list, `${B25415}\n`);
+    const r = spawnSync(process.execPath, [SCRIPT, list], { encoding: 'utf8',
+      env: { ...process.env, CHILDREN: '1', ROUNDS: path.join(dir, 'rounds') } });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /our split rounds per part: at the cap of 24 1, 16 to 23 0, under 16 0, over 120 s CPU /);
+    assert.match(r.stdout, /### Parts ours split in 16 or more rounds \(1\)/);
+    assert.match(r.stdout, /bug25415\S* #418 \(14 faces\): 24 rounds, \d+ faces unsplit, 7 failed, /);
+    const tsv = fs.readdirSync(dir).filter((f) => /^rounds\.\d+\.tsv$/.test(f));
+    assert.equal(tsv.length, 1);
+    const [where, rounds, , failed, cpu, triangles, status] = fs.readFileSync(path.join(dir, tsv[0]!), 'utf8').trim()
+      .split('\t');
+    assert.match(where!, /bug25415.* #418$/);
+    assert.deepEqual([rounds, failed, status], ['24', '7', 'partial']);
+    assert.ok(Number(cpu) >= 0 && Number(triangles) > 0);
+    // Over a CPU cap of 1 ms: by the last round its progress named (none past the first pass), at least.
+    fs.rmSync(path.join(dir, tsv[0]!));
+    const o = spawnSync(process.execPath, [SCRIPT, list], { encoding: 'utf8',
+      env: { ...process.env, CHILDREN: '1', ROUNDS: path.join(dir, 'rounds'), CPU_MS: '1' } });
+    assert.equal(o.status, 0, o.stderr);
+    assert.match(o.stdout,
+      /at the cap of 24 0, 16 to 23 0, under 16 0, over 0\.001 s CPU \(by the last round seen\) 1,/);
+    const over = fs.readdirSync(dir).filter((f) => /^rounds\.\d+\.tsv$/.test(f));
+    // (Its 14 faces failed: none meshed. As imported 7 meshed and 7 failed, which alone can't tell them apart.)
+    const line = fs.readFileSync(path.join(dir, over[0]!), 'utf8').trim().split('\t');
+    assert.deepEqual([line[1], line[3]], ['>=0', '14']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

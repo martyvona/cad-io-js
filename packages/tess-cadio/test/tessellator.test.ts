@@ -8,7 +8,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
+import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, ROUNDS_HEAD, VERSION }
+  from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses } from '../src/causes.ts';
 import { ANALYSES, MODELS as TESS_MODELS, affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap,
   cuspPocket_, fold, halfCap, knotAtEnd,
@@ -251,6 +252,21 @@ test('init({countAngles}): the faces\' triangles under the minimum angle said, b
   const said = (await run(true)).map((x) => re.exec(x)).find((x) => x);
   assert.ok(said && Number(said[1]) > 0, String(said));
   assert.ok(!(await run(false)).some((x) => re.test(x)));
+});
+
+test('init({countRounds}): the part\'s split rounds said (none on a cube\'s planes, some on spheres meshed fine, '
+  + 'at most the cap); nothing without it', { skip }, async () => {
+  const rounds = async (countRounds: boolean, name: keyof typeof MODELS, linearDeflection: number) => {
+    const t = new CadioTessellator();
+    await t.init({ countRounds });
+    const said = (await t.tessellate({ ...req(name), linearDeflection })).diagnostics.map((x) =>
+      new RegExp(`^${ROUNDS_HEAD}(\\d+)$`).exec(x.message)).filter((x) => x);
+    return said.length === 1 ? Number(said[0]![1]) : said.length ? NaN : undefined;
+  };
+  assert.equal(await rounds(true, 'cube', 0.1), 0);
+  const fine = await rounds(true, 'spheres', 0.001);
+  assert.ok(fine! >= 1 && fine! <= 24, String(fine));
+  assert.equal(await rounds(false, 'spheres', 0.001), undefined);
 });
 
 test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by default, more triangles at 0.5 rad',
