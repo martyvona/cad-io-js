@@ -1232,6 +1232,7 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 
 **Tessellation**
 
+- A strict mode for bit-identical results across platforms, at a cost in speed and complexity (`docs/own-tessellator.md`, "Platform differences": what differs and the fixes measured).
 - An adaptive meshing mode: the deflections driven by each part's size (its bounding box's diagonal, say) rather than absolute (absolute 0.1 mm gives a 32 m torus 3.9 M triangles), perhaps as a fourth profile beside coarse, medium and fine.
 - A maximum chord (edge) length, as another CAD system's meshing profiles have (10 m in each); neither backend has one.
 - tess-cadio's split rounds on Kuka #4099 (the user's model): all 24 run (about 85 of its 120 s native, past the coverage lane's cap in WebAssembly), faces such as #28420 having a boundary span halved each round (6.83 to 0.213 mm, then another), each round's triangle along the new half still refused, by a little. Splitting a span into several pieces at once, graded by length or by the refused triangle's deviation over d, didn't cut the rounds (failed 9 to 14 and 28); the probes and the patch in `workdir/lanes/t4-criteria/split-pieces/`.
