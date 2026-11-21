@@ -118,6 +118,11 @@ export interface Ui {
   empty(): void;
   /** Says something in the status line. */
   say(text: string, error?: boolean): void;
+  /**
+   * Whether Copy link to this view spells out the settings whose defaults depend on the device (its Include device
+   * defaults: the meshing profile and the edge style), even where they're this device's.
+   */
+  linkDeviceDefaults(): boolean;
   /** The view's address, for "Copy link to this view" (set by the automation layer). */
   link?: () => string;
   /** The controls (for the recorder, recorder.ts, and replay). */
@@ -156,6 +161,16 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 }
 
 const GNOMON_KEY = 'cad-viewer.gnomon';
+/** Copy link's Include device defaults, as remembered in this browser ('1' on; else off). */
+const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
+/** The remembered choice (off where storage can't be read). */
+function linkDefaultsRemembered(): boolean {
+  try {
+    return localStorage.getItem(LINK_DEFAULTS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 /** What this browser remembers of View's Axes, if anything. */
 function gnomonRemembered(): string | null {
@@ -591,6 +606,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Enabled while something is selected.
   const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
   view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
+  // Its option, off by default, remembered in this browser: the device's defaults spelled out in the link (the
+  // profile, the edge style), so it shows the same on a phone as on a desktop.
+  const linkDefaults = { on: linkDefaultsRemembered() };
+  view.add(linkDefaults, 'on').name('Include device defaults').onChange((on: boolean) => {
+    try {
+      localStorage.setItem(LINK_DEFAULTS_KEY, on ? '1' : '0');
+    } catch {
+      // Not remembered; it still applies now.
+    }
+  });
   // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
   const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
   viewer.showGnomon = axes.on;
@@ -1076,6 +1101,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     refreshed: () => refreshed,
     opened: () => opening,
     source: () => last,
+    linkDeviceDefaults: () => linkDefaults.on,
     setSections: (s) => {
       for (const a of AXES) Object.assign(cut[a], s[a]);
       cut.caps = s.caps;

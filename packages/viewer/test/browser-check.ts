@@ -1375,9 +1375,11 @@ await check('fit beside the controls', async () => {
         hi: px(s.center.clone().addScaledVector(right, s.radius)), target, height: c.height,
         top: c.top + (1 - s.center.clone().project(cam).y) / 2 * c.height };
     };
-    // Not squashed: as many pixels a millimetre across as down, after the load's own fit, zoom all and a view.
+    // Not squashed: as many pixels a millimetre across as down, after the load's own fit, zoom all and a view. (The
+    // view's resize, after the page's layout, waited for first, up to 2 s: under load it can come frames later.)
     const scales = () => { const P = cam.projectionMatrix.elements, c = v.renderer.domElement;
       return P[0] * c.clientWidth / (P[5] * c.clientHeight); };
+    for (let t = 0; t < 40 && Math.abs(scales() - 1) > 1e-6; t++) await new Promise((r) => setTimeout(r, 50));
     const squash = [scales()];
     v.zoomAll();
     squash.push(scales());
@@ -1850,7 +1852,10 @@ await check('problems dialog', async () => {
       warnings: diagnostics.filter((x) => x.severity === 'warning').length,
       errors: diagnostics.filter((x) => x.severity === 'error').length };
     d?.querySelector('button.primary')?.click();
-    await new Promise((r) => setTimeout(r, 100));
+    // (Removed once it has closed: waited for, up to 5 s, as it can take longer than a frame or two under load.)
+    for (let t = 0; t < 100 && document.querySelector('dialog.cv-dialog'); t++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
     return { ...out, closed: !document.querySelector('dialog.cv-dialog') };
   })()`;
   type Seen = { open: boolean; title: string | null; rows: string[]; messages: string[]; warnings: number;
@@ -3029,6 +3034,52 @@ await check('tess-cadio', async () => {
   })()`) as { after: { status: string; minAngle: number } };
   expect(o.after.minAngle === 10 && o.after.status.includes('minAngle: only tess-cadio'),
     `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
+  return undefined;
+});
+// Copy link to this view's Include device defaults (off by default, remembered in this browser): off, a link leaves out
+// what is the device's default (a desktop's medium profile and fat edges; a phone's link says its thin edges, which
+// aren't the desktop's, but not its coarse profile); on, profile= and edgeStyle= are always in it, a custom profile
+// by its deflections. (Pages share the browser's storage: left off at the end, as the other checks expect.)
+await check('copy link: device defaults', async () => {
+  const look = `(async () => {
+    await cadViewer.idle();
+    const option = ui.gui.controllersRecursive().find((c) => c._name === 'Include device defaults');
+    const said = () => { const u = new URL(ui.link()); const h = new URLSearchParams(u.hash.slice(1));
+      return { profile: u.searchParams.get('profile'), linear: u.searchParams.get('linearDeflection'),
+        edgeStyle: h.get('edgeStyle') }; };
+    const before = { checked: option.getValue(), link: said() };
+    option.setValue(!before.checked);
+    const toggled = { stored: localStorage.getItem('cad-viewer.linkDeviceDefaults'), link: said() };
+    ui.setMeshing({ profile: 'custom', linearDeflection: 0.05 });
+    await (async () => { const b = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+      await b.getValue().call(b.object); await cadViewer.idle(); })();
+    const custom = said();
+    return { before, toggled, custom, device: viewer.device };
+  })()`;
+  type Said = { profile: string | null; linear: string | null; edgeStyle: string | null };
+  type Got = { before: { checked: boolean; link: Said }; toggled: { stored: string | null; link: Said }; custom: Said;
+    device: string };
+  // (As it is: the check's pages otherwise ask for thin edges.)
+  const url = `?url=${encodeURIComponent('/content/as1.stp')}&check`;
+  // Off, then turned on.
+  const a = (await page(url, look, { asIs: true }) as { after: Got }).after;
+  // Remembered on in a new page, then turned off.
+  const b = (await page(url, look, { asIs: true }) as { after: Got }).after;
+  // A phone: on, then off.
+  const pOn = (await page(url, `(async () => { localStorage.setItem('cad-viewer.linkDeviceDefaults', '1');
+    return 0; })()`, { phone: true, asIs: true }), (await page(url, look, { phone: true, asIs: true }) as
+    { after: Got }).after);
+  const j = JSON.stringify({ a, b, pOn });
+  expect(!a.before.checked && a.before.link.profile === null && a.before.link.edgeStyle === null,
+    `off by default: the desktop's defaults left out: ${j}`);
+  expect(a.toggled.stored === '1' && a.toggled.link.profile === 'medium' && a.toggled.link.edgeStyle === 'fat',
+    `on: spelled out, remembered: ${j}`);
+  expect(a.custom.profile === null && a.custom.linear === '0.05', `on, custom: its deflections: ${j}`);
+  expect(b.before.checked && b.before.link.profile === 'medium' && b.toggled.stored === '0'
+    && b.toggled.link.profile === null && b.toggled.link.edgeStyle === null, `remembered on; off again: ${j}`);
+  expect(pOn.device === 'phone' && pOn.before.checked && pOn.before.link.profile === 'coarse'
+    && pOn.before.link.edgeStyle === 'thin' && pOn.toggled.link.profile === null && pOn.toggled.link.edgeStyle
+    === 'thin', `a phone: coarse and thin on; off, its thin edges (not the desktop's) only: ${j}`);
   return undefined;
 });
 // Going to a face from the address, and why it failed: conical-surface with cadio alone at a deflection of 1.2e-6 mm
