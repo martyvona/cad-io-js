@@ -360,6 +360,33 @@ TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsett
   }
 }
 
+TEST_CASE("an edge's inside sample within min(the part's tolerance, d / 10) of its vertex dropped from the edge "
+  "(clampedCorner): "
+  "the loop no longer reverses at the corner clamped onto the box's side, the face meshed") {
+  // (The polyline's sample (1.03, 0.011) is 0.02 from the corner, within min(0.1, 0.05) at d = 0.5: kept,
+  // both feet on u = 1 and the loop runs down to the corner and back up the side, refused as through its own point.)
+  cadgeom::Model m = load("clampedCorner");
+  REQUIRE(m.ok());
+  EdgeOptions eo;
+  eo.deflection = 0.5;
+  EdgeMesh em(m, eo);
+  CHECK_EQ(em.edge(0).points.size(), 2u);
+  // Under a tolerance of 0.01 it's past the tolerance, so kept whatever d / 10 is.
+  cadgeom::Model tight = load("clampedCornerTight");
+  REQUIRE(tight.ok());
+  EdgeMesh et(tight, eo);
+  CHECK_EQ(et.edge(0).points.size(), 3u);
+  // And at d = 0.1 past d / 10 (0.01) under the coarse tolerance: kept, the tolerance alone not enough to drop it.
+  EdgeOptions fine = eo;
+  fine.deflection = 0.1;
+  EdgeMesh ef(m, fine);
+  CHECK_EQ(ef.edge(0).points.size(), 3u);
+  PartMesher pm(m, options(0.5, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  clampedCorner: %s\n", fm.cause.c_str());
+  CHECK(fm.status == cadgeom::Status::ok);
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's

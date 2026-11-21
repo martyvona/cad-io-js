@@ -741,6 +741,33 @@ struct EdgeMesh::Impl {
     E.s.t = sample(*E.geom, r.lo, r.hi, E.closed, criteria(E.spacing), st);
     E.s.status = st;
     points(e);
+    dropNearEnds(e, {});
+  }
+
+  /**
+   * Edge e's inside samples within the smaller of the part's tolerance and a tenth of the deflection of either end in
+   * 3D dropped (but those in `keep`, a crease's exact ones): by the model's tolerance they're the vertex, and beside a
+   * vertex whose feet are clamped onto a side of the face's box one can reverse the loop there in (u, v) (LMP1
+   * #1044101: a sliver turned, its span frozen). From the edge, so every use loses it and the faces stay conforming.
+   * Not the tolerance alone: a coarse one (LMP1's 0.11, past the deflection) would drop detail the faces need there
+   * (failed 313 -> 716 over 656 parts); nor the refinement floor: the angle samples small arcs finer than that, and
+   * a pole's sample can lie within it.
+   */
+  void dropNearEnds(int e, const std::vector<double>& keep) {
+    Edge& E = edges[e];
+    const size_t n = E.s.points.size();
+    if (n < 3 || E.s.t.size() != n) return;
+    const Vec3 a = E.s.points.front(), b = E.s.points.back();
+    const double within = std::fmin(tol, 0.1 * o.deflection);
+    std::vector<double> t{E.s.t.front()};
+    std::vector<Vec3> p{a};
+    for (size_t i = 1; i + 1 < n; i++) {
+      const bool kept = std::find(keep.begin(), keep.end(), E.s.t[i]) != keep.end();
+      if (!kept && (norm(E.s.points[i] - a) <= within || norm(E.s.points[i] - b) <= within)) continue;
+      t.push_back(E.s.t[i]), p.push_back(E.s.points[i]);
+    }
+    t.push_back(E.s.t.back()), p.push_back(b);
+    E.s.t = std::move(t), E.s.points = std::move(p);
   }
 
   // ---- coedges ----
@@ -2351,6 +2378,7 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
         E.s.points.push_back(E.geom->at(news[k].second));
       }
     }
+    I.dropNearEnds(static_cast<int>(e), exact[e]);
     // (Each use placed again said, its face named: a slow one, a use by inversion on a costly surface, names itself.)
     for (int c : E.coedges) {
       if (I.o.progress) I.o.progress(c, I.m.coedges(), I.coedges[c].face);
