@@ -10,7 +10,8 @@
 //   - healing's diagnostics: by severity and by message (numbers and ids folded), the parts with a tolerance error;
 //   - the files with the most faces lost or gained per backend, and with the largest change in triangles;
 //   - the faces lost by the mesher's cause healed, and faces failed past repair, where the mesher says (tess-cadio).
-// BACKENDS=occt,smlib,cadio picks the meshers (default occt,smlib; cadio: our own tessellator, tess-cadio).
+// BACKENDS=occt,smlib,cadio picks the meshers (default occt,smlib; cadio: our own tessellator, tess-cadio); HEAL_ON=
+// fixes on beyond the defaults (HEAL_ON=pcurveMissing,pcurveMissingOnPlane: a p-curve for every bare use).
 // HYBRID=1 adds OCCT on the healed model less the p-curves healing added (coedges the source gave none), to tell
 // what OCCT makes of those from what it makes of the rest of the healing.
 // Usage: CHILDREN=3 MESH_WORKERS=2 IDLE_MS=0 node --max-old-space-size=8192 corpus_checks/heal_effect.ts
@@ -32,6 +33,8 @@ const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 type Tally = Record<string, { n: number; ex: string[] }>;
 const hybrid = process.env.HYBRID === '1';
 type Backend = 'occt' | 'smlib' | 'cadio' | 'occtHybrid';
+/** HEAL_ON=<fixes>: fixes turned on beyond the defaults (pcurveMissing, pcurveMissingOnPlane). */
+const healOn = Object.fromEntries((process.env.HEAL_ON ?? '').split(',').filter(Boolean).map((f) => [f, true]));
 /** BACKENDS=occt,smlib,cadio (default occt,smlib): which meshers. */
 const backends = [...(process.env.BACKENDS ?? 'occt,smlib').split(',') as Backend[],
   ...hybrid ? ['occtHybrid' as const] : []];
@@ -121,7 +124,7 @@ export const check: FileCheck<undefined, Result> = {
     ctx.progress(`${name}: healing`);
     c0 = process.cpuUsage();
     const w0 = performance.now();
-    await healImported(after, { heal: { heal: true, concurrency: workers,
+    await healImported(after, { heal: { heal: true, concurrency: workers, fixes: healOn,
       healer: poolHealer(pools.heal, import.meta.resolve('../packages/cad-heal/src/index.ts')) },
       onProgress: (p) => ctx.progress(`${name}: healing ${p.done}/${p.total}`) });
     const cpu = process.cpuUsage(c0), wall = performance.now() - w0;
@@ -262,7 +265,9 @@ if (import.meta.main) {
   const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
   console.log(`${all.files} files (${all.skipped} over the size limit), ${all.parts} B-rep parts, ${all.faces} faces; `
     + `the run ${s(performance.now() - t0)}`);
-  console.log(`\nCost: healing ${s(all.healCpuMs)} of CPU (the importing process's, its healing pool included), `
+  const on = Object.keys(healOn);
+  console.log(`\nHealing with cad-heal's default fixes${on.length ? `, and ${on.join(', ')} on` : ''}.`);
+  console.log(`Cost: healing ${s(all.healCpuMs)} of CPU (the importing process's, its healing pool included), `
     + `${s(all.healWallMs)} of wall time summed over files; importing (without healing) ${s(all.importCpuMs)} of CPU; `
     + `${all.capped} diagnostics of healing cut short`);
   console.log('  the slowest files to heal (wall):');

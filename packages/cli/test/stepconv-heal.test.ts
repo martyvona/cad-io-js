@@ -63,8 +63,8 @@ test('stepconv healing usage errors', async () => {
     [['--heal', '--no-heal'], '--heal and --no-heal together'],
     [['--no-heal', '--heal-on', 'strayPole'], '--no-heal and --heal-on together'],
     [['--no-heal', '--heal-off', 'strayPole'], '--no-heal and --heal-off together'],
-    [['--heal-off', 'strayPole,nope'], "--heal-off takes fixes from strayPole, pcurveMissing, pcurveReparam, "
-      + "pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance, not 'nope'"],
+    [['--heal-off', 'strayPole,nope'], "--heal-off takes fixes from strayPole, pcurveMissing, pcurveMissingOnPlane, "
+      + "pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance, not 'nope'"],
     [['--heal-on', ','], "--heal-on takes fixes from"],
     [['--heal-on', 'strayPole', '--heal-off', 'strayPole'], 'strayPole both in --heal-on and --heal-off'],
   ] as [string[], string][]) {
@@ -90,6 +90,6 @@ test('stepconv --help names every fix, and the default as HEAL_BY_DEFAULT has it
   const { HEAL_FIXES, FIXES_OFF_BY_DEFAULT } = await import('cad-heal');
   const help = (await run(['-h'])).stdout.replace(/\s+/g, ' ');
   for (const f of HEAL_FIXES) assert.ok(help.includes(f), f);
-  assert.deepEqual(FIXES_OFF_BY_DEFAULT, ['pcurveMissing']);
+  assert.deepEqual(FIXES_OFF_BY_DEFAULT, ['pcurveMissing', 'pcurveMissingOnPlane']);
   assert.ok(help.includes(`(default: ${HEAL_BY_DEFAULT ? 'healed' : 'as imported'})`));
 });

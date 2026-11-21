@@ -224,8 +224,9 @@ ${PROFILE_LINES}
                            in the warnings, a tolerance grown past its limit an error
       --heal-on <fixes>, --heal-off <fixes>
                            these fixes on or off (comma-separated), healing on: strayPole, pcurveMissing,
-                           pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance (all on by
-                           default but pcurveMissing)
+                           pcurveMissingOnPlane, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance,
+                           vertexTolerance (all on by default but pcurveMissing and pcurveMissingOnPlane, which
+                           make a p-curve for every bare use, off and on planes)
   -j, --workers <n>        parts tessellated (and healed) at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
       --timeout <s>        per part, in a worker (default ${DEFAULT_TIMEOUT_MS / 1000}); 0: none

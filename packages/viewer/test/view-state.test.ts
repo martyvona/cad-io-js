@@ -130,12 +130,12 @@ test('healingFromQuery: heal=1 or 0, healOn and healOff from the defaults turnin
   assert.deepEqual(q('heal=1&healOn=pcurveMissing'), { meshing: { heal: true, healFixes: { ...d,
     pcurveMissing: true } }, problems: [] });
   assert.deepEqual(q('healOn=nope,pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, pcurveMissing: true } },
-    problems: [`healOn: not one of strayPole, pcurveMissing, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, `
-      + 'vertexTolerance: nope'] });
+    problems: [`healOn: not one of strayPole, pcurveMissing, pcurveMissingOnPlane, pcurveReparam, pcurveReplace, `
+      + 'pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
   assert.deepEqual(q('healOn=strayPole,pcurveMissing&healOff=strayPole'), { meshing: { heal: true, healFixes: { ...d,
     pcurveMissing: true } }, problems: ['healOn and healOff: strayPole in both, left as it is'] });
   assert.deepEqual(q('heal=0&healOff=strayPole'), { meshing: { heal: false, healFixes: d },
     problems: ['heal=0 with healOn or healOff: the fixes ignored'] });
-  assert.deepEqual(q('healOff=nope'), { problems: ['healOff: not one of strayPole, pcurveMissing, pcurveReparam, '
-    + 'pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
+  assert.deepEqual(q('healOff=nope'), { problems: ['healOff: not one of strayPole, pcurveMissing, '
+    + 'pcurveMissingOnPlane, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
 });

@@ -2,9 +2,10 @@
 // what healing calls, as an interface, so the projection lane's API (cad-geom's projectCoedge with its stop, where
 // and why) can replace the stub here without healing changing. The global search at the curve's ends is the
 // projection's, once per vertex and face, cached in the Geometry handle (the pass's), each coedge picking its own foot
-// (its seam side, a pole's free coordinate). Healing keeps the trace's p-curve, fitted once, in the healed model
-// (pcurveFrom healed) and its measures in the analysis buffer's trace rows; a stored p-curve's ends give later
-// consumers the vertex's (u, v).
+// (its seam side, a pole's free coordinate). A use is traced only where the face API's own projection doesn't find
+// its curve within the tolerance and the grid can't bound it (curves.ts); healing then keeps the trace's p-curve,
+// fitted once, in the healed model (pcurveFrom healed) and its measures in the analysis buffer's trace rows; a stored
+// p-curve's ends give later consumers the vertex's (u, v).
 
 import { TRACE_STOP } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
