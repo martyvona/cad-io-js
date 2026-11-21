@@ -324,7 +324,7 @@ Particular files, parts and faces, by what they show, for the user to look at in
 
 - Triangles turned against the surface on faces otherwise within max(d, tol): 125 faces at medium (t4-criteria 95d6052, the failures off), being fixed. The worst, `bug30014.stp` part #61091 face #125217: a strip 5e-4 wide in u against 1 in v, slivers edge-on to the surface, 98.7% of its area past the angle, 654 triangles against OCCT's 25 and SMLib's 15. `LMP1.step` face #1042701: 275 turned triangles near a pole, of 125,340.
 - `trj3_s1-al-214.stp` part #6704: 13 faces, pole and boundary faults, after its six creased faces were fixed.
-- `bug24383_224013.stp` part #11: 63 faces, not yet classified (its source has a stray B-spline pole, which healing moves).
+- `bug24383_224013.stp` part #11: 63 faces as imported. 30 of them have uses "far off" their surfaces as written: each curve's first pole is about 3e7 mm out, inside a first knot span 2e-6 long, which healing's stray-pole fix moves; 33 cross their boundary within a hair of a vertex whose two edges' (u, v) ends disagree.
 - `as1_motor.step` parts #3728 (14 faces) and #6322 (19).
 - The demo models (`test_corpus/demo/`) at medium: `ohmm-ap242.step` fails 3 of 2,593 faces, #50243 (part #1179, a B-spline, one triangle turned beside a segment within the floor) and the planes #51019 (part #1199) and #51056 (part #1200), their boundaries crossing themselves in (u, v); `rpbp-ap242.step` fails none of 2,561. Each part under 1 s.
 
