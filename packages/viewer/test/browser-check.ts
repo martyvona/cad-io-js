@@ -26,6 +26,8 @@ import { importGltf } from 'gltf-import';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
+import { CadioTessellator } from 'tess-cadio';
+import { KEEP_FAILING } from 'tess-cadio/options';
 import { HEAL_BY_DEFAULT } from 'cad-heal/options';
 import { healTestScene, stepOf } from '../../cad-heal/test/scene.ts';
 import { writeCatalog } from '../../../scripts/demo-catalog.ts';
@@ -104,6 +106,9 @@ fs.writeFileSync(path.join(content, 'as1-plain.3mf'), threemfBytes({}));
 fs.copyFileSync(step, path.join(content, 'as1.stp'));
 // Parts that healing changes (cad-heal's test scene: a stray pole, an arc off its plane).
 fs.writeFileSync(path.join(content, 'heal.stp'), stepOf(healTestScene()));
+// A part with a face tess-cadio fails for its mesh (#453's #445, past its deflection), which keepFailing keeps.
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/pr1ct.stp'),
+  path.join(content, 'pr1ct.stp'));
 // as1 with its nut-bolt assemblies' nut (its occurrence: the tree's name for it, three levels down, so no row of it is
 // drawn before the tree is expanded, and the first below the first screen once it is) named long enough to be the
 // widest row in any font (the tree check).
@@ -2723,6 +2728,170 @@ await check('heal B-reps', async () => {
   })()`) as { after: { said: string[]; heal: boolean } };
   expect(d.after.heal === HEAL_BY_DEFAULT && (d.after.said.length > 0) === HEAL_BY_DEFAULT, `the default: ${
     JSON.stringify(d.after)}`);
+  return undefined;
+});
+// Our own tessellator in the browser (tess-cadio's module in the pool's workers, as Vite bundles it): the assembly
+// with backend=cadio and no fallback, its triangles those it gives here in Node, at the controls' default min angle and
+// at 0 (fewer, the request's minAngle) after Mesh again, in meshedWith; the controls, closed; healing in the same
+// workers before cadio meshes, on (heal.stp's fixes said) and off; keepFailing=1, pr1ct's face that cadio fails
+// meshed then (cadio given KEEP_FAILING), its pool's meshes not cached (no lookups, though the assembly's are cached
+// from above), the backend saying so; minAngle= ignored with another backend, said.
+await check('tess-cadio', async () => {
+  const placedTriangles = async (minAngle?: number) => {
+    const { scene: s } = await importStep(fs.readFileSync(step));
+    const t = new CadioTessellator();
+    await t.init();
+    const { meshes } = await tessellateScene(s, new StepTessellator(t), minAngle === undefined ? {} : { minAngle });
+    t.dispose();
+    const at = [...partInstances(s)].filter((p) => p.visible);
+    return [...meshes].reduce((n, [part, m]) => n + at.filter((p) => p.part === part).length * m.indices.length / 3,
+      0);
+  };
+  const [plain, none] = [await placedTriangles(), await placedTriangles(0)];
+  const again = `(async () => {
+    const model = viewer.nextLoad();
+    ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+    for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await cadViewer.idle();
+  })`;
+  const said = `(() => viewer.model.diagnostics.filter((d) => /^(strayPole|tolerances grown):/.test(d.message))
+    .map((d) => d.message.split(':')[0]).sort())()`;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&backend=cadio&fallback=none&check`,
+    `(async () => {
+    await cadViewer.idle();
+    const folder = ui.gui.foldersRecursive().find((f) => f._title === 'tess-cadio');
+    const debug = folder.foldersRecursive().find((f) => f._title === 'Debugging');
+    const first = { triangles: viewer.stats().triangles, parts: viewer.model.parts, meshing: viewer.model.meshing,
+      meshedWith: viewer.model.meshedWith, closed: folder._closed, debugClosed: debug._closed,
+      controls: folder.controllersRecursive().map((c) => [c._name, c.getValue()]) };
+    folder.controllersRecursive().find((c) => c._name === 'Min angle (degrees)').setValue(0);
+    await ${again}();
+    const zero = { triangles: viewer.stats().triangles, parts: viewer.model.parts,
+      minAngle: viewer.model.meshedWith.minAngle };
+    // The debugging switch ticked in the page: a pool of its own, its backend saying so.
+    debug.controllers.find((c) => c._name === 'Keep faces that would fail').setValue(true);
+    await ${again}();
+    return { first, zero, kept: { backend: viewer.model.meshing.backend, keep: viewer.model.meshedWith.keepFailing } };
+  })()`) as { after: { first: { triangles: number; parts: { done: number; failed: number };
+    meshing: { backend: string }; meshedWith: { backend: string; fallback: string; minAngle: number;
+      keepFailing: boolean }; closed: boolean; debugClosed: boolean; controls: [string, unknown][] };
+    zero: { triangles: number; parts: { done: number; failed: number }; minAngle: number };
+    kept: { backend: string; keep: boolean } } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.first.meshing.backend.startsWith('tess-cadio ') && !a.first.meshing.backend.includes('debugging'),
+    `the backend: ${j}`);
+  expect(a.first.parts.done === 5 && a.first.parts.failed === 0, `meshed: ${j}`);
+  expect(a.first.triangles === plain, `${a.first.triangles} triangles, expected ${plain} (Node's): ${j}`);
+  expect(a.first.meshedWith.backend === 'cadio' && a.first.meshedWith.fallback === 'none'
+    && a.first.meshedWith.minAngle === 10 && !a.first.meshedWith.keepFailing, `meshedWith: ${j}`);
+  expect(a.first.closed && a.first.debugClosed && JSON.stringify(a.first.controls)
+    === '[["Min angle (degrees)",10],["Keep faces that would fail",false]]', `the controls: ${j}`);
+  expect(none < plain && a.zero.triangles === none && a.zero.parts.failed === 0 && a.zero.minAngle === 0,
+    `min angle 0: ${a.zero.triangles} triangles, expected ${none}: ${j}`);
+  expect(a.kept.keep && a.kept.backend.endsWith('(debugging: tess-cadio keeps the faces it would fail)'),
+    `Keep faces that would fail, ticked: ${j}`);
+  // Healing in the same workers, before cadio meshes; and without it.
+  for (const heal of ['1', '0']) {
+    const h = await page(`?url=${encodeURIComponent('/content/heal.stp')}&backend=cadio&heal=${heal}&check`,
+      `(async () => {
+      await cadViewer.idle();
+      return { said: ${said}, parts: viewer.model.parts, backend: viewer.model.meshing.backend,
+        heal: viewer.model.meshedWith.heal, triangles: viewer.stats().triangles };
+    })()`) as { after: { said: string[]; parts: { total: number; failed: number }; backend: string; heal: boolean;
+      triangles: number } };
+    const b = h.after, k = JSON.stringify(b);
+    expect(b.backend.startsWith('tess-cadio+') && b.parts.total === 4 && b.triangles > 0, `heal=${heal}: ${k}`);
+    expect(heal === '1' ? b.heal && b.said.join() === 'strayPole,tolerances grown' : !b.heal && !b.said.length,
+      `heal=${heal}: ${k}`);
+  }
+  // Debugging: the faces that would fail kept (KEEP_FAILING), not cached; its backend saying so.
+  const d = await page(`?url=${encodeURIComponent('/content/as1.stp')}&backend=cadio&keepFailing=1&check`,
+    `(async () => {
+    await cadViewer.idle();
+    return { meshing: viewer.model.meshing, cache: viewer.settings.cache, keep: viewer.model.meshedWith.keepFailing,
+      triangles: viewer.stats().triangles };
+  })()`) as { after: { meshing: { backend: string; cache?: { misses: number; hits: number } }; cache: boolean;
+    keep: boolean; triangles: number } };
+  const e = d.after, l = JSON.stringify(e);
+  expect(Object.keys(KEEP_FAILING).length === 3 && e.keep && e.cache && e.triangles > 0, `keepFailing=1: ${l}`);
+  expect(e.meshing.backend.startsWith('tess-cadio+smlib ') && e.meshing.backend.endsWith(
+    '(debugging: tess-cadio keeps the faces it would fail)'), `keepFailing=1, the backend: ${l}`);
+  // (Its fallback, SMLib, cached; cadio's pool not: as1 meshed by cadio alone, so no lookups at all.)
+  expect(!e.meshing.cache || (e.meshing.cache.misses === 0 && e.meshing.cache.hits === 0),
+    `keepFailing=1, cadio cached: ${l}`);
+  for (const keep of ['0', '1']) {
+    const f = await page(`?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`
+      + `&keepFailing=${keep}&check`, `(async () => {
+      await cadViewer.idle();
+      return { parts: viewer.model.parts, errors: viewer.model.diagnostics.filter((d) => d.severity === 'error')
+        .map((d) => d.message) };
+    })()`) as { after: { parts: { total: number; done: number; failed: number }; errors: string[] } };
+    const g = f.after, m = JSON.stringify(g);
+    expect(keep === '1' ? !g.errors.some((x) => /failed to mesh/.test(x))
+      : g.errors.includes('1 faces failed to mesh: #445'), `pr1ct, keepFailing=${keep}: ${m}`);
+  }
+  const o = await page(`?url=${encodeURIComponent('/content/as1.stp')}&minAngle=5&check`, `(async () => {
+    await cadViewer.idle();
+    // (The address's problems are said once its model has loaded.)
+    const text = () => document.getElementById('status').textContent;
+    for (let t = 0; t < 100 && !text().includes('the address'); t++) await new Promise((r) => setTimeout(r, 100));
+    return { status: text(), minAngle: viewer.settings.minAngle };
+  })()`) as { after: { status: string; minAngle: number } };
+  expect(o.after.minAngle === 10 && o.after.status.includes('minAngle: only tess-cadio'),
+    `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
+  return undefined;
+});
+// Going to a face from the address, and why it failed: pr1ct with cadio alone, face=445 (a face cadio fails, past its
+// deflection): selected, the tree's detail on, revealed and zoomed to (the camera nearer than the whole model's), its
+// Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs) its cause in a third
+// column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no cause); part=453 the
+// part; an id matching nothing, and one that isn't an id, said in the address's problems.
+await check('go to a face', async () => {
+  const look = `(async () => {
+    await cadViewer.idle();
+    const text = () => document.getElementById('status').textContent;
+    const d = document.querySelector('dialog.cv-dialog');
+    const rows = d ? [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent)) : [];
+    d?.querySelector('button.primary')?.click();
+    await cadViewer.idle();
+    const nodes = viewer.nodes, sel = ui.selected();
+    const out = { rows, selected: sel.map((id) => nodes.pathOf(id)), detail: nodes.hasDetail(),
+      details: ui.details(), panel: document.getElementById('details').textContent,
+      height: (viewer.camera.top - viewer.camera.bottom) / viewer.camera.zoom,
+      meshedWith: viewer.model.meshedWith };
+    viewer.zoomAll();
+    await cadViewer.idle();
+    out.all = (viewer.camera.top - viewer.camera.bottom) / viewer.camera.zoom;
+    for (let t = 0; t < 50 && !text().includes('the address'); t++) await new Promise((r) => setTimeout(r, 100));
+    out.status = text();
+    return out;
+  })()`;
+  type Got = { rows: string[][]; selected: string[]; detail: boolean; details: string[]; panel: string;
+    height: number; all: number; status: string; meshedWith: { backend: string; keepFailing: boolean; heal: boolean } };
+  const url = `?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`;
+  const cause = 'Cause: noConvergence: meshed past its deflection';
+  const f = (await page(`${url}&face=445&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
+  expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#445') && f.detail, `face=445 selected: ${j}`);
+  expect(f.height < f.all, `zoomed to it: ${j}`);
+  expect(f.details.includes('Failed to mesh: its outline is drawn in red')
+    && f.details.some((l) => l.startsWith(cause)) && f.panel.includes(cause), `its Details: ${j}`);
+  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #445');
+  expect(row?.[0] === 'error #453' && row.length === 3 && row[2]!.startsWith('noConvergence: meshed past its '
+    + 'deflection') && row[2]!.endsWith(' (#445)'), `the problems dialog's cause: ${j}`);
+  expect(!f.status.includes('the address'), `nothing said: ${j}`);
+  const k = (await page(`${url}&keepFailing=1&heal=1&face=445&check`, look) as { after: Got }).after;
+  const l = JSON.stringify(k);
+  expect(k.meshedWith.keepFailing && k.meshedWith.heal && k.selected.length === 1
+    && k.selected[0]!.endsWith('/face#445'), `keepFailing=1, heal=1, face=445: ${l}`);
+  expect(k.details.some((x) => /^Triangles: [1-9]/.test(x)) && !k.details.some((x) => x.startsWith('Cause:'))
+    && !k.details.some((x) => x.startsWith('Failed')), `the face kept, meshed: ${l}`);
+  const p = (await page(`${url}&part=453&face=999999,x1&check`, look) as { after: Got }).after;
+  const q = JSON.stringify(p);
+  expect(p.selected.length === 1 && !p.selected[0]!.includes('face#'), `part=453: ${q}`);
+  expect(p.status.includes('face=: nothing has #999999') && p.status.includes('face=: not STEP ids: x1'),
+    `face= that names nothing: ${q}`);
   return undefined;
 });
 // Mesh again from the import worker's models, in place: no import (the same tree and scene graph, no "importing" in
@@ -5727,12 +5896,14 @@ if (staticServer) {
     const licenses = fs.readFileSync(path.join(dist, 'licenses.md'), 'utf8');
     expect(['### three - 0.186.1 (MIT)', '### @headless-tree/core', '`@gltf-transform/core`', 'draco3dgltf',
       'meshoptimizer', 'Open CASCADE exception (version 1.0)', 'NVIDIA CORPORATION', 'Apache License',
-      'GNU LESSER GENERAL PUBLIC LICENSE', 'GNU AFFERO GENERAL PUBLIC LICENSE'].every((t) => licenses.includes(t)),
+      'GNU LESSER GENERAL PUBLIC LICENSE', 'GNU AFFERO GENERAL PUBLIC LICENSE', '`assets/tess_cadio-*.wasm`']
+      .every((t) => licenses.includes(t)),
       'licenses.md');
     expect(!fs.existsSync(path.join(dist, '.vite')), 'Vite\'s own licenses file left');
     const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
     // (The PDFs are named in the navigation fallback's denylist, not in the precache list's entries.)
-    expect(sw.includes('occt_tess-') && sw.includes('smlib_tess-') && !sw.includes('licenses.md') &&
+    expect(sw.includes('occt_tess-') && sw.includes('smlib_tess-') && sw.includes('tess_cadio-') &&
+      !sw.includes('licenses.md') &&
       !sw.includes('version.json') &&
       !/url:"[^"]*\.pdf"/.test(sw), 'the precache list');
     for (const pdf of ['README.pdf', 'step_tutorial.pdf']) {

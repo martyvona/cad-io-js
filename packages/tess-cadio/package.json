@@ -5,7 +5,9 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./options": "./src/options.ts",
+    "./causes": "./src/causes.ts"
   },
   "scripts": {
     "build": "./build.sh module",

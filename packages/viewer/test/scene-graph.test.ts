@@ -259,6 +259,12 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   assert.ok(details(model, [face(7)]).includes('Its mesh is larger than the face (its mesh 325.8 mm^2, the face ' +
     '193.5 mm^2): outlined in red'), details(model, [face(7)]).join('\n'));
   assert.ok(details(model, [face(7)]).includes('Area on the exact geometry: 193.5 mm^2'));
+  // A failed face's cause where its backend said one (problems.ts's faceCausesOf), and only its own.
+  const causes = new Map([[8, 'noConvergence: meshed past its deflection']]);
+  assert.ok(details(model, [face(8)], causes).includes('Cause: noConvergence: meshed past its deflection'));
+  assert.ok(!details(model, [face(7)], causes).some((l) => l.startsWith('Cause:')));
+  assert.ok(!details(model, [face(8)]).some((l) => l.startsWith('Cause:')));
+  assert.ok(!details(model, [part], causes).some((l) => l.startsWith('Cause:')), 'a part: its faces\' only');
   assert.ok(details(model, [part]).includes('Of 2 faces, 1 meshed larger than the face, 1 partly (outlined in red)'),
     details(model, [part]).join('\n'));
   // 8 unsound (unverified, red), 7 as measured; without the deflection, not judged by measures at all.

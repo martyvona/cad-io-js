@@ -176,6 +176,25 @@ double dist(const CurveImpl& c, double t, Vec3 p) {
 
 // -- The reference shapes.
 
+TEST_CASE("joints: a B-spline's knots by their multiplicity against its degree, its range's ends left out") {
+  // A cubic on knots 0, 1 (x1), 2 (x2), 3 (x3), 4: C2 at 1, C1 at 2, C0 at 3.
+  const int32_t in[] = {3, 10, 5, 0, 0, 0, 0, 4, 1, 2, 3, 4};
+  std::vector<double> r = {0, 1, 2, 3, 4};
+  for (int i = 0; i < 10; i++) r.insert(r.end(), {double(i), double(i % 2), 0});
+  Status st;
+  std::unique_ptr<Curve> c = curves::makeBSpline(r.data(), in, 3, st);
+  REQUIRE(c);
+  std::vector<double> j;
+  c->joints({0, 4}, 1, j);
+  CHECK(j == std::vector<double>({2, 3}));
+  c->joints({0, 4}, 0, j);
+  CHECK(j == std::vector<double>({3}));
+  c->joints({0, 4}, 2, j);
+  CHECK(j == std::vector<double>({1, 2, 3}));
+  c->joints({2, 4}, 1, j);
+  CHECK(j == std::vector<double>({3}));
+}
+
 TEST_CASE("reference curvePoint facts: points and derivatives at every variant") {
   int n = 0;
   for (int i = 0; i < fixtures::nReferences; i++) {

@@ -1,19 +1,25 @@
-// Tessellation for our loader: a pool of Web Workers running OCCT, truck or SMLib (the viewer's own worker entry,
-// tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by default; in the import worker (its
+// Tessellation for our loader: a pool of Web Workers running OCCT, truck, SMLib or our own tessellator (tess-cadio)
+// (the viewer's own worker entry, tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by
+// default (never for tess-cadio's debugging switch, whose meshes the cache can't tell apart); in the import worker (its
 // workers nested in it). With a fallback backend, a second pool and cache, for the parts the first fails (cad-scene's
 // FallbackTessellator). The pools are made when first needed and kept for later files; changing a backend, the
 // cache or the workers' count makes new ones. Cancelling (a new file while one is meshing) terminates the workers,
 // which fails the requests still pending. The meshing settings are a profile of the library's (cad-scene's
 // profiles.ts), or custom deflections.
 
-import { FallbackTessellator, MESH_PROFILES, type MeshProfile, type Tessellator } from 'cad-scene';
+import { FallbackTessellator, MESH_PROFILES, meshDeflections, type Deflections, type MeshProfile, type Tessellator }
+  from 'cad-scene';
 import { FIXES_OFF_BY_DEFAULT, HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix } from 'cad-heal/options';
+import { DEFAULT_MIN_ANGLE_DEGREES, KEEP_FAILING } from 'tess-cadio/options';
 import type { DeviceClass } from './device.ts';
 import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/browser';
 import { DEFAULT_TIMEOUT_MS, PoolTessellator, webWorkerHandle } from 'tess-workers/browser';
 import { StepTessellator } from 'step-export';
 
-export type Backend = 'occt' | 'truck' | 'smlib';
+export type Backend = 'occt' | 'truck' | 'smlib' | 'cadio';
+
+/** The backends, in the controls' order. */
+export const BACKEND_NAMES: readonly Backend[] = ['occt', 'truck', 'smlib', 'cadio'];
 
 export interface TessellationSettings {
   backend: Backend;
@@ -40,6 +46,17 @@ export interface TessellationSettings {
   heal: boolean;
   /** Under `heal`, each fix on or off (cad-heal's HEAL_FIXES). */
   healFixes: Record<HealFix, boolean>;
+  /**
+   * tess-cadio's smallest angle in its triangles, degrees (the request's minAngle; 0 none); only asked where tess-cadio
+   * is the backend or the fallback, and its own default (DEFAULT_MIN_ANGLE_DEGREES) not asked at all, so those meshes
+   * and cache entries are the ones made without it.
+   */
+  minAngle: number;
+  /**
+   * Debugging: tess-cadio keeps the faces it would fail for their mesh (tess-cadio/options' KEEP_FAILING), so a
+   * failing face's triangles can be seen (and no fallback meshes it); its meshes never cached.
+   */
+  keepFailing: boolean;
 }
 
 /** The fixes as cad-heal has them by default. */
@@ -61,8 +78,26 @@ export function profileSettings(profile: MeshProfile): Pick<TessellationSettings
  * HEAL_BY_DEFAULT. */
 export function defaultSettings(profile: MeshProfile): TessellationSettings {
   return { backend: 'occt', fallback: 'smlib', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT,
-    heal: HEAL_BY_DEFAULT, healFixes: defaultFixes() };
+    heal: HEAL_BY_DEFAULT, healFixes: defaultFixes(), minAngle: DEFAULT_MIN_ANGLE_DEGREES, keepFailing: false };
 }
+
+/** Whether tess-cadio meshes with these settings: as the backend or the fallback. */
+export const usesCadio = (s: Pick<TessellationSettings, 'backend' | 'fallback'>) =>
+  s.backend === 'cadio' || fallbackOf(s) === 'cadio';
+
+/**
+ * The request's minAngle the settings ask (radians), or none: tess-cadio not meshing, the setting absent (an older
+ * recording's) or tess-cadio's own default.
+ */
+export function minAngleOf(s: Pick<TessellationSettings, 'backend' | 'fallback'> & Partial<Pick<TessellationSettings,
+  'minAngle'>>): number | undefined {
+  if (!usesCadio(s) || s.minAngle === undefined || s.minAngle === DEFAULT_MIN_ANGLE_DEGREES) return undefined;
+  return s.minAngle * Math.PI / 180;
+}
+
+/** Whether tess-cadio's debugging switch is on and tess-cadio meshes. */
+export const keepsFailing = (s: Pick<TessellationSettings, 'backend' | 'fallback'> &
+  Partial<Pick<TessellationSettings, 'keepFailing'>>) => !!s.keepFailing && usesCadio(s);
 
 /**
  * The healing the settings ask for, as a key: '' for none (heal off, or an older recording's settings without it),
@@ -79,6 +114,15 @@ export function fallbackOf(s: Pick<TessellationSettings, 'backend' | 'fallback'>
   return !s.fallback || s.fallback === 'none' || s.fallback === s.backend ? undefined : s.fallback;
 }
 
+/**
+ * The level the settings make, as chooseLod is asked for it: their deflections (radians) and the smallest angle they
+ * ask (minAngleOf), where they ask one.
+ */
+export function wantedOf(s: TessellationSettings): Deflections & { minAngle?: number } {
+  const min = minAngleOf(s);
+  return { ...meshDeflections(deflectionsOf(s)), ...(min !== undefined ? { minAngle: min } : {}) };
+}
+
 /** What tessellateScene takes for the settings: the profile by name, or the custom deflections (in radians). */
 export function deflectionsOf(s: TessellationSettings): { profile: MeshProfile } | { linearDeflection: number;
   angularDeflection: number } {
@@ -88,10 +132,14 @@ export function deflectionsOf(s: TessellationSettings): { profile: MeshProfile }
 
 export const CACHE_NAME = 'cad-viewer';
 
+/** What describe() adds to the backend's name while tess-cadio keeps the faces it would fail. */
+export const KEPT_FAILING = '(debugging: tess-cadio keeps the faces it would fail)';
+
 const BACKENDS: Record<Backend, { module: string; export: string }> = {
   occt: { module: 'tess-occt', export: 'OcctTessellator' },
   truck: { module: 'tess-truck', export: 'TruckTessellator' },
   smlib: { module: 'tess-smlib', export: 'SmlibTessellator' },
+  cadio: { module: 'tess-cadio', export: 'CadioTessellator' },
 };
 
 /**
@@ -103,7 +151,8 @@ export function workerCount(device: DeviceClass, cores = navigator.hardwareConcu
 }
 
 export class Tessellation {
-  private current?: { key: string; tess: Tessellator; pool: PoolTessellator; caches: CachedTessellator[] };
+  private current?: { key: string; tess: Tessellator; pool: PoolTessellator; caches: CachedTessellator[];
+    debug: boolean };
   /** Pools made so far. */
   private pools = 0;
 
@@ -116,25 +165,28 @@ export class Tessellation {
     // (A new pool for another timeout too: a pool's is fixed.)
     const timeout = s.timeout ?? DEFAULT_TIMEOUT;
     const fallback = fallbackOf(s);
-    const key = `${s.backend}:${fallback ?? 'none'}:${s.cache}:${workers}:${timeout}`;
+    const debug = keepsFailing(s);
+    const key = `${s.backend}:${fallback ?? 'none'}:${s.cache}:${workers}:${timeout}:${debug}`;
     if (this.current?.key !== key) {
       this.dispose();
       const store = s.cache ? new IndexedDbStore({ name: CACHE_NAME }) : undefined;
       const caches: CachedTessellator[] = [];
       const make = (b: Backend) => {
+        const kept = debug && b === 'cadio';
         const pool = new PoolTessellator(
           () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
-          { backend: BACKENDS[b], workers, timeoutMs: Math.max(0, timeout) * 1000 });
+          { backend: { ...BACKENDS[b], ...(kept ? { options: { ...KEEP_FAILING } } : {}) }, workers,
+            timeoutMs: Math.max(0, timeout) * 1000 });
         // (Every backend here takes models, which StepTessellator passes through, adding the open-edge error and the
         // oracle's areas; OCCT's STEP route would get them written as STEP. After the cache, which keys on the model.)
         const step = new StepTessellator(pool);
-        const cached = store && new CachedTessellator(step, store);
+        const cached = store && !kept ? new CachedTessellator(step, store) : undefined;
         if (cached) caches.push(cached);
         return { pool, tess: cached ?? step };
       };
       const first = make(s.backend);
       const tess = fallback ? new FallbackTessellator(first.tess, make(fallback).tess) : first.tess;
-      this.current = { key, tess, pool: first.pool, caches };
+      this.current = { key, tess, pool: first.pool, caches, debug };
       this.pools++;
       try {
         await tess.init();
@@ -153,7 +205,7 @@ export class Tessellation {
   describe(): { backend: string; cache?: CacheStats; pools: number } | undefined {
     const c = this.current;
     if (!c) return undefined;
-    const backend = `${c.tess.info.name} ${c.tess.info.version}`;
+    const backend = `${c.tess.info.name} ${c.tess.info.version}${c.debug ? ` ${KEPT_FAILING}` : ''}`;
     if (!c.caches.length) return { backend, pools: this.pools };
     const all = c.caches.map((t) => t.stats());
     const sum = (k: keyof CacheStats) => all.reduce((n, x) => n + x[k], 0);
