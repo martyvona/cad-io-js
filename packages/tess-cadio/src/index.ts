@@ -19,6 +19,11 @@ const API_VERSION = 9;
 export const INSERTED_HEAD = 'points inserted, by what queued their triangle: ';
 export const INSERTED_KINDS = ['size', 'thinness', 'refused (no kind)', 'deviation in closed form', 'deviation sampled',
   'deviation bounded', 'deviation near a pole', 'a normal against the facet', 'normals apart', 'refused (other kind)'];
+/**
+ * With countRounds, an info diagnostic of this head then the part's rounds of splitting edges and meshing their faces
+ * again (part.h's PartMesher::rounds; PartOptions::maxSplitRounds the most).
+ */
+export const ROUNDS_HEAD = 'split rounds: ';
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -138,6 +143,8 @@ export interface CadioInitOptions {
    * (tc_diag's "thin"); the same mesh; default false.
    */
   countAngles?: boolean;
+  /** Say the part's split rounds in an info diagnostic (ROUNDS_HEAD); the same mesh; default false. */
+  countRounds?: boolean;
   /**
    * Fail a face whose refinement reached its point cap (part.h's PartOptions::failCapped), and one with a triangle
    * turned against its surface (failTurnedOver); default true each. False keeps them as meshed, for measuring.
@@ -177,6 +184,7 @@ export class CadioTessellator implements Tessellator {
   private deviationFactor = 1;
   private countInsertions = false;
   private countAngles = false;
+  private countRounds = false;
   private failCapped = true;
   private failTurnedOver = true;
   private maxPoints = 0;
@@ -193,6 +201,7 @@ export class CadioTessellator implements Tessellator {
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
     this.countInsertions = opts.countInsertions ?? false;
     this.countAngles = opts.countAngles ?? false;
+    this.countRounds = opts.countRounds ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
@@ -339,6 +348,9 @@ export class CadioTessellator implements Tessellator {
         + `every corner on the boundary ${sum(8)}, an edge frozen ${sum(9)}, within the floor ${sum(10)}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
+    if (this.countRounds && typeof diag.rounds === 'number') {
+      diagnostics.push({ severity: 'info', message: `${ROUNDS_HEAD}${diag.rounds}` });
+    }
     // (Faces whose refinement asked for a pole ring's segment to be split, which a ring's never is: their triangles
     // there refused for good. With the rounds it asked in.)
     const blocked = list('ringBlocked'), blockedRounds = list('ringBlockedRounds');

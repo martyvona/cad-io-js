@@ -48,6 +48,11 @@
 //                the parts it meshes: the same meshes, but up to 2 x its CPU time, so its times and the parts over
 //                CPU_MS aren't comparable with a run without it; with PLANT=insertions, ours's count by size said a
 //                million more on the planted part, which must show in the tally
+//   ROUNDS=<prefix> ours says each part's split rounds (tess-cadio's countRounds; the same meshes), tallied (at the
+//                cap of 24, 16 to 23, under 16, and parts over CPU_MS by the last round their progress named) and
+//                listed from 16 up, and a line per part into <prefix>.<pid>.tsv (one file per process): the part,
+//                its rounds (>=N where over CPU_MS: the last round seen), faces still wanting splits when the rounds
+//                ran out, faces failed, CPU ms, triangles, ours's status
 //   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
 //                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
 //                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
@@ -69,7 +74,7 @@ import { type BrepData, decode } from '../packages/cad-brep/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { BEYOND_REPAIR, beyondRepair, CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
-import { INSERTED_HEAD, INSERTED_KINDS } from '../packages/tess-cadio/src/index.ts';
+import { INSERTED_HEAD, INSERTED_KINDS, ROUNDS_HEAD } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
 import { addInto, division, initAll, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
@@ -99,6 +104,9 @@ const imported = (f: string) => importStep(readStep(f), IMPORT);
 const analysisOf = (p: { brep?: { analysis?: { buffer: ArrayBufferLike } } }) =>
   (p.brep?.analysis ? { analysis: new Uint8Array(p.brep.analysis.buffer) } : {});
 const INSERTIONS = process.env.INSERTIONS === '1';
+const ROUNDS = process.env.ROUNDS ?? '';
+/** tess-cadio's most split rounds (part.h's PartOptions::maxSplitRounds), and where a part's are many. */
+const ROUND_CAP = 24, MANY_ROUNDS = 16;
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
 const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
@@ -338,6 +346,11 @@ const fresh = () => ({
   // INSERTIONS: ours's points inserted over the parts it meshes, by INSERTED_KINDS, and the parts that said none.
   inserted: INSERTED_KINDS.map(() => 0),
   insertedUnsaid: 0,
+  // ROUNDS: parts by their split rounds (at the cap, MANY_ROUNDS to the cap, fewer, over CPU_MS), those that said
+  // none, and the parts from MANY_ROUNDS up (a line each).
+  rounds: [0, 0, 0, 0],
+  roundsUnsaid: 0,
+  manyRounds: [] as string[],
 });
 type Tallies = ReturnType<typeof fresh>;
 const bump = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
@@ -444,7 +457,8 @@ export const check: FileCheck<string, Tallies> = {
     const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
     const pool = (pkg: string, cls: string, cpu: boolean) => new WorkerTessellator({
       backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls,
-        ...(cpu && INSERTIONS ? { options: { countInsertions: true } } : {}) }, workers,
+        ...(cpu && (INSERTIONS || ROUNDS) ? { options: { ...(INSERTIONS ? { countInsertions: true } : {}),
+          ...(ROUNDS ? { countRounds: true } : {}) } } : {}) }, workers,
       ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS } : { timeoutMs: TIMEOUT_MS }) });
     pools = { cadio: pool(PKG.cadio, 'CadioTessellator', true), occt: pool(PKG.occt, 'OcctTessellator', false),
       smlib: pool(PKG.smlib, 'SmlibTessellator', false) };
@@ -521,6 +535,24 @@ export const check: FileCheck<string, Tallies> = {
       if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
       if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
       const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
+      if (ROUNDS && rows) {
+        // Its rounds as said, or (over CPU_MS) at least the last its progress named; its faces still wanting splits.
+        const said = ours.result?.diagnostics.find((x) => x.message.startsWith(ROUNDS_HEAD));
+        const seen = ours.status === OVER ? Number(/split round (\d+)/.exec(ours.why)?.[1] ?? 0) : undefined;
+        const n = said ? Number(said.message.slice(ROUNDS_HEAD.length)) : seen;
+        if (n === undefined) T.roundsUnsaid++;
+        else T.rounds[seen !== undefined ? 3 : n >= ROUND_CAP ? 0 : n >= MANY_ROUNDS ? 1 : 2]!++;
+        const unsplit = Number(/^(\d+) faces still wanting their edges split/.exec(ours.result?.diagnostics.find((x) =>
+          /still wanting their edges split/.test(x.message))?.message ?? '')?.[1] ?? 0);
+        const failed = rows - ours.meshed.size, cpuMs = times?.cpuMs;
+        const triangles = ours.result ? ours.result.indices.length / 3 : 0;
+        const rounds = n === undefined ? '' : seen !== undefined ? `>=${n}` : String(n);
+        const cpuText = cpuMs === undefined ? '-' : (cpuMs / 1000).toFixed(1);
+        if (n !== undefined && n >= MANY_ROUNDS) T.manyRounds.push(`${where} (${rows} faces): ${rounds} rounds, `
+          + `${unsplit} faces unsplit, ${failed} failed, ${cpuText} s CPU, ${triangles} triangles, ${ours.status}`);
+        fs.appendFileSync(`${ROUNDS}.${process.pid}.tsv`, [where, rounds, unsplit, failed, cpuMs === undefined ? ''
+          : Math.round(cpuMs), triangles, ours.status].join('\t') + '\n');
+      }
       const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids, planted?.tilted)
         : undefined;
       const modelIds = new Set(ids);
@@ -701,6 +733,12 @@ function report(label: string, T: Tallies): void {
       `${k} ${T.inserted[i]} (${all ? ((100 * T.inserted[i]!) / all).toFixed(1) : '0'}%)`).join(', ')}; parts `
       + `that said none ${T.insertedUnsaid}`);
   }
+  if (ROUNDS) {
+    const [cap, many, few, over] = T.rounds;
+    console.log(`  our split rounds per part: at the cap of ${ROUND_CAP} ${cap}, ${MANY_ROUNDS} to ${ROUND_CAP - 1} `
+      + `${many}, under ${MANY_ROUNDS} ${few}, over ${CPU_MS / 1000} s CPU (by the last round seen) ${over}, said none `
+      + `${T.roundsUnsaid}; from ${MANY_ROUNDS} up, listed below`);
+  }
   if (PLANT) {
     console.log(`  planted: ${T.planted.cases} cases, ${T.planted.seen} seen as expected, ${T.planted.missed.length} `
       + 'missed');
@@ -716,6 +754,11 @@ function report(label: string, T: Tallies): void {
   console.log(`\n### Parts ours meshes, but slower than ${SLOW_MS / 1000} s of CPU (${T.slow.length}): its CPU and `
     + `wall times, its status`);
   for (const x of [...T.slow].sort()) console.log(`  ${x}`);
+  if (ROUNDS) {
+    console.log(`\n### Parts ours split in ${MANY_ROUNDS} or more rounds (${T.manyRounds.length}): rounds (>=N: over `
+      + 'the CPU cap, the last seen), faces still wanting splits, failed, CPU, triangles, status');
+    for (const x of [...T.manyRounds].sort()) console.log(`  ${x}`);
+  }
   console.log(`\n### Faces without our triangles (${T.unmeshed.length}): our cause; the references; the class`);
   for (const x of [...T.unmeshed].sort()) console.log(`  ${x}`);
   if (SURVEY) {
