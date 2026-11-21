@@ -1426,3 +1426,40 @@ TEST_CASE("splits: a sample inside the span asked, clamped, the rest kept; bad r
   CHECK(em.split({{1, static_cast<int32_t>(t1.size()) - 1, 0.5}}) == cadgeom::Status::invalidModel);
   CHECK(em.edge(1).t == t1);
 }
+
+TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, poleDipFarLoose): each use's samples at "
+          "the pole beside its pole line on the line, S there no farther from their points than the pole (part_test "
+          "meshes them)") {
+  // (poleDipFar's ends 1e-7 past the pole: doubled across it, their copies at the line's ends, which fold repair
+  // must leave there. poleDipFarLoose's 2e-3 past it at an uncertainty of 0.01, as LMP1 #172878's: no sample at the
+  // pole, its ends at the pole by their points taking a neighbour's free coordinate, the meridian they came down by,
+  // which off the line put S farther from them than the pole and the boundary through its own point.)
+  for (const char* name : {"poleDipFar", "poleDipFarLoose"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    EdgeMesh em(m, o);
+    const FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
+    REQUIRE(s != nullptr);
+    const Vec3 pole{0, 0, -1};
+    int beside = 0;
+    for (const auto& loop : fb.loops)
+      for (size_t i = 0; i < loop.size(); i++) {
+        const BoundaryPoint& q = loop[i];
+        const BoundaryPoint &a = loop[(i + loop.size() - 1) % loop.size()], &b = loop[(i + 1) % loop.size()];
+        const double d = cadgeom::norm(q.point - pole);
+        if (q.kind != BoundaryPoint::edgeSample || d > 0.01) continue;
+        if (a.kind != BoundaryPoint::poleLine && b.kind != BoundaryPoint::poleLine) continue;
+        beside++;
+        CHECK(q.uv.y == -M_PI / 2);
+        cadgeom::SurfacePoint sp;
+        s->eval(q.uv.x, q.uv.y, 0, sp);
+        CHECK(cadgeom::norm(sp.p - q.point) <= d * (1 + 1e-9) + 1e-15);
+      }
+    CHECK(beside >= 2);
+    CHECK(fb.foldsRepaired == 0);
+  }
+}

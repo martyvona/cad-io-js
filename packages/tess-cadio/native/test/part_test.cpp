@@ -2478,17 +2478,18 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
-TEST_CASE("the rounds end once no split changes an edge: passBy's face still asks a split EdgeMesh::split drops") {
+TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
+          "the rounds short of the cap") {
   // (Meshing it again on the same edges would ask the same, every round to the cap.)
-  cadgeom::Model m = load("passBy");
-  PartOptions o = options(0.1, 0.26);
+  cadgeom::Model m = load("kinkStrip");
+  PartOptions o = options(0.5, 0.26);
   o.maxDeviationFactor = 0;
   PartMesher pm(m, o);
   int wanting = 0;
   for (int f = 0; f < m.faces(); f++)
     wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
   CHECK(wanting > 0);
-  CHECK_EQ(pm.rounds(), 0);
+  CHECK(pm.rounds() < o.maxSplitRounds);
 }
 
 namespace {
@@ -2787,5 +2788,32 @@ TEST_CASE("the same part twice: the same points, normals and triangles, bit for 
         same = key(x.points[i]) == key(y.points[i]) && key(x.normals[i]) == key(y.normals[i]);
       CHECK(same);
     }
+  }
+}
+
+TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, poleDipFarLoose): the face meshed, its "
+          "area poleDip's but for the bit past the pole") {
+  // (edges_test checks their boundaries: each use's end at the pole on the pole line. Off it, poleDipFarLoose's
+  // boundary went through its own point, LMP1 #172878 face #1063482's. The face is the sphere but for poleDip's lune,
+  // its vertex moved past the pole by at most 2e-3.)
+  auto area = [](const FaceMesh& fm) {
+    double a = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      a += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return a;
+  };
+  const cadgeom::Model dip = load("poleDip");
+  PartMesher ref(dip, options(0.1, 0.26));
+  REQUIRE(ref.face(0).status == cadgeom::Status::ok);
+  const double want = area(ref.face(0));
+  for (const char* name : {"poleDipFar", "poleDipFarLoose"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.1, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("    %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(std::fabs(area(fm) - want) <= 0.01);
   }
 }

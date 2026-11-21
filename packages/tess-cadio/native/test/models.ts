@@ -1073,6 +1073,51 @@ export function poleDip(): BrepBuilder {
   return b;
 }
 
+/**
+ * poleDip with its vertex at the pole moved `delta` past it, to u = 5 pi / 4 (LMP1 #172878 edge #563481's end on
+ * face #1063482's sphere, 0.149 from the pole at a tolerance of 0.2): each meridian runs down through the pole and
+ * stops delta beyond it on the far side, within the vertex's tolerance (0.01) of it. Projected (no p-curves), with
+ * delta within the part's tolerance each use's end is at the pole by its point: its free coordinate a neighbour's,
+ * the meridian it came down by.
+ */
+export function poleDipFar(delta = 1e-7, uncertainty?: number): BrepBuilder {
+  const b = new BrepBuilder(uncertainty === undefined ? {} : { uncertainty });
+  const at = (u: number, v: number) => [Math.cos(v) * Math.cos(u), Math.cos(v) * Math.sin(u), Math.sin(v)];
+  const sub = (x: number[], y: number[]) => x.map((xi, i) => xi - y[i]!);
+  const crossP = (x: number[], y: number[]) => [x[1]! * y[2]! - x[2]! * y[1]!, x[2]! * y[0]! - x[0]! * y[2]!,
+    x[0]! * y[1]! - x[1]! * y[0]!];
+  const dotP = (x: number[], y: number[]) => x[0]! * y[0]! + x[1]! * y[1]! + x[2]! * y[2]!;
+  const unit = (x: number[]) => x.map((xi) => xi / Math.hypot(...x));
+  const A = at(0, -1.2), B = at(Math.PI / 2, -1.2), C = at(Math.PI / 4, -1.3);
+  let n = unit(crossP(sub(B, A), sub(C, A)));
+  const k = dotP(n, A), centre = n.map((x) => k * x), radius = Math.sqrt(1 - k * k);
+  const xDir = unit(sub(A, centre));
+  let yDir = crossP(n, xDir);
+  const angle = (p: number[]) => {
+    const w = sub(p, centre);
+    return Math.atan2(dotP(w, yDir), dotP(w, xDir));
+  };
+  if (angle(C) < 0) n = n.map((x) => -x), yDir = crossP(n, xDir);
+  let tb = angle(B);
+  if (tb < 0) tb += 2 * Math.PI;
+  const tol = 0.01;
+  const vs = b.addVertex({ point: at(5 * Math.PI / 4, -Math.PI / 2 + delta), tolerance: tol });
+  const va = b.addVertex({ point: A, tolerance: tol }), vb = b.addVertex({ point: B, tolerance: tol });
+  const meridian = (u: number) => b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0],
+    axis: [Math.sin(u), -Math.cos(u), 0], xDir: [Math.cos(u), Math.sin(u), 0] }, radius: 1 });
+  // (Past -pi / 2 a meridian's parameter is on the far side: (cos v cos u, ...) with cos v < 0.)
+  const m0 = b.addEdge({ curve: meridian(0), start: vs, end: va, sameSense: true, range: [-Math.PI / 2 - delta, -1.2],
+    tolerance: tol });
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: centre, axis: n, xDir }, radius }),
+    start: va, end: vb, sameSense: true, range: [0, tb], tolerance: tol });
+  const m1 = b.addEdge({ curve: meridian(Math.PI / 2), start: vs, end: vb, sameSense: true,
+    range: [-Math.PI / 2 - delta, -1.2], tolerance: tol });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    tolerance: tol, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: m0, orientation: 'forward' },
+      { edge: arc, orientation: 'forward' }, { edge: m1, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 export const bandHoleAtVertex = (): BrepBuilder => bandWithHole(false);
 export const bandHoleOnCut = (): BrepBuilder => bandWithHole(true);
 
@@ -2023,12 +2068,11 @@ export function curlBack(): BrepBuilder {
 }
 
 /**
- * The unit sphere's side of a great circle that passes 5e-4 from its north pole, its vertex on the far side (no
- * sample near the pole), the model's uncertainty 1e-3: the circle is incident to the pole without ending there.
+ * The unit sphere's side of a great circle that passes `delta` (5e-4) from its north pole, its vertex on the far side
+ * (no sample near the pole), the model's uncertainty 1e-3: the circle is incident to the pole without ending there.
  */
-export function passBy(): BrepBuilder {
+export function passBy(delta = 5e-4): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-3 });
-  const delta = 5e-4;
   // The circle's plane: normal (0, -cos delta, sin delta), so its nearest point to the pole is (0, sin delta,
   // cos delta); its vertex the far point, (0, -sin delta, -cos delta).
   const axis = [0, -Math.cos(delta), Math.sin(delta)], far = [0, -Math.sin(delta), -Math.cos(delta)];
@@ -2082,7 +2126,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
   clampedCorner: () => clampedCorner(),
   clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
-  bandTwoSlots, poleDip,
+  bandTwoSlots, poleDip, poleDipFar: () => poleDipFar(), poleDipFarLoose: () => poleDipFar(2e-3, 0.01),
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,

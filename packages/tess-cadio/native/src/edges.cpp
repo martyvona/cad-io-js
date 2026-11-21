@@ -529,6 +529,10 @@ struct EdgeMesh::Impl {
         const BoundaryPoint &A = L[(i + k - 1) % k], &C = L[(i + 1) % k];
         BoundaryPoint& B = L[i];
         if (B.kind == BoundaryPoint::poleLine) continue;
+        // (Nor beside a pole line: there the point is the pole's in 3D but for the tolerance, its corner with the line
+        // a parameterization's, and S_u x S_v, a hair from zero, no turn's measure. A sample doubled across the line,
+        // its copies at the line's ends, would be moved off it onto chords that cross: OCC5099 #14343 face #9710.)
+        if (A.kind == BoundaryPoint::poleLine || C.kind == BoundaryPoint::poleLine) continue;
         const Vec2 ab = B.uv - A.uv, bc = C.uv - B.uv;
         const double s2 = ab.x * bc.y - ab.y * bc.x;
         if (!(s2 > 1e-12 * norm(ab) * norm(bc))) continue;
@@ -2283,6 +2287,29 @@ struct EdgeMesh::Impl {
     } else if (loops.empty()) {
       out.status = worse(out.status, Status::unsupported);
       because("no edge loops, and its surface's natural extent doesn't close (a whole plane, cylinder or cone)");
+    }
+    // A sample at a pole (its point within the tolerance of it, as poleAt has it) on the pole line in (u, v): its free
+    // coordinate there is a neighbour's (computeCoedge), its other one its own, off the line, so S there can be far
+    // from its point and the line's fill beside it stubs in and out (LMP1 #172878 face #1063482: edge #563481's end,
+    // 0.149 from the pole, took the meridian it came down by, 0.3 off; OCC5099 #14343 face #7855). On the line, S
+    // is the pole, within the tolerance. Only where the loop runs along that pole line next to it (a pole-line point
+    // beside it): a loop merely passing within the tolerance of a pole keeps its (u, v), which moved would turn the
+    // triangles beside them.
+    for (auto& l : loops) {
+      const size_t n = l.size();
+      std::vector<Vec2> moved(n);
+      std::vector<char> move(n, 0);
+      for (size_t i = 0; i < n; i++) {
+        const BoundaryPoint& q = l[i];
+        if (q.kind != BoundaryPoint::edgeSample || n < 3) continue;
+        const int p = poleAt(f, q.point);
+        if (p < 0) continue;
+        const BoundaryPoint &a = l[(i + n - 1) % n], &b = l[(i + 1) % n];
+        if (a.kind != BoundaryPoint::poleLine && b.kind != BoundaryPoint::poleLine) continue;
+        moved[i] = q.uv, (F.sing[p].isoU ? moved[i].x : moved[i].y) = F.sing[p].at, move[i] = 1;
+      }
+      for (size_t i = 0; i < n; i++)
+        if (move[i]) l[i].uv = moved[i];
     }
     out.foldsRepaired = repairFolds(f, loops);
     out.loops = std::move(loops);
