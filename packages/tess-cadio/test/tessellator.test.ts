@@ -9,9 +9,9 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
+import { CAUSES_HEAD, failedCauses } from '../src/causes.ts';
 import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, cuspPocket_, fold, halfCap, knotAtEnd,
-  loopless,
-  luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+  loopless, luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
@@ -296,12 +296,30 @@ test('faces failed to mesh, each by status and cause: a plane with no loops (no 
     assert.equal(r.faces.length, 2);
     assert.equal(r.faces[0]!.count, 0);
     assert.ok(r.faces[1]!.count > 0);
-    const m = r.diagnostics.find((x) => x.message.startsWith('faces failed to mesh, by cause: '));
+    const m = r.diagnostics.find((x) => x.message.startsWith(CAUSES_HEAD));
     assert.ok(m, JSON.stringify(r.diagnostics));
-    const want = 'faces failed to mesh, by cause: unsupported: no edge loops, and its surface\'s natural extent '
-      + 'doesn\'t close (a whole plane, cylinder or cone) 1 (#';
-    assert.ok(m.message.startsWith(want), m.message);
+    const cause = 'unsupported: no edge loops, and its surface\'s natural extent doesn\'t close (a whole plane, '
+      + 'cylinder or cone)';
+    assert.ok(m.message.startsWith(`faces failed to mesh, by cause: ${cause} 1 (#`), m.message);
+    // Read back (causes.ts): the failed face's id (0: the test model's faces have none) to its cause, nothing for the
+    // one meshed.
+    assert.deepEqual([...failedCauses(r)], [[0, cause]]);
   });
+
+test('failedCauses: each entry\'s faces to its "status: cause", a cause holding colons, digits and brackets kept '
+  + 'whole; other diagnostics and malformed entries left out', () => {
+  const d = (message: string) => ({ message });
+  // (A message without the head, its length's worth of other words before one that would read as an entry.)
+  const got = failedCauses({ diagnostics: [d('3 faces failed to mesh: #1, #2, #30'),
+    d(`${'x'.repeat(CAUSES_HEAD.length)}other: words 1 (#5)`),
+    d(`${CAUSES_HEAD}noConvergence: meshed past its deflection: at least 1.5 x (0.2 mm) 2 (#1, #30); `
+      + 'singular: a seam\'s side (u, v) 1 (#2); bad entry; unknown: x 1 (#)'),
+    d(`${CAUSES_HEAD}invalidModel: y 1 (#7)`)] });
+  assert.deepEqual([...got], [[1, 'noConvergence: meshed past its deflection: at least 1.5 x (0.2 mm)'],
+    [30, 'noConvergence: meshed past its deflection: at least 1.5 x (0.2 mm)'], [2, 'singular: a seam\'s side (u, v)'],
+    [7, 'invalidModel: y']]);
+  assert.equal(failedCauses({ diagnostics: [] }).size, 0);
+});
 
 test('progress: each face as it starts, throttled to one report per 100 ms; a real part reports its faces', { skip },
   async () => {

@@ -6,6 +6,13 @@
 
 namespace cadgeom {
 
+/**
+ * std::fmin and std::fmax (a NaN gives the other argument) as comparisons: in WebAssembly the library's are calls,
+ * and boxes and bounds make them by the million. -0 against +0 gives the first argument, either zero.
+ */
+inline double minNum(double a, double b) { return b < a || a != a ? b : a; }
+inline double maxNum(double a, double b) { return b > a || a != a ? b : a; }
+
 struct Vec2 {
   double x = 0, y = 0;
 };

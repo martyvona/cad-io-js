@@ -8,6 +8,7 @@
 #include "cad_geom/curve.h"
 #include "cad_geom/model.h"
 #include "cad_geom/surface.h"
+#include "cad_geom/tolerance.h"
 #include "cad_oracle/oracle.h"
 
 namespace cadoracle {
@@ -22,6 +23,8 @@ struct Oracle::Impl {
   ~Impl();
 
   const Model model;
+  /** The face API's tolerances (tolerance.h): a face's surface closes in fact at its face's. */
+  const cadgeom::Tolerances tols;
   const Options options;
   /** The face API's handle (cg_model_new), -1 where the model didn't open. */
   int32_t h = -1;
@@ -39,7 +42,8 @@ struct Oracle::Impl {
 
   FaceMeasure closedForm(int face);
   FaceMeasure swept(int face);
-  /** faceIntegral (oracle.h), on the faces closedForm and swept measure. */
+  FaceMeasure freeForm(int face);
+  /** faceIntegral (oracle.h), on the faces closedForm, swept and freeForm measure. */
   std::vector<Estimate> integral(int face, const Integrand& g);
 
 private:

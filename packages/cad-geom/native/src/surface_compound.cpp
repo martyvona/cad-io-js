@@ -67,7 +67,7 @@ public:
     if (s != Status::ok) return s;
     if (k == 0) {
       if (!finite(rv)) return out = entireBox(), Status::outOfDomain;
-      out = widen(out + scaled({rv.lo, rv.hi}, D_), 4 * kEps * std::fmax(std::fabs(rv.lo), std::fabs(rv.hi))
+      out = widen(out + scaled({rv.lo, rv.hi}, D_), 4 * kEps * maxNum(std::fabs(rv.lo), std::fabs(rv.hi))
         * maxAbs(D_));
     }
     return Status::ok;
@@ -315,7 +315,7 @@ public:
     Status s = b_->derivs(u, v, order + 1, B);
     if (s != Status::ok && s != Status::outOfDomain) return s;
     Vec3 su = B[pidx(1, 0)], sv = B[pidx(0, 1)];
-    double big = std::fmax(norm(su), norm(sv));
+    double big = maxNum(norm(su), norm(sv));
     if (!(big > 0) || norm(cross(su, sv)) <= 1e-14 * big * big) {
       // Where the basis's normal vanishes (its pole): the point moved along the normal's limit there, its partials
       // the basis's (the offset's own are undefined).
@@ -482,8 +482,8 @@ public:
     b_->breaks(ru, rv, us, vs);
   }
   Status derivBox(Range ru, Range rv, int k, int l, Box3& out) const override {
-    if (!uP_) ru = {std::fmax(ru.lo, u_.lo), std::fmin(ru.hi, u_.hi)};
-    if (!vP_) rv = {std::fmax(rv.lo, v_.lo), std::fmin(rv.hi, v_.hi)};
+    if (!uP_) ru = {maxNum(ru.lo, u_.lo), minNum(ru.hi, u_.hi)};
+    if (!vP_) rv = {maxNum(rv.lo, v_.lo), minNum(rv.hi, v_.hi)};
     if (!(ru.lo <= ru.hi) || !(rv.lo <= rv.hi)) return out = entireBox(), Status::outOfDomain;
     return b_->derivBox(ru, rv, k, l, out);
   }
@@ -498,8 +498,8 @@ public:
   }
   void within(Vec3 p, double d, Range& ru, Range& rv) const override {
     b_->within(p, d, ru, rv);
-    ru = {std::fmax(ru.lo, u_.lo), std::fmin(ru.hi, u_.hi)};
-    rv = {std::fmax(rv.lo, v_.lo), std::fmin(rv.hi, v_.hi)};
+    ru = {maxNum(ru.lo, u_.lo), minNum(ru.hi, u_.hi)};
+    rv = {maxNum(rv.lo, v_.lo), minNum(rv.hi, v_.hi)};
   }
   bool footCandidates(Vec3 p, Range ru, Range rv, double tol, std::vector<Vec2>& out) const override {
     return b_->footCandidates(p, ru, rv, tol, out);
@@ -539,8 +539,8 @@ std::unique_ptr<SurfaceImpl> makeTrimmed(std::unique_ptr<SurfaceImpl> basis, con
   status = Status::invalidModel;
   if (!(r[0] != r[1]) || !(r[2] != r[3])) return nullptr;
   status = Status::ok;
-  return std::make_unique<Trimmed>(std::move(basis), Range{std::fmin(r[0], r[1]), std::fmax(r[0], r[1])},
-    Range{std::fmin(r[2], r[3]), std::fmax(r[2], r[3])});
+  return std::make_unique<Trimmed>(std::move(basis), Range{minNum(r[0], r[1]), maxNum(r[0], r[1])},
+    Range{minNum(r[2], r[3]), maxNum(r[2], r[3])});
 }
 
 } // namespace surfaces

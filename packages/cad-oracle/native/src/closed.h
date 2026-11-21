@@ -2,16 +2,16 @@
 // integral of F du dv over the face is oint H du with dH/dv = -F. The boundary is each edge's 3D curve between its
 // vertices' parameters (the face API's edgeParams), each point mapped to (u, v) by the surface's closed-form inverse
 // and du/dt by the chain rule from the curve's derivative, so u is never unwrapped and a loop winding the axis needs
-// nothing of its own. Each edge's integral is adaptive Gauss-Kronrod per span of its curve (the error the
-// quadrature's estimate). At a joint the loop runs straight in (u, v) from one edge's end to the next's start: zero
-// where they meet, the pole row at a sphere's pole or a cone's apex, where u is the limit along each edge's tangent.
-// H is zero at a cone's apex and at the sphere's pole each edge comes nearer (its north or south: near a pole u' is
-// the rounding of x y' - y x' over the squared distance from the axis, which only H zero there keeps integrable); at
-// the other the jump in u is ambiguous by 2 pi, which changes the sum by the integral over the whole sphere, so
-// spheres' results are reduced modulo it (by the area's). A torus's v is unwrapped along each loop against samples of
-// it (H isn't periodic in v); a loop winding v is flagged (flagWinds). A plane's frame is moved to the face's first
-// edge point (closedFace), so a small face far from its plane's origin neither cancels in H nor rounds in its points. The area (area_closed.cpp) and other integrands
-// (integral.cpp) differ only in H.
+// nothing of its own. Each edge's integral is adaptive Gauss-Kronrod per span of its curve (the error the quadrature's
+// estimate). At a joint the loop runs straight in (u, v) from one edge's end to the next's start: zero where they meet,
+// the pole row at a sphere's pole or a cone's apex, where u is the limit along each edge's tangent. H is zero at a
+// cone's apex and at the sphere's pole each edge comes nearer (its north or south: near a pole u' is the rounding of x
+// y' - y x' over the squared distance from the axis, which only H zero there keeps integrable); at the other the jump
+// in u is ambiguous by 2 pi, which changes the sum by the integral over the whole sphere, so spheres' results are
+// reduced modulo it (by the area's). A torus's v is unwrapped along each loop against samples of it (H isn't periodic
+// in v); a loop winding v is flagged (flagWinds). A plane's frame is moved to the face's first edge point (closedFace),
+// so a small face far from its plane's origin neither cancels in H nor rounds in its points. The area (area_closed.cpp)
+// and other integrands (integral.cpp) differ only in H.
 #pragma once
 
 #include <cmath>

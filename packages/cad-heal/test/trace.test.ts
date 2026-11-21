@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 import { analysisFor, type BrepAnalysis, PROVENANCE, TRACE_STATUS, TRACE_STOP } from 'cad-brep';
 import { Geometry, init } from 'cad-geom';
-import type { Diagnostic, Scene } from 'cad-scene';
-import { type CurvesRecord, healCurves } from '../src/curves.ts';
+import { type Diagnostic, MESH_PROFILES, type Scene } from 'cad-scene';
+import { type CurvesRecord, healCurves, MESH_FIT } from '../src/curves.ts';
 import { ModelEdit } from '../src/edit.ts';
 import { fixesOn, healPart, healScene, traceRows } from '../src/index.ts';
 import { GROWTH } from '../src/fix/tolerance.ts';
@@ -35,7 +36,7 @@ test('a bare coedge on a B-spline the grid can\'t bound: traced, the trace\'s p-
     assert.equal(a.coedge.pcurveFrom[c], PROVENANCE.healed);
     const t = traceRow(a, c)!;
     assert.equal(t.status, TRACE_STATUS.ok);
-    assert.equal(t.tol, 1e-6, 'traced at the edge\'s tolerance');
+    assert.equal(t.tol, 1e-6, 'traced at the edge\'s tolerance (past MESH_FIT x the fine profile\'s deflection)');
     assert.ok(t.offSurface < 1e-6);
     assert.ok(Number.isNaN(t.stopAt) && t.stopWhy === TRACE_STOP.none);
     assert.ok(sameParameterGap(module, r.model, c, [0, 2 * Math.PI]) < 1e-6, 'the p-curve in the curve\'s parameter');
@@ -121,6 +122,24 @@ test('a finished trace with its fit within: the fit kept as the coedge\'s p-curv
   assert.equal(record.deviation[BOTTOM], 0.05);
 });
 
+test('a trace fitted within MESH_FIT x the deflection, the edge\'s tolerance only where that fit fails', () => {
+  // A deflection of 1e-5 (5e-7 the fine fit, under the edge's 1e-6); a tracer whose fit is within only at the edge's
+  // tolerance, or at any.
+  for (const fineOk of [false, true]) {
+    const tols: number[] = [], d = cylinder(), edit = new ModelEdit(d);
+    using g = new Geometry(module, new Uint8Array(d.buffer));
+    const record = healCurves(g, d, new Set(fixesOn()), edit, [], { trace: (c, tol) => (tols.push(tol), {
+      status: 'ok', offSurface: 1e-9, stopAt: NaN, stopWhy: 0,
+      fit: { ...fitted, error: tol / 2, within: fineOk || tol >= 1e-6 } }) }, undefined, 1e-5);
+    const what = fineOk ? 'the fine fit within' : 'the fine fit short';
+    assert.deepEqual(tols.map((t) => t.toExponential(2)), fineOk ? ['5.00e-7', '5.00e-7'] : ['5.00e-7', '1.00e-6',
+      '5.00e-7', '1.00e-6'], what);
+    assert.equal(recorded(record, BOTTOM).tol, fineOk ? MESH_FIT * 1e-5 : 1e-6, `${what}: the tolerance recorded`);
+    assert.equal(record.deviation[BOTTOM], fineOk ? MESH_FIT * 1e-5 / 2 : 5e-7, `${what}: the fit kept`);
+    assert.ok(edit.finish().coedge.pcurve[BOTTOM]! >= 0, what);
+  }
+});
+
 test('healScene sets each healed part\'s analysis beside its model', async () => {
   const model = cylinder();
   const scene = { parts: [{ brep: { model, format: 'step' }, sources: [] }], diagnostics: [] } as unknown as Scene;
@@ -135,4 +154,29 @@ test('the trace rows are written in coedge order whatever order the faces traced
   const rows = traceRows([t(7), t(2), t(5)]);
   assert.deepEqual(rows.coedge, [2, 5, 7]);
   assert.deepEqual(rows.offSurface, [0.2, 0.5, 0.7], 'each column with its row');
+});
+
+test('MESH_FIT mirrors tess-cadio\'s kMeshTolerance (edges.cpp), how the mesher projects a use healing gives none', () => {
+  const src = fs.readFileSync(new URL('../../tess-cadio/native/src/edges.cpp', import.meta.url), 'utf8');
+  const m = /constexpr double kMeshTolerance = ([0-9.e-]+);/.exec(src);
+  assert.ok(m, 'kMeshTolerance found');
+  assert.equal(MESH_FIT, Number(m[1]));
+});
+
+test('healPart\'s meshDeflection reaches the traces: fitted within MESH_FIT x it', async () => {
+  const r = await healPart(cylinder(), { meshDeflection: 1e-5 }, module);
+  const a = await analysisFor(r.model, r.analysis!);
+  assert.equal(traceRow(a, BOTTOM)!.tol, MESH_FIT * 1e-5);
+  assert.ok(r.model.coedge.pcurve[BOTTOM]! >= 0);
+});
+
+test('by default the traces are fitted for the fine profile: MESH_FIT x its deflection, under a coarse tolerance', () => {
+  const d = cylinder();
+  d.edge.tolerance.fill(0.01);
+  const tols: number[] = [];
+  using g = new Geometry(module, new Uint8Array(d.buffer));
+  healCurves(g, d, new Set(fixesOn()), new ModelEdit(d), [], { trace: (c, tol) => (tols.push(tol), { status: 'notMade',
+    offSurface: NaN, stopAt: NaN, stopWhy: 0, fit: { why: 'spy' } }) });
+  assert.equal(tols[0], MESH_FIT * MESH_PROFILES.fine.linearDeflection);
+  assert.equal(tols[1], 0.01, 'then the edge\'s tolerance');
 });

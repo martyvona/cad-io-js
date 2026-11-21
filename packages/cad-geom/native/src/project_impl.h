@@ -79,6 +79,11 @@ void trace(const Job& job, Pcurve& out);
 
 /** fit::curve2's calls from trace, counted for tests (how many attempts a fit took); never reset. */
 extern long traceFits;
+/**
+ * The spans within which a segment past a side is first fitted whole (trace); 0 cuts it straight away. Tests set it
+ * to see the cutting on curves whose corners a whole fit takes in its stride.
+ */
+extern int wholeFirstSpans;
 
 /** projectCurve with the table's forms given directly (projectCurve reads them from its PcurveSource). */
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,

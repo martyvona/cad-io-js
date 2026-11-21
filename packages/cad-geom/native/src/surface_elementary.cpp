@@ -16,11 +16,11 @@ namespace cadgeom {
 namespace surfaces {
 
 Interval sinusoid(double A, double B, Range r) {
-  double R = std::hypot(A, B), T = std::fmax(std::fabs(r.lo), std::fabs(r.hi));
+  double R = std::hypot(A, B), T = maxNum(std::fabs(r.lo), std::fabs(r.hi));
   double m = 8 * kEps * R * (1 + (std::isfinite(T) ? T : 0));
   if (!finite(r) || !(r.hi - r.lo < kTwoPi)) return {-R - m, R + m};
   auto f = [&](double t) { return A * std::cos(t) + B * std::sin(t); };
-  double lo = std::fmin(f(r.lo), f(r.hi)), hi = std::fmax(f(r.lo), f(r.hi));
+  double lo = minNum(f(r.lo), f(r.hi)), hi = maxNum(f(r.lo), f(r.hi));
   double phi = std::atan2(B, A);  // f(phi + j pi) = (-1)^j R
   for (double j = std::ceil((r.lo - phi) / kPi); phi + j * kPi <= r.hi; j++) {
     if (std::fmod(std::fabs(j), 2.0) == 0) hi = R;
@@ -161,7 +161,7 @@ public:
     if (l >= 2) return out = pointBox({}), Status::ok;
     if (l == 0 && !finite(rv)) return out = entireBox(), Status::outOfDomain;
     Interval f = l == 0 ? Interval::hull(r_ + rv.lo * k_, r_ + rv.hi * k_) : Interval::point(k_);
-    f = widen(f, 4 * kEps * (std::fabs(r_) + (l == 0 ? std::fmax(std::fabs(rv.lo), std::fabs(rv.hi)) : 0)
+    f = widen(f, 4 * kEps * (std::fabs(r_) + (l == 0 ? maxNum(std::fabs(rv.lo), std::fabs(rv.hi)) : 0)
       * std::fabs(k_)));
     Box3 b = f * EBox(f_, ru, k);
     if (k == 0) b = b + (l == 0 ? scaled({rv.lo, rv.hi}, f_.z) : pointBox(f_.z));
@@ -252,7 +252,7 @@ public:
     us = {ru.lo, ru.hi}, vs = {rv.lo, rv.hi};
   }
   Status derivBox(Range ru, Range rv, int k, int l, Box3& out) const override {
-    rv = {std::fmax(rv.lo, -kHalfPi), std::fmin(rv.hi, kHalfPi)};
+    rv = {maxNum(rv.lo, -kHalfPi), minNum(rv.hi, kHalfPi)};
     Interval R = Interval::point(R_);
     Box3 b = (R * trigRange(rv, l, false)) * EBox(f_, ru, k);
     if (k == 0) b = b + scaled(R * trigRange(rv, l, true), f_.z);

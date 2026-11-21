@@ -1,5 +1,6 @@
 // The details of a selection, as lines of text (docs/viewer.md): how many of each kind; for one node its name,
-// kind, place in the tree and, for a part, which placement of its part it is; then the totals over what the selection
+// kind, place in the tree and, for a part, which placement of its part it is, for a failed face why where its backend
+// said (`causes`: problems.ts's faceCausesOf); then the totals over what the selection
 // covers: meshes and triangles with their area, lines and segments with their length, points; and the selection's STEP
 // ids (step-ids.ts), cut short past about 50 characters. Millimetres; ASCII only (mm^2).
 
@@ -21,7 +22,7 @@ const KIND_NAMES: Record<Kind, [string, string]> = {
   points: ['set of points', 'sets of points'],
 };
 
-export function details(model: NodeModel, ids: readonly number[]): string[] {
+export function details(model: NodeModel, ids: readonly number[], causes?: ReadonlyMap<number, string>): string[] {
   if (!ids.length) return ['Nothing selected.'];
   const out: string[] = [];
   const counts = new Map<Kind, number>();
@@ -57,6 +58,9 @@ export function details(model: NodeModel, ids: readonly number[]): string[] {
       "Its area couldn't be verified (its geometry is unsound): outlined in red");
     else if (failure === 'failed') out.push(n.face ? 'Failed to mesh: its outline is drawn in red'
       : "Failed to mesh: its faces' outlines are drawn in red");
+    // (Its cause, where the face failed and its backend said: tess-cadio's, a face kept by its debugging switch none.)
+    const cause = n.face && (failure === 'failed' || failure === 'partly') ? causes?.get(n.face.source) : undefined;
+    if (cause) out.push(`Cause: ${cause}`);
     else if (failure === 'partly' && n.face) out.push(`Part of it failed to mesh${areas}: outlined in red`);
     else if (failure === 'partly') {
       const m = n.object!.children.find((c) => (c.userData.failedFaces as number[] | undefined)?.length ||

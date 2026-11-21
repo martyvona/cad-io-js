@@ -11,9 +11,11 @@
 // (integral.cpp) differ only in H.
 #pragma once
 
+#include <cmath>
 #include <functional>
 #include <vector>
 
+#include "geom_api.h"
 #include "oracle_impl.h"
 
 namespace cadoracle {
@@ -24,6 +26,32 @@ struct SweptPiece {
   double t0, t1;
   double ou = 0, ov = 0;
 };
+
+/** (u, v) and (u', v') on a piece, its periods added; false where the face API can't evaluate it. */
+inline bool pieceAt(int32_t h, const SweptPiece& p, double t, cadgeom::Vec2& uv, cadgeom::Vec2& d) {
+  double out[6];
+  uint8_t st = 0;
+  const bool ok = cg_coedge_eval(h, p.coedge, &t, 1, 1, out, &st) == 0 && st == 0;
+  uv = {out[0] + p.ou, out[1] + p.ov}, d = {out[3], out[4]};
+  return ok;
+}
+
+/** The whole periods nearest d (0 where not periodic). */
+inline double reducePeriods(double d, double period) { return period > 0 ? period * std::round(d / period) : 0.0; }
+
+/**
+ * The face's pieces in (u, v) (cg_face_pieces), each loop unwrapped: a piece's start brought within half a period of
+ * the previous piece's end. windU and windV: per loop, in order, the whole periods it closes across.
+ */
+struct LoopPieces {
+  std::vector<SweptPiece> pieces;
+  std::vector<double> windU, windV;
+  /** Where the face can't be taken (static storage), with its status; empty when it can. */
+  const char* why = "";
+  Status status = Status::ok;
+};
+
+LoopPieces loopPieces(Oracle::Impl& I, int face, double Pu, double Pv);
 
 /** A face on an extrusion or revolution, as sweptIntegral takes it. */
 struct SweptFace {

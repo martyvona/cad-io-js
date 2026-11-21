@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 #include <Eigen/Dense>
 
@@ -20,17 +21,23 @@ namespace fit {
 namespace {
 
 constexpr int CHECKS = 33;       // error checks per span
-constexpr int MAX_SPANS = 1024;  // then noConvergence
 
 struct Fitter {
   const std::function<Vec2(double)>& f;
   int p;
   const std::function<double(Vec2, Vec2)>* measure = nullptr;  // the caller's error, else the (u, v) distance
   bool finite = true;
+  // f's values by parameter, kept across the rounds: a span a round doesn't halve keeps its ends, so its samples and
+  // checks are at the same parameters (the same doubles) the next round. f is a caller's foot (a Newton each), most
+  // of a fit's cost, and deterministic.
+  std::unordered_map<double, Vec2> seen;
 
   Vec2 at(double t) {
+    auto it = seen.find(t);
+    if (it != seen.end()) return it->second;
     Vec2 v = f(t);
     finite = finite && std::isfinite(v.x) && std::isfinite(v.y);
+    seen.emplace(t, v);
     return v;
   }
 
@@ -100,7 +107,10 @@ struct Fitter {
     double lo = std::max(a, a + (best - 1) * h), hi = std::min(b, a + (best + 1) * h);
     const double g = 0.5 * (std::sqrt(5.0) - 1);
     double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo), e1 = error(c, x1), e2 = error(c, x2);
-    for (int it = 0; it < 30; it++) {
+    // Every step is a new foot (a Newton each: most of a fit's cost), so the search stops where its two inner errors
+    // agree to 1e-8: at a smooth maximum the error is flat and they soon do, at a kink (where it falls linearly) they
+    // don't until the bracket is about that narrow, so the error reported stays within 1e-6 of the true one.
+    for (int it = 0; it < 30 && !(std::fabs(e1 - e2) <= 1e-8 * std::max(e1, e2)); it++) {
       if (e1 > e2) {
         hi = x2, x2 = x1, e2 = e1, x1 = hi - g * (hi - lo), e1 = error(c, x1);
       } else {
@@ -117,15 +127,15 @@ struct Fitter {
 long curve2Rounds = 0;
 
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError) {
-  return curve2(f, r, degree, tol, out, maxError, {});
+  return curve2(f, r, degree, tol, out, maxError, {}, 1024);
 }
 
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError,
-  const std::function<double(Vec2, Vec2)>& error) {
+  const std::function<double(Vec2, Vec2)>& error, int maxSpans) {
   maxError = std::numeric_limits<double>::infinity();
   if (!(degree >= 1 && degree <= 9) || !(tol > 0) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi))
     return Status::invalidModel;
-  Fitter fit{f, degree, &error};
+  Fitter fit{f, degree, &error, true, {}};
   std::vector<double> br{r.lo, r.hi};
   while (true) {
     curve2Rounds++;
@@ -145,7 +155,7 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
     // Halving stops where the spans are too many, or too narrow to halve in floating point.
     bool narrow = false;
     for (size_t s = 0; s + 1 < next.size(); s++) narrow = narrow || !(next[s] < next[s + 1]);
-    if (static_cast<int>(next.size()) - 1 > MAX_SPANS || narrow) return Status::noConvergence;
+    if (static_cast<int>(next.size()) - 1 > maxSpans || narrow) return Status::noConvergence;
     br = std::move(next);
   }
 }

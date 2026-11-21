@@ -401,11 +401,13 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // own parameters, taken where they land nearer (counted: cg_face_info); else the curve's, within 100 x the tolerance.
 // A coedge without a p-curve gets its edge's 3D curve projected onto the face's surface (projectCurve, at the edge's
 // tolerance, over the edge's parameters as above, the seam side its use takes by seamUseTakesTwin; made once per
-// coedge and kept; counted: cg_face_info), unless cg_model_options turns that off.
+// coedge and kept; counted: cg_face_info), unless cg_model_options turns that off. A projection singular there (the
+// whole edge at one of the surface's poles: a degenerate edge) is left out of its loop, its neighbours' joint bridged.
 // Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve, none
 // projected: no 3D curve, or projection off), FACE_NO_RANGE (no range given or derivable: no 3D curve or no
 // vertices), FACE_RANGE_OFF (neither the curve's parameters nor the p-curve's own reach the vertices) and
-// FACE_PROJECTION_FAILED (a projection's status isn't ok: the curve off the surface, or no fit within tolerance).
+// FACE_PROJECTION_FAILED (a projection's status isn't ok or singular: the curve off the surface, or no fit within
+// tolerance; or every coedge of a loop singular).
 
 namespace {
 
@@ -871,11 +873,14 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
           out.status = pr ? pr->made : FACE_NO_PCURVE;
           return out;
         }
+        out.projected++;
+        // Singular: the whole edge at one pole (within tol of it), its p-curve a stretch of the pole line its
+        // neighbours' ends give: left out, the joint between them bridged below along that line.
+        if (pr->p.status == Status::singular) continue;
         if (pr->p.status != Status::ok) {
           out.status = FACE_PROJECTION_FAILED;
           return out;
         }
-        out.projected++;
         const std::vector<PcurvePiece>& pieces = pr->twin ? pr->p.seamTwin : pr->p.pieces;
         const bool up = back ? pr->t0 > pr->t1 : pr->t1 > pr->t0;
         for (size_t k = 0; k < pieces.size(); k++) {
@@ -915,6 +920,10 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
       } else {
         piece(from, to);
       }
+    }
+    if (loop.pieces.empty()) {
+      out.status = FACE_PROJECTION_FAILED;
+      return out;
     }
     out.loops.push_back(std::move(loop));
     out.loopIndex.push_back(l - m.faceFirstLoop(face));
@@ -1065,8 +1074,8 @@ int32_t cg_face_creases(int32_t h, int32_t face, double minAngle, double tol3d) 
       for (int i = 0; i <= 16; i++) {
         CurvePoint q;
         if (p.curve->eval(p.range.lo + (p.range.hi - p.range.lo) * i / 16, 0, q) != Status::ok) continue;
-        ru = {std::fmin(ru.lo, q.p.x), std::fmax(ru.hi, q.p.x)};
-        rv = {std::fmin(rv.lo, q.p.y), std::fmax(rv.hi, q.p.y)};
+        ru = {minNum(ru.lo, q.p.x), maxNum(ru.hi, q.p.x)};
+        rv = {minNum(rv.lo, q.p.y), maxNum(rv.hi, q.p.y)};
       }
   if (!(ru.lo < ru.hi) || !(rv.lo < rv.hi)) return 0;
   auto inside = [&](const Vec2* p, int n, int* out) {
@@ -1267,6 +1276,44 @@ int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t
   if (p.made) return p.made;
   putProjection(p.p, p.twin, p.t0, p.t1, t, n);
   return 0;
+}
+
+/**
+ * The parameters in [lo, hi] where the coedge's p-curve as the face API takes it (cg_coedge_eval's) is less smooth,
+ * sorted, the ends in, into the scratch: the model's p-curve's breaks, else its projection's pieces' curves' breaks and
+ * their ends (a fitted piece's knots). Their count, or minus why there's none (a status, a face status).
+ */
+int32_t cg_coedge_breaks(int32_t h, int32_t coedge, double lo, double hi) {
+  Entry* e = entry(h);
+  if (!e || coedge < 0 || coedge >= e->model.coedges() || !(lo <= hi)) {
+    return -static_cast<int32_t>(Status::invalidModel);
+  }
+  scratch.clear();
+  const int row = e->model.coedgePcurve(coedge);
+  std::vector<double> out{lo, hi}, br;
+  if (row >= 0) {
+    Status s;
+    const Curve* pc = curve(h, row, s);
+    if (!pc) return -static_cast<int32_t>(s);
+    pc->breaks({lo, hi}, br);
+    out.insert(out.end(), br.begin(), br.end());
+  } else {
+    const Projection* p = e->project ? &projection(h, coedge) : nullptr;
+    if (!p || p->made) return -(p ? p->made : FACE_NO_PCURVE);
+    for (const PcurvePiece& q : p->twin ? p->p.seamTwin : p->p.pieces) {
+      const double a = std::max(lo, q.t.lo), b = std::min(hi, q.t.hi);
+      if (!(a <= b)) continue;
+      out.push_back(a), out.push_back(b);
+      if (!q.curve) continue;
+      q.curve->breaks({a, b}, br);
+      out.insert(out.end(), br.begin(), br.end());
+    }
+  }
+  for (double& x : out) x = std::clamp(x, lo, hi);
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end()), out.end());
+  scratch = out;
+  return static_cast<int32_t>(out.size());
 }
 
 /**

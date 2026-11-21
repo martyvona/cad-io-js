@@ -51,9 +51,9 @@ public:
     double mag = 0;
     for (int i = 0; i < nu_ * nv_; i++) {
       double w = W_[i], m = std::fabs(w);
-      for (int a = 0; a < 3; a++) n0.h.push_back(w * P_[3 * i + a]), m = std::fmax(m, std::fabs(w * P_[3 * i + a]));
+      for (int a = 0; a < 3; a++) n0.h.push_back(w * P_[3 * i + a]), m = maxNum(m, std::fabs(w * P_[3 * i + a]));
       n0.h.push_back(w);
-      n0.perr.push_back(2 * kEps * m), mag = std::fmax(mag, m);
+      n0.perr.push_back(2 * kEps * m), mag = maxNum(mag, m);
     }
     n0.error = 2 * kEps * mag;
     size_ = span();
@@ -208,13 +208,13 @@ private:
   Vec3 pole(int i, int j) const { return read3(P_.data() + 3 * (i * nv_ + j)); }
   double span() const {
     double m = 0;
-    for (double x : P_) m = std::fmax(m, std::fabs(x));
+    for (double x : P_) m = maxNum(m, std::fabs(x));
     return m;
   }
   bool clip(Range& ru, Range& rv) const {
     SurfaceDomain d = domain();
-    ru = {std::fmax(ru.lo, d.u.lo), std::fmin(ru.hi, d.u.hi)};
-    rv = {std::fmax(rv.lo, d.v.lo), std::fmin(rv.hi, d.v.hi)};
+    ru = {maxNum(ru.lo, d.u.lo), minNum(ru.hi, d.u.hi)};
+    rv = {maxNum(rv.lo, d.v.lo), minNum(rv.hi, d.v.hi)};
     return ru.lo <= ru.hi && rv.lo <= rv.hi;
   }
   Net diffU(const Net& f) const {
@@ -228,9 +228,9 @@ private:
           double x = den > 0 ? f.p * (f.at(i + 1, j)[a] - f.at(i, j)[a]) / den : 0.0;
           g.h.push_back(x);
           if (den > 0)
-            e = std::fmax(e, f.p * (f.perr[(i + 1) * f.nv + j] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
+            e = maxNum(e, f.p * (f.perr[(i + 1) * f.nv + j] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
         }
-        g.perr.push_back(e), err = std::fmax(err, e);
+        g.perr.push_back(e), err = maxNum(err, e);
       }
     }
     g.error = err;
@@ -249,9 +249,9 @@ private:
           double x = den > 0 ? f.q * (f.at(i, j + 1)[a] - f.at(i, j)[a]) / den : 0.0;
           g.h[(i * g.nv + j) * 4 + a] = x;
           if (den > 0)
-            e = std::fmax(e, f.q * (f.perr[i * f.nv + j + 1] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
+            e = maxNum(e, f.q * (f.perr[i * f.nv + j + 1] + f.perr[i * f.nv + j]) / den + 4 * kEps * std::fabs(x));
         }
-        g.perr[i * g.nv + j] = e, err = std::fmax(err, e);
+        g.perr[i * g.nv + j] = e, err = maxNum(err, e);
       }
     }
     g.error = err;
@@ -264,19 +264,54 @@ private:
     i0 = std::max(0, a - n.p), i1 = std::min(n.nu - 1, b), j0 = std::max(0, c - n.q), j1 = std::min(n.nv - 1, d);
   }
   /**
-   * De Boor's algorithm on the q + 1 points D (4 wide) of span s in knots K, degree q, with argument arg(level) at
-   * each level: the blossom (Ramshaw; Seidel's formulation), into out.
+   * The blossoms at (c^(q - j), d^j) for j = 0..q of the q + 1 points D (4 wide) of span s, into out[j * stride]: the
+   * blossom by de Boor's algorithm (Ramshaw; Seidel's formulation), the c levels shared: each continued from the state
+   * after its q - j of them (the same operations in the same order as q + 1 separate runs, at about a third of the
+   * cost).
    */
-  template <class A> static void blossom(double* D, int q, int s, const std::vector<double>& K, A arg, double* out) {
-    for (int r = 1; r <= q; r++) {
-      double t = arg(r);
+  static void blossomAll(const double* D, int q, int s, const std::vector<double>& K, double c, double d, double* out,
+    int stride) {
+    Scratch<double, 64> state((q + 1) * 4), w((q + 1) * 4);
+    std::copy(D, D + (q + 1) * 4, state.data());
+    auto level = [&](double* X, int r, double t) {
       for (int j = q; j >= r; j--) {
         int i = s - q + j;
         double al = (t - K[i]) / (K[i + q + 1 - r] - K[i]);
-        for (int a = 0; a < 4; a++) D[j * 4 + a] = (1 - al) * D[(j - 1) * 4 + a] + al * D[j * 4 + a];
+        for (int a = 0; a < 4; a++) X[j * 4 + a] = (1 - al) * X[(j - 1) * 4 + a] + al * X[j * 4 + a];
       }
+    };
+    for (int L = 0; L <= q; L++) {
+      // L levels at c done: blossom j = q - L takes the rest at d.
+      std::copy(state.data(), state.data() + (q + 1) * 4, w.data());
+      for (int r = L + 1; r <= q; r++) level(w.data(), r, d);
+      for (int a = 0; a < 4; a++) out[(q - L) * stride + a] = w[q * 4 + a];
+      if (L < q) level(state.data(), L + 1, c);
     }
-    for (int a = 0; a < 4; a++) out[a] = D[q * 4 + a];
+  }
+  /**
+   * The Bezier points P[0..q] (4 wide, stride apart) on [0, 1] restricted to [s0, s1] in place: de Casteljau at s1,
+   * keeping the left part, then at s0 / s1 of that, keeping the right.
+   */
+  static void restrict(double* P, int q, int stride, double s0, double s1) {
+    if (s0 == 0 && s1 == 1) return;
+    Scratch<double, 64> w((q + 1) * 4), left((q + 1) * 4);
+    for (int k = 0; k <= q; k++)
+      for (int a = 0; a < 4; a++) w[k * 4 + a] = P[k * stride + a];
+    // Left part at s1: the first point of each level.
+    for (int a = 0; a < 4; a++) left[a] = w[a];
+    for (int r = 1; r <= q; r++) {
+      for (int k = 0; k + r <= q; k++)
+        for (int a = 0; a < 4; a++) w[k * 4 + a] = (1 - s1) * w[k * 4 + a] + s1 * w[(k + 1) * 4 + a];
+      for (int a = 0; a < 4; a++) left[r * 4 + a] = w[a];
+    }
+    // Right part of that at s0 / s1: the last point of each level.
+    const double t = s1 > 0 ? s0 / s1 : 0;
+    for (int a = 0; a < 4; a++) P[q * stride + a] = left[q * 4 + a];
+    for (int r = 1; r <= q; r++) {
+      for (int k = 0; k + r <= q; k++)
+        for (int a = 0; a < 4; a++) left[k * 4 + a] = (1 - t) * left[k * 4 + a] + t * left[(k + 1) * 4 + a];
+      for (int a = 0; a < 4; a++) P[(q - r) * stride + a] = left[(q - r) * 4 + a];
+    }
   }
   /**
    * The control points (4 wide each) a box of net n over the rectangle takes: within one span of the surface, the
@@ -294,24 +329,47 @@ private:
       return;
     }
     int p = n.p, q = n.q, s = su - k, t = sv - l;
+    // The span's own Bezier net (its blossoms at its knots), kept by surface, partial and span, then restricted to
+    // the rectangle: inversion and the criteria ask for many rectangles within a span, and blossoming each is
+    // O(p q^2 + q p^2) where restricting is O(p q + q p) a split.
+    const double ua = n.U[s], ub = n.U[s + 1], va = n.V[t], vb = n.V[t + 1];
+    if (oneSpan && ub > ua && vb > va && !(ru.lo == ua && ru.hi == ub && rv.lo == va && rv.hi == vb)) {
+      struct Key {
+        uint64_t id;
+        int at, s, t;
+        bool operator==(const Key& o) const { return id == o.id && at == o.at && s == o.s && t == o.t; }
+      };
+      struct Hash {
+        size_t operator()(const Key& k) const {
+          const uint64_t h = k.id * 1000003u ^ (uint64_t(k.at) << 40) ^ (uint64_t(k.s) << 20) ^ uint64_t(k.t);
+          return std::hash<uint64_t>()(h);
+        }
+      };
+      thread_local std::unordered_map<Key, std::vector<double>, Hash> spans;
+      if (spans.size() > (1u << 12)) spans.clear();
+      std::vector<double>& span = spans[Key{id_, pidx(k, l), s, t}];
+      if (span.empty()) control(n, {ua, ub}, {va, vb}, true, su, sv, k, l, span);
+      out = span;
+      const double u0 = (ru.lo - ua) / (ub - ua), u1 = (ru.hi - ua) / (ub - ua);
+      const double v0 = (rv.lo - va) / (vb - va), v1 = (rv.hi - va) / (vb - va);
+      for (int i = 0; i <= p; i++) restrict(out.data() + i * (q + 1) * 4, q, 4, v0, v1);
+      for (int j = 0; j <= q; j++) restrict(out.data() + j * 4, p, (q + 1) * 4, u0, u1);
+      return;
+    }
     Scratch<double, 256> rows((p + 1) * (q + 1) * 4), D(std::max(p, q) * 4 + 4);
     // In v first, row by row: rows[i][j] the blossom of row i at (c^(q - j), d^j).
-    for (int i = 0; i <= p; i++)
-      for (int j = 0; j <= q; j++) {
-        for (int m = 0; m <= q; m++)
-          for (int a = 0; a < 4; a++) D[m * 4 + a] = n.at(s - p + i, t - q + m)[a];
-        blossom(D.data(), q, t, n.V, [&](int level) { return level <= q - j ? rv.lo : rv.hi; },
-          rows.data() + (i * (q + 1) + j) * 4);
-      }
+    for (int i = 0; i <= p; i++) {
+      for (int m = 0; m <= q; m++)
+        for (int a = 0; a < 4; a++) D[m * 4 + a] = n.at(s - p + i, t - q + m)[a];
+      blossomAll(D.data(), q, t, n.V, rv.lo, rv.hi, rows.data() + i * (q + 1) * 4, 4);
+    }
     out.resize((p + 1) * (q + 1) * 4);
-    for (int j = 0; j <= q; j++)
-      for (int i = 0; i <= p; i++) {
-        for (int m = 0; m <= p; m++)
-          for (int a = 0; a < 4; a++) D[m * 4 + a] = rows[(m * (q + 1) + j) * 4 + a];
-        // The blossom's own knots in u are the net's; s - p + m indexes them as the rows came.
-        blossom(D.data(), p, s, n.U, [&](int level) { return level <= p - i ? ru.lo : ru.hi; },
-          out.data() + (i * (q + 1) + j) * 4);
-      }
+    for (int j = 0; j <= q; j++) {
+      for (int m = 0; m <= p; m++)
+        for (int a = 0; a < 4; a++) D[m * 4 + a] = rows[(m * (q + 1) + j) * 4 + a];
+      // The blossom's own knots in u are the net's; s - p + m indexes them as the rows came.
+      blossomAll(D.data(), p, s, n.U, ru.lo, ru.hi, out.data() + j * 4, (q + 1) * 4);
+    }
   }
   /**
    * The rounding of net m's control points c over a rectangle: its active poles' own (c are convex combinations of
@@ -319,11 +377,11 @@ private:
    */
   double blossomErr(const Net& m, const std::vector<double>& c, Range ru, Range rv) const {
     double mag = 0, own = 0;
-    for (double x : c) mag = std::fmax(mag, std::fabs(x));
+    for (double x : c) mag = maxNum(mag, std::fabs(x));
     int i0, i1, j0, j1;
     active(m, ru, rv, i0, i1, j0, j1);
     for (int i = i0; i <= i1; i++)
-      for (int j = j0; j <= j1; j++) own = std::fmax(own, m.perr[i * m.nv + j]);
+      for (int j = j0; j <= j1; j++) own = maxNum(own, m.perr[i * m.nv + j]);
     return own + 8 * (m.p + m.q + 2) * kEps * mag;
   }
   /**
@@ -378,8 +436,8 @@ private:
               for (int a = 0; a < 4; a++) {
                 const double x = m * (hi[a] - lo[a]) / w;
                 o[(r * (nq + 1) + t) * 4 + a] = x;
-                e = std::fmax(e, m * 2 * e0 / w + 4 * kEps * std::fabs(x));
-                mag = std::fmax(mag, std::fabs(x));
+                e = maxNum(e, m * 2 * e0 / w + 4 * kEps * std::fabs(x));
+                mag = maxNum(mag, std::fabs(x));
               }
             }
           if (e <= 1e-6 * mag) K.err[at] = e, done = true;
@@ -387,7 +445,11 @@ private:
       }
       if (!done) {
         control(n, ru, rv, true, su, sv, k, l, K.net[at]);
-        K.err[at] = blossomErr(n, K.net[at], ru, rv);
+        // Blossoming's rounding, and restriction's from the span's net: 2 (p + q) more levels of convex combinations
+        // and the rectangle's ends mapped into the span (a few ulps of the parameters, scaled by the net's spread).
+        double mag = 0;
+        for (double x : K.net[at]) mag = maxNum(mag, std::fabs(x));
+        K.err[at] = blossomErr(n, K.net[at], ru, rv) + 16 * (n.p + n.q + 1) * kEps * mag;
       }
       K.have[at] = true;
     }
@@ -411,7 +473,7 @@ private:
       double wmin = kInf;
       for (size_t a = 0; a < ctrl.size(); a += 4) {
         Vec3 x{ctrl[a], ctrl[a + 1], ctrl[a + 2]};
-        if (k + l == 0) x = (1 / ctrl[a + 3]) * x, wmin = std::fmin(wmin, ctrl[a + 3]);
+        if (k + l == 0) x = (1 / ctrl[a + 3]) * x, wmin = minNum(wmin, ctrl[a + 3]);
         b = hull(b, x);
       }
       if (k + l == 0 && !(wmin - err > 0)) return out = entireBox(), Status::singular;
@@ -426,8 +488,8 @@ private:
     const std::vector<double>& c0 = over(0, 0, ru, rv, oneSpan, su, sv, e0);
     double wmin = kInf, s0 = 0;
     for (size_t a = 0; a < c0.size(); a += 4) {
-      wmin = std::fmin(wmin, c0[a + 3] - e0);
-      s0 = std::fmax(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
+      wmin = minNum(wmin, c0[a + 3] - e0);
+      s0 = maxNum(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
     }
     if (!(wmin > 0)) return out = entireBox(), Status::singular;
     double B[kPartials] = {}, Am[kPartials] = {}, Wm[kPartials] = {};
@@ -439,8 +501,8 @@ private:
         double e;
         const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
         for (size_t a = 0; a < cc.size(); a += 4) {
-          Am[pidx(kk, m)] = std::fmax(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
-          Wm[pidx(kk, m)] = std::fmax(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
+          Am[pidx(kk, m)] = maxNum(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
+          Wm[pidx(kk, m)] = maxNum(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
         }
       }
     for (int t = 1; t <= k + l; t++)
@@ -468,8 +530,8 @@ private:
       for (int d = 0; d < 3; d++) a.c[d] = {kInf, -kInf};
       w = {kInf, -kInf};
       for (size_t q = 0; q < ctl.size(); q += 4) {
-        for (int d = 0; d < 3; d++) a.c[d] = {std::fmin(a.c[d].lo, ctl[q + d]), std::fmax(a.c[d].hi, ctl[q + d])};
-        w = {std::fmin(w.lo, ctl[q + 3]), std::fmax(w.hi, ctl[q + 3])};
+        for (int d = 0; d < 3; d++) a.c[d] = {minNum(a.c[d].lo, ctl[q + d]), maxNum(a.c[d].hi, ctl[q + d])};
+        w = {minNum(w.lo, ctl[q + 3]), maxNum(w.hi, ctl[q + 3])};
       }
       for (int d = 0; d < 3; d++) a.c[d] = {a.c[d].lo - e, a.c[d].hi + e};
       w = {w.lo - e, w.hi + e};

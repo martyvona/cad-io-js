@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import zlib from 'node:zlib';
-import { addInto, admit, division, runFiles, uncompressedSize } from '../corpus_checks/runner.ts';
+import { addInto, admit, division, initAll, runFiles, uncompressedSize } from '../corpus_checks/runner.ts';
 import { check } from './runner-fixture.ts';
 
 const FIXTURE = new URL('./runner-fixture.ts', import.meta.url).href;
@@ -132,6 +132,53 @@ test('runFiles with CHILDREN=0: every file in this process, the same order and o
   } finally {
     process.exit = exit;
   }
+});
+
+test('runFiles: a backend that won\'t start in a child\'s setup fails the run, naming it; so does a child that ends '
+  + 'before it\'s ready; no file merged as if it had run', { timeout: 60_000 }, async () => {
+  const saved = process.env.FIXTURE_SETUP;
+  try {
+    for (const children of ['3', '1']) {
+      process.env.FIXTURE_SETUP = 'pool';
+      const got: string[] = [];
+      process.env.CHILDREN = children;
+      await assert.rejects(runFiles(FIXTURE, check, files, [], (p) => got.push(p)),
+        (e: Error) => e.message.startsWith('runner: a child\'s setup failed, so the run stopped: Error: backend init '
+          + 'failed: fake (tess-workers): backend init failed: Error: init refused'));
+      assert.equal(got.length, 0, `CHILDREN=${children}: nothing merged`);
+      process.env.FIXTURE_SETUP = 'exit';
+      await assert.rejects(runFiles(FIXTURE, check, files, [], (p) => got.push(p)),
+        /runner: a child ended before it was ready \(exit 4\), so the run stopped/);
+      assert.equal(got.length, 0);
+    }
+    // One child of three failing stops the others' long files at once.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-setup-'));
+    process.env.FIXTURE_SETUP = `once:${path.join(dir, 'failed')}`;
+    process.env.CHILDREN = '3';
+    const slow = Array.from({ length: 6 }, (_, k) => ({ path: `s${k}`, job: { ms: 20_000 } }));
+    const t0 = Date.now();
+    await assert.rejects(runFiles(FIXTURE, check, slow, [], () => {}), /a child's setup failed/);
+    assert.ok(Date.now() - t0 < 15_000, `stopped at once (${Date.now() - t0} ms)`);
+    fs.rmSync(dir, { recursive: true, force: true });
+    // In this process: setup's error as it is.
+    process.env.FIXTURE_SETUP = 'pool';
+    process.env.CHILDREN = '0';
+    await assert.rejects(runFiles(FIXTURE, check, files, [], () => {}),
+      /^Error: backend init failed: fake \(tess-workers\): backend init failed: Error: init refused$/);
+  } finally {
+    delete process.env.CHILDREN;
+    if (saved === undefined) delete process.env.FIXTURE_SETUP;
+    else process.env.FIXTURE_SETUP = saved;
+  }
+});
+
+test('initAll: every pool started; those that fail named in one error, after all have settled', async () => {
+  const order: string[] = [];
+  const pool = (name: string, ms: number, fail?: string) => ({ init: () => new Promise<void>((ok, no) =>
+    setTimeout(() => { order.push(name); if (fail) no(new Error(fail)); else ok(); }, ms)) });
+  await initAll({ a: pool('a', 5), b: pool('b', 1) });
+  await assert.rejects(initAll({ x: pool('x', 1, 'no module'), y: pool('y', 20), z: pool('z', 5, 'bad API') }),
+    (e: Error) => e.message === 'backend init failed: x: no module; z: bad API' && order.includes('y'));
 });
 
 test('addInto: numbers, pairs element by element, rows appended, maps by key, objects by field; nothing else', () => {

@@ -21,6 +21,7 @@
     "step-import": "0.3.0",
     "step-parser": "0.3.0",
     "tess-cache": "0.3.0",
+    "tess-cadio": "0.3.0",
     "tess-occt": "0.3.0",
     "tess-smlib": "0.3.0",
     "tess-truck": "0.3.0",

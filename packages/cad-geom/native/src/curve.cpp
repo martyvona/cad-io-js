@@ -50,8 +50,8 @@ Status centredBox(const CurveImpl& c, Range r, int order, Box3& out) {
   if (s != Status::ok && s != Status::outOfDomain) return s;
   // Widened by the evaluation's own error, which differs between paths (bspline::eval to order 2, the hodographs
   // beyond): relative to the derivative, and for a point relative to the curve's local size, not its position.
-  double h = std::fmax(m - r.lo, r.hi - m);
-  double e = order == 0 ? 4 * kEps * maxAbs(d[0]) + 1e-13 * b * std::fmax(h, 1.0) : 1e-12 * maxAbs(d[order]);
+  double h = maxNum(m - r.lo, r.hi - m);
+  double e = order == 0 ? 4 * kEps * maxAbs(d[0]) + 1e-13 * b * maxNum(h, 1.0) : 1e-12 * maxAbs(d[order]);
   out = ballBox(d[order], b * h * (1 + 4 * kEps) + e);
   return Status::ok;
 }
@@ -63,7 +63,7 @@ void speedZeros(const CurveImpl& c, Range r, std::vector<double>& out) {
     out.push_back(r.lo);
     return;
   }
-  double wmin = std::fmax(1e-12 * (r.hi - r.lo), 4 * kEps * std::fmax(std::fabs(r.lo), std::fabs(r.hi)));
+  double wmin = maxNum(1e-12 * (r.hi - r.lo), 4 * kEps * maxNum(std::fabs(r.lo), std::fabs(r.hi)));
   std::vector<Range> stack{r}, leaves;
   int budget = 20000;
   while (!stack.empty()) {
@@ -197,7 +197,7 @@ struct Boxes {
 /** t moved into r by a few ulps where it's r's upper end, so a piecewise curve evaluates the piece r is on. */
 double inside(Range r, double t) {
   if (t < r.hi) return t;
-  double u = r.hi - 4 * kEps * std::fmax(1.0, std::fabs(r.hi));
+  double u = r.hi - 4 * kEps * maxNum(1.0, std::fabs(r.hi));
   return u > r.lo ? u : t;
 }
 
@@ -239,7 +239,7 @@ double convexMinimum(const Boxes& b, Vec3 p, Range r) {
     (f < 0 ? lo : hi) = t;
     double nt = g2 > 0 ? t - f / g2 : 0.5 * lo + 0.5 * hi;
     if (!(nt > lo && nt < hi)) nt = 0.5 * lo + 0.5 * hi;
-    if (std::fabs(nt - t) <= 2 * kEps * std::fmax(1.0, std::fabs(t)) || hi - lo <= 2 * kEps * std::fabs(t)) {
+    if (std::fabs(nt - t) <= 2 * kEps * maxNum(1.0, std::fabs(t)) || hi - lo <= 2 * kEps * std::fabs(t)) {
       t = nt;
       break;
     }
@@ -255,7 +255,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   const CurveImpl* impl = dynamic_cast<const CurveImpl*>(&c);
   Boxes B{c, impl};
   CurveDomain dom = c.domain();
-  tol = std::fmax(tol, 0.0);
+  tol = maxNum(tol, 0.0);
   if (!(r.lo <= r.hi)) {
     out.status = Status::outOfDomain;
     return out;
@@ -269,7 +269,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   // (A range given as [lo, lo + period] may be a few ulps short of a period by its rounding: still a period.)
   bool wrap = dom.period > 0 && r.hi - r.lo >= dom.period * (1 - 8 * kEps);
   if (wrap) r.hi = r.lo + dom.period;
-  if (dom.period == 0) r = {std::fmax(r.lo, dom.range.lo), std::fmin(r.hi, dom.range.hi)};
+  if (dom.period == 0) r = {maxNum(r.lo, dom.range.lo), minNum(r.hi, dom.range.hi)};
   if (!finite(r)) {
     if (!impl) {
       out.status = Status::unsupported;
@@ -277,7 +277,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
     }
     double t0 = std::clamp(0.0, r.lo, r.hi);
     Range w = impl->within(p, norm(at(t0) - p) * (1 + 1e-9) + tol);
-    r = {std::fmax(r.lo, w.lo), std::fmin(r.hi, w.hi)};
+    r = {maxNum(r.lo, w.lo), minNum(r.hi, w.hi)};
     if (!finite(r)) {
       out.status = Status::unsupported;
       return out;
@@ -296,7 +296,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
   };
   auto sample = [&](double t) {
     double d = norm(at(t) - p);
-    ub = std::fmin(ub, d);
+    ub = minNum(ub, d);
     return d;
   };
   std::vector<double> known;
@@ -322,7 +322,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
       // A continuum of feet (a point at an arc's centre) or a search too fine: what's left sampled at its middles,
       // the least bound left saying whether a better foot could remain.
       exhausted = true;
-      leftLb = std::fmin(leftLb, n.lb);
+      leftLb = minNum(leftLb, n.lb);
       double t = 0.5 * g.lo + 0.5 * g.hi;
       cands.push_back({t, sample(t), at(t)});
       continue;
@@ -339,7 +339,7 @@ CurveInversion invertCurve(const Curve& c, Vec3 p, Range r, double tol) {
     // as large as the curve (a part's uncertainty of 1 mm), and the foot is still wanted, not a point near it.
     double w = g.hi - g.lo, diam = std::hypot(b0.x.width(), std::hypot(b0.y.width(), b0.z.width()));
     bool tiny = diam <= 24 * kEps * boxMag(b0);
-    if (convex || tiny || w <= 4 * kEps * std::fmax(std::fabs(g.lo), std::fabs(g.hi)) || w == 0) {
+    if (convex || tiny || w <= 4 * kEps * maxNum(std::fabs(g.lo), std::fabs(g.hi)) || w == 0) {
       if (convex) {
         double t = convexMinimum(B, p, g);
         cands.push_back({t, sample(t), at(t)});
@@ -493,7 +493,7 @@ Estimate paramAtLength(const Curve& c, double t0, double length, double relTol) 
         (F < 0 ? tlo : thi) = t;
         double v = speed(c, t), nt = v > 0 ? t - F / v : 0.5 * tlo + 0.5 * thi;
         if (!(nt > tlo && nt < thi)) nt = 0.5 * tlo + 0.5 * thi;
-        if (thi - tlo <= 4 * kEps * std::fmax(1.0, std::fabs(t))) {
+        if (thi - tlo <= 4 * kEps * maxNum(1.0, std::fabs(t))) {
           t = nt, st = Status::ok;
           break;
         }

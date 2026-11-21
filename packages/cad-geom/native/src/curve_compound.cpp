@@ -40,6 +40,7 @@ public:
     return e == Status::ok ? s : e;
   }
   void breaks(Range r, std::vector<double>& out) const override { b_->breaks(clip(r), out); }
+  void joints(Range r, int c, std::vector<double>& out) const override { b_->joints(clip(r), c, out); }
   Status derivBox(Range r, int order, Box3& out) const override { return b_->derivBox(clip(r), order, out); }
   Status derivBoundN(Range r, int order, double& out) const override {
     return b_->derivBoundN(clip(r), order, out);
@@ -56,7 +57,7 @@ public:
 
 private:
   Range clip(Range r) const {
-    Range c{std::fmax(r.lo, r_.lo), std::fmin(r.hi, r_.hi)};
+    Range c{maxNum(r.lo, r_.lo), minNum(r.hi, r_.hi)};
     return c.lo <= c.hi ? c : Range{c.lo, c.lo};
   }
   std::unique_ptr<CurveImpl> b_;
@@ -112,7 +113,7 @@ public:
       double b;
       Status e = s_[k].curve->derivBoundN(g, order, b);
       if (e != Status::ok) s = e;
-      out = std::fmax(out, b * std::pow(std::fabs(scale(k)), order) * (1 + 4 * kEps));
+      out = maxNum(out, b * std::pow(std::fabs(scale(k)), order) * (1 + 4 * kEps));
     });
     return s;
   }
@@ -162,13 +163,13 @@ private:
   /** Each segment r meets: its index, the local range (sorted) and the global one. */
   template <class F> void forPieces(Range r, F f) const {
     double n = static_cast<double>(s_.size());
-    r = {std::fmax(r.lo, 0.0), std::fmin(r.hi, n)};
+    r = {maxNum(r.lo, 0.0), minNum(r.hi, n)};
     if (r.lo > r.hi) return;
     for (int k = segment(r.lo); k < static_cast<int>(s_.size()); k++) {
-      double a = std::fmax(r.lo, double(k)), b = std::fmin(r.hi, double(k + 1));
+      double a = maxNum(r.lo, double(k)), b = minNum(r.hi, double(k + 1));
       if (a > b) break;
       double la = local(k, a), lb = local(k, b);
-      f(k, Range{std::fmin(la, lb), std::fmax(la, lb)}, Range{a, b});
+      f(k, Range{minNum(la, lb), maxNum(la, lb)}, Range{a, b});
       // A range ending on a joint holds the next segment's start too: C(k + 1) is that segment's (derivs).
       if (b >= r.hi && !(b == k + 1 && k + 1 < n)) break;
     }
@@ -206,6 +207,8 @@ public:
     return s;
   }
   void breaks(Range r, std::vector<double>& out) const override { b_->breaks(r, out); }
+  // An offset is one order less smooth than its basis (its tangent's direction enters it).
+  void joints(Range r, int c, std::vector<double>& out) const override { b_->joints(r, c + 1, out); }
   Status derivBox(Range r, int order, Box3& out) const override {
     if (order == 0) {
       // The basis's box widened by |d| is a fixed size about the curve: met with the centred form, which shrinks.
@@ -273,7 +276,7 @@ private:
       double m = 0.5 * r.lo + 0.5 * r.hi, a[kMaxOrder + 1], b[kMaxOrder + 1];
       if ((s = unitBounds({r.lo, m}, order, a, depth + 1)) != Status::ok) return s;
       if ((s = unitBounds({m, r.hi}, order, b, depth + 1)) != Status::ok) return s;
-      for (int k = 0; k <= order; k++) U[k] = std::fmax(a[k], b[k]);
+      for (int k = 0; k <= order; k++) U[k] = maxNum(a[k], b[k]);
       return Status::ok;
     }
     double vn = b_->dim() == 3 ? norm(v_) * (1 + 4 * kEps) : 1;
@@ -334,7 +337,7 @@ std::unique_ptr<CurveImpl> makeTrimmed(std::unique_ptr<CurveImpl> basis, const d
       if (sense && t2 <= t1) t2 += dom.period;
       if (!sense && t2 >= t1) t2 -= dom.period;
     }
-    range = {std::fmin(t1, t2), std::fmax(t1, t2)};
+    range = {minNum(t1, t2), maxNum(t1, t2)};
   }
   return std::make_unique<Trimmed>(std::move(basis), range);
 }

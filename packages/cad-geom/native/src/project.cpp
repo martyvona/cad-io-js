@@ -31,6 +31,7 @@ public:
     return s;
   }
   void breaks(Range r, std::vector<double>& out) const override { basis_->breaks(r, out); }
+  void joints(Range r, int c, std::vector<double>& out) const override { basis_->joints(r, c, out); }
   Status bound(Range r, Box3& out) const override {
     Box3 b;
     Status s = basis_->bound(r, b);
