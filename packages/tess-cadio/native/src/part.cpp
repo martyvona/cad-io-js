@@ -840,6 +840,15 @@ struct PartMesher::Impl {
       meshedAt[f] = meshings++;
       field = memos[f].get();
     }
+    // (The boundary's own points for the criteria's facet tests: the output's, which the edges' curves give.)
+    {
+      std::vector<std::pair<Vec2, Vec3>> own;
+      own.reserve(bp.size());
+      for (const BoundaryPoint& q : bp)
+        if (q.kind == BoundaryPoint::edgeSample || q.kind == BoundaryPoint::pseudoSample)
+          own.push_back({q.uv, q.point});
+      criteria[f]->setBoundaryPoints(own);
+    }
     const bool detailed = o.countInsertions || o.countAngles;
     mo.refusalKinds = o.countInsertions;
     Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);

@@ -17,6 +17,15 @@ const CASES: Case[] = [
     why: "a pole's ring inside a one-span arc's approach" },
   { file: 'models/onshape/LMP1.step', part: 172968, faces: [1071824, 1071883],
     why: "a pole's ring inside a one-span arc's approach" },
+  // A triangle at a boundary whose edges' points are off the surface (within the tolerance) turned as output though
+  // not on the surface's points: the criteria's turn on the boundary's own points (setBoundaryPoints) mends it.
+  { file: 'models/onshape/LMP1.step', part: 172400, faces: [1038482], why: 'turned on the boundary\'s own points' },
+  { file: 'models/onshape/LMP1.step', part: 173233, faces: [1082381], why: 'turned on the boundary\'s own points' },
+  // The same face meshed only if no more is judged on those points than the output's own turn: the angle on them
+  // (a thin triangle's tilt, steeper as refinement thins it) took it to the point cap, the turn against any one
+  // corner's normal left one turned.
+  { file: 'models/onshape/LMP1.step', part: 172878, faces: [1064893],
+    why: 'only the turn on the boundary\'s own points' },
 ];
 
 const t = new CadioTessellator();

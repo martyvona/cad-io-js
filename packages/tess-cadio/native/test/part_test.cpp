@@ -425,6 +425,58 @@ TEST_CASE("a pole's ring inside every edge's approach to the pole (poleDip): its
   CHECK(fm.status == cadgeom::Status::ok);
 }
 
+TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryPoints): a triangle accepted on the "
+  "surface's points refused where a corner's own point turns its facet; its deviation still on the surface's") {
+  // (pcurveNear's plane: the triangle (0, 0), (3, 0), (0, 3), its first corner's own point (2.5, 2.5, 0), across the
+  // far side: the facet as output faces down. Given the corner's own point on the surface, nothing changes.)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 t[3] = {{0, 0}, {3, 0}, {0, 3}};
+  CHECK(c->accept(t));
+  c->setBoundaryPoints({{t[0], Vec3{2.5, 2.5, 0}}});
+  CHECK(!c->accept(t));
+  c->setBoundaryPoints({{t[0], Vec3{0, 0, 0}}});
+  CHECK(c->accept(t));
+  // A corner's own point 0.25 off the plane (its edges' middles 0.125 off it, past d; its facet 7 degrees from the
+  // plane's normal), its facet still up: accepted, its deviation the surface's (none), the boundary's own point
+  // where the model put it.
+  c->setBoundaryPoints({{t[0], Vec3{0, 0, 0.25}}});
+  CHECK(c->accept(t));
+  // A thin triangle whose corner's own point is 0.25 off the plane: its facet 27 degrees from the plane's normal, past
+  // the angle, still up. Accepted: the angle is judged on the surface's points (on the output's, refinement thinning
+  // the triangle only steepens it).
+  const Vec2 thin[3] = {{0, 0}, {3, 0}, {0, 0.5}};
+  c->setBoundaryPoints({{thin[0], Vec3{0, 0, 0.25}}});
+  CHECK(c->accept(thin));
+}
+
+TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
+  "against the mean of its corners' normals, not against any one of them") {
+  // (cylinderLong, r = 2: corners at u = -0.1, 0.1 and 0, their normals 0.2 apart; own points whose facet's normal is
+  // along (1, 12, 0), against the u = -0.1 corner's normal (0.995, -0.0998, 0) but along their mean.)
+  cadgeom::Model m = load("cylinderLong");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-1, 1}, {0, 10}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 t[3] = {{-0.1, 0}, {0.1, 0}, {0, 1}};
+  CHECK(c->accept(t));
+  cadgeom::SurfacePoint sp;
+  REQUIRE(s->eval(t[0].x, t[0].y, 0, sp) == cadgeom::Status::ok);
+  const Vec3 q0 = sp.p;
+  c->setBoundaryPoints({{t[0], q0}, {t[1], q0 + Vec3{0, 0, 1}}, {t[2], q0 + Vec3{12, -1, 0}}});
+  CHECK(c->accept(t));
+  // (The same points the other way round: the facet against the mean too, refused.)
+  c->setBoundaryPoints({{t[0], q0}, {t[1], q0 + Vec3{12, -1, 0}}, {t[2], q0 + Vec3{0, 0, 1}}});
+  CHECK(!c->accept(t));
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's
