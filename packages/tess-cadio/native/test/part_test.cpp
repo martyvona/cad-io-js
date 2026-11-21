@@ -773,6 +773,60 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
       }
 }
 
+TEST_CASE("the metric's size ratio is at most 1000 in 3D, not in (u, v): a long cylinder's size along its axis is "
+  "its extent (cylinderVast, radius 8000), or 1000 x its size across (cylinderLong, radius 2); the vast one's "
+  "straight edges unsplit") {
+  // (In (u, v) the ratio would be the 3D one times |S_u| / |S_v| = r: along the axis a few times across.)
+  for (auto [name, r, h] : {std::tuple{"cylinderVast", 8000.0, 22600.0}, {"cylinderLong", 2.0, 4000.0}}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+    REQUIRE(s);
+    const double d = 0.1;
+    auto crit = makeCriteria(m, 0, *s, cadgeom::Box2{{0, M_PI}, {0, h}}, Deflections{d, 0.26}, st);
+    REQUIRE(crit);
+    const Metric2 g = crit->metric({M_PI / 2, h / 2});
+    // (u along the circle, |S_u| = r; v along the axis, |S_v| = 1: the metric diagonal.)
+    // (Across, the smaller of the deflection's sqrt(6 d r) and the angle's 0.26 r.)
+    const double across = r / std::sqrt(g.a), along = 1 / std::sqrt(g.c),
+      want = std::min(std::sqrt(6 * d * r), 0.26 * r);
+    // The extent as the criteria sample it: the half cylinder's box, 2 r by r by h.
+    const double extent = std::sqrt(4 * r * r + r * r + h * h), alongWant = std::min(extent, 1000 * want);
+    CHECK(std::fabs(across - want) < 1e-6 * want);
+    CHECK(std::fabs(along - alongWant) < 1e-6 * alongWant);
+    if (std::fabs(along - alongWant) >= 1e-6 * alongWant)
+      std::printf("  %s: along %.9g want %.9g (across %.9g)\n", name, along, alongWant, across);
+  }
+  {
+    // The worst-point fallback on elementary surfaces only: a triangle far past d across the vast cylinder named,
+    // one on bumpPatch's B-spline (past d too) not.
+    cadgeom::Model bump = load("bumpPatch");
+    cadgeom::Status st;
+    auto bs = cadgeom::makeSurface(bump, bump.faceSurface(0), st);
+    const cadgeom::SurfaceDomain D = bs->domain();
+    auto bc = makeCriteria(bump, 0, *bs, cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}}, Deflections{1e-3, 0.26},
+      st);
+    REQUIRE(bc);
+    const Vec2 big[3] = {{D.u.lo, D.v.lo}, {D.u.hi, D.v.lo}, {D.u.lo, D.v.hi}};
+    Vec2 at;
+    CHECK(!bc->accept(big));
+    CHECK(!bc->worstPoint(big, at));
+    cadgeom::Model cyl = load("cylinderVast");
+    auto cs = cadgeom::makeSurface(cyl, cyl.faceSurface(0), st);
+    auto cc = makeCriteria(cyl, 0, *cs, cadgeom::Box2{{0, M_PI}, {0, 22600}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(cc);
+    const Vec2 wide[3] = {{0.2, 100}, {1.2, 100}, {0.7, 200}};
+    CHECK(!cc->accept(wide));
+    CHECK(cc->worstPoint(wide, at));
+  }
+  cadgeom::Model m = load("cylinderVast");
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  for (int e = 0; e < m.edges(); e++)
+    if (m.curveKind(m.edgeCurve(e)) == CBR_CURVE_LINE) CHECK_EQ(pm.edges().edge(e).points.size(), 2u);
+}
+
 TEST_CASE("a flat ring narrower than its circles' chords sag (thinRing): every crossing span split in one round, "
   "meshed within the rounds") {
   // (The circles' polygons cross each other many times in (u, v): mesh2 names every crossing, each a round splits;

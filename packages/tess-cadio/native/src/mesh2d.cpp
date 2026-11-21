@@ -327,6 +327,22 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         else D.brokenInside++;
       }
     }
+    // Still nothing (a long sliver's circumcentre leaves the domain or crowds its boundary, whose splits don't cure
+    // it): where the criteria refuse it for its distance from the surface, broken at the point they find farthest,
+    // inside it, cleared and kept from its corners as any candidate is.
+    if (!placed || f < 0.05) {
+      Vec2 w;
+      int32_t atW;
+      if (field.worstPoint(p, w) && acceptable(w, atW, false).clear) {
+        // (Kept a tenth of the triangle's least height in the metric from a vertex, not of its shortest edge as the
+        // other candidates are: a sliver's every inside point is within its height of a corner.)
+        bool near = false;
+        const double area = 0.5 * std::fabs(cross(sub(p[1], p[0]), sub(p[2], p[0]))) * std::sqrt(M.a * M.c - M.b * M.b);
+        double floor = 0.1 * std::min(1.0, 2 * area / std::max({l[0], l[1], l[2]}));
+        for (int32_t v : T.tris()[atW].v) near = near || (v >= 0 && mlen(M, sub(w, T.points()[v])) < floor);
+        if (!near) c = w, at = atW, placed = true, f = 1, D.brokenWorst++;
+      }
+    }
     if (!placed || f < 0.05) {
       D.refused++;
       // No segment the first candidate named that can be split (none, or each frozen: it left the domain across

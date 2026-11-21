@@ -63,6 +63,7 @@ public:
   bool accept(const Vec2 t[3]) const override { return ask(t, kAccept, [&] { return field_.accept(t); }); }
   bool belowFloor(const Vec2 t[3]) const override { return ask(t, kFloor, [&] { return field_.belowFloor(t); }); }
   int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
 
 private:
   /**

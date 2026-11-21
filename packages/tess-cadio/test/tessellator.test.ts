@@ -9,8 +9,9 @@ import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
-import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, fold, halfCap, knotAtEnd, loopless,
-  luneOnSeam, luneQuarter, meridianHemisphere, narrowStrip, seamByInversion, seamFlipped, torusOuterHalf, uFold }
+import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, cuspPocket_, fold, halfCap, knotAtEnd,
+  loopless,
+  luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
 
 const dist = path.join(import.meta.dirname, '..', 'dist', 'tess_cadio.wasm');
@@ -226,7 +227,8 @@ test('init({countAngles}): the faces\' triangles under the minimum angle said, b
   const run = async (countAngles: boolean) => {
     const t = new CadioTessellator();
     await t.init({ countAngles, minAngle: 0.4 });
-    return (await t.tessellate({ ...req('cube'), data: new Uint8Array(narrowStrip().finish().buffer),
+    // (A plane's cusps: triangles under the angle whatever the metric.)
+    return (await t.tessellate({ ...req('cube'), data: new Uint8Array(cuspPocket_().finish().buffer),
       linearDeflection: 0.01 })).diagnostics.map((x) => x.message);
   };
   const re = /^\d+ faces with triangles under the minimum angle: (\d+) triangles \(by degrees: under 1 \d+, 1-2 \d+, /;

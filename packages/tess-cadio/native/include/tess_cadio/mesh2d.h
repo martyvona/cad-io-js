@@ -51,6 +51,15 @@ public:
     (void)tri;
     return 0;
   }
+  /**
+   * For a triangle accept() refuses for its distance from the surface: a point inside it (u, v) where that distance
+   * is the largest sampled, past the deflection; false where it has none (none by default). Refinement places it
+   * where every other candidate fails: a long sliver's circumcentre leaves the domain or crowds its boundary.
+   */
+  virtual bool worstPoint(const Vec2 tri[3], Vec2& at) const {
+    (void)tri, (void)at;
+    return false;
+  }
 };
 
 /**
