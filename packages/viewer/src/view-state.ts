@@ -311,10 +311,11 @@ export function deflectionFromQuery(params: URLSearchParams, current: Pick<Tesse
 
 /**
  * The address's parameters for a model meshed with `m` (deflectionFromQuery's, which read them back): its profile,
- * or its deflections where custom; none where it's `usual`, the device's profile.
+ * or its deflections where custom; none where it's `usual`, the device's profile (undefined: always, Copy link's
+ * Include device defaults).
  */
 export function deflectionQuery(m: Pick<TessellationSettings, 'profile' | 'linearDeflection' | 'angularDeflection'>,
-  usual: MeshProfile): [string, string][] {
+  usual?: MeshProfile): [string, string][] {
   if (m.profile === usual) return [];
   if (m.profile !== 'custom') return [['profile', m.profile]];
   return [['linearDeflection', String(m.linearDeflection)], ['angularDeflection', String(m.angularDeflection)]];

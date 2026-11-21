@@ -193,9 +193,13 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
 
   const link = (): string => {
     const s = state();
-    const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps,
-      render: renderChanges(s.render), tree: s.tree, pick: s.pick, instances: s.instances, hidden: s.hidden,
-      shown: s.shown, opacity: s.opacity, triangleEdges: s.triangleEdges, selected: s.selected };
+    // (Include device defaults: the settings whose defaults depend on the device spelled out, so the link shows the
+    // same on another: the edge style here, the deflections below.)
+    const spell = ui.linkDeviceDefaults();
+    const render = { ...renderChanges(s.render), ...(spell ? { edgeStyle: s.render.edgeStyle } : {}) };
+    const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps, render, tree: s.tree, pick: s.pick,
+      instances: s.instances, hidden: s.hidden, shown: s.shown, opacity: s.opacity, triangleEdges: s.triangleEdges,
+      selected: s.selected };
     const url = new URL(location.pathname, location.origin);
     const from = ui.currentUrl();
     // A model below the content root is linked by its path there, so the link works wherever the viewer is served
@@ -203,9 +207,14 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // the link works however the server is reached.
     if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
       ? from.slice(location.origin.length) : from));
-    // Its deflections where they aren't the device's profile, so the link meshes it as it's shown.
+    // Its deflections where they aren't the device's profile (or always, with Include device defaults), so the link
+    // meshes it as it's shown.
     const m = viewer.model?.meshedWith;
-    if (from && m) for (const [k, v] of deflectionQuery(m, DEVICE_PROFILES[viewer.device])) url.searchParams.set(k, v);
+    if (from && m) {
+      for (const [k, v] of deflectionQuery(m, spell ? undefined : DEVICE_PROFILES[viewer.device])) {
+        url.searchParams.set(k, v);
+      }
+    }
     // The view after #, which no server sees: a long hide= or select= list would outgrow the request line servers take
     // (GitHub Pages refuses a query over about 8 KB, Node's dev server about 16 KB).
     url.hash = new URLSearchParams(toQuery(view)).toString();

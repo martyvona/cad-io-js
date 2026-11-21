@@ -125,6 +125,10 @@ test('deflectionFromQuery: profile= by name, linearDeflection= and angularDeflec
   // Written back: the device's profile not at all, another by name, custom by its deflections; each read back.
   assert.deepEqual(deflectionQuery(profileSettings('medium'), 'medium'), []);
   assert.deepEqual(deflectionQuery(profileSettings('medium'), 'coarse'), [['profile', 'medium']]);
+  // No device profile (Include device defaults): always written, the device's too.
+  assert.deepEqual(deflectionQuery(profileSettings('medium')), [['profile', 'medium']]);
+  assert.deepEqual(deflectionQuery({ profile: 'custom', linearDeflection: 0.5, angularDeflection: 20 }),
+    [['linearDeflection', '0.5'], ['angularDeflection', '20']]);
   for (const m of [profileSettings('fine'), { profile: 'custom' as const, linearDeflection: 1.2e-6,
     angularDeflection: 22.5 }]) {
     const back = deflectionFromQuery(new URLSearchParams(deflectionQuery(m, 'medium')), cur);
