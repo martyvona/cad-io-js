@@ -2,7 +2,8 @@
 // model per part, which replaces the part's model in the scene, so every consumer (the tessellators, the oracle, the
 // exporters) sees the same repairs. What it changes is in the healed model's own rows (p-curves it makes or
 // reparameterizes, tolerances it grows), and where each value came from, with the source's tolerance, is in the
-// healed model's analysis buffer (cad-brep's analysis-layout.ts: pcurveFrom, toleranceFrom, givenTolerance).
+// healed model's analysis buffer (cad-brep's analysis-layout.ts: pcurveFrom, toleranceFrom, givenTolerance, and
+// toleranceError where a growth is past repair, which the mesher fails the edge's and vertex's faces for).
 //
 // One master switch (`heal`: on wherever healPart or healScene is called, in importers HEAL_BY_DEFAULT) leaves every
 // model exactly as imported when off; under it, each fix can be turned off by name. Each p-curve fix reports one
@@ -18,6 +19,7 @@ import type { Brep, Diagnostic, Scene, SourceId, Vec3 } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
 import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
+import { isError } from './fix/growth.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
 import { fixesOn, type HealOptions } from './options.ts';
 
@@ -51,7 +53,7 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   const g = new Geometry(module ?? await init(), new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress);
+    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, opts.meshDeflection);
   } finally {
     g.dispose();
   }
@@ -91,6 +93,16 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
     }
     return out;
   };
+  // Growth past its error limit (growth.ts's rule, from the tolerance healing started from): beyond repair.
+  const start = tolerances(source);
+  const past = (table: 'vertex' | 'edge', n: number, startOf: (i: number) => number) => {
+    const out = zero(n);
+    for (let i = 0; i < n; i++) {
+      const now = healed[table].tolerance[i]!;
+      if (!Object.is(source[table].tolerance[i]!, now) && isError(startOf(i), now, start.size)) out[i] = 1;
+    }
+    return out;
+  };
   const face = new Int32Array(nc).fill(-1), loop = new Int32Array(nc).fill(-1);
   for (let f = 0; f < rowCount(healed, 'face'); f++) {
     for (let l = healed.face.firstLoop[f]!; l < healed.face.firstLoop[f]! + healed.face.loopCount[f]!; l++) {
@@ -103,10 +115,11 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
   return writeAnalysis({
     analysis: { model: await modelHash(healed), uncertainty: [tolerances(healed).part] },
     vertex: { measured: nan(nv), first: new Int32Array(nv).fill(-1), count: new Int32Array(nv),
-      toleranceFrom: from('vertex', nv), givenTolerance: source.vertex.tolerance },
+      toleranceFrom: from('vertex', nv), givenTolerance: source.vertex.tolerance,
+      toleranceError: past('vertex', nv, start.vertex) },
     edge: { range: healed.edge.range, rangeFrom: curves.edgeRangeFrom, measured: nan(ne),
       first: new Int32Array(ne).fill(-1), count: new Int32Array(ne), toleranceFrom: from('edge', ne),
-      givenTolerance: source.edge.tolerance },
+      givenTolerance: source.edge.tolerance, toleranceError: past('edge', ne, start.edge) },
     coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: curves.deviation, face, loop,
       pcurveFrom: curves.pcurveFrom },
     trace: traceRows(curves.traces),

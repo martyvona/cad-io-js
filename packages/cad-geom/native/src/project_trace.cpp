@@ -140,6 +140,7 @@ struct Segment {
   const Singularity* poleHi = nullptr;
   std::vector<Node> nodes;
   bool ok = false;
+  Node known{NAN, {}, {}};  // the end seeded from a known foot (its vertex's), where one was
 };
 
 /**
@@ -541,12 +542,12 @@ void trace(const Job& job, Pcurve& out) {
         continue;
       }
       if (c.first >= r.hi - 1e-9 * span) break;
-      segs.push_back({{lo, c.first}, plo, c.second, {}, false});
+      segs.push_back({{lo, c.first}, plo, c.second, {}, false, Node{NAN, {}, {}}});
       lo = c.first, plo = c.second;
     }
     const Singularity* phi =
       !merged.empty() && merged.back().first >= r.hi - 1e-9 * span ? merged.back().second : nullptr;
-    segs.push_back({{lo, r.hi}, plo, phi, {}, false});
+    segs.push_back({{lo, r.hi}, plo, phi, {}, false, Node{NAN, {}, {}}});
   }
   // The whole range at one pole: no p-curve.
   if (segs.size() == 1 && segs[0].poleLo && segs[0].poleLo == segs[0].poleHi
@@ -564,20 +565,37 @@ void trace(const Job& job, Pcurve& out) {
   auto note = [&](const Stop& s) {
     if (s.why != StopWhy::none && !(s.t >= first.t)) first = s;
   };
+  // The segment's nodes marched both ways from a seed (its foot refined first); whether they reach both its ends.
+  auto marchFrom = [&](Segment& sg, Node seed, std::vector<double>& fl, Stop& sb, Stop& sf) {
+    footFrom(job.s, job.dom, curveAt(job.c, seed.t), seed.uv, 30);
+    bool fold = false;
+    seed.duv = rate(job, seed.t, seed.uv, fold);
+    if (fold) fl.push_back(seed.t);
+    std::vector<Node> back, fwd;
+    const bool okB = seed.t <= sg.t.lo || march(job, seed, sg.t.lo, sg.poleLo, back, fl, sb);
+    const bool okF = seed.t >= sg.t.hi || march(job, seed, sg.t.hi, sg.poleHi, fwd, fl, sf);
+    std::reverse(back.begin(), back.end());
+    sg.nodes = back;
+    sg.nodes.push_back(seed);
+    sg.nodes.insert(sg.nodes.end(), fwd.begin(), fwd.end());
+    // The pole ends' nodes: their fixed parameter on the pole line exactly.
+    return okB && okF && sg.nodes.size() >= 2 && sg.nodes.front().t == sg.t.lo && sg.nodes.back().t == sg.t.hi;
+  };
+  // An end vertex's one foot (the end search's), not a pole's, where the vertex is the curve's end (within tol).
+  auto searched = [&](bool start, Vec2& uv) {
+    const PcurveEnds& e = *job.ends;
+    if (!e.cache || !(start ? e.checkStart : e.checkEnd)) return false;
+    const Vec3 vp = start ? e.startPoint : e.endPoint, cp = curveAt(job.c, start ? r.lo : r.hi);
+    if (norm(vp - cp) > job.tol) return false;
+    const std::vector<EndFoot>& f = e.cache->feet(start ? e.startKey : e.endKey, job.s, vp, job.tol);
+    if (f.size() != 1 || f[0].kind == EndFoot::Kind::pole) return false;
+    uv = f[0].uv;
+    return true;
+  };
   for (Segment& sg : segs) {
-    // Seeds: a known end off a pole; else an end vertex's one foot (the end search's), not a pole's, where the
-    // vertex is the curve's end (within tol); else the most central unique global inversion.
+    // Seeds: a known end off a pole; else an end vertex's one foot (the end search's); else the most central unique
+    // global inversion.
     Node seed{NAN, {}, {}};
-    auto searched = [&](bool start, Vec2& uv) {
-      const PcurveEnds& e = *job.ends;
-      if (!e.cache || !(start ? e.checkStart : e.checkEnd)) return false;
-      const Vec3 vp = start ? e.startPoint : e.endPoint, cp = curveAt(job.c, start ? r.lo : r.hi);
-      if (norm(vp - cp) > job.tol) return false;
-      const std::vector<EndFoot>& f = e.cache->feet(start ? e.startKey : e.endKey, job.s, vp, job.tol);
-      if (f.size() != 1 || f[0].kind == EndFoot::Kind::pole) return false;
-      uv = f[0].uv;
-      return true;
-    };
     if (sg.t.lo == r.lo && job.ends && !sg.poleLo && (job.ends->hasStart || searched(true, seed.uv))) {
       seed.t = r.lo;
       if (job.ends->hasStart) seed.uv = job.ends->start;
@@ -586,6 +604,7 @@ void trace(const Job& job, Pcurve& out) {
       if (job.ends->hasEnd) seed.uv = job.ends->end;
     }
     const bool known = !std::isnan(seed.t);
+    if (known) sg.known = seed;
     constexpr int K = 9;
     int bestScore = -1;
     for (int i = 0; i < K; i++) {
@@ -603,24 +622,49 @@ void trace(const Job& job, Pcurve& out) {
       note({StopWhy::noConvergence, sg.t.lo, NAN});
       continue;
     }
-    footFrom(job.s, job.dom, curveAt(job.c, seed.t), seed.uv, 30);
-    bool fold = false;
-    seed.duv = rate(job, seed.t, seed.uv, fold);
-    if (fold) folds.push_back(seed.t);
-    std::vector<Node> back, fwd;
     Stop sb, sf;
-    bool okB = seed.t <= sg.t.lo || march(job, seed, sg.t.lo, sg.poleLo, back, folds, sb);
-    bool okF = seed.t >= sg.t.hi || march(job, seed, sg.t.hi, sg.poleHi, fwd, folds, sf);
+    sg.ok = marchFrom(sg, seed, folds, sb, sf);
     note(sb), note(sf);
-    std::reverse(back.begin(), back.end());
-    sg.nodes = back;
-    sg.nodes.push_back(seed);
-    sg.nodes.insert(sg.nodes.end(), fwd.begin(), fwd.end());
-    // The pole ends' nodes: their fixed parameter on the pole line exactly.
-    sg.ok = okB && okF && sg.nodes.size() >= 2 && sg.nodes.front().t == sg.t.lo && sg.nodes.back().t == sg.t.hi;
-    if (okB && okF && !sg.ok) note({StopWhy::noConvergence, sg.nodes.empty() ? sg.t.lo : sg.nodes.back().t, NAN});
+    if (sb.why == StopWhy::none && sf.why == StopWhy::none && !sg.ok)
+      note({StopWhy::noConvergence, sg.nodes.empty() ? sg.t.lo : sg.nodes.back().t, NAN});
     for (const Node& n : sg.nodes) reached = std::max(reached, norm(pointOf(job.s, n.uv) - curveAt(job.c, n.t)));
     allOk = allOk && sg.ok;
+  }
+  // A segment whose feet a unique global foot beats at a check by more than tol and a factor of 4 (the traced branch
+  // spurious: beside a sharply uneven parameterization a foot can be a local minimum the march follows from its seed,
+  // LMP1 #172428 coedge 45 from its end vertex, 558 mm off by its end against 0.02): traced again from the global foot
+  // that beats it most, kept where its feet at the checks are nearer. (Two genuine branches, a trough's sides, are
+  // nearer each other than that: the one from the vertex is kept, its end then the other's.)
+  for (Segment& sg : segs) {
+    if (!sg.ok) continue;
+    std::vector<std::pair<double, SurfaceInversion>> cands;
+    for (const auto& ck : checks)
+      if (ck.first >= sg.t.lo && ck.first <= sg.t.hi) cands.push_back(ck);
+    double margin = job.tol, worstOld = 0;
+    const std::pair<double, SurfaceInversion>* from = nullptr;
+    for (const auto& ck : cands) {
+      const double d = norm(pointOf(job.s, footAt(job, sg.nodes, ck.first)) - curveAt(job.c, ck.first));
+      worstOld = std::max(worstOld, d);
+      if (ck.second.certainty == Certainty::unique && !ck.second.atSingularity && d - ck.second.distance > margin
+        && d > 4 * ck.second.distance + job.tol)
+        margin = d - ck.second.distance, from = &ck;
+    }
+    if (!from) continue;
+    Segment alt{sg.t, sg.poleLo, sg.poleHi, {}, false, Node{NAN, {}, {}}};
+    std::vector<double> fl;
+    Stop sb, sf;
+    if (!marchFrom(alt, Node{from->first, from->second.uv, {}}, fl, sb, sf)) continue;
+    double worstNew = 0;
+    for (const auto& ck : cands)
+      worstNew = std::max(worstNew, norm(pointOf(job.s, footAt(job, alt.nodes, ck.first)) - curveAt(job.c, ck.first)));
+    if (!(worstNew < worstOld)) continue;
+    sg.nodes = std::move(alt.nodes), folds.insert(folds.end(), fl.begin(), fl.end());
+    // The end it was seeded at from its vertex's foot, that foot again where the retrace came within tol of it.
+    if (!std::isnan(sg.known.t)) {
+      Node& end = sg.known.t == sg.t.lo ? sg.nodes.front() : sg.nodes.back();
+      if (end.t == sg.known.t && norm(pointOf(job.s, end.uv) - pointOf(job.s, sg.known.uv)) <= job.tol)
+        end.uv = sg.known.uv;
+    }
   }
   if (!allOk) {
     out.stopped = true;
@@ -731,7 +775,6 @@ void trace(const Job& job, Pcurve& out) {
       // side or a degenerate corner, asked far more than its 3D effect, of feet barely determined there: fits ran to
       // their cap.)
       double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
-      const std::vector<Node>& nodes = sg.nodes;
       std::function<Vec2(double)> f = [&](double t) { return foot(t); };
       const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
         return norm(pointOf(job.s, a) - pointOf(job.s, b));
@@ -829,12 +872,39 @@ void trace(const Job& job, Pcurve& out) {
       if (!fitRange(sr.t, sr.side, 0, spans, cut, used, capped)) return fail();
       if (capped && ranges.size() > 1) break;
     }
+    bool wholeCapped = capped && ranges.size() == 1;
     if (capped && ranges.size() > 1) {
       std::vector<PcurvePiece> whole;
       int wu = 0;
       bool wc = false;
       raw = true;
-      if (fitRange(sg.t, -1, 6, 1024, whole, wu, wc)) cut = std::move(whole);
+      if (fitRange(sg.t, -1, 6, 1024, whole, wu, wc)) cut = std::move(whole), wholeCapped = wc;
+    }
+    // A whole fit that ran into its spans, on a curve with joints only C1 or less smooth inside the segment (a cubic's
+    // double knots, a polyline's vertices): its feet turn or bend sharply there, which a fit smooth through them only
+    // follows by halving its spans there round after round. Fitted again cut at those joints, each range alone
+    // (sharing the 1024 spans by length), joined at them; kept where that is nearer.
+    if (wholeCapped) {
+      std::vector<double> js;
+      job.c.joints(sg.t, 1, js);
+      if (!js.empty()) {
+        js.push_back(sg.t.hi);
+        std::vector<PcurvePiece> jc;
+        int ju = 0;
+        bool jcap = false, ok = true;
+        raw = true;
+        double lo = sg.t.lo;
+        for (double hi : js) {
+          if (!(hi > lo)) continue;
+          const int spans = std::max(16, static_cast<int>(1024 * (hi - lo) / segW));
+          if (!(ok = fitRange(Range{lo, hi}, -1, 6, spans, jc, ju, jcap))) break;
+          lo = hi;
+        }
+        double eCut = 0, eWhole = 0;
+        for (const PcurvePiece& q : jc) eCut = std::max(eCut, q.error);
+        for (const PcurvePiece& q : cut) eWhole = std::max(eWhole, q.error);
+        if (ok && !jc.empty() && eCut < eWhole) cut = std::move(jc);
+      }
     }
     if (cut.size() > 1) {
       PcurvePiece joined = joinPieces(cut);

@@ -44,6 +44,17 @@ public:
    * are smooth, so sampling and integration work span by span.
    */
   virtual void breaks(Range r, std::vector<double>& out) const = 0;
+  /**
+   * The parameters inside r (its ends not) where the curve may be no smoother than C^c (a B-spline's knots of
+   * multiplicity at least its degree - c), sorted: where a fit that is smoother everywhere can't follow it. By
+   * default every break, which may be smoother.
+   */
+  virtual void joints(Range r, int c, std::vector<double>& out) const {
+    (void)c;
+    breaks(r, out);
+    if (!out.empty() && out.front() == r.lo) out.erase(out.begin());
+    if (!out.empty() && out.back() == r.hi) out.pop_back();
+  }
   /** A box that certainly holds C(t) for every t in r (a span's control-point hull, a conic's bounding arc box). */
   virtual Status bound(Range r, Box3& out) const = 0;
   /**

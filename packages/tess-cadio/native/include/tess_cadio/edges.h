@@ -77,6 +77,19 @@ struct EdgeOptions {
    * (face row, point, the sample before's (u, v), foot out, its distance out), true where it converged.
    */
   std::function<bool(int, Vec3, Vec2, Vec2&, double&)> localFootForTests;
+  /**
+   * The model's analysis buffer (cad-brep's cad_analysis.h), if given: 8-byte aligned, of this model, kept alive
+   * while the EdgeMesh is. An edge or vertex whose tolerance healing grew past repair (toleranceError) fails each
+   * face with a loop through it, its edges not sampled. Not given, or not an analysis: nothing.
+   */
+  const uint8_t* analysis = nullptr;
+  size_t analysisSize = 0;
+  /**
+   * With an analysis: a use whose p-curve healing made (pcurveFrom healed) placed as a projected one, at its trace's
+   * tolerance (a trace row's tol) or else its edge's (its inside samples at their points' feet, its ends at its
+   * vertices'). Off by default: it mends some healed faces and turns others (the bicycle's #2763, bug25287 #2134).
+   */
+  bool placeHealedPcurves = false;
 };
 
 /**

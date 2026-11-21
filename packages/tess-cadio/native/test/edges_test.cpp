@@ -1065,6 +1065,111 @@ TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on 
   CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
 }
 
+TEST_CASE("a winding loops' cut across no hole: bandTwoSlots' widest gap between its points inside slot B, the "
+  "period's start across slot A; the cut placed past both, the boundary a domain") {
+  cadgeom::Model m = load("bandTwoSlots");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.5;
+  EdgeMesh em(m, o);
+  const FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  // (The cut, a pseudo-edge along u = const: its u from its points in 3D, the cylinder's (cos u, sin u, v).)
+  int cuts = 0;
+  for (int e = 0; e < em.edgeCount(); e++) {
+    if (!em.isPseudo(e)) continue;
+    cuts++;
+    for (const Vec3& p : em.edge(e).points) {
+      const double u = std::atan2(p.y, p.x);
+      CHECK(!(std::fabs(u) <= 0.3));
+      CHECK(!(u >= 1.05 && u <= 2.85));
+      if ((std::fabs(u) <= 0.3) || (u >= 1.05 && u <= 2.85)) std::printf("  bandTwoSlots: the cut at u %g\n", u);
+    }
+  }
+  CHECK_EQ(cuts, 1);
+}
+
+TEST_CASE("a p-curve healing made (the analysis's pcurveFrom healed), with placeHealedPcurves: placed as a projected "
+  "one, its samples and ends at their points' feet; without the analysis, kept as given within the tolerance") {
+  // pcurveNear's p-curve 0.003 off in u, under the tolerance 0.005: as given, its samples 0.003 off their points; as
+  // healing's (pcurveNearHealed: a trace at 0.005), at their feet, and its vertex's too.
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  const tessfixtures::Analysis* a = tessfixtures::analysis("pcurveNearHealed");
+  REQUIRE(a);
+  for (bool healed : {false, true}) {
+    EdgeOptions o;
+    o.deflection = 0.01;
+    if (healed) o.analysis = a->data, o.analysisSize = a->size, o.placeHealedPcurves = true;
+    EdgeMesh em(m, o);
+    const CoedgeSamples& cs = em.coedge(0);
+    REQUIRE(cs.fromPcurve);
+    REQUIRE(cs.uv.size() > 4);
+    double worst = 0;
+    for (size_t i = 0; i < cs.uv.size(); i++) {
+      const Vec3 P = em.edge(0).points[cs.index[i]];
+      worst = std::fmax(worst, std::hypot(cs.uv[i].x - P.x, cs.uv[i].y - P.y));
+    }
+    if (healed ? !(worst < 1e-9) : !(worst > 0.0029 && worst < 0.0031))
+      std::printf("  pcurveNear (healed %d): a sample %g off its point\n", int(healed), worst);
+    if (healed) CHECK(worst < 1e-9);
+    else CHECK(worst > 0.0029 && worst < 0.0031);
+    CHECK_EQ(cs.projected, healed);
+  }
+  // Off by default: the analysis given, the p-curve kept as given.
+  EdgeOptions o;
+  o.deflection = 0.01;
+  o.analysis = a->data, o.analysisSize = a->size;
+  EdgeMesh em(m, o);
+  CHECK(!em.coedge(0).projected);
+}
+
+TEST_CASE("an edge or vertex whose tolerance healing grew past repair (the analysis's toleranceError): each face with "
+  "a loop through it fails at once, said so with its id and growth, the edge not sampled; the rest as without") {
+  // (poleLunes's edge 0 and vertex 0; wholeSphereVertex's vertex, its face's one loop.)
+  for (const char* name : {"lunesEdgePast", "lunesVertexPast", "sphereVertexPast"}) {
+    const tessfixtures::Analysis* a = tessfixtures::analysis(name);
+    REQUIRE(a);
+    cadgeom::Model m = load(a->model);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.01;
+    EdgeMesh plain(m, o);
+    o.analysis = a->data, o.analysisSize = a->size;
+    EdgeMesh em(m, o);
+    const bool edge = std::strcmp(name, "lunesEdgePast") == 0;
+    const char* what = edge ? "an edge (#" : "a vertex (#";
+    int failed = 0;
+    for (int f = 0; f < m.faces(); f++) {
+      // (Through it: a loop using edge 0, or an edge ending at vertex 0.)
+      bool through = false;
+      for (int i = 0; i < m.faceLoopCount(f); i++) {
+        const int l = m.faceFirstLoop(f) + i;
+        if (m.loopKind(l) == CBR_LOOP_VERTEX) {
+          through = through || (!edge && m.loopFirst(l) == 0);
+          continue;
+        }
+        for (int k = 0; k < m.loopCount(l); k++) {
+          const int e = m.coedgeEdge(m.loopFirst(l) + k);
+          through = through || (edge ? e == 0 : m.edgeStart(e) == 0 || m.edgeEnd(e) == 0);
+        }
+      }
+      const FaceBoundary fb = em.face(f), pb = plain.face(f);
+      if (through) {
+        failed++;
+        CHECK(fb.status == cadgeom::Status::invalidModel);
+        CHECK(fb.cause.rfind(what, 0) == 0);
+        CHECK(fb.cause.find("past repair") != std::string::npos);
+        CHECK(fb.cause.find("from 1e-05") != std::string::npos);
+      } else {
+        CHECK(fb.status == pb.status);
+      }
+    }
+    CHECK(failed > 0);
+    if (edge) CHECK(em.edge(0).points.empty());
+  }
+}
+
 TEST_CASE("a given p-curve off its edge's points past the tolerance: used, its inside samples polished onto them") {
   // pcurveShifted: its p-curve 0.3 off in u at a tolerance of 0.005 (within the 0.5 allowed): from the p-curve, every
   // inside sample's (u, v) now on its point within the tolerance, the use counted as given and off; pcurveCircle's,

@@ -4,7 +4,7 @@
 import { type BrepData, CURVE_KIND, LOOP_KIND, PROVENANCE, rowCount, SURFACE_KIND, TRACE_STATUS, TRACE_STOP } from
   'cad-brep';
 import type { Geometry } from 'cad-geom';
-import type { Diagnostic } from 'cad-scene';
+import { type Diagnostic, MESH_PROFILES } from 'cad-scene';
 import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
@@ -53,6 +53,13 @@ class Tally {
 const PLACE_AT_MOST = 10;
 /** Samples along a placed p-curve's range where its move on the surface is measured. */
 const PLACE_SAMPLES = 65;
+/**
+ * A trace's p-curve, which the model keeps, is fitted within this times the mesh's deflection where the curve allows,
+ * else at its edge's tolerance: tess-cadio's kMeshTolerance (edges.cpp) mirrored, how it projects a use the model
+ * gives no p-curve, which a stored one replaces (trace.test.ts checks the two are equal). Fitted at the edge's tolerance alone (0.08 mm off on bug31711 #11), the
+ * boundary's (u, v) skews against its 3D points enough to cross itself or turn small faces' triangles over.
+ */
+export const MESH_FIT = 0.05;
 
 /** Coedges between progress reports. */
 export const PROGRESS_EVERY = 200;
@@ -62,8 +69,8 @@ export const PROGRESS_EVERY = 200;
  * `progress`: told where the pass is, every PROGRESS_EVERY coedges and at each step after.
  */
 export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>, edit: ModelEdit,
-  diagnostics: Diagnostic[], tracer: Tracer = stubTracer(g), progress: (what: string) => void = () => {}):
-  CurvesRecord {
+  diagnostics: Diagnostic[], tracer: Tracer = stubTracer(g), progress: (what: string) => void = () => {},
+  meshDeflection: number = MESH_PROFILES.fine.linearDeflection): CurvesRecord {
   const nc = rowCount(d, 'coedge'), tol = tolerances(d), nan = () => new Float64Array(nc).fill(NaN);
   const record: CurvesRecord = { pcurveFrom: new Uint8Array(nc), deviation: nan(),
     edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), traces: [] };
@@ -198,8 +205,12 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
             closedForm || !traceable ? undefined : () => traced(tolE)));
         };
         const traced = (tolE: number) => {
-          const tr = tracer.trace(c, tolE);
-          record.traces.push({ coedge: c, status: TRACE_STATUS[tr.status], tol: tolE, offSurface: tr.offSurface,
+          const fine = Math.min(tolE, MESH_FIT * meshDeflection);
+          let tr = tracer.trace(c, fine), at = fine;
+          if (fine < tolE && (tr.status !== 'ok' || 'why' in tr.fit || !tr.fit.within)) {
+            tr = tracer.trace(c, tolE), at = tolE;
+          }
+          record.traces.push({ coedge: c, status: TRACE_STATUS[tr.status], tol: at, offSurface: tr.offSurface,
             stopAt: tr.stopAt, stopWhy: tr.stopWhy });
           if (tr.status === 'stopped') {
             stopped.add(`${coedgeName(c)} at t = ${tr.stopAt.toPrecision(6)} (${STOP_NAME[tr.stopWhy]})`);

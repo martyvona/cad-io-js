@@ -119,6 +119,12 @@ test('the key changes with the backend, every request option and the payload, an
   assert.equal(await cacheKey(info, { ...req, edges: undefined }), k);
   // A request without a smallest angle keys as one always did (its backend's default).
   assert.equal(await cacheKey(info, { ...req, minAngle: undefined }), k);
+  // An analysis only for a backend that reads it (TessellatorInfo.readsAnalysis): ignored by another's, and a
+  // request without one keys as before for either.
+  const reads = { ...info, readsAnalysis: true };
+  assert.equal(await cacheKey(info, { ...req, analysis: new Uint8Array([9, 8]) }), k);
+  assert.equal(await cacheKey(reads, req), k);
+  assert.equal(await cacheKey(reads, { ...req, analysis: new Uint8Array() }), k);
   const changed: [TessellatorInfo, TessellationRequest][] = [
     [{ ...info, name: 'other' }, req],
     [{ ...info, version: '2' }, req],
@@ -133,6 +139,11 @@ test('the key changes with the backend, every request option and the payload, an
     [info, { ...req, minAngle: 0 }],
     [info, { ...req, data: new Uint8Array([1, 2, 4]) }],
     [info, { ...req, data: new Uint8Array([1, 2]) }],
+    [reads, { ...req, analysis: new Uint8Array([9, 8]) }],
+    [reads, { ...req, analysis: new Uint8Array([9, 7]) }],
+    // (The payload and analysis not run together: [1, 2] then [3, 9] apart from [1, 2, 3] then [9].)
+    [reads, { ...req, data: new Uint8Array([1, 2, 3]), analysis: new Uint8Array([9]) }],
+    [reads, { ...req, data: new Uint8Array([1, 2]), analysis: new Uint8Array([3, 9]) }],
   ];
   const keys = await Promise.all(changed.map(([i, r]) => cacheKey(i, r)));
   assert.equal(new Set([k, ...keys]).size, changed.length + 1);

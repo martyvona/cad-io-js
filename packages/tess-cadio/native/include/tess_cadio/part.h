@@ -71,6 +71,9 @@ struct PartOptions {
    * and a cause saying so, as one past its deflection does: wrong output however rare.
    */
   bool failTurnedOver = true;
+  /** The model's analysis buffer, if given (EdgeOptions::analysis: healed p-curves, tolerances past repair). */
+  const uint8_t* analysis = nullptr;
+  size_t analysisSize = 0;
   /**
    * A face whose refinement reached its point cap (maxPointsPerFace) when the rounds end fails with
    * Status::noConvergence and a cause saying so, its triangles dropped: a capped mesh isn't the one asked for. False

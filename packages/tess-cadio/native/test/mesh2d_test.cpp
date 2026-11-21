@@ -979,6 +979,72 @@ uint64_t meshHash(const Mesh2& m) {
 }
 } // namespace
 
+TEST_CASE("a refused sliver every candidate fails for is broken at its worst point (SizeField::worstPoint): a long "
+  "strip whose frozen sides each circumcentre leaves across") {
+  // (A strip 10 by 0.2, its four sides frozen: the slivers' circumcentres fall outside it, and the halvings toward
+  // their centroids end within a tenth of a corner's shortest edge; the field refuses any triangle over 0.05 in
+  // area, for its distance from the surface as it were, and names its centroid. Without worstPoint the strip is
+  // left as two refused triangles.)
+  struct Strip : SizeField {
+    bool worst = true;
+    Metric2 metric(Vec2) const override { return {1e-6, 0, 1e-6}; }
+    static double area(const Vec2 t[3]) {
+      return 0.5 * std::fabs((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y));
+    }
+    bool accept(const Vec2* t) const override { return area(t) <= 0.05; }
+    bool worstPoint(const Vec2 t[3], Vec2& at) const override {
+      if (!worst || area(t) <= 0.05) return false;
+      at = {(t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3};
+      return true;
+    }
+  } field;
+  Domain2 d;
+  addLoop(d, {{0, 0}, {10, 0}, {10, 0.2}, {0, 0.2}});
+  d.frozen.assign(4, 1);
+  for (bool worst : {true, false}) {
+    field.worst = worst;
+    Mesh2Detail detail;
+    Mesh2 m = mesh2Detailed(d, field, {1000000, 0}, &detail);
+    REQUIRE(m.status == cadgeom::Status::ok);
+    int refused = 0;
+    for (size_t t = 0; t < m.triangles.size(); t += 3) {
+      const Vec2 tri[3] = {m.points[m.triangles[t]], m.points[m.triangles[t + 1]], m.points[m.triangles[t + 2]]};
+      refused += !field.accept(tri);
+    }
+    if (worst) {
+      CHECK(detail.brokenWorst > 0);
+      CHECK_EQ(refused, 0);
+    } else {
+      CHECK_EQ(detail.brokenWorst, 0);
+      CHECK(refused > 0);
+    }
+    if (worst ? refused != 0 : refused == 0)
+      std::printf("  strip (worstPoint %d): %d refused, %d broken at the worst point\n", int(worst), refused,
+        detail.brokenWorst);
+  }
+}
+
+TEST_CASE("a triangle that survives the point inserted for it is queued again: none left bad and unjudged") {
+  // In a strongly rotating metric a sliver's improving point lands outside it, in a neighbour whose cavity a
+  // constrained edge stops short of the sliver: it outlives the insertion. It's queued again (and left as it is only
+  // past kRequeues), so at the end no triangle refinement would still queue was dropped unjudged.
+  struct Rotating : SizeField {
+    Metric2 metric(Vec2 p) const override {
+      double t = 2 * p.x, c = 1 - t * t / 2 + t * t * t * t / 24, s = t - t * t * t / 6, l1 = 2500, l2 = 100;
+      return {l1 * c * c + l2 * s * s, (l1 - l2) * c * s, l1 * s * s + l2 * c * c};
+    }
+    bool accept(const Vec2*) const override { return true; }
+  } field;
+  Mesh2Detail detail;
+  Mesh2 m = mesh2Detailed(square(30, 1), field, {1000000, 0.35}, &detail);
+  REQUIRE(m.status == cadgeom::Status::ok);
+  CHECK(detail.requeued > 0);
+  CHECK_EQ(detail.leftUnjudged, 0);
+  if (detail.leftUnjudged || !detail.requeued)
+    std::printf("  rotating: %d queued again, %d past the limit, %d left unjudged\n", detail.requeued,
+      detail.requeuesSpent, detail.leftUnjudged);
+}
+
 TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits, natively and as WebAssembly") {
   // One constant for both builds (they run this same case): no fused multiply-adds and no C library function in a
   // decision that isn't correctly rounded. A change of the algorithm changes it, on purpose.
@@ -991,8 +1057,8 @@ TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits
   } field;
   Mesh2 m = mesh2(square(30, 1), field, {1000000, 0.35});
   REQUIRE(m.status == cadgeom::Status::ok);
-  CHECK_EQ(m.points.size(), 1046u);
-  CHECK_EQ(meshHash(m), 0xcb1fd5688b6343b8ull);
+  CHECK_EQ(m.points.size(), 997u);
+  CHECK_EQ(meshHash(m), 0x454d21b3fc7a1ce2ull);
 }
 
 namespace {
@@ -1069,7 +1135,7 @@ TEST_CASE("a triangle only much shorter segments stand in the way of: broken at 
     // centroid (which counts as refused): without the second, at 64, 4 broken and 953 refused; and a centroid too near
     // a corner refused too, as any placement is (at 16, 166 refused without that).
     CHECK_EQ(fine.brokenInside, n == 64 ? 17 : 4);
-    CHECK_EQ(fine.refused, n == 64 ? 686 : 169);
+    CHECK_EQ(fine.refused, n == 64 ? 695 : 169);
     // No point the mesher added encroaches a boundary segment (inside its diametral circle in the metric).
     int encroaching = 0;
     for (size_t i = d.points.size(); i < m.points.size(); i++)

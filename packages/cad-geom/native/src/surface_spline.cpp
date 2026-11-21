@@ -143,9 +143,19 @@ public:
       rawBox(ru, rv, k, l + 1, bv) != Status::ok)
       return false;
     double mu = 0.5 * ru.lo + 0.5 * ru.hi, mv = 0.5 * rv.lo + 0.5 * rv.hi;
-    Vec3 d[kPartials];
-    derivs(mu, mv, k + l, d);
-    Vec3 c = d[pidx(k, l)];
+    // The centre's partials kept for the last (surface, point, order): the rectangle's partials share it.
+    struct Centre {
+      uint64_t owner = 0;
+      double u = NAN, v = NAN;
+      int n = -1;
+      Vec3 d[kPartials];
+    };
+    thread_local Centre C;
+    if (C.owner != id_ || C.u != mu || C.v != mv || C.n != k + l) {
+      C.owner = id_, C.u = mu, C.v = mv, C.n = k + l;
+      derivs(mu, mv, k + l, C.d);
+    }
+    Vec3 c = C.d[pidx(k, l)];
     double r = (boxNorm(bu) * (ru.hi - ru.lo) + boxNorm(bv) * (rv.hi - rv.lo)) * 0.5 * (1 + 8 * kEps);
     double err = (k + l == 0 ? 8 * kEps * maxAbs(c - c_) + 4 * kEps * maxAbs(c_) : 1e-12 * maxAbs(c))
       + 1e-13 * r + (k + l == 0 ? 0 : 1e-13 * (boxNorm(out)));
@@ -264,19 +274,54 @@ private:
     i0 = std::max(0, a - n.p), i1 = std::min(n.nu - 1, b), j0 = std::max(0, c - n.q), j1 = std::min(n.nv - 1, d);
   }
   /**
-   * De Boor's algorithm on the q + 1 points D (4 wide) of span s in knots K, degree q, with argument arg(level) at
-   * each level: the blossom (Ramshaw; Seidel's formulation), into out.
+   * The blossoms at (c^(q - j), d^j) for j = 0..q of the q + 1 points D (4 wide) of span s, into out[j * stride]: the
+   * blossom by de Boor's algorithm (Ramshaw; Seidel's formulation), the c levels shared: each continued from the state
+   * after its q - j of them (the same operations in the same order as q + 1 separate runs, at about a third of the
+   * cost).
    */
-  template <class A> static void blossom(double* D, int q, int s, const std::vector<double>& K, A arg, double* out) {
-    for (int r = 1; r <= q; r++) {
-      double t = arg(r);
+  static void blossomAll(const double* D, int q, int s, const std::vector<double>& K, double c, double d, double* out,
+    int stride) {
+    Scratch<double, 64> state((q + 1) * 4), w((q + 1) * 4);
+    std::copy(D, D + (q + 1) * 4, state.data());
+    auto level = [&](double* X, int r, double t) {
       for (int j = q; j >= r; j--) {
         int i = s - q + j;
         double al = (t - K[i]) / (K[i + q + 1 - r] - K[i]);
-        for (int a = 0; a < 4; a++) D[j * 4 + a] = (1 - al) * D[(j - 1) * 4 + a] + al * D[j * 4 + a];
+        for (int a = 0; a < 4; a++) X[j * 4 + a] = (1 - al) * X[(j - 1) * 4 + a] + al * X[j * 4 + a];
       }
+    };
+    for (int L = 0; L <= q; L++) {
+      // L levels at c done: blossom j = q - L takes the rest at d.
+      std::copy(state.data(), state.data() + (q + 1) * 4, w.data());
+      for (int r = L + 1; r <= q; r++) level(w.data(), r, d);
+      for (int a = 0; a < 4; a++) out[(q - L) * stride + a] = w[q * 4 + a];
+      if (L < q) level(state.data(), L + 1, c);
     }
-    for (int a = 0; a < 4; a++) out[a] = D[q * 4 + a];
+  }
+  /**
+   * The Bezier points P[0..q] (4 wide, stride apart) on [0, 1] restricted to [s0, s1] in place: de Casteljau at s1,
+   * keeping the left part, then at s0 / s1 of that, keeping the right.
+   */
+  static void restrict(double* P, int q, int stride, double s0, double s1) {
+    if (s0 == 0 && s1 == 1) return;
+    Scratch<double, 64> w((q + 1) * 4), left((q + 1) * 4);
+    for (int k = 0; k <= q; k++)
+      for (int a = 0; a < 4; a++) w[k * 4 + a] = P[k * stride + a];
+    // Left part at s1: the first point of each level.
+    for (int a = 0; a < 4; a++) left[a] = w[a];
+    for (int r = 1; r <= q; r++) {
+      for (int k = 0; k + r <= q; k++)
+        for (int a = 0; a < 4; a++) w[k * 4 + a] = (1 - s1) * w[k * 4 + a] + s1 * w[(k + 1) * 4 + a];
+      for (int a = 0; a < 4; a++) left[r * 4 + a] = w[a];
+    }
+    // Right part of that at s0 / s1: the last point of each level.
+    const double t = s1 > 0 ? s0 / s1 : 0;
+    for (int a = 0; a < 4; a++) P[q * stride + a] = left[q * 4 + a];
+    for (int r = 1; r <= q; r++) {
+      for (int k = 0; k + r <= q; k++)
+        for (int a = 0; a < 4; a++) left[k * 4 + a] = (1 - t) * left[k * 4 + a] + t * left[(k + 1) * 4 + a];
+      for (int a = 0; a < 4; a++) P[(q - r) * stride + a] = left[(q - r) * 4 + a];
+    }
   }
   /**
    * The control points (4 wide each) a box of net n over the rectangle takes: within one span of the surface, the
@@ -294,24 +339,47 @@ private:
       return;
     }
     int p = n.p, q = n.q, s = su - k, t = sv - l;
+    // The span's own Bezier net (its blossoms at its knots), kept by surface, partial and span, then restricted to
+    // the rectangle: inversion and the criteria ask for many rectangles within a span, and blossoming each is
+    // O(p q^2 + q p^2) where restricting is O(p q + q p) a split.
+    const double ua = n.U[s], ub = n.U[s + 1], va = n.V[t], vb = n.V[t + 1];
+    if (oneSpan && ub > ua && vb > va && !(ru.lo == ua && ru.hi == ub && rv.lo == va && rv.hi == vb)) {
+      struct Key {
+        uint64_t id;
+        int at, s, t;
+        bool operator==(const Key& o) const { return id == o.id && at == o.at && s == o.s && t == o.t; }
+      };
+      struct Hash {
+        size_t operator()(const Key& k) const {
+          const uint64_t h = k.id * 1000003u ^ (uint64_t(k.at) << 40) ^ (uint64_t(k.s) << 20) ^ uint64_t(k.t);
+          return std::hash<uint64_t>()(h);
+        }
+      };
+      thread_local std::unordered_map<Key, std::vector<double>, Hash> spans;
+      if (spans.size() > (1u << 12)) spans.clear();
+      std::vector<double>& span = spans[Key{id_, pidx(k, l), s, t}];
+      if (span.empty()) control(n, {ua, ub}, {va, vb}, true, su, sv, k, l, span);
+      out = span;
+      const double u0 = (ru.lo - ua) / (ub - ua), u1 = (ru.hi - ua) / (ub - ua);
+      const double v0 = (rv.lo - va) / (vb - va), v1 = (rv.hi - va) / (vb - va);
+      for (int i = 0; i <= p; i++) restrict(out.data() + i * (q + 1) * 4, q, 4, v0, v1);
+      for (int j = 0; j <= q; j++) restrict(out.data() + j * 4, p, (q + 1) * 4, u0, u1);
+      return;
+    }
     Scratch<double, 256> rows((p + 1) * (q + 1) * 4), D(std::max(p, q) * 4 + 4);
     // In v first, row by row: rows[i][j] the blossom of row i at (c^(q - j), d^j).
-    for (int i = 0; i <= p; i++)
-      for (int j = 0; j <= q; j++) {
-        for (int m = 0; m <= q; m++)
-          for (int a = 0; a < 4; a++) D[m * 4 + a] = n.at(s - p + i, t - q + m)[a];
-        blossom(D.data(), q, t, n.V, [&](int level) { return level <= q - j ? rv.lo : rv.hi; },
-          rows.data() + (i * (q + 1) + j) * 4);
-      }
+    for (int i = 0; i <= p; i++) {
+      for (int m = 0; m <= q; m++)
+        for (int a = 0; a < 4; a++) D[m * 4 + a] = n.at(s - p + i, t - q + m)[a];
+      blossomAll(D.data(), q, t, n.V, rv.lo, rv.hi, rows.data() + i * (q + 1) * 4, 4);
+    }
     out.resize((p + 1) * (q + 1) * 4);
-    for (int j = 0; j <= q; j++)
-      for (int i = 0; i <= p; i++) {
-        for (int m = 0; m <= p; m++)
-          for (int a = 0; a < 4; a++) D[m * 4 + a] = rows[(m * (q + 1) + j) * 4 + a];
-        // The blossom's own knots in u are the net's; s - p + m indexes them as the rows came.
-        blossom(D.data(), p, s, n.U, [&](int level) { return level <= p - i ? ru.lo : ru.hi; },
-          out.data() + (i * (q + 1) + j) * 4);
-      }
+    for (int j = 0; j <= q; j++) {
+      for (int m = 0; m <= p; m++)
+        for (int a = 0; a < 4; a++) D[m * 4 + a] = rows[(m * (q + 1) + j) * 4 + a];
+      // The blossom's own knots in u are the net's; s - p + m indexes them as the rows came.
+      blossomAll(D.data(), p, s, n.U, ru.lo, ru.hi, out.data() + j * 4, (q + 1) * 4);
+    }
   }
   /**
    * The rounding of net m's control points c over a rectangle: its active poles' own (c are convex combinations of
@@ -387,7 +455,11 @@ private:
       }
       if (!done) {
         control(n, ru, rv, true, su, sv, k, l, K.net[at]);
-        K.err[at] = blossomErr(n, K.net[at], ru, rv);
+        // Blossoming's rounding, and restriction's from the span's net: 2 (p + q) more levels of convex combinations
+        // and the rectangle's ends mapped into the span (a few ulps of the parameters, scaled by the net's spread).
+        double mag = 0;
+        for (double x : K.net[at]) mag = maxNum(mag, std::fabs(x));
+        K.err[at] = blossomErr(n, K.net[at], ru, rv) + 16 * (n.p + n.q + 1) * kEps * mag;
       }
       K.have[at] = true;
     }
@@ -397,6 +469,26 @@ private:
   /** The hull box of partial (k, l) over the rectangle (no centred form). */
   Status rawBox(Range ru, Range rv, int k, int l, Box3& out) const {
     if (k + l >= kMaxOrder) return out = entireBox(), Status::unsupported;
+    // Kept for the last rectangle asked, by partial: derivBound asks each partial's box twice (its own, then in its
+    // centred form) and the next order's of neighbours twice more.
+    struct Kept {
+      uint64_t owner = 0;
+      double a = NAN, b = NAN, c = NAN, d = NAN;
+      bool have[kPartials] = {};
+      Box3 box[kPartials];
+      Status st[kPartials] = {};
+    };
+    thread_local Kept K;
+    if (K.owner != id_ || K.a != ru.lo || K.b != ru.hi || K.c != rv.lo || K.d != rv.hi) {
+      K.owner = id_, K.a = ru.lo, K.b = ru.hi, K.c = rv.lo, K.d = rv.hi;
+      std::fill(K.have, K.have + kPartials, false);
+    }
+    const int at = pidx(k, l);
+    if (!K.have[at]) K.st[at] = rawBoxOf(ru, rv, k, l, K.box[at]), K.have[at] = true;
+    out = K.box[at];
+    return K.st[at];
+  }
+  Status rawBoxOf(Range ru, Range rv, int k, int l, Box3& out) const {
     // Past the degree a polynomial surface's partial is 0; a rational one's isn't (the quotient rule below).
     if (!rational_ && (k > p_ || l > q_)) return out = pointBox({}), Status::ok;
     int su = bspline::findSpan(p_, U_, nu_, ru.lo), sv = bspline::findSpan(q_, V_, nv_, rv.lo);
@@ -422,36 +514,73 @@ private:
     }
     // A rational partial: |S^(k,l)| <= (|A^(k,l)| + sum (k i)(l j) |w^(i,j)| |S^(k-i,l-j)|) / w_min, each from the
     // control points of its own net; |S^(0,0) - c| from the order-0 net's projected ones.
-    double e0;
-    const std::vector<double>& c0 = over(0, 0, ru, rv, oneSpan, su, sv, e0);
-    double wmin = kInf, s0 = 0;
-    for (size_t a = 0; a < c0.size(); a += 4) {
-      wmin = minNum(wmin, c0[a + 3] - e0);
-      s0 = maxNum(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
+    // Each net's summaries (its magnitudes, its weights' and coordinates' ranges) kept for the last rectangle, by
+    // partial: every partial's bound reads all the lower ones', and derivBound asks a rectangle's partials together.
+    struct IV {
+      Interval c[3];
+    };
+    struct Sum {
+      double e = 0, wmin = kInf, s0 = 0, am = 0, wm = 0;
+      IV ia;
+      Interval iw;
+    };
+    struct SumKept {
+      uint64_t owner = 0;
+      double a = NAN, b = NAN, c = NAN, d = NAN;
+      bool have[kPartials] = {}, haveB[kPartials] = {}, haveS[kPartials] = {};
+      Sum sum[kPartials];
+      double B[kPartials];
+      IV S[kPartials];
+    };
+    thread_local SumKept SK;
+    if (SK.owner != id_ || SK.a != ru.lo || SK.b != ru.hi || SK.c != rv.lo || SK.d != rv.hi) {
+      SK.owner = id_, SK.a = ru.lo, SK.b = ru.hi, SK.c = rv.lo, SK.d = rv.hi;
+      std::fill(SK.have, SK.have + kPartials, false);
+      std::fill(SK.haveB, SK.haveB + kPartials, false);
+      std::fill(SK.haveS, SK.haveS + kPartials, false);
     }
-    if (!(wmin > 0)) return out = entireBox(), Status::singular;
-    double B[kPartials] = {}, Am[kPartials] = {}, Wm[kPartials] = {};
-    B[0] = s0 * (1 + 16 * kEps) + std::sqrt(3.0) * e0 / wmin;
-    for (int t = 1; t <= k + l; t++)
-      for (int m = 0; m <= t; m++) {
-        int kk = t - m;
-        if (kk > k || m > l || kk > p_ || m > q_) continue;
-        double e;
-        const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
-        for (size_t a = 0; a < cc.size(); a += 4) {
-          Am[pidx(kk, m)] = maxNum(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
-          Wm[pidx(kk, m)] = maxNum(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
+    auto summary = [&](int kk, int m) -> const Sum& {
+      const int at = pidx(kk, m);
+      Sum& S = SK.sum[at];
+      if (SK.have[at]) return S;
+      S = Sum{};
+      const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, S.e);
+      const double e = S.e;
+      for (int d = 0; d < 3; d++) S.ia.c[d] = {kInf, -kInf};
+      S.iw = {kInf, -kInf};
+      for (size_t a = 0; a < cc.size(); a += 4) {
+        if (at == 0) {
+          S.wmin = minNum(S.wmin, cc[a + 3] - e);
+          S.s0 = maxNum(S.s0, norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) / cc[a + 3]);
+        } else {
+          S.am = maxNum(S.am, norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
+          S.wm = maxNum(S.wm, std::fabs(cc[a + 3]) + e);
         }
+        for (int d = 0; d < 3; d++) S.ia.c[d] = {minNum(S.ia.c[d].lo, cc[a + d]), maxNum(S.ia.c[d].hi, cc[a + d])};
+        S.iw = {minNum(S.iw.lo, cc[a + 3]), maxNum(S.iw.hi, cc[a + 3])};
       }
+      for (int d = 0; d < 3; d++) S.ia.c[d] = {S.ia.c[d].lo - e, S.ia.c[d].hi + e};
+      S.iw = {S.iw.lo - e, S.iw.hi + e};
+      SK.have[at] = true;
+      return S;
+    };
+    const Sum& z = summary(0, 0);
+    const double e0 = z.e, wmin = z.wmin, s0 = z.s0;
+    if (!(wmin > 0)) return out = entireBox(), Status::singular;
+    // (Each partial's B and S below depend on the rectangle alone, each from the lower partials' before it: kept in
+    // SK with the summaries, a rectangle's partials asked one after another each take the lower ones' as they are.)
+    double* B = SK.B;
+    if (!SK.haveB[0]) B[0] = s0 * (1 + 16 * kEps) + std::sqrt(3.0) * e0 / wmin, SK.haveB[0] = true;
+    auto wm = [&](int i, int j) { return i > p_ || j > q_ ? 0.0 : summary(i, j).wm; };
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
-        if (kk > k || m > l) continue;
-        double v = Am[pidx(kk, m)];
+        if (kk > k || m > l || SK.haveB[pidx(kk, m)]) continue;
+        double v = kk > p_ || m > q_ ? 0.0 : summary(kk, m).am;
         for (int i = 0; i <= kk; i++)
           for (int j = 0; j <= m; j++)
-            if (i || j) v += binom(kk, i) * binom(m, j) * Wm[pidx(i, j)] * B[pidx(kk - i, m - j)];
-        B[pidx(kk, m)] = v / wmin * (1 + 16 * kEps);
+            if (i || j) v += binom(kk, i) * binom(m, j) * wm(i, j) * B[pidx(kk - i, m - j)];
+        B[pidx(kk, m)] = v / wmin * (1 + 16 * kEps), SK.haveB[pidx(kk, m)] = true;
       }
     out = ballBox({}, B[pidx(k, l)]);
     if (k + l < 2) return Status::ok;
@@ -459,49 +588,28 @@ private:
     // ranges from their nets' control points (restricted to the rectangle where it's one span, so they shrink with
     // it), S^(k,l) = (A^(k,l) - sum (k i)(l j) w^(i,j) S^(k-i,l-j)) / w. Signs and cancellations kept, which the
     // magnitudes above lose: tight as the rectangle shrinks, where those stay a constant factor off.
-    struct IV {
-      Interval c[3];
-    };
-    IV IA[kPartials], S[kPartials];
-    Interval IW[kPartials];
-    auto ranges = [&](const std::vector<double>& ctl, double e, IV& a, Interval& w) {
-      for (int d = 0; d < 3; d++) a.c[d] = {kInf, -kInf};
-      w = {kInf, -kInf};
-      for (size_t q = 0; q < ctl.size(); q += 4) {
-        for (int d = 0; d < 3; d++) a.c[d] = {minNum(a.c[d].lo, ctl[q + d]), maxNum(a.c[d].hi, ctl[q + d])};
-        w = {minNum(w.lo, ctl[q + 3]), maxNum(w.hi, ctl[q + 3])};
-      }
-      for (int d = 0; d < 3; d++) a.c[d] = {a.c[d].lo - e, a.c[d].hi + e};
-      w = {w.lo - e, w.hi + e};
-    };
-    ranges(c0, e0, IA[0], IW[0]);
-    if (!(IW[0].lo > 0)) return Status::ok;
+    const Interval IW0 = z.iw;
+    if (!(IW0.lo > 0)) return Status::ok;
+    IV* S = SK.S;
+    auto iw = [&](int i, int j) { return i > p_ || j > q_ ? Interval::point(0) : summary(i, j).iw; };
+    if (!SK.haveS[0]) {
+      for (int d = 0; d < 3; d++) S[0].c[d] = z.ia.c[d] / IW0;
+      SK.haveS[0] = true;
+    }
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
-        if (kk > k || m > l) continue;
-        if (kk > p_ || m > q_) {
-          for (int d = 0; d < 3; d++) IA[pidx(kk, m)].c[d] = Interval::point(0);
-          IW[pidx(kk, m)] = Interval::point(0);
-          continue;
-        }
-        double e;
-        const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
-        ranges(cc, e, IA[pidx(kk, m)], IW[pidx(kk, m)]);
-      }
-    for (int d = 0; d < 3; d++) S[0].c[d] = IA[0].c[d] / IW[0];
-    for (int t = 1; t <= k + l; t++)
-      for (int m = 0; m <= t; m++) {
-        int kk = t - m;
-        if (kk > k || m > l) continue;
+        if (kk > k || m > l || SK.haveS[pidx(kk, m)]) continue;
+        const bool past = kk > p_ || m > q_;
         for (int d = 0; d < 3; d++) {
-          Interval v = IA[pidx(kk, m)].c[d];
+          Interval v = past ? Interval::point(0) : summary(kk, m).ia.c[d];
           for (int i = 0; i <= kk; i++)
             for (int j = 0; j <= m; j++)
               if (i || j)
-                v = v - Interval::point(binom(kk, i) * binom(m, j)) * IW[pidx(i, j)] * S[pidx(kk - i, m - j)].c[d];
-          S[pidx(kk, m)].c[d] = v / IW[0];
+                v = v - Interval::point(binom(kk, i) * binom(m, j)) * iw(i, j) * S[pidx(kk - i, m - j)].c[d];
+          S[pidx(kk, m)].c[d] = v / IW0;
         }
+        SK.haveS[pidx(kk, m)] = true;
       }
     const IV& r = S[pidx(k, l)];
     Box3 box{r.c[0], r.c[1], r.c[2]};

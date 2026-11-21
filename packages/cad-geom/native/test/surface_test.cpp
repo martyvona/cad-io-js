@@ -1720,3 +1720,32 @@ TEST_CASE("B-spline partial boxes within one span: orders 0 to 3 hold dense samp
   CHECK(loose == 0);
   CHECK(n > 100000);
 }
+
+TEST_CASE("rational B-spline boxes: two surfaces asked in turn over one rectangle, each as asked alone") {
+  // The kept nets, boxes and summaries are by surface as well as rectangle: a second surface asked right after a
+  // first, over the same rectangle, gets its own (two rational bilinear patches, the same knots, other weights).
+  auto patch = [](double w) {
+    return rawSpline(1, 1, {0, 1}, {2, 2}, {0, 1}, {2, 2}, {{{0, 0, 0}, {0, 1, 0.3}}, {{1, 0, 0.2}, {1, 1, 1}}},
+      {{1, w}, {2, 0.5}});
+  };
+  auto pa = patch(3), pb = patch(0.25);
+  const SurfaceImpl *a = impl(pa.get()), *b = impl(pb.get());
+  REQUIRE(a != nullptr);
+  REQUIRE(b != nullptr);
+  const Range ru{0.2, 0.45}, rv{0.3, 0.6}, other{0.6, 0.7};
+  auto same = [](const Box3& x, const Box3& y) {
+    return x.x.lo == y.x.lo && x.x.hi == y.x.hi && x.y.lo == y.y.lo && x.y.hi == y.y.hi && x.z.lo == y.z.lo &&
+      x.z.hi == y.z.hi;
+  };
+  for (int k = 0; k <= 2; k++)
+    for (int l = 0; k + l <= 2; l++) {
+      Box3 alone, after, first;
+      b->derivBox(other, other, k, l, first);
+      REQUIRE(b->derivBox(ru, rv, k, l, alone) == Status::ok);
+      a->derivBox(other, other, k, l, first);
+      a->derivBox(ru, rv, k, l, first);
+      REQUIRE(b->derivBox(ru, rv, k, l, after) == Status::ok);
+      CHECK(same(alone, after));
+      CHECK(!same(first, after));
+    }
+}

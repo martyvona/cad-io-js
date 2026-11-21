@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA3';
+export const ANALYSIS_MAGIC = 'CBA4';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -26,18 +26,22 @@ export const ANALYSIS_TABLES = {
    * `measured` the largest distance from the vertex to the ends of its edges' curves and to its faces' surfaces
    * (NaN: not measured); `edges` the edges ending there, `count` row indices in `pool.int` from `first`;
    * `toleranceFrom` PROVENANCE of the model's tolerance (healed: grown by healing, the model then a healed one),
-   * `givenTolerance` the source's (NaN: it gave none), so the source's claim stays visible beside the grown value.
+   * `givenTolerance` the source's (NaN: it gave none), so the source's claim stays visible beside the grown value;
+   * `toleranceError` 1 where healing grew the tolerance past its error limit (cad-heal's growth.ts: past 5 x the
+   * tolerance it started from, the larger of `givenTolerance` and `analysis.uncertainty`, and past 0.01 x the part's
+   * size), else 0: input beyond repair, every face with a loop through the vertex failed by the mesher at once.
    */
   vertex: [['measured', 'f64', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['toleranceFrom', 'u8', 1],
-    ['givenTolerance', 'f64', 1]],
+    ['givenTolerance', 'f64', 1], ['toleranceError', 'u8', 1]],
   /**
    * `range` the edge's curve parameters at start and end: the model's where given, else derived (by inversion of
    * its vertices, closed curves resolved), `rangeFrom` PROVENANCE; `measured` the largest deviation of its coedges'
    * p-curves (through their surfaces) from its 3D curve over the range; its coedges `count` row indices in
-   * `pool.int` from `first`; `toleranceFrom` and `givenTolerance` as the vertex's.
+   * `pool.int` from `first`; `toleranceFrom`, `givenTolerance` and `toleranceError` as the vertex's (every face with a
+   * loop using the edge failed).
    */
   edge: [['range', 'f64', 2], ['rangeFrom', 'u8', 1], ['measured', 'f64', 1], ['first', 'i32', 1],
-    ['count', 'i32', 1], ['toleranceFrom', 'u8', 1], ['givenTolerance', 'f64', 1]],
+    ['count', 'i32', 1], ['toleranceFrom', 'u8', 1], ['givenTolerance', 'f64', 1], ['toleranceError', 'u8', 1]],
   /**
    * `range` the p-curve's parameters at the coedge's start and end (as the edge's, in the loop's direction),
    * `rangeFrom` PROVENANCE; `deviation` its p-curve's largest distance, mapped through the surface, from the 3D
