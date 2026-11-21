@@ -9,6 +9,7 @@
 //   - cad-oracle: faces whose area it trusts as imported and healed;
 //   - healing's diagnostics: by severity and by message (numbers and ids folded), the parts with a tolerance error;
 //   - the files with the most faces lost or gained per backend, and with the largest change in triangles.
+// BACKENDS=occt,smlib,cadio picks the meshers (default occt,smlib; cadio: our own tessellator, tess-cadio).
 // HYBRID=1 adds OCCT on the healed model less the p-curves healing added (coedges the source gave none), to tell
 // what OCCT makes of those from what it makes of the rest of the healing.
 // Usage: CHILDREN=3 MESH_WORKERS=2 IDLE_MS=0 node --max-old-space-size=8192 corpus_checks/heal_effect.ts
@@ -29,13 +30,15 @@ const EXAMPLES = 4;
 const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 type Tally = Record<string, { n: number; ex: string[] }>;
 const hybrid = process.env.HYBRID === '1';
-const backends = hybrid ? ['occt', 'smlib', 'occtHybrid'] as const : ['occt', 'smlib'] as const;
-type Backend = 'occt' | 'smlib' | 'occtHybrid';
-const side = () => ({ parts: 0, failed: 0, faces: 0, triangles: 0, measuresValid: 0 });
+type Backend = 'occt' | 'smlib' | 'cadio' | 'occtHybrid';
+/** BACKENDS=occt,smlib,cadio (default occt,smlib): which meshers. */
+const backends = [...(process.env.BACKENDS ?? 'occt,smlib').split(',') as Backend[],
+  ...hybrid ? ['occtHybrid' as const] : []];
+const side = () => ({ parts: 0, failed: 0, faces: 0, triangles: 0, measuresValid: 0, ms: 0 });
 const fresh = () => ({
   files: 0, skipped: 0, parts: 0, faces: 0, healCpuMs: 0, healWallMs: 0, importCpuMs: 0,
   slowest: [] as { ms: number; file: string }[], capped: 0,
-  mesh: Object.fromEntries(backends.map((b) => [b, { before: side(), after: side(), gained: 0, lost: 0,
+  mesh: Object.fromEntries(backends.map((b) => [b as string, { before: side(), after: side(), gained: 0, lost: 0,
     partsGained: 0, partsLost: 0, gainedEx: [] as string[], lostEx: [] as string[] }])) as Record<Backend, {
     before: ReturnType<typeof side>; after: ReturnType<typeof side>; gained: number; lost: number;
     partsGained: number; partsLost: number; gainedEx: string[]; lostEx: string[] }>,
@@ -56,7 +59,7 @@ const fold = (m: string) => m.replace(/#\d+/g, '#N').replace(/\d+(\.\d+)?(e[-+]?
   .slice(0, 200);
 
 let maxBytes = 1e9, module: OracleModule;
-const pools = {} as Record<Backend | 'heal', WorkerTessellator>;
+const pools = {} as Partial<Record<Backend | 'heal', WorkerTessellator>> & { heal: WorkerTessellator };
 let workers = 1;
 
 /** Each source face's triangle count in a result. */
@@ -74,15 +77,16 @@ export const check: FileCheck<undefined, Result> = {
     workers = meshWorkers;
     const pool = (pkg?: string, cls?: string) => new WorkerTessellator({ ...pkg ? { backend: {
       module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls! } } : {}, workers: meshWorkers });
-    pools.occt = pool('tess-occt', 'OcctTessellator');
-    pools.smlib = pool('tess-smlib', 'SmlibTessellator');
+    if (backends.includes('occt') || hybrid) pools.occt = pool('tess-occt', 'OcctTessellator');
+    if (backends.includes('smlib')) pools.smlib = pool('tess-smlib', 'SmlibTessellator');
+    if (backends.includes('cadio')) pools.cadio = pool('tess-cadio', 'CadioTessellator');
     if (hybrid) pools.occtHybrid = pools.occt;
     pools.heal = pool();
-    await Promise.all([...new Set(Object.values(pools))].map((p) => p.init()));
+    await Promise.all([...new Set(Object.values(pools))].map((p) => p!.init()));
     module = await init();
   },
   async teardown() {
-    await Promise.all([...new Set(Object.values(pools))].map((p) => p.dispose()));
+    await Promise.all([...new Set(Object.values(pools))].map((p) => p!.dispose()));
   },
   async file(path, _job, ctx) {
     const R = fresh(), name = shortName(path);
@@ -134,8 +138,12 @@ export const check: FileCheck<undefined, Result> = {
         }
         return h;
       };
-      const runs = await Promise.all(backends.flatMap((b) => [db, b === 'occtHybrid' ? lessAdded() : da].map((d) =>
-        pools[b].tessellate(req(d)).catch((e: Error) => e))));
+      const times: number[] = [];
+      const runs = await Promise.all(backends.flatMap((b) => [db, b === 'occtHybrid' ? lessAdded() : da].map((d, j) => {
+        const t0 = performance.now(), k = 2 * backends.indexOf(b) + j;
+        return pools[b]!.tessellate(req(d)).catch((e: Error) => e)
+          .finally(() => { times[k] = performance.now() - t0; });
+      })));
       for (const [k, b] of backends.entries()) {
         const M = R.mesh[b], rb = runs[2 * k]!, ra = runs[2 * k + 1]!;
         const meshed = (r: TessellationResult | Error, s: ReturnType<typeof side>) => {
@@ -150,6 +158,7 @@ export const check: FileCheck<undefined, Result> = {
           return m;
         };
         const mb = meshed(rb, M.before), ma = meshed(ra, M.after);
+        M.before.ms += times[2 * k]!, M.after.ms += times[2 * k + 1]!;
         const partFailedBefore = rb instanceof Error || failedPart(rb) || !rb.indices.length;
         const partFailedAfter = ra instanceof Error || failedPart(ra) || !ra.indices.length;
         if (partFailedBefore && !partFailedAfter) M.partsGained++;
@@ -227,7 +236,8 @@ if (import.meta.main) {
     console.log(`\n${b}: as imported / healed: parts failed ${M.before.failed} / ${M.after.failed} `
       + `(of ${M.before.parts}),`
       + ` faces meshed ${M.before.faces} / ${M.after.faces}, triangles ${M.before.triangles} / ${M.after.triangles},`
-      + ` valid measures ${M.before.measuresValid} / ${M.after.measuresValid}`);
+      + ` valid measures ${M.before.measuresValid} / ${M.after.measuresValid}, meshing ${s(M.before.ms)} / `
+      + `${s(M.after.ms)} (each request's wall time, summed)`);
     console.log(`  faces gained ${M.gained}, lost ${M.lost}; parts gained ${M.partsGained}, lost ${M.partsLost}`);
     for (const x of M.gainedEx) console.log(`    gained: ${x}`);
     for (const x of M.lostEx) console.log(`    lost:   ${x}`);

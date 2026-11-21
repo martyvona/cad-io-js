@@ -1014,7 +1014,18 @@ struct Builder
               {
                 TopLoc_Location loc;
                 bb.UpdateEdge(ed, c2d, s, loc, 0.);
-                bb.Range(ed, s, loc, c2d->FirstParameter(), c2d->LastParameter());
+                // An unbounded p-curve (a line) has no range of its own: the use's where given, else the edge's
+                // curve's (a p-curve's parameter is its edge's curve's).
+                double p0 = c2d->FirstParameter(), p1 = c2d->LastParameter();
+                if (Precision::IsInfinite(p0) || Precision::IsInfinite(p1))
+                {
+                  const double* cr = r.f64(CBR_COEDGE_RANGE) + 2 * c;
+                  if (std::isfinite(cr[0]) && std::isfinite(cr[1]))
+                    p0 = std::min(cr[0], cr[1]), p1 = std::max(cr[0], cr[1]);
+                  else
+                    p0 = c3->FirstParameter(), p1 = c3->LastParameter();
+                }
+                bb.Range(ed, s, loc, p0, p1);
                 bb.SameRange(ed, false);
                 bb.SameParameter(ed, false);
               }
