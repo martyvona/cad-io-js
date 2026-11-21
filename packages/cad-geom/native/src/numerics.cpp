@@ -50,10 +50,15 @@ void basis(int i, double t, int p, const std::vector<double>& U, double* N) {
 }
 
 void basisDerivs(int i, double t, int p, int n, const std::vector<double>& U, double* ders) {
-  // (Allocation-free up to kStackDegree: this is evaluation's hot path.)
-  Scratch<double, (kStackDegree + 1) * (kStackDegree + 1)> ndu((p + 1) * (p + 1));
-  Scratch<double, kStackDegree + 1> left(p + 1), right(p + 1);
-  Scratch<double, 2 * (kStackDegree + 1)> a(2 * (p + 1));
+  // (Allocation-free up to kStackDegree: this is evaluation's hot path. Not zero-filled: ndu's every entry is written
+  // before it's read, as its lower and upper triangles and diagonal are made; left and right are read at 1..j only
+  // once written; a's rows as A2.3 has them, each read only where the step before wrote it.)
+  using D = Scratch<double, (kStackDegree + 1) * (kStackDegree + 1)>;
+  using E = Scratch<double, kStackDegree + 1>;
+  using A = Scratch<double, 2 * (kStackDegree + 1)>;
+  D ndu((p + 1) * (p + 1), D::uninitialized);
+  E left(p + 1, E::uninitialized), right(p + 1, E::uninitialized);
+  A a(2 * (p + 1), A::uninitialized);
   auto NDU = [&](int r, int c) -> double& { return ndu[r * (p + 1) + c]; };
   NDU(0, 0) = 1;
   for (int j = 1; j <= p; j++) {
