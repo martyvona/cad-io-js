@@ -91,6 +91,47 @@ test('backendsFromQuery: backend= and fallback= by name, minAngle= and keepFaili
     'fallback: not one of occt, truck, smlib, cadio, none: cad'] });
 });
 
+test('deflectionFromQuery: profile= by name, linearDeflection= and angularDeflection= making it custom (the other '
+  + 'the settings\'), what\'s malformed said and left out; deflectionQuery writes what it reads back', async () => {
+  const { deflectionFromQuery, deflectionQuery } = await import('../src/view-state.ts');
+  const { profileSettings } = await import('../src/tessellation.ts');
+  const cur = { linearDeflection: 0.1, angularDeflection: 17 };
+  const q = (s: string) => deflectionFromQuery(new URLSearchParams(s), cur);
+  assert.deepEqual(q(''), { problems: [] });
+  assert.deepEqual(q('profile=fine'), { meshing: profileSettings('fine'), problems: [] });
+  assert.deepEqual(q('profile=coarse'), { meshing: profileSettings('coarse'), problems: [] });
+  assert.deepEqual(q('profile=custom'), { meshing: { profile: 'custom', ...cur }, problems: [] });
+  // Below the control's least (0.001 mm): a deflection that fails a face by construction.
+  assert.deepEqual(q('linearDeflection=1.2e-6'), { meshing: { profile: 'custom', linearDeflection: 1.2e-6,
+    angularDeflection: 17 }, problems: [] });
+  assert.deepEqual(q('angularDeflection=90'), { meshing: { profile: 'custom', linearDeflection: 0.1,
+    angularDeflection: 90 }, problems: [] });
+  assert.deepEqual(q('linearDeflection=0.5&angularDeflection=20&profile=custom'), { meshing: { profile: 'custom',
+    linearDeflection: 0.5, angularDeflection: 20 }, problems: [] });
+  assert.deepEqual(q('profile=fine&linearDeflection=0.5'), { meshing: { profile: 'custom', linearDeflection: 0.5,
+    angularDeflection: 17 }, problems: ['profile=fine with a deflection: custom'] });
+  assert.deepEqual(q('profile=best'), { problems: ['profile: not one of coarse, medium, fine, custom: best'] });
+  for (const v of ['0', '-1', 'x', '', 'Infinity']) {
+    assert.deepEqual(q(`linearDeflection=${v}`), { problems: [
+      `linearDeflection: not a positive number of millimetres: ${v}`] });
+  }
+  for (const v of ['0', '91', 'x']) {
+    assert.deepEqual(q(`angularDeflection=${v}`), { problems: [
+      `angularDeflection: not a number of degrees above 0, at most 90: ${v}`] });
+  }
+  // A bad deflection beside a good one: the good one, custom.
+  assert.deepEqual(q('linearDeflection=x&angularDeflection=30'), { meshing: { profile: 'custom', linearDeflection: 0.1,
+    angularDeflection: 30 }, problems: ['linearDeflection: not a positive number of millimetres: x'] });
+  // Written back: the device's profile not at all, another by name, custom by its deflections; each read back.
+  assert.deepEqual(deflectionQuery(profileSettings('medium'), 'medium'), []);
+  assert.deepEqual(deflectionQuery(profileSettings('medium'), 'coarse'), [['profile', 'medium']]);
+  for (const m of [profileSettings('fine'), { profile: 'custom' as const, linearDeflection: 1.2e-6,
+    angularDeflection: 22.5 }]) {
+    const back = deflectionFromQuery(new URLSearchParams(deflectionQuery(m, 'medium')), cur);
+    assert.deepEqual(back, { meshing: m, problems: [] });
+  }
+});
+
 test('the settings\' tess-cadio: its minAngle asked (radians) only where it meshes and not its own default; the '
   + 'level wanted with it; its debugging switch only where it meshes', async () => {
   const { defaultSettings, keepsFailing, minAngleOf, usesCadio, wantedOf } = await import('../src/tessellation.ts');

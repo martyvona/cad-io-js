@@ -12,6 +12,7 @@ import { sha256 } from 'cad-scene';
 import { parseIds } from './step-ids.ts';
 import { VIEWS, type ViewName } from './camera.ts';
 import { askUrl, showDialog } from './dialog.ts';
+import { DEVICE_PROFILES } from './device.ts';
 import { formatOf } from './formats.ts';
 import { AXES, type SectionSettings } from './section.ts';
 import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recording, type ReplayOptions,
@@ -21,7 +22,8 @@ import { nodeForPick } from './selection.ts';
 import { contentPath, fromFiles, fromUrl, pickFiles, typedUrl, type Source } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
-import { backendsFromQuery, fromQuery, healingFromQuery, renderChanges, toQuery, type CameraState, type ViewState } from
+import { backendsFromQuery, deflectionFromQuery, deflectionQuery, fromQuery, healingFromQuery, renderChanges, toQuery,
+  type CameraState, type ViewState } from
   './view-state.ts';
 import type { TessellationSettings } from './tessellation.ts';
 import type { MeshedWith, Viewer } from './viewer.ts';
@@ -201,6 +203,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // the link works however the server is reached.
     if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
       ? from.slice(location.origin.length) : from));
+    // Its deflections where they aren't the device's profile, so the link meshes it as it's shown.
+    const m = viewer.model?.meshedWith;
+    if (from && m) for (const [k, v] of deflectionQuery(m, DEVICE_PROFILES[viewer.device])) url.searchParams.set(k, v);
     // The view after #, which no server sees: a long hide= or select= list would outgrow the request line servers take
     // (GitHub Pages refuses a query over about 8 KB, Node's dev server about 16 KB).
     url.hash = new URLSearchParams(toQuery(view)).toString();
@@ -243,6 +248,10 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const backends = backendsFromQuery(params, viewer.settings);
     if (backends.meshing) ui.setMeshing(backends.meshing);
     problems.push(...backends.problems);
+    // The deflections (profile=, linearDeflection=, angularDeflection=) likewise.
+    const deflection = deflectionFromQuery(params, viewer.settings);
+    if (deflection.meshing) ui.setMeshing(deflection.meshing);
+    problems.push(...deflection.problems);
     const given = params.get('model') ?? params.get('url');
     if (params.has('model') && params.has('url')) problems.push('model and url both given: url ignored');
     const url = given !== null ? typedUrl(given) : undefined;
