@@ -25,7 +25,9 @@ import { AXES, type Axis, type PlaneSettings } from './section.ts';
 import type { PickLevel } from './selection.ts';
 import { HEAL_FIXES, type HealFix } from 'cad-heal/options';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
-import { BACKEND_NAMES, defaultFixes, usesCadio, type Backend, type TessellationSettings } from './tessellation.ts';
+import type { MeshProfile } from 'cad-scene';
+import { BACKEND_NAMES, defaultFixes, profileSettings, usesCadio, type Backend, type TessellationSettings }
+  from './tessellation.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 
 export type Vec3 = [number, number, number];
@@ -260,6 +262,62 @@ export function backendsFromQuery(params: URLSearchParams, current: Pick<Tessell
     else out.keepFailing = keep;
   }
   return Object.keys(out).length ? { meshing: out, problems } : { problems };
+}
+
+/** The profiles the address's `profile=` names, as B-Rep Meshing's Profile does. */
+const PROFILES = ['coarse', 'medium', 'fine', 'custom'] as const;
+/** The largest angle (degrees) `angularDeflection=` takes: the control's. */
+const MAX_ANGLE_DEGREES = 90;
+
+/**
+ * The meshing's deflections from the address, for the model it opens (address only, as healing): `profile=` one of
+ * coarse, medium, fine or custom (its deflections then the settings' `current`), `linearDeflection=` millimetres and
+ * `angularDeflection=` degrees, either making it custom (the other then `current`'s); what's malformed is left out,
+ * with a message for each, and a profile other than custom with a deflection is custom, said.
+ */
+export function deflectionFromQuery(params: URLSearchParams, current: Pick<TessellationSettings,
+  'linearDeflection' | 'angularDeflection'>): { meshing?: Pick<TessellationSettings, 'profile' | 'linearDeflection'
+  | 'angularDeflection'>; problems: string[] } {
+  const problems: string[] = [];
+  const profile = params.get('profile');
+  let named: (typeof PROFILES)[number] | undefined;
+  if (profile !== null) {
+    if ((PROFILES as readonly string[]).includes(profile)) named = profile as (typeof PROFILES)[number];
+    else problems.push(`profile: not one of ${PROFILES.join(', ')}: ${profile}`);
+  }
+  const value = (k: string, ok: (v: number) => boolean, what: string) => {
+    const s = params.get(k);
+    if (s === null) return undefined;
+    const v = finite(s);
+    if (v === undefined || !ok(v)) {
+      problems.push(`${k}: not ${what}: ${s}`);
+      return undefined;
+    }
+    return v;
+  };
+  const linear = value('linearDeflection', (v) => v > 0, 'a positive number of millimetres');
+  const angular = value('angularDeflection', (v) => v > 0 && v <= MAX_ANGLE_DEGREES,
+    `a number of degrees above 0, at most ${MAX_ANGLE_DEGREES}`);
+  if (linear !== undefined || angular !== undefined) {
+    if (named && named !== 'custom') problems.push(`profile=${named} with a deflection: custom`);
+    return { meshing: { profile: 'custom', linearDeflection: linear ?? current.linearDeflection,
+      angularDeflection: angular ?? current.angularDeflection }, problems };
+  }
+  if (named === 'custom') return { meshing: { profile: 'custom', linearDeflection: current.linearDeflection,
+    angularDeflection: current.angularDeflection }, problems };
+  if (named) return { meshing: profileSettings(named), problems };
+  return { problems };
+}
+
+/**
+ * The address's parameters for a model meshed with `m` (deflectionFromQuery's, which read them back): its profile,
+ * or its deflections where custom; none where it's `usual`, the device's profile.
+ */
+export function deflectionQuery(m: Pick<TessellationSettings, 'profile' | 'linearDeflection' | 'angularDeflection'>,
+  usual: MeshProfile): [string, string][] {
+  if (m.profile === usual) return [];
+  if (m.profile !== 'custom') return [['profile', m.profile]];
+  return [['linearDeflection', String(m.linearDeflection)], ['angularDeflection', String(m.angularDeflection)]];
 }
 
 /**
