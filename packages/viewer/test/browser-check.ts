@@ -109,6 +109,8 @@ fs.writeFileSync(path.join(content, 'heal.stp'), stepOf(healTestScene()));
 // A part with a face tess-cadio fails for its mesh (#453's #445, past its deflection), which keepFailing keeps.
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/pr1ct.stp'),
   path.join(content, 'pr1ct.stp'));
+// (A face tess-cadio fails past its deflection, alone in its part: arm-ap242 #119's cylinder #1231.)
+fs.copyFileSync(path.join(repo, 'test_corpus/models/arm/arm-ap242.step'), path.join(content, 'arm-ap242.step'));
 // as1 with its nut-bolt assemblies' nut (its occurrence: the tree's name for it, three levels down, so no row of it is
 // drawn before the tree is expanded, and the first below the first screen once it is) named long enough to be the
 // widest row in any font (the tree check).
@@ -2906,7 +2908,7 @@ await check('heal pcurveMissing', async () => {
 // Our own tessellator in the browser (tess-cadio's module in the pool's workers, as Vite bundles it): the assembly
 // with backend=cadio and no fallback, its triangles those it gives here in Node, at the controls' default min angle and
 // at 0 (fewer, the request's minAngle) after Mesh again, in meshedWith; the controls, closed; healing in the same
-// workers before cadio meshes, on (heal.stp's fixes said) and off; keepFailing=1, pr1ct's face that cadio fails
+// workers before cadio meshes, on (heal.stp's fixes said) and off; keepFailing=1, arm-ap242's face that cadio fails
 // meshed then (cadio given KEEP_FAILING), its pool's meshes not cached (no lookups, though the assembly's are cached
 // from above), the backend saying so; minAngle= ignored with another backend, said.
 await check('tess-cadio', async () => {
@@ -3000,7 +3002,7 @@ await check('tess-cadio', async () => {
   expect(!e.meshing.cache || (e.meshing.cache.misses === 0 && e.meshing.cache.hits === 0),
     `keepFailing=1, cadio cached: ${l}`);
   for (const keep of ['0', '1']) {
-    const f = await page(`?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`
+    const f = await page(`?url=${encodeURIComponent('/content/arm-ap242.step')}&backend=cadio&fallback=none`
       + `&keepFailing=${keep}&check`, `(async () => {
       await cadViewer.idle();
       return { parts: viewer.model.parts, errors: viewer.model.diagnostics.filter((d) => d.severity === 'error')
@@ -3008,7 +3010,7 @@ await check('tess-cadio', async () => {
     })()`) as { after: { parts: { total: number; done: number; failed: number }; errors: string[] } };
     const g = f.after, m = JSON.stringify(g);
     expect(keep === '1' ? !g.errors.some((x) => /failed to mesh/.test(x))
-      : g.errors.includes('1 faces failed to mesh: #445'), `pr1ct, keepFailing=${keep}: ${m}`);
+      : g.errors.includes('1 faces failed to mesh: #1231'), `arm-ap242, keepFailing=${keep}: ${m}`);
   }
   const o = await page(`?url=${encodeURIComponent('/content/as1.stp')}&minAngle=5&check`, `(async () => {
     await cadViewer.idle();
@@ -3021,11 +3023,11 @@ await check('tess-cadio', async () => {
     `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
   return undefined;
 });
-// Going to a face from the address, and why it failed: pr1ct with cadio alone, face=445 (a face cadio fails, past its
-// deflection): selected, the tree's detail on, revealed and zoomed to (the camera nearer than the whole model's), its
-// Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs) its cause in a third
-// column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no cause); part=453 the
-// part; an id matching nothing, and one that isn't an id, said in the address's problems.
+// Going to a face from the address, and why it failed: arm-ap242 with cadio alone, face=1231 (a face cadio fails, past
+// its deflection): selected, the tree's detail on, revealed and zoomed to (the camera nearer than the whole model's),
+// its Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs) its cause in a third
+// column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no cause); part=119 the part;
+// an id matching nothing, and one that isn't an id, said in the address's problems.
 await check('go to a face', async () => {
   const look = `(async () => {
     await cadViewer.idle();
@@ -3048,26 +3050,26 @@ await check('go to a face', async () => {
   })()`;
   type Got = { rows: string[][]; selected: string[]; detail: boolean; details: string[]; panel: string;
     height: number; all: number; status: string; meshedWith: { backend: string; keepFailing: boolean; heal: boolean } };
-  const url = `?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`;
+  const url = `?url=${encodeURIComponent('/content/arm-ap242.step')}&backend=cadio&fallback=none`;
   const cause = 'Cause: noConvergence: meshed past its deflection';
-  const f = (await page(`${url}&face=445&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
-  expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#445') && f.detail, `face=445 selected: ${j}`);
+  const f = (await page(`${url}&face=1231&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
+  expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#1231') && f.detail, `face=1231 selected: ${j}`);
   expect(f.height < f.all, `zoomed to it: ${j}`);
   expect(f.details.includes('Failed to mesh: its outline is drawn in red')
     && f.details.some((l) => l.startsWith(cause)) && f.panel.includes(cause), `its Details: ${j}`);
-  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #445');
-  expect(row?.[0] === 'error #453' && row.length === 3 && row[2]!.startsWith('noConvergence: meshed past its '
-    + 'deflection') && row[2]!.endsWith(' (#445)'), `the problems dialog's cause: ${j}`);
+  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #1231');
+  expect(row?.[0] === 'error #119' && row.length === 3 && row[2]!.startsWith('noConvergence: meshed past its '
+    + 'deflection') && row[2]!.endsWith(' (#1231)'), `the problems dialog's cause: ${j}`);
   expect(!f.status.includes('the address'), `nothing said: ${j}`);
-  const k = (await page(`${url}&keepFailing=1&heal=1&face=445&check`, look) as { after: Got }).after;
+  const k = (await page(`${url}&keepFailing=1&heal=1&face=1231&check`, look) as { after: Got }).after;
   const l = JSON.stringify(k);
   expect(k.meshedWith.keepFailing && k.meshedWith.heal && k.selected.length === 1
-    && k.selected[0]!.endsWith('/face#445'), `keepFailing=1, heal=1, face=445: ${l}`);
+    && k.selected[0]!.endsWith('/face#1231'), `keepFailing=1, heal=1, face=1231: ${l}`);
   expect(k.details.some((x) => /^Triangles: [1-9]/.test(x)) && !k.details.some((x) => x.startsWith('Cause:'))
     && !k.details.some((x) => x.startsWith('Failed')), `the face kept, meshed: ${l}`);
-  const p = (await page(`${url}&part=453&face=999999,x1&check`, look) as { after: Got }).after;
+  const p = (await page(`${url}&part=119&face=999999,x1&check`, look) as { after: Got }).after;
   const q = JSON.stringify(p);
-  expect(p.selected.length === 1 && !p.selected[0]!.includes('face#'), `part=453: ${q}`);
+  expect(p.selected.length === 1 && !p.selected[0]!.includes('face#'), `part=119: ${q}`);
   expect(p.status.includes('face=: nothing has #999999') && p.status.includes('face=: not STEP ids: x1'),
     `face= that names nothing: ${q}`);
   return undefined;
