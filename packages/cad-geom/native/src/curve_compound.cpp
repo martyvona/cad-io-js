@@ -40,6 +40,7 @@ public:
     return e == Status::ok ? s : e;
   }
   void breaks(Range r, std::vector<double>& out) const override { b_->breaks(clip(r), out); }
+  void joints(Range r, int c, std::vector<double>& out) const override { b_->joints(clip(r), c, out); }
   Status derivBox(Range r, int order, Box3& out) const override { return b_->derivBox(clip(r), order, out); }
   Status derivBoundN(Range r, int order, double& out) const override {
     return b_->derivBoundN(clip(r), order, out);
@@ -206,6 +207,8 @@ public:
     return s;
   }
   void breaks(Range r, std::vector<double>& out) const override { b_->breaks(r, out); }
+  // An offset is one order less smooth than its basis (its tangent's direction enters it).
+  void joints(Range r, int c, std::vector<double>& out) const override { b_->joints(r, c + 1, out); }
   Status derivBox(Range r, int order, Box3& out) const override {
     if (order == 0) {
       // The basis's box widened by |d| is a fixed size about the curve: met with the centred form, which shrinks.
