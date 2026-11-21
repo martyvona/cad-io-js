@@ -418,4 +418,20 @@ void shareRings(const std::vector<const Surface*>& surfaces, std::vector<std::ve
   }
 }
 
+std::vector<int> shrinkRings(const std::vector<const Surface*>& surfaces, std::vector<std::vector<PoleRing>>& rings,
+  double tol, Vec3 pole, double reach) {
+  std::vector<int> changed;
+  for (int f = 0; f < static_cast<int>(rings.size()); f++) {
+    bool any = false;
+    for (PoleRing& r : rings[f]) {
+      if (r.kase == PoleRing::Case::outside || norm(r.pole - pole) > tol || !(r.reach > reach)) continue;
+      r.radius = ringRadius(*surfaces[f], r, reach);
+      r.reach = reach;
+      any = true;
+    }
+    if (any) changed.push_back(f);
+  }
+  return changed;
+}
+
 } // namespace tesscadio

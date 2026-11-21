@@ -102,6 +102,9 @@ struct EdgeSamples {
   Status status = Status::unsupported;
   std::vector<double> t;
   std::vector<Vec3> points;
+  /** The spans kept empty for poles' rings (EdgeMesh::cutRings): parameter ranges, low to high; split drops a point
+   * inside one. */
+  std::vector<cadgeom::Range> rings;
 };
 
 /**
@@ -299,10 +302,18 @@ public:
    * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
    * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between
    * them kept empty from then on: split() drops a request inside it, so the refinement rounds never refill a ring.
-   * Bad cuts (no such edge, parameters not finite or outside the edge's samples, approach equal to crossing) are
-   * ignored: Status::invalidModel if there were any, else Status::ok. Other edges' indices stand.
+   * A cut from the approach of a ring already on the edge (within a millionth of the edge's range), its crossing
+   * inside that ring, shrinks it instead: a sample at the new crossing, the span from there to the old one an
+   * ordinary span. Bad cuts (no such edge, parameters not finite or outside
+   * the edge's samples, approach equal to crossing) are ignored: Status::invalidModel if there were any, else
+   * Status::ok. Other edges' indices stand.
    */
   Status cutRings(const std::vector<RingCut>& cuts);
+  /**
+   * Edge e's samples as saved earlier (a copy of edge(e)), its uses placed again: for undoing a change the caller
+   * judged worse (PartMesher's ring shrinks). An index out of range is ignored.
+   */
+  void restore(int e, const EdgeSamples& saved);
 
 private:
   struct Impl;

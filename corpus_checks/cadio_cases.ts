@@ -26,6 +26,15 @@ const CASES: Case[] = [
   // corner's normal left one turned.
   { file: 'models/onshape/LMP1.step', part: 172878, faces: [1064893],
     why: 'only the turn on the boundary\'s own points' },
+  // A split a torus asks on its edge's span inside a neighbouring sphere's pole ring: the ring shrunk to it
+  // (part.cpp's shrinkRings).
+  { file: 'third_party/gkv311-opencascade-dataset/step/r0901_ec.stp', part: 11, faces: [37264],
+    why: 'a pole\'s ring shrunk for a neighbour\'s split' },
+  // Meshed only as long as the shrink keeps to its rules: a free-form pole's rings not shrunk (arm's B-spline faces
+  // at a pole, their slivers turned), and a shrink that fails a face ok before undone (LMP1 #172522's sphere, its
+  // boundary through its own point with its ring smaller).
+  { file: 'models/arm/arm-ap242.step', part: 114, faces: [1197, 1201], why: 'no shrink at a free-form pole' },
+  { file: 'models/onshape/LMP1.step', part: 172522, faces: [1049041], why: 'a shrink failing a face undone' },
 ];
 
 const t = new CadioTessellator();

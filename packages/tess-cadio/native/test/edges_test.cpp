@@ -917,6 +917,31 @@ TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing 
   // Repeated rounds asking the ring's span split at every fraction: still empty.
   for (double f : {0.1, 0.3, 0.5, 0.7, 0.9}) em.split({{e, 0, f}});
   for (double t : em.edge(e).t) CHECK(!(t > std::min(a, c) && t < std::max(a, c)));
+  // The ring shrunk (a cut from its approach, its crossing inside it): a sample at the new crossing, the ring to it,
+  // the span from there to the old crossing split as any; inside the smaller ring still dropped.
+  const double c2 = a + 0.25 * (c - a);
+  CHECK(em.cutRings({{e, a, c2}}) == cadgeom::Status::ok);
+  REQUIRE(em.edge(e).rings.size() == 1u);
+  CHECK(em.edge(e).rings[0].lo == std::min(a, c2));
+  CHECK(em.edge(e).rings[0].hi == std::max(a, c2));
+  CHECK(em.edge(e).t[1] == c2);
+  CHECK(em.edge(e).t[2] == c);
+  const size_t m2 = em.edge(e).t.size();
+  CHECK(em.split({{e, 1, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), m2 + 1);
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), m2 + 1);
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "cube ring shrunk"), 0);
+  // Its samples saved, split, then restored: as saved, rings included, its uses placed on them again.
+  const EdgeSamples saved = em.edge(e);
+  em.split({{e, 2, 0.5}});
+  REQUIRE(em.edge(e).t.size() == saved.t.size() + 1);
+  em.restore(e, saved);
+  CHECK(em.edge(e).t == saved.t);
+  CHECK_EQ(em.edge(e).rings.size(), saved.rings.size());
+  for (int co = 0; co < m.coedges(); co++)
+    if (m.coedgeEdge(co) == e) CHECK_EQ(em.coedge(co).index.size(), saved.t.size());
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "cube ring restored"), 0);
   // An approach between samples (a curve passing the pole): a sample there too, the ring the span to the crossing.
   const int e2 = 1;
   const std::vector<double> u = em.edge(e2).t;
