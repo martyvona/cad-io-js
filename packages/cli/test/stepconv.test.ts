@@ -261,7 +261,7 @@ test('stepconv: smlib', { skip: skip || (!smlibBuilt && 'tess-smlib not built') 
 });
 
 // Our own tessellator: the library's pipeline with it, in a pool and on the main thread; --min-angle as the request's
-// minAngle; --keep-failing keeps pr1ct's face #445 (past its deflection by default), seen as meshed.
+// minAngle; --keep-failing keeps trj4_s1-pe-214's face #10144 (2 triangles turned by default), seen as meshed.
 test('stepconv: cadio, --min-angle, --keep-failing', { skip: skip || (!cadioBuilt && 'tess-cadio not built') },
   async () => {
   const expected = async (minAngle?: number) => {
@@ -286,20 +286,20 @@ test('stepconv: cadio, --min-angle, --keep-failing', { skip: skip || (!cadioBuil
     assert.equal(m.code, 0, m.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), none, `--min-angle 0, workers ${workers}`);
   }
-  const pr1ct = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/pr1ct.stp');
-  if (!fs.existsSync(pr1ct)) return;
-  const failed = /error: #453: 1 faces failed to mesh: #445\n/;
+  const failing = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj4_s1-pe-214.stp');
+  if (!fs.existsSync(failing)) return;
+  const failed = /error: #11087: 1 faces failed to mesh: #10144\n/;
   for (const workers of ['2', '0']) {
-    const r = await run([pr1ct, '-o', out, '-b', 'cadio', '--fallback', 'none', '-j', workers]);
+    const r = await run([failing, '-o', out, '-b', 'cadio', '--fallback', 'none', '-j', workers]);
     assert.match(r.stderr, failed);
     assert.doesNotMatch(r.stderr, /debugging/);
-    const k = await run([pr1ct, '-o', out, '-b', 'cadio', '--fallback', 'none', '--keep-failing', '-j', workers]);
+    const k = await run([failing, '-o', out, '-b', 'cadio', '--fallback', 'none', '--keep-failing', '-j', workers]);
     assert.equal(k.code, 0, k.stderr);
     assert.doesNotMatch(k.stderr, /failed to mesh/);
     assert.match(k.stderr,
       /\ndebugging \(--keep-failing\): cadio kept the faces it would fail for their mesh\n0 errors/);
     // As the fallback too: occt first, cadio keeping what it meshes.
-    const f = await run([pr1ct, '-o', out, '--fallback', 'cadio', '--keep-failing', '-j', workers]);
+    const f = await run([failing, '-o', out, '--fallback', 'cadio', '--keep-failing', '-j', workers]);
     assert.equal(f.code, 0, f.stderr);
   }
 });
