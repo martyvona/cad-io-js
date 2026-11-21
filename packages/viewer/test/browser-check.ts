@@ -716,7 +716,13 @@ await check('zoom at the cursor', async () => {
 // cadViewer.pickAt and the view's own picking; the zoom at the cursor's orbit centre counts it too.
 await check('picks on caps', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
-    const v = globalThis.viewer, cam = v.camera, c = v.renderer.domElement.getBoundingClientRect();
+    const v = globalThis.viewer, cam = v.camera;
+    // (The view's resize, after the page's layout, waited for: under load it can come frames later, and the click
+    // below is placed by the canvas's box and the camera's projection, which must agree.)
+    const P = () => cam.projectionMatrix.elements, el = v.renderer.domElement;
+    for (let t = 0; t < 40 && Math.abs(P()[0] * el.clientWidth / (P()[5] * el.clientHeight) - 1) > 1e-6; t++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
     const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
     const centre = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld);
@@ -732,7 +738,9 @@ await check('picks on caps', async () => {
     const off = cadViewer.pickAt(fx, fy) && (v.setSections({ ...v.sections.get(), caps: false }),
       cadViewer.pickAt(fx, fy));
     v.setSections({ ...v.sections.get(), caps: true });
-    // The zoom's orbit centre found a little above the rod's centre, on the cap.
+    // The zoom's orbit centre found a little above the rod's centre, on the cap (the canvas's box as it is now).
+    await cadViewer.idle();
+    const c = v.renderer.domElement.getBoundingClientRect();
     v.centreAt(c.left + fx * c.width, c.top + fy * c.height - 10);
     return { picked, off, centre: centre.toArray(), target: v.controls.target.toArray() };
   })()`) as { after: { picked: { path: string; point: number[]; cap?: string } | undefined;
