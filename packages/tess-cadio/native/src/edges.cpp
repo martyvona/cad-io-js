@@ -356,7 +356,6 @@ struct EdgeMesh::Impl {
     int start = -1, end = -1;       // vertices (model edges)
     double spacing = kInf;
     std::vector<int> coedges;
-    std::vector<Range> rings;  // spans kept empty (cutRings): parameter ranges, low to high
     // A pseudo-edge's: its face, the cut's fixed coordinate (dim 1 - free) and its end points.
     int face = -1, free = 1;
     double fixed = 0;
@@ -2434,7 +2433,7 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     if (norm(pts[r.span + 1] - pts[r.span]) <= refinementFloor(I.tol, I.o.deflection)) continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
     bool inRing = false;
-    for (const Range& g : I.edges[r.edge].rings) inRing = inRing || (x > g.lo && x < g.hi);
+    for (const Range& g : I.edges[r.edge].s.rings) inRing = inRing || (x > g.lo && x < g.hi);
     if (!inRing) add[r.edge].push_back(x);
   }
   for (size_t e = 0; e < add.size(); e++) {
@@ -2563,6 +2562,21 @@ Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {
       bad = true;
       continue;
     }
+    // (A cut from the approach of a ring already on the edge, its crossing inside it, shrinks that ring: the span
+    // between the two crossings left as one, to be split as any.)
+    bool shrunk = false;
+    for (size_t k = 0; k < E.s.rings.size() && !shrunk; k++) {
+      const Range old = E.s.rings[k];
+      const double near = 1e-6 * (hi - lo);
+      const bool fromLo = std::fabs(c.approach - old.lo) <= near, fromHi = std::fabs(c.approach - old.hi) <= near;
+      if (!(fromLo || fromHi) || !(c.crossing > old.lo && c.crossing < old.hi)) continue;
+      const double b = I.insertSample(c.edge, c.crossing);
+      if (b == old.lo || b == old.hi) break;
+      E.s.rings[k] = fromLo ? Range{old.lo, b} : Range{b, old.hi};
+      touched.insert(c.edge);
+      shrunk = true;
+    }
+    if (shrunk) continue;
     const double a = I.insertSample(c.edge, c.approach), b = I.insertSample(c.edge, c.crossing);
     if (a == b) {
       bad = true;
@@ -2577,12 +2591,22 @@ Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {
         i++;
       }
     }
-    E.rings.push_back(g);
+    // (The same ring again, from a face sharing the edge: once.)
+    bool again = false;
+    for (const Range& o : E.s.rings) again = again || (o.lo == g.lo && o.hi == g.hi);
+    if (!again) E.s.rings.push_back(g);
     touched.insert(c.edge);
   }
   for (int e : touched)
     for (int co : I.edges[e].coedges) I.computeCoedge(co);
   return bad ? Status::invalidModel : Status::ok;
+}
+
+void EdgeMesh::restore(int e, const EdgeSamples& saved) {
+  Impl& I = *impl_;
+  if (e < 0 || e >= static_cast<int>(I.edges.size())) return;
+  I.edges[e].s = saved;
+  for (int c : I.edges[e].coedges) I.computeCoedge(c);
 }
 
 } // namespace tesscadio

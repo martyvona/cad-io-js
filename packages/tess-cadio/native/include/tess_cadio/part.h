@@ -195,6 +195,13 @@ public:
   const EdgeMesh& edges() const;
   /** The rounds of splitting run. */
   int rounds() const;
+  /**
+   * In the rounds, the poles whose rings were shrunk for a split another face asked inside them (never nearer the
+   * pole than the refinement floor; a shrink undone, a face it changed failing that didn't, not counted), and the
+   * faces meshed again for them, undoing included (counted each time).
+   */
+  int ringsShrunk() const;
+  int ringFacesRemeshed() const;
   /** The most bytes the kept verdicts took at once, as estimated (PartOptions::verdictBudget): for tests. */
   size_t verdictPeak() const;
 
