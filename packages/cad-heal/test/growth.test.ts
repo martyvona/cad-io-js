@@ -139,7 +139,8 @@ test('toleranceError: every edge and vertex the error counts flagged in the anal
 test('toleranceError: growth within the rule flagged nowhere (a warning by the size, by the ratio, by the row\'s own '
   + 'start; nothing grown)', async () => {
   for (const [what, d] of [['within the size', part(2.01)], ['within the ratio', part(2.05, 0.04)],
-    ['the row\'s own start', planeArc(undefined, undefined, 0, 0.02, 0.01).finish()], ['nothing grown', part(2)]] as const) {
+    ['the row\'s own start', planeArc(undefined, undefined, 0, 0.02, 0.01).finish()], ['nothing grown', part(2)]] as
+    const) {
     const x = await flags(d);
     assert.equal(x.error, false, what);
     assert.deepEqual([x.edges, x.vertices], [[], []], what);

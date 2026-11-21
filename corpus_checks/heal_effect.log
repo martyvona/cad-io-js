@@ -1,47 +1,33 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 23.1; speed 5136 on 1 thread, 48965 on 18
-517 files (0 over the size limit), 3258 B-rep parts, 86142 faces; the run 3557.5 s
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 6.5; speed 5669 on 1 thread, 67432 on 18
+517 files (0 over the size limit), 3258 B-rep parts, 86142 faces; the run 3221.6 s
 
-Cost: healing 1133.5 s of CPU (the importing process's, its healing pool included), 810.4 s of wall time summed over files; importing (without healing) 30.2 s of CPU; 0 diagnostics of healing cut short
+Cost: healing 909.2 s of CPU (the importing process's, its healing pool included), 608.9 s of wall time summed over files; importing (without healing) 30.3 s of CPU; 0 diagnostics of healing cut short
   the slowest files to heal (wall):
-     238.1 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
-      94.7 s  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp
-      33.1 s  gkv311-opencascade-dataset/step/bug31711.stp
-      30.2 s  gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP
-      25.2 s  gkv311-opencascade-dataset/step/bug32239.STEP
-      24.0 s  gkv311-opencascade-dataset/step/OCC5157.stp
-      23.9 s  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp
-      23.4 s  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp
-      22.2 s  gkv311-opencascade-dataset/step/bug30790.step
-      16.8 s  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp
+     192.9 s  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
+      67.0 s  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp
+      33.5 s  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp
+      33.1 s  gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP
+      32.2 s  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp
+      16.5 s  gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step
+      14.3 s  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp
+      14.0 s  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp
+      13.1 s  gkv311-opencascade-dataset/step/bug31711.stp
+      11.5 s  gkv311-opencascade-dataset/step/OCC5157.stp
 
-occt: as imported / healed: parts failed 141 / 141 (of 3258), faces meshed 83735 / 83887, triangles 31831680 / 19546365, valid measures 83782 / 83852, meshing 529.1 s / 293.2 s (each request's wall time, summed)
-  faces gained 157, lost 5; parts gained 0, lost 0
-    gained: gkv311-opencascade-dataset/step/bug30790.step #2448 face #4283
-    gained: gkv311-opencascade-dataset/step/bug30790.step #2448 face #2783
-    gained: gkv311-opencascade-dataset/step/bug30790.step #2448 face #4695
-    gained: gkv311-opencascade-dataset/step/bug30790.step #2448 face #5503
-    lost:   gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #453
-    lost:   gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #5200
-    lost:   gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2075 face #16909
-    lost:   gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92541
-  the faces lost, by the mesher's cause healed (where it gives one):
-         5  no cause given  (gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #453; gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #5200)
+occt: as imported / healed: parts failed 141 / 141 (of 3258), faces meshed 83735 / 83735, triangles 31831680 / 31821495, valid measures 83782 / 83779, meshing 489.8 s / 487.3 s (each request's wall time, summed)
+  faces gained 0, lost 0; parts gained 0, lost 0
   the files losing the most faces (lost, gained, triangles as imported -> healed):
-         2     0  8615 -> 5387  gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp
-         1     0  712945 -> 716451  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
-         1     0  355241 -> 346177  gkv311-opencascade-dataset/step/wgehaeuse_surface.stp
-         1     0  18406 -> 18183  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp
   the files changing most in triangles:
-    13193466 -> 921688  gkv311-opencascade-dataset/step/bug30790.step
-    77877 -> 37566  gkv311-opencascade-dataset/step/trj1_t4m-ac.stp
-    755520 -> 787440  gkv311-opencascade-dataset/step/trj3_s1-ac-214.stp
     38833 -> 28793  gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp
-    355241 -> 346177  gkv311-opencascade-dataset/step/wgehaeuse_surface.stp
-    87317 -> 81646  gkv311-opencascade-dataset/step/bm2_id_t4-A.stp
-    234438 -> 239032  gkv311-opencascade-dataset/step/bug31711.stp
-    712945 -> 716451  gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp
+    8615 -> 8199  gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp
+    8598 -> 8768  gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp
+    8598 -> 8768  gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp
+    666901 -> 666882  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step
+    35542 -> 35530  gkv311-opencascade-dataset/step/r0901_ec.stp
+    20134 -> 20122  gkv311-opencascade-dataset/step/nist/nist_ctc_05_asme1_ap242-1.stp
+    20134 -> 20122  gkv311-opencascade-dataset/step/nist/bug29633_nist_ctc_05_asme1_ap242-1.stp
 
-smlib: as imported / healed: parts failed 145 / 145 (of 3258), faces meshed 85999 / 86002, triangles 7566196 / 7562595, valid measures 86046 / 86046, meshing 877.0 s / 861.7 s (each request's wall time, summed)
+smlib: as imported / healed: parts failed 145 / 145 (of 3258), faces meshed 85999 / 86002, triangles 7566196 / 7562595, valid measures 86046 / 86046, meshing 758.7 s / 750.7 s (each request's wall time, summed)
   faces gained 3, lost 0; parts gained 0, lost 0
     gained: gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11703
     gained: gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #12333
@@ -57,29 +43,29 @@ smlib: as imported / healed: parts failed 145 / 145 (of 3258), faces meshed 8599
     22761 -> 22761  gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp
     2096 -> 2096  gkv311-opencascade-dataset/step/trj2_as1-id-203.stp
 
-cad-oracle: faces trusted (1e-6) as imported / healed: 65449 / 78575
+cad-oracle: faces trusted (1e-6) as imported / healed: 65449 / 65837
 
-Healing's diagnostics: 1592 warnings, 7 errors
-     536  warning: edgeTolerance: N coedges' curves traced onto their surfaces (the grid not bounding them within the tolerance) given the trace's p-curve, N of them with their edges' tolerances grown to cover it (up to
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp {"format":"step","id":1926}
-            gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp {"format":"step","id":30730}
-            gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp {"format":"step","id":6446}
-            gkv311-opencascade-dataset/step/trj2_as1-id-203.stp {"format":"step","id":1589}
-     320  warning: tolerances grown: N edges (edgeTolerance N edges), each to N times what's measured; the largest N x its starting tolerance (edge #N: N mm to N mm); the largest growth N mm (edge #N)
+Healing's diagnostics: 1163 warnings, 7 errors
+     316  warning: tolerances grown: N edges (edgeTolerance N edges), each to N times what's measured; the largest N x its starting tolerance (edge #N: N mm to N mm); the largest growth N mm (edge #N)
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp {"format":"step","id":3812}
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp {"format":"step","id":1933}
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp {"format":"step","id":1189}
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp {"format":"step","id":758}
-     202  warning: tolerances grown: N edge (edgeTolerance N edge), each to N times what's measured; the largest N x its starting tolerance (edge #N: N mm to N mm); the largest growth N mm (edge #N)
-            gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp {"format":"step","id":22}
+     199  warning: tolerances grown: N edge (edgeTolerance N edge), each to N times what's measured; the largest N x its starting tolerance (edge #N: N mm to N mm); the largest growth N mm (edge #N)
             gkv311-opencascade-dataset/step/trj6_k1-id-203.stp {"format":"step","id":127}
             gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp {"format":"step","id":44}
             gkv311-opencascade-dataset/step/trj5_k1-id-214.stp {"format":"step","id":44}
-     152  warning: edgeTolerance: N of its p-curves put on their surfaces' domains (poles past a side by up to N in (u, v), moving them up to N mm, which their edges' tolerances cover)
-            gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp {"format":"step","id":2173}
-            gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp {"format":"step","id":22}
-            gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp {"format":"step","id":10}
-            gkv311-opencascade-dataset/step/bug30790.step {"format":"step","id":2415}
+            gkv311-opencascade-dataset/step/bug30014.stp {"format":"step","id":41105}
+     177  warning: edgeTolerance: N coedges' curves traced onto their surfaces (the grid not bounding them within the tolerance) given the trace's p-curve, N of them with their edges' tolerances grown to cover it (up to
+            gkv311-opencascade-dataset/step/trj6_k1-id-203.stp {"format":"step","id":127}
+            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp {"format":"step","id":1489}
+            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp {"format":"step","id":5699}
+            gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp {"format":"step","id":5753}
+      90  warning: edgeTolerance: N of its p-curves put on their surfaces' domains (poles past a side by up to N in (u, v), moving them up to N mm, which their edges' tolerances cover)
+            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp {"format":"step","id":5699}
+            gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp {"format":"step","id":5753}
+            gkv311-opencascade-dataset/step/bug30014.stp {"format":"step","id":61091}
+            gkv311-opencascade-dataset/step/bug30014.stp {"format":"step","id":65953}
       80  warning: pcurveReplace: N p-curves off their edges' curves kept (the projection not nearer)
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp {"format":"step","id":3812}
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp {"format":"step","id":1933}
@@ -155,11 +141,6 @@ Healing's diagnostics: 1592 warnings, 7 errors
             gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp {"format":"step","id":5316}
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp {"format":"step","id":6268}
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp {"format":"step","id":6272}
-       4  warning: edgeTolerance: N coedges' curves traced onto their surfaces left without a p-curve (several pieces)
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step {"format":"step","id":329592}
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step {"format":"step","id":174483}
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp {"format":"step","id":5203}
-            gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step {"format":"step","id":2134}
        4  warning: tolerances grown: N edges and N vertex (edgeTolerance N edge, vertexTolerance N edges and N vertex), each to N times what's measured; the largest N x its starting tolerance (edge #N: N mm to N mm); th
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp {"format":"step","id":14280}
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp {"format":"step","id":14240}
@@ -174,6 +155,10 @@ Healing's diagnostics: 1592 warnings, 7 errors
             gkv311-opencascade-dataset/step/ec_exhaust-A.stp {"format":"step","id":11}
             gkv311-opencascade-dataset/step/ec_soapbox-A.stp {"format":"step","id":11}
             gkv311-opencascade-dataset/step/bug25166_piston.stp {"format":"step","id":30604}
+       3  warning: edgeTolerance: N coedges' curves traced onto their surfaces left without a p-curve (several pieces)
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step {"format":"step","id":329592}
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step {"format":"step","id":174483}
+            gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step {"format":"step","id":2134}
        2  warning: tolerances grown: N edges and N vertices (edgeTolerance N edges, vertexTolerance N edges and N vertices, pcurveEnds N edges and N vertices), each to N times what's measured; the largest N x its starti
             gkv311-opencascade-dataset/step/r0901_ec.stp {"format":"step","id":11}
             gkv311-opencascade-dataset/step/trj8_k1-db-214.stp {"format":"step","id":5}
@@ -202,7 +187,7 @@ Healing's diagnostics: 1592 warnings, 7 errors
        1  warning: strayPole: N poles of N curves moved onto their neighbours' common point (each over N x the part's size of N mm outside it, acting on under N of its curve's knot range; up to N mm out)
             gkv311-opencascade-dataset/step/bug24383_224013.stp {"format":"step","id":11}
   errors, for example:
-    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step {"format":"step","id":174483}: tolerances grown: 531 edges (edgeTolerance 531 edges), each to 1.1 times what's measured; 5 errors (past 5 x its starting tolerance and 0.01 x the part's size o
+    gkv311-opencascade-dataset/step/bug29979_firetherm_12.step {"format":"step","id":174483}: tolerances grown: 494 edges (edgeTolerance 494 edges), each to 1.1 times what's measured; 5 errors (past 5 x its starting tolerance and 0.01 x the part's size o
     gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp {"format":"step","id":418}: tolerances grown: 6 edges and 12 vertices (edgeTolerance 6 edges, vertexTolerance 6 edges and 12 vertices), each to 1.1 times what's measured; 15 errors (past 5
     gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp {"format":"step","id":16440}: tolerances grown: 5 edges and 1 vertex (edgeTolerance 5 edges, vertexTolerance 1 edge and 1 vertex), each to 1.1 times what's measured; 1 error (past 5 x its st
     gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp {"format":"step","id":14805}: tolerances grown: 5 edges and 1 vertex (edgeTolerance 5 edges, vertexTolerance 1 edge and 1 vertex), each to 1.1 times what's measured; 1 error (past 5 x its st

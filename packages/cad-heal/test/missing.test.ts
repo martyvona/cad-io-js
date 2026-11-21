@@ -66,7 +66,65 @@ test('pcurveMissing off (its default), or healing off: no p-curve made', async (
   }
 });
 
-test('fixesOn: pcurveMissing, off by default, is on only when asked', () => {
-  assert.ok(!fixesOn().includes('pcurveMissing'));
-  assert.deepEqual(fixesOn(ON), [...HEAL_FIXES]);
+test('fixesOn: pcurveMissing and pcurveMissingOnPlane, off by default, each on only when asked', () => {
+  assert.ok(!fixesOn().includes('pcurveMissing') && !fixesOn().includes('pcurveMissingOnPlane'));
+  assert.deepEqual(fixesOn(ON), HEAL_FIXES.filter((f) => f !== 'pcurveMissingOnPlane'));
+  assert.deepEqual(fixesOn({ fixes: { pcurveMissingOnPlane: true } }), HEAL_FIXES.filter((f) => f !== 'pcurveMissing'));
+});
+
+test('pcurveMissing: every bare use on a B-spline given one, even where the edge needs nothing (healing alone leaves '
+  + 'it bare), fitted within MESH_FIT x the deflection where that\'s tighter than the edge\'s tolerance', async () => {
+  const { MESH_FIT } = await import('../src/curves.ts');
+  const dev = async (meshDeflection: number, on: boolean) => {
+    const d = bsplineCylinder(line2([1, 0], [0, 1])).finish();
+    d.edge.tolerance.fill(0.01);
+    const r = await healPart(d, { fixes: { pcurveMissing: on }, meshDeflection }, module);
+    const dev = r.analysis?.coedge.deviation;
+    return { pcurves: [0, 2].map((c) => r.model.coedge.pcurve[c]! >= 0), dev: Math.max(dev?.[0] ?? NaN,
+      dev?.[2] ?? NaN) };
+  };
+  assert.deepEqual((await dev(0.05, false)).pcurves, [false, false], 'off: left bare');
+  const coarse = await dev(1e9, true), fine = await dev(1e-3, true);
+  assert.deepEqual([coarse.pcurves, fine.pcurves], [[true, true], [true, true]], 'on: made');
+  assert.ok(fine.dev <= MESH_FIT * 1e-3, `within MESH_FIT x the deflection: ${fine.dev}`);
+  assert.ok(coarse.dev > MESH_FIT * 1e-3 && coarse.dev <= 0.01, `else the edge's tolerance: ${coarse.dev}`);
+});
+
+test('pcurveMissingOnPlane: a plane\'s bare uses given their curves\' exact images (a line, a rational B-spline), in '
+  + 'their parameters; independent of pcurveMissing', async () => {
+  const PLANE = { fixes: { pcurveMissingOnPlane: true } };
+  const d = planeArc(null).finish();
+  assert.deepEqual([d.coedge.pcurve[0], d.coedge.pcurve[1]], [-1, -1]);
+  const r = await healPart(d, PLANE, module);
+  const { CURVE_KIND } = await import('cad-brep');
+  assert.deepEqual([0, 1].map((c) => r.model.curve.kind[r.model.coedge.pcurve[c]!]), [CURVE_KIND.bspline,
+    CURVE_KIND.line]);
+  assert.ok(sameParameterGap(module, r.model, 0, [0, 1]) < 1e-12, 'the arc\'s image, the same parameter');
+  assert.ok(sameParameterGap(module, r.model, 1, [0, 2]) < 1e-12, 'the line\'s');
+  assert.match(r.diagnostics.find((x) => x.message.startsWith('pcurveMissingOnPlane:'))!.message,
+    /^pcurveMissingOnPlane: 2 p-curves made on planes/);
+  const a = await analysisFor(r.model, r.analysis!);
+  assert.deepEqual([a.coedge.pcurveFrom[0], a.coedge.pcurveFrom[1]], [PROVENANCE.healed, PROVENANCE.healed]);
+  // Independent: pcurveMissing alone leaves the plane's bare, and pcurveMissingOnPlane alone a B-spline's.
+  assert.equal((await healPart(d, ON, module)).model.coedge.pcurve[1], -1);
+  const cyl = bsplineCylinder(line2([1, 0], [0, 1])).finish();
+  assert.equal((await healPart(cyl, PLANE, module)).model.coedge.pcurve[0], -1);
+});
+
+test('pcurveMissingOnPlane: a circle turning the other way in the plane\'s (u, v) left without, said', async () => {
+  const { BrepBuilder } = await import('cad-brep');
+  const b = new BrepBuilder({ uncertainty: 1e-6 });
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const circle = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [0, 0, -1], xDir: [1, 0, 0] },
+    radius: 1 });
+  const v = b.addVertex({ point: [1, 0, 0] });
+  const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true, id: 51 });
+  const face = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: false,
+    coedges: [{ edge: e, orientation: 'forward', id: 61 }] }], id: 7 });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+    faces: [{ face, sense: true }] }), sense: true }] }) });
+  const r = await healPart(b.finish(), { fixes: { pcurveMissingOnPlane: true } }, module);
+  assert.equal(r.model.coedge.pcurve[0], -1);
+  assert.match(r.diagnostics.find((x) => x.message.startsWith('pcurveMissingOnPlane:'))!.message,
+    /left without a p-curve \(a conic turning the other way in \(u, v\)\)/);
 });

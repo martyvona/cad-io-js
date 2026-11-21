@@ -155,8 +155,9 @@ test('pcurveReparam: a p-curve a period up on a B-spline closed in fact (past it
   // The seam's up use at u = 2 (the row's domain [0, 1], the face's period 1), v = 0.5 s over s in [0, 10].
   const d = bsplineCylinder(line2([2, 0], [0, 1], 0.5), [0, 10]).finish();
   const r = await healPart(d, { fixes: { pcurveMissing: false } }, module);
-  // The bottom and top circles, without p-curves on the B-spline, traced and given the trace's.
-  assert.deepEqual(r.diagnostics.map((x) => x.message.replace(/:.*/, '')), ['edgeTolerance', 'pcurveReparam']);
+  // The bottom and top circles, without p-curves on the B-spline, within the tolerance as the face API projects them:
+  // left bare, unsaid.
+  assert.deepEqual(r.diagnostics.map((x) => x.message.replace(/:.*/, '')), ['pcurveReparam']);
   const c = r.model.coedge.pcurve[1]!;
   assert.deepEqual([...r.model.pool.curveReal.subarray(r.model.curve.real[c]!, r.model.curve.real[c]! + 5)],
     [2, 0, 0, 1, 1], 'u = 2, v = t');
