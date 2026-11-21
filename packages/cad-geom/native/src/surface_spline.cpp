@@ -289,6 +289,31 @@ private:
     }
   }
   /**
+   * The Bezier points P[0..q] (4 wide, stride apart) on [0, 1] restricted to [s0, s1] in place: de Casteljau at s1,
+   * keeping the left part, then at s0 / s1 of that, keeping the right.
+   */
+  static void restrict(double* P, int q, int stride, double s0, double s1) {
+    if (s0 == 0 && s1 == 1) return;
+    Scratch<double, 64> w((q + 1) * 4), left((q + 1) * 4);
+    for (int k = 0; k <= q; k++)
+      for (int a = 0; a < 4; a++) w[k * 4 + a] = P[k * stride + a];
+    // Left part at s1: the first point of each level.
+    for (int a = 0; a < 4; a++) left[a] = w[a];
+    for (int r = 1; r <= q; r++) {
+      for (int k = 0; k + r <= q; k++)
+        for (int a = 0; a < 4; a++) w[k * 4 + a] = (1 - s1) * w[k * 4 + a] + s1 * w[(k + 1) * 4 + a];
+      for (int a = 0; a < 4; a++) left[r * 4 + a] = w[a];
+    }
+    // Right part of that at s0 / s1: the last point of each level.
+    const double t = s1 > 0 ? s0 / s1 : 0;
+    for (int a = 0; a < 4; a++) P[q * stride + a] = left[q * 4 + a];
+    for (int r = 1; r <= q; r++) {
+      for (int k = 0; k + r <= q; k++)
+        for (int a = 0; a < 4; a++) left[k * 4 + a] = (1 - t) * left[k * 4 + a] + t * left[(k + 1) * 4 + a];
+      for (int a = 0; a < 4; a++) P[(q - r) * stride + a] = left[(q - r) * 4 + a];
+    }
+  }
+  /**
    * The control points (4 wide each) a box of net n over the rectangle takes: within one span of the surface, the
    * sub-patch's Bezier net (the blossoms at (a^(p - i), b^i; c^(q - j), d^j): the patch over the rectangle lies in
    * its hull, which shrinks with it); across spans, the active poles.
@@ -304,6 +329,33 @@ private:
       return;
     }
     int p = n.p, q = n.q, s = su - k, t = sv - l;
+    // The span's own Bezier net (its blossoms at its knots), kept by surface, partial and span, then restricted to
+    // the rectangle: inversion and the criteria ask for many rectangles within a span, and blossoming each is
+    // O(p q^2 + q p^2) where restricting is O(p q + q p) a split.
+    const double ua = n.U[s], ub = n.U[s + 1], va = n.V[t], vb = n.V[t + 1];
+    if (oneSpan && ub > ua && vb > va && !(ru.lo == ua && ru.hi == ub && rv.lo == va && rv.hi == vb)) {
+      struct Key {
+        uint64_t id;
+        int at, s, t;
+        bool operator==(const Key& o) const { return id == o.id && at == o.at && s == o.s && t == o.t; }
+      };
+      struct Hash {
+        size_t operator()(const Key& k) const {
+          const uint64_t h = k.id * 1000003u ^ (uint64_t(k.at) << 40) ^ (uint64_t(k.s) << 20) ^ uint64_t(k.t);
+          return std::hash<uint64_t>()(h);
+        }
+      };
+      thread_local std::unordered_map<Key, std::vector<double>, Hash> spans;
+      if (spans.size() > (1u << 12)) spans.clear();
+      std::vector<double>& span = spans[Key{id_, pidx(k, l), s, t}];
+      if (span.empty()) control(n, {ua, ub}, {va, vb}, true, su, sv, k, l, span);
+      out = span;
+      const double u0 = (ru.lo - ua) / (ub - ua), u1 = (ru.hi - ua) / (ub - ua);
+      const double v0 = (rv.lo - va) / (vb - va), v1 = (rv.hi - va) / (vb - va);
+      for (int i = 0; i <= p; i++) restrict(out.data() + i * (q + 1) * 4, q, 4, v0, v1);
+      for (int j = 0; j <= q; j++) restrict(out.data() + j * 4, p, (q + 1) * 4, u0, u1);
+      return;
+    }
     Scratch<double, 256> rows((p + 1) * (q + 1) * 4), D(std::max(p, q) * 4 + 4);
     // In v first, row by row: rows[i][j] the blossom of row i at (c^(q - j), d^j).
     for (int i = 0; i <= p; i++) {
@@ -393,7 +445,11 @@ private:
       }
       if (!done) {
         control(n, ru, rv, true, su, sv, k, l, K.net[at]);
-        K.err[at] = blossomErr(n, K.net[at], ru, rv);
+        // Blossoming's rounding, and restriction's from the span's net: 2 (p + q) more levels of convex combinations
+        // and the rectangle's ends mapped into the span (a few ulps of the parameters, scaled by the net's spread).
+        double mag = 0;
+        for (double x : K.net[at]) mag = maxNum(mag, std::fabs(x));
+        K.err[at] = blossomErr(n, K.net[at], ru, rv) + 16 * (n.p + n.q + 1) * kEps * mag;
       }
       K.have[at] = true;
     }
