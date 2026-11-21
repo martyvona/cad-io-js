@@ -143,9 +143,19 @@ public:
       rawBox(ru, rv, k, l + 1, bv) != Status::ok)
       return false;
     double mu = 0.5 * ru.lo + 0.5 * ru.hi, mv = 0.5 * rv.lo + 0.5 * rv.hi;
-    Vec3 d[kPartials];
-    derivs(mu, mv, k + l, d);
-    Vec3 c = d[pidx(k, l)];
+    // The centre's partials kept for the last (surface, point, order): the rectangle's partials share it.
+    struct Centre {
+      uint64_t owner = 0;
+      double u = NAN, v = NAN;
+      int n = -1;
+      Vec3 d[kPartials];
+    };
+    thread_local Centre C;
+    if (C.owner != id_ || C.u != mu || C.v != mv || C.n != k + l) {
+      C.owner = id_, C.u = mu, C.v = mv, C.n = k + l;
+      derivs(mu, mv, k + l, C.d);
+    }
+    Vec3 c = C.d[pidx(k, l)];
     double r = (boxNorm(bu) * (ru.hi - ru.lo) + boxNorm(bv) * (rv.hi - rv.lo)) * 0.5 * (1 + 8 * kEps);
     double err = (k + l == 0 ? 8 * kEps * maxAbs(c - c_) + 4 * kEps * maxAbs(c_) : 1e-12 * maxAbs(c))
       + 1e-13 * r + (k + l == 0 ? 0 : 1e-13 * (boxNorm(out)));
@@ -459,6 +469,26 @@ private:
   /** The hull box of partial (k, l) over the rectangle (no centred form). */
   Status rawBox(Range ru, Range rv, int k, int l, Box3& out) const {
     if (k + l >= kMaxOrder) return out = entireBox(), Status::unsupported;
+    // Kept for the last rectangle asked, by partial: derivBound asks each partial's box twice (its own, then in its
+    // centred form) and the next order's of neighbours twice more.
+    struct Kept {
+      uint64_t owner = 0;
+      double a = NAN, b = NAN, c = NAN, d = NAN;
+      bool have[kPartials] = {};
+      Box3 box[kPartials];
+      Status st[kPartials] = {};
+    };
+    thread_local Kept K;
+    if (K.owner != id_ || K.a != ru.lo || K.b != ru.hi || K.c != rv.lo || K.d != rv.hi) {
+      K.owner = id_, K.a = ru.lo, K.b = ru.hi, K.c = rv.lo, K.d = rv.hi;
+      std::fill(K.have, K.have + kPartials, false);
+    }
+    const int at = pidx(k, l);
+    if (!K.have[at]) K.st[at] = rawBoxOf(ru, rv, k, l, K.box[at]), K.have[at] = true;
+    out = K.box[at];
+    return K.st[at];
+  }
+  Status rawBoxOf(Range ru, Range rv, int k, int l, Box3& out) const {
     // Past the degree a polynomial surface's partial is 0; a rational one's isn't (the quotient rule below).
     if (!rational_ && (k > p_ || l > q_)) return out = pointBox({}), Status::ok;
     int su = bspline::findSpan(p_, U_, nu_, ru.lo), sv = bspline::findSpan(q_, V_, nv_, rv.lo);
@@ -484,13 +514,54 @@ private:
     }
     // A rational partial: |S^(k,l)| <= (|A^(k,l)| + sum (k i)(l j) |w^(i,j)| |S^(k-i,l-j)|) / w_min, each from the
     // control points of its own net; |S^(0,0) - c| from the order-0 net's projected ones.
-    double e0;
-    const std::vector<double>& c0 = over(0, 0, ru, rv, oneSpan, su, sv, e0);
-    double wmin = kInf, s0 = 0;
-    for (size_t a = 0; a < c0.size(); a += 4) {
-      wmin = minNum(wmin, c0[a + 3] - e0);
-      s0 = maxNum(s0, norm(Vec3{c0[a], c0[a + 1], c0[a + 2]}) / c0[a + 3]);
+    // Each net's summaries (its magnitudes, its weights' and coordinates' ranges) kept for the last rectangle, by
+    // partial: every partial's bound reads all the lower ones', and derivBound asks a rectangle's partials together.
+    struct IV {
+      Interval c[3];
+    };
+    struct Sum {
+      double e = 0, wmin = kInf, s0 = 0, am = 0, wm = 0;
+      IV ia;
+      Interval iw;
+    };
+    struct SumKept {
+      uint64_t owner = 0;
+      double a = NAN, b = NAN, c = NAN, d = NAN;
+      bool have[kPartials] = {};
+      Sum sum[kPartials];
+    };
+    thread_local SumKept SK;
+    if (SK.owner != id_ || SK.a != ru.lo || SK.b != ru.hi || SK.c != rv.lo || SK.d != rv.hi) {
+      SK.owner = id_, SK.a = ru.lo, SK.b = ru.hi, SK.c = rv.lo, SK.d = rv.hi;
+      std::fill(SK.have, SK.have + kPartials, false);
     }
+    auto summary = [&](int kk, int m) -> const Sum& {
+      const int at = pidx(kk, m);
+      Sum& S = SK.sum[at];
+      if (SK.have[at]) return S;
+      S = Sum{};
+      const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, S.e);
+      const double e = S.e;
+      for (int d = 0; d < 3; d++) S.ia.c[d] = {kInf, -kInf};
+      S.iw = {kInf, -kInf};
+      for (size_t a = 0; a < cc.size(); a += 4) {
+        if (at == 0) {
+          S.wmin = minNum(S.wmin, cc[a + 3] - e);
+          S.s0 = maxNum(S.s0, norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) / cc[a + 3]);
+        } else {
+          S.am = maxNum(S.am, norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
+          S.wm = maxNum(S.wm, std::fabs(cc[a + 3]) + e);
+        }
+        for (int d = 0; d < 3; d++) S.ia.c[d] = {minNum(S.ia.c[d].lo, cc[a + d]), maxNum(S.ia.c[d].hi, cc[a + d])};
+        S.iw = {minNum(S.iw.lo, cc[a + 3]), maxNum(S.iw.hi, cc[a + 3])};
+      }
+      for (int d = 0; d < 3; d++) S.ia.c[d] = {S.ia.c[d].lo - e, S.ia.c[d].hi + e};
+      S.iw = {S.iw.lo - e, S.iw.hi + e};
+      SK.have[at] = true;
+      return S;
+    };
+    const Sum& z = summary(0, 0);
+    const double e0 = z.e, wmin = z.wmin, s0 = z.s0;
     if (!(wmin > 0)) return out = entireBox(), Status::singular;
     double B[kPartials] = {}, Am[kPartials] = {}, Wm[kPartials] = {};
     B[0] = s0 * (1 + 16 * kEps) + std::sqrt(3.0) * e0 / wmin;
@@ -498,12 +569,8 @@ private:
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
         if (kk > k || m > l || kk > p_ || m > q_) continue;
-        double e;
-        const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
-        for (size_t a = 0; a < cc.size(); a += 4) {
-          Am[pidx(kk, m)] = maxNum(Am[pidx(kk, m)], norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
-          Wm[pidx(kk, m)] = maxNum(Wm[pidx(kk, m)], std::fabs(cc[a + 3]) + e);
-        }
+        const Sum& sm = summary(kk, m);
+        Am[pidx(kk, m)] = sm.am, Wm[pidx(kk, m)] = sm.wm;
       }
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
@@ -521,22 +588,9 @@ private:
     // ranges from their nets' control points (restricted to the rectangle where it's one span, so they shrink with
     // it), S^(k,l) = (A^(k,l) - sum (k i)(l j) w^(i,j) S^(k-i,l-j)) / w. Signs and cancellations kept, which the
     // magnitudes above lose: tight as the rectangle shrinks, where those stay a constant factor off.
-    struct IV {
-      Interval c[3];
-    };
     IV IA[kPartials], S[kPartials];
     Interval IW[kPartials];
-    auto ranges = [&](const std::vector<double>& ctl, double e, IV& a, Interval& w) {
-      for (int d = 0; d < 3; d++) a.c[d] = {kInf, -kInf};
-      w = {kInf, -kInf};
-      for (size_t q = 0; q < ctl.size(); q += 4) {
-        for (int d = 0; d < 3; d++) a.c[d] = {minNum(a.c[d].lo, ctl[q + d]), maxNum(a.c[d].hi, ctl[q + d])};
-        w = {minNum(w.lo, ctl[q + 3]), maxNum(w.hi, ctl[q + 3])};
-      }
-      for (int d = 0; d < 3; d++) a.c[d] = {a.c[d].lo - e, a.c[d].hi + e};
-      w = {w.lo - e, w.hi + e};
-    };
-    ranges(c0, e0, IA[0], IW[0]);
+    IA[0] = z.ia, IW[0] = z.iw;
     if (!(IW[0].lo > 0)) return Status::ok;
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
@@ -547,9 +601,8 @@ private:
           IW[pidx(kk, m)] = Interval::point(0);
           continue;
         }
-        double e;
-        const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, e);
-        ranges(cc, e, IA[pidx(kk, m)], IW[pidx(kk, m)]);
+        const Sum& sm = summary(kk, m);
+        IA[pidx(kk, m)] = sm.ia, IW[pidx(kk, m)] = sm.iw;
       }
     for (int d = 0; d < 3; d++) S[0].c[d] = IA[0].c[d] / IW[0];
     for (int t = 1; t <= k + l; t++)
