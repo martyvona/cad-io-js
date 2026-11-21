@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -298,21 +299,59 @@ private:
   }
 
   /** The triangle's corners on the surface, as at() gives them; whether all three evaluated. */
+  /**
+   * The surface's point and normal at (u, v), each evaluated once (a mesh's vertex is the corner of every triangle
+   * around it, judged again as they change): by (u, v)'s bits, so the same doubles as evaluating again, the meshes
+   * the same bits. Cleared past kEvalMemo entries.
+   */
+  struct Evaluated {
+    Status st;
+    Vec3 v;
+  };
+  static uint64_t bits(double x) {
+    uint64_t b;
+    std::memcpy(&b, &x, 8);
+    return b;
+  }
+  struct PairHash {
+    size_t operator()(const std::pair<uint64_t, uint64_t>& k) const {
+      return std::hash<uint64_t>()(k.first * 0x9e3779b97f4a7c15ull ^ k.second);
+    }
+  };
+  static constexpr size_t kEvalMemo = size_t(1) << 20;
+  mutable std::unordered_map<std::pair<uint64_t, uint64_t>, Evaluated, PairHash> points_, normals_;
+  Evaluated pointAt(double u, double v) const {
+    if (points_.size() > kEvalMemo) points_.clear();
+    auto [it, fresh] = points_.try_emplace({bits(u), bits(v)});
+    if (fresh) {
+      SurfacePoint q;
+      it->second = {s_.eval(u, v, 0, q), q.p};
+    }
+    return it->second;
+  }
+  Status normalAt(double u, double v, Vec3& n) const {
+    if (normals_.size() > kEvalMemo) normals_.clear();
+    auto [it, fresh] = normals_.try_emplace({bits(u), bits(v)});
+    if (fresh) it->second.st = s_.normal(u, v, it->second.v);
+    n = it->second.v;
+    return it->second.st;
+  }
+
   bool corners(const Vec2 t[3], Vec3 p[3]) const {
     bool ok = true;
     for (int i = 0; i < 3; i++) {
-      SurfacePoint q;
-      ok = s_.eval(t[i].x, t[i].y, 0, q) == Status::ok && ok;
-      p[i] = q.p;
+      const Evaluated e = pointAt(t[i].x, t[i].y);
+      ok = e.st == Status::ok && ok;
+      p[i] = e.v;
     }
     return ok;
   }
 
   /** The surface's point at (u, v), false where it can't be evaluated. */
   bool corner(Vec2 uv, Vec3& out) const {
-    SurfacePoint q;
-    if (s_.eval(uv.x, uv.y, 0, q) != Status::ok || !std::isfinite(q.p.x + q.p.y + q.p.z)) return false;
-    out = q.p;
+    const Evaluated e = pointAt(uv.x, uv.y);
+    if (e.st != Status::ok || !std::isfinite(e.v.x + e.v.y + e.v.z)) return false;
+    out = e.v;
     return true;
   }
 
@@ -744,7 +783,7 @@ private:
           x = k.at + (side > k.at ? 1 : -1) * 1e-9 * (1 + std::fabs(k.at));
       }
     }
-    return s_.normal(q.x, q.y, n);
+    return normalAt(q.x, q.y, n);
   }
 
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
