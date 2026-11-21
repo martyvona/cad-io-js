@@ -1,0 +1,12 @@
+The models in this directory (ohmm-ap242.step, rpbp-ap242.step) and their pictures
+(ohmm-ap242.png, rpbp-ap242.png):
+
+Copyright 2026 Marsette Vona <martyvona@gmail.com>
+
+Licensed under the Creative Commons Attribution-ShareAlike 4.0 International
+License (CC BY-SA 4.0). You may share and adapt them for any purpose, provided
+you give appropriate credit, indicate if changes were made, and distribute your
+contributions under the same license. The full license:
+https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+They are not covered by the Apache-2.0 license of the rest of cad-io-js.
