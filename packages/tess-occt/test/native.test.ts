@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BrepBuilder, brepFromJson, brepToJson, ITEM_KIND, LOOP_KIND, openBrep, rowCount } from 'cad-brep';
+import { BrepBuilder, brepFromJson, brepToJson, CURVE_KIND, ITEM_KIND, LOOP_KIND, openBrep, rowCount } from 'cad-brep';
 import type { Curve } from 'cad-brep';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { StepTessellator } from 'step-export';
@@ -929,5 +929,34 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     const got = faces(r2).get(5)!.area;
     assert.ok(Math.abs(got - 4 * Math.PI) < 0.02 * 4 * Math.PI || Math.abs(got - 12 * Math.PI) < 0.02 * 12 * Math.PI,
       `a lone boundary on a sphere: ${got}`);
+  }
+});
+
+test('the native route: line p-curves without a coedge range (as healing makes them) bounded, so OCCT finishes', {
+  skip: skip || (['trj4_k1_geo-md-203.stp', 'trj4_k1_geo-pe-203.stp'].every((f) =>
+    fs.existsSync(corpusPath(`gkv311-opencascade-dataset/step/${f}`))) ? false : 'corpus not fetched') }, async () => {
+  // A Geom2d_Line given its own range (+/-2e100) on its face runs OCCT's shape processing or meshing without end:
+  // these two parts healed did, each meshing in under a second once bounded.
+  const pool = new WorkerTessellator({ backend: { module: import.meta.resolve('tess-occt'), export: 'OcctTessellator' },
+    workers: 2, timeoutMs: 60_000 });
+  await pool.init();
+  try {
+    await Promise.all([['trj4_k1_geo-md-203.stp', 542], ['trj4_k1_geo-pe-203.stp', 6268]].map(async ([f, id]) => {
+      const bytes = fs.readFileSync(corpusPath(`gkv311-opencascade-dataset/step/${f}`));
+      const { scene } = await importStep(new Uint8Array(bytes), { heal: { heal: true } });
+      const p = scene.parts.find((q) => q.sources[0]?.id === id)!;
+      const d = p.brep!.model;
+      let unranged = 0;
+      for (let c = 0; c < rowCount(d, 'coedge'); c++) {
+        const k = d.coedge.pcurve[c]!;
+        if (k >= 0 && d.curve.kind[k] === CURVE_KIND.line && Number.isNaN(d.coedge.range[2 * c]!)) unranged++;
+      }
+      assert.ok(unranged > 0, `${f} #${id}: line p-curves without a coedge range`);
+      const r = await pool.tessellate({ ...request(new Uint8Array(d.buffer)), origin: p.origin });
+      const faces = new Set(r.faces.filter((x) => x.count > 0).map((x) => x.entityId));
+      assert.equal(faces.size, rowCount(d, 'face'), `${f} #${id}: every face meshed`);
+    }));
+  } finally {
+    pool.dispose();
   }
 });
