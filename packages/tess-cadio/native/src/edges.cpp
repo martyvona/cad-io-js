@@ -1869,7 +1869,24 @@ struct EdgeMesh::Impl {
     auto atPole = [&](const BoundaryPoint& q) {
       return q.kind == BoundaryPoint::poleLine || poleAt(f, q.point) >= 0 || poleAt(f, surfaceAt(f, q.uv)) >= 0;
     };
+    // (And across no loop that doesn't wind: a hole whose values span the line, in any copy, would be cut through,
+    // the cut's segment crossing its loop: lightarm-ap203 #92840's slot, u 5.30 to 5.38, its points' gap the widest.)
+    auto missesHoles = [&](double c0) {
+      for (size_t k = 0; k < chains.size(); k++) {
+        if (chains[k].winding[d] != 0) continue;
+        double a = INFINITY, b = -INFINITY;
+        for (const BoundaryPoint& q : chains[k].pts) {
+          const double x = d ? q.uv.y : q.uv.x;
+          a = std::min(a, x), b = std::max(b, x);
+        }
+        if (!(b - a < P)) continue;
+        const double first = c0 + std::ceil((a - c0) / P) * P;
+        if (first <= b) return false;
+      }
+      return true;
+    };
     auto once = [&](double c0) {
+      if (!missesHoles(c0)) return false;
       for (int w : W) {
         int crossings = 0;
         const Chain& ch = chains[w];

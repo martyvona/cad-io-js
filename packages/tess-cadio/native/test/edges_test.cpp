@@ -1065,6 +1065,30 @@ TEST_CASE("a use without p-curve traced from sample to sample: its feet stay on 
   CHECK_EQ(ef.traces().local + ef.traces().global, static_cast<int>(ef.coedge(0).uv.size()));
 }
 
+TEST_CASE("a winding loops' cut across no hole: bandTwoSlots' widest gap between its points inside slot B, the "
+  "period's start across slot A; the cut placed past both, the boundary a domain") {
+  cadgeom::Model m = load("bandTwoSlots");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.5;
+  EdgeMesh em(m, o);
+  const FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  // (The cut, a pseudo-edge along u = const: its u from its points in 3D, the cylinder's (cos u, sin u, v).)
+  int cuts = 0;
+  for (int e = 0; e < em.edgeCount(); e++) {
+    if (!em.isPseudo(e)) continue;
+    cuts++;
+    for (const Vec3& p : em.edge(e).points) {
+      const double u = std::atan2(p.y, p.x);
+      CHECK(!(std::fabs(u) <= 0.3));
+      CHECK(!(u >= 1.05 && u <= 2.85));
+      if ((std::fabs(u) <= 0.3) || (u >= 1.05 && u <= 2.85)) std::printf("  bandTwoSlots: the cut at u %g\n", u);
+    }
+  }
+  CHECK_EQ(cuts, 1);
+}
+
 TEST_CASE("a p-curve healing made (the analysis's pcurveFrom healed), with placeHealedPcurves: placed as a projected "
   "one, its samples and ends at their points' feet; without the analysis, kept as given within the tolerance") {
   // pcurveNear's p-curve 0.003 off in u, under the tolerance 0.005: as given, its samples 0.003 off their points; as
