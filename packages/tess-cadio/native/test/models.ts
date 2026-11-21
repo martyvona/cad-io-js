@@ -282,6 +282,31 @@ export function polylineEdge(): BrepBuilder {
 }
 
 /**
+ * A flat bilinear B-spline patch over [0, 1]^2 on z = 0 under an uncertainty of 0.1, a loop whose corner (1.05, 0.01)
+ * and the polyline's sample before it (1.03, 0.011, 0.02 away: within min(0.1, d / 10) at d = 0.5) lie past its
+ * u = 1 side: both feet clamped onto it, the side then run up to (1.05, 0.5), so the loop would reverse there in
+ * (u, v) though it turns in 3D (LMP1 #1044101's corner). clampedCornerTight: the same under an uncertainty of 0.01,
+ * the sample past it.
+ */
+export function clampedCorner(uncertainty = 0.1): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 1, 0]], [[1, 0, 0], [1, 1, 0]]],
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const A = [0.5, 0.02, 0], P = [1.03, 0.011, 0], B = [1.05, 0.01, 0], C = [1.05, 0.5, 0];
+  const va = b.addVertex({ point: A }), vb = b.addVertex({ point: B }), vc = b.addVertex({ point: C });
+  const poly = b.addEdge({ curve: b.addCurve({ kind: 'polyline', points: [A, P, B] }), start: va, end: vb,
+    sameSense: true, range: [0, 2] });
+  const line = (p: number[], q: number[], start: number, end: number) => b.addEdge({ curve: b.addCurve({
+    kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 }), start, end,
+    sameSense: true, range: [0, 1] });
+  const up = line(B, C, vb, vc), back = line(C, A, vc, va);
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [poly, up, back].map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
+  return b;
+}
+
+/**
  * A unit disc on z = 0 bounded by a closed edge with no 3D curve (its p-curve the circle, its use's range 0 to
  * 2 pi), and inside it an internal use of an edge with no curve and no vertices: the p-curve line from (-0.5, 0),
  * its use's range 0.2 to 0.8.
@@ -1950,7 +1975,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
-  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
+  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear, clampedCorner: () => clampedCorner(),
+  clampedCornerTight: () => clampedCorner(0.01),
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,

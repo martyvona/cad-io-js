@@ -263,7 +263,9 @@ public:
     if (kind_ != Kind::none && distanceBound(p, out)) return true;
     Bounds b;
     if (!bounded_ || !bounds(t, b, pieces)) return false;
-    out = b.deviation;
+    // (The least of the bounds the verdict takes: the sub-cells' too, cellDeviation.)
+    double cd;
+    out = cellDeviation(t, cd) ? std::fmin(b.deviation, cd) : b.deviation;
     return std::isfinite(out);
   }
 
@@ -346,8 +348,8 @@ private:
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
       // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
       if (!sampledDeviation(t, p)) return Refusal::deviationSampled;
-      // A fast accept by the bound over the knot cell holding the triangle's box (cellDeviation), cached: where
-      // that doesn't clear it, the triangle's own bounds decide as always.
+      // The deviation bounded by the least of the sub-cells' (cellDeviation, cached: tried first, cheap), the
+      // box's and its pieces' bounds.
       double cd;
       if (cellDeviation(t, cd) && cd <= d_.linear) return Refusal::none;
       if (!bounds(t, b, false)) {
@@ -469,33 +471,48 @@ private:
   }
 
   /**
-   * The deviation bound over the triangle (as bounds() has it) from the second partials' bounds over the surface's
-   * knot cell (between consecutive breaks, both ways) holding its (u, v) box, each cell's bounded once and kept:
-   * false where the box isn't within one cell, the domain isn't finite, or the cell has no bound. A bound over the
-   * cell holds over the box inside it, so the deviation is bounded too, if more loosely than the box's own bound.
+   * The deviation bound over the triangle (as bounds() has it) from the second partials' bounds over the sub-cells
+   * its (u, v) box covers: each knot cell (between consecutive breaks, both ways) cut kCellSplit x kCellSplit, each
+   * sub-cell bounded once and kept, the largest over at most kCellsCovered of them. False where the box covers more,
+   * leaves the cells, the domain isn't finite, or a sub-cell has no bound. A bound over sub-cells holds over the box
+   * they cover; one of the bounds the triangle's deviation is the least of (deviationWithin, deviationBound).
    */
   bool cellDeviation(const Vec2 t[3], double& out) const {
     if (!cellsReady_) {
       cellsReady_ = true;
       const SurfaceDomain D = s_.domain();
+      std::vector<double> ku, kv;
       if (std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi))
-        s_.breaks(D.u, D.v, cellU_, cellV_);
+        s_.breaks(D.u, D.v, ku, kv);
+      auto cut = [](const std::vector<double>& k, std::vector<double>& c) {
+        for (size_t a = 0; a + 1 < k.size(); a++)
+          for (int g = 0; g < kCellSplit; g++) c.push_back(k[a] + (k[a + 1] - k[a]) * g / kCellSplit);
+        if (!k.empty()) c.push_back(k.back());
+      };
+      cut(ku, cellU_), cut(kv, cellV_);
     }
     if (cellU_.size() < 2 || cellV_.size() < 2) return false;
     const Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     const Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
-    auto cell = [](const std::vector<double>& c, Range r) -> long {
-      auto it = std::upper_bound(c.begin(), c.end(), r.lo);
-      if (it == c.begin() || it == c.end()) return -1;
-      const long i = static_cast<long>(it - c.begin()) - 1;
-      return r.hi <= c[i + 1] ? i : -1;
+    // The sub-cells [a, b] a range covers (false outside them).
+    auto span = [](const std::vector<double>& c, Range r, long& a, long& b) {
+      auto lo = std::upper_bound(c.begin(), c.end(), r.lo);
+      if (lo == c.begin() || r.hi > c.back()) return false;
+      a = static_cast<long>(lo - c.begin()) - 1;
+      b = std::max(a, static_cast<long>(std::lower_bound(c.begin(), c.end(), r.hi) - c.begin()) - 1);
+      return a + 1 < static_cast<long>(c.size());
     };
-    const long i = cell(cellU_, ru), j = cell(cellV_, rv);
-    if (i < 0 || j < 0) return false;
-    auto [it, added] = cellBounds_.try_emplace(static_cast<uint64_t>(i) << 32 | static_cast<uint64_t>(j));
-    if (added) it->second.ok = wholeBounds({cellU_[i], cellU_[i + 1]}, {cellV_[j], cellV_[j + 1]}, it->second.d2);
-    if (!it->second.ok) return false;
-    const double* d2 = it->second.d2;
+    long i0, i1, j0, j1;
+    if (!span(cellU_, ru, i0, i1) || !span(cellV_, rv, j0, j1)) return false;
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) > kCellsCovered) return false;
+    double d2[3] = {0, 0, 0};
+    for (long i = i0; i <= i1; i++)
+      for (long j = j0; j <= j1; j++) {
+        auto [it, added] = cellBounds_.try_emplace(static_cast<uint64_t>(i) << 32 | static_cast<uint64_t>(j));
+        if (added) it->second.ok = wholeBounds({cellU_[i], cellU_[i + 1]}, {cellV_[j], cellV_[j + 1]}, it->second.d2);
+        if (!it->second.ok) return false;
+        for (int k = 0; k < 3; k++) d2[k] = std::fmax(d2[k], it->second.d2[k]);
+      }
     const double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo, e = Du > 0 && Dv > 0 ? Dv / Du : 1;
     const double au = d2[0] + d2[1] * e, av = d2[2] + d2[1] / e;
     Vec2 q[3];
@@ -841,7 +858,9 @@ private:
   bool elementary_;
   /** Whether any triangle's deviation was sampled so far (a bound unavailable there: bounded() then false). */
   mutable bool sampledAny_ = false;
-  /** The surface's knot cells (cellDeviation): their edges each way, and each cell's bounds once made. */
+  /** Each knot cell cut so many times each way into sub-cells (cellDeviation), and the most a box may cover. */
+  static constexpr int kCellSplit = 4, kCellsCovered = 16;
+  /** The surface's sub-cells (cellDeviation): their edges each way, and each one's bounds once made. */
   struct CellBound {
     double d2[3] = {0, 0, 0};
     bool ok = false;
