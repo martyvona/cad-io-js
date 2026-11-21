@@ -23,7 +23,7 @@
 import type { ViewName } from './camera.ts';
 import { AXES, type Axis, type PlaneSettings } from './section.ts';
 import type { PickLevel } from './selection.ts';
-import { HEAL_FIXES, type HealFix } from 'cad-heal/options';
+import { fixesNamed, HEAL_FIXES, type HealFix } from 'cad-heal/options';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import type { MeshProfile } from 'cad-scene';
 import { BACKEND_NAMES, defaultFixes, profileSettings, usesCadio, type Backend, type TessellationSettings }
@@ -323,28 +323,34 @@ export function deflectionQuery(m: Pick<TessellationSettings, 'profile' | 'linea
 
 /**
  * Healing from the address, for the model it opens (address only: a state's meshing carries it otherwise): `heal=1`
- * or `0` (Heal B-reps), `healOn=` and `healOff=` comma-separated fixes on or off from cad-heal's defaults, which turn
- * healing on; what's malformed is left out, with a message for each.
+ * or `0` (Heal B-reps), `healOn=` and `healOff=` comma-separated fixes on or off from cad-heal's defaults, and
+ * `healFit=` the fit tolerance in mm (pcurveFitTolerance), which turn healing on; what's malformed is left out, with a
+ * message for each.
  */
 export function healingFromQuery(params: URLSearchParams): { meshing?: Pick<TessellationSettings, 'heal' |
-  'healFixes'>; problems: string[] } {
+  'healFixes'> & Partial<Pick<TessellationSettings, 'healFit'>>; problems: string[] } {
   const problems: string[] = [];
   const heal = bool(params.get('heal'));
-  const named = (k: string) => new Set((params.get(k) ?? '').split(',').map((x) => x.trim()).filter((f) => {
-    const known = (HEAL_FIXES as readonly string[]).includes(f);
-    if (f && !known) problems.push(`${k}: not one of ${HEAL_FIXES.join(', ')}: ${f}`);
-    return known;
-  }) as HealFix[]);
+  // (An alias, cad-heal's FIX_ALIASES, as its fixes.)
+  const named = (k: string) => new Set((params.get(k) ?? '').split(',').map((x) => x.trim()).flatMap((f) => {
+    const fixes = fixesNamed(f);
+    if (f && !fixes.length) problems.push(`${k}: not one of ${HEAL_FIXES.join(', ')}: ${f}`);
+    return fixes;
+  }));
   const on = named('healOn'), off = named('healOff'), fixes: Partial<Record<HealFix, boolean>> = {};
   for (const f of on) if (off.has(f)) problems.push(`healOn and healOff: ${f} in both, left as it is`);
   for (const [set, v] of [[on, true], [off, false]] as const) for (const f of set) {
     if (!(on.has(f) && off.has(f))) fixes[f] = v;
   }
-  const listed = Object.keys(fixes).length > 0;
+  const fitText = params.get('healFit'), fitValue = fitText === null ? undefined : Number(fitText);
+  const fit = fitValue !== undefined && Number.isFinite(fitValue) && fitValue > 0 ? fitValue : undefined;
+  if (fitText !== null && fit === undefined) problems.push(`healFit: not a positive number of mm: ${fitText}`);
+  const listed = Object.keys(fixes).length > 0 || fit !== undefined;
   if (heal === false && listed) {
-    problems.push('heal=0 with healOn or healOff: the fixes ignored');
+    problems.push('heal=0 with healOn, healOff or healFit: ignored');
     return { meshing: { heal: false, healFixes: defaultFixes() }, problems };
   }
   if (heal === undefined && !listed) return { problems };
-  return { meshing: { heal: heal ?? true, healFixes: { ...defaultFixes(), ...fixes } }, problems };
+  return { meshing: { heal: heal ?? true, healFixes: { ...defaultFixes(), ...fixes },
+    ...(fit === undefined ? {} : { healFit: fit }) }, problems };
 }

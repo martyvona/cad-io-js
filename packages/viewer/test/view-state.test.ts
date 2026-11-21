@@ -172,15 +172,36 @@ test('healingFromQuery: heal=1 or 0, healOn and healOff from the defaults turnin
   assert.deepEqual(q('heal=0'), { meshing: { heal: false, healFixes: d }, problems: [] });
   assert.deepEqual(q('healOff=strayPole,pcurveEnds'), { meshing: { heal: true, healFixes: { ...d, strayPole: false,
     pcurveEnds: false } }, problems: [] });
-  assert.deepEqual(q('heal=1&healOn=pcurveMissing'), { meshing: { heal: true, healFixes: { ...d,
-    pcurveMissing: true } }, problems: [] });
-  assert.deepEqual(q('healOn=nope,pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, pcurveMissing: true } },
-    problems: [`healOn: not one of strayPole, pcurveMissing, pcurveMissingOnPlane, pcurveReparam, pcurveReplace, `
-      + 'pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
+  // pcurveMissing: an alias of elementary and free-form.
+  const both = { pcurveMissingOnElementary: true, pcurveMissingOnFreeForm: true };
+  assert.deepEqual(q('heal=1&healOn=pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, ...both } },
+    problems: [] });
+  assert.deepEqual(q('healOn=pcurveMissingOnFreeForm'), { meshing: { heal: true, healFixes: { ...d,
+    pcurveMissingOnFreeForm: true } }, problems: [] });
+  assert.deepEqual(q('healOn=nope,pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, ...both } },
+    problems: [`healOn: not one of strayPole, pcurveMissingOnPlane, pcurveMissingOnElementary, `
+      + 'pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
   assert.deepEqual(q('healOn=strayPole,pcurveMissing&healOff=strayPole'), { meshing: { heal: true, healFixes: { ...d,
-    pcurveMissing: true } }, problems: ['healOn and healOff: strayPole in both, left as it is'] });
+    ...both } }, problems: ['healOn and healOff: strayPole in both, left as it is'] });
   assert.deepEqual(q('heal=0&healOff=strayPole'), { meshing: { heal: false, healFixes: d },
-    problems: ['heal=0 with healOn or healOff: the fixes ignored'] });
-  assert.deepEqual(q('healOff=nope'), { problems: ['healOff: not one of strayPole, pcurveMissing, '
-    + 'pcurveMissingOnPlane, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
+    problems: ['heal=0 with healOn, healOff or healFit: ignored'] });
+  assert.deepEqual(q('healFit=0.01'), { meshing: { heal: true, healFixes: d, healFit: 0.01 }, problems: [] });
+  assert.deepEqual(q('heal=1&healFit=0'), { meshing: { heal: true, healFixes: d },
+    problems: ['healFit: not a positive number of mm: 0'] });
+  assert.deepEqual(q('healFit=x'), { problems: ['healFit: not a positive number of mm: x'] });
+  assert.deepEqual(q('heal=0&healFit=1'), { meshing: { heal: false, healFixes: d },
+    problems: ['heal=0 with healOn, healOff or healFit: ignored'] });
+  assert.deepEqual(q('healOff=nope'), { problems: ['healOff: not one of strayPole, pcurveMissingOnPlane, '
+    + 'pcurveMissingOnElementary, pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, '
+    + 'vertexTolerance: nope'] });
+});
+
+test('healingOf: the fixes on, and the fit tolerance where it isn\'t cad-heal\'s default (an older recording\'s none)',
+  async () => {
+  const { defaultFixes, healingOf } = await import('../src/tessellation.ts');
+  const { PCURVE_FIT_TOLERANCE } = await import('cad-heal/options');
+  const on = { heal: true, healFixes: defaultFixes() };
+  assert.equal(healingOf(on), healingOf({ ...on, healFit: PCURVE_FIT_TOLERANCE }), 'the default: no fit said');
+  assert.equal(healingOf({ ...on, healFit: 0.01 }), `${healingOf(on)};fit=0.01`);
+  assert.equal(healingOf({ heal: false, healFit: 0.01 }), '');
 });

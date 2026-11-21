@@ -249,7 +249,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
       ...new URLSearchParams(location.search)]);
     const { state: st, problems } = fromQuery(params);
-    // Healing (heal=, healOn=, healOff=) before the model opens: it decides the models meshed.
+    // Healing (heal=, healOn=, healOff=, healFit=) before the model opens: it decides the models meshed.
     const healing = healingFromQuery(params);
     if (healing.meshing) ui.setMeshing(healing.meshing);
     problems.push(...healing.problems);

@@ -36,10 +36,11 @@ test('edgeTolerance: a curve off its plane, its p-curve kept: the edge\'s tolera
 });
 
 for (const missing of [false, true]) {
-  test(`edgeTolerance: a circle off its cylinder by 0.05, its p-curve missing, pcurveMissing ${missing ? 'on' : 'off'}`,
+  test(`edgeTolerance: a circle off its cylinder by 0.05, its p-curve missing, pcurveMissingOnElementary `
+    + `${missing ? 'on' : 'off'}`,
     async () => {
       const d = cylinderSide({ bottom: {} }, 1e-6, 0, undefined, 2.05).finish();
-      const r = await healPart(d, { fixes: { pcurveMissing: missing } }, module);
+      const r = await healPart(d, { fixes: { pcurveMissingOnElementary: missing } }, module);
       const t = r.model.edge.tolerance[0]!;
       assert.ok(Math.abs(t - GROWTH * 0.05) < 1e-6, `${t}`);
       assert.equal(r.model.coedge.pcurve[0]! >= 0, missing);

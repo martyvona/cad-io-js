@@ -10,8 +10,8 @@ import { cylinderSide, planeArc, strayPole } from './models.ts';
 
 /**
  * The parts: a stray pole (strayPole moves it; its face 8), an arc 0.01 mm off its plane (edgeTolerance grows its
- * edges; face 8), a cylinder's side, its bottom coedge without a p-curve (made by pcurveMissing only), a box (nothing
- * to heal). Their names say which.
+ * edges; face 8), a cylinder's side, its bottom coedge without a p-curve (made by pcurveMissingOnElementary only), a
+ * box (nothing to heal). Their names say which.
  */
 export function healParts(): { name: string; model: BrepData }[] {
   const solid = new BrepBuilder({ uncertainty: 1e-6 });

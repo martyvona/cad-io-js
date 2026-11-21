@@ -11,7 +11,8 @@
 //   - the files with the most faces lost or gained per backend, and with the largest change in triangles;
 //   - the faces lost by the mesher's cause healed, and faces failed past repair, where the mesher says (tess-cadio).
 // BACKENDS=occt,smlib,cadio picks the meshers (default occt,smlib; cadio: our own tessellator, tess-cadio); HEAL_ON=
-// fixes on beyond the defaults (HEAL_ON=pcurveMissing,pcurveMissingOnPlane: a p-curve for every bare use).
+// fixes on beyond the defaults (HEAL_ON=pcurveMissing,pcurveMissingOnPlane: a p-curve for every bare use; an alias,
+// cad-heal's FIX_ALIASES, as its fixes).
 // HYBRID=1 adds OCCT on the healed model less the p-curves healing added (coedges the source gave none), to tell
 // what OCCT makes of those from what it makes of the rest of the healing.
 // Usage: CHILDREN=3 MESH_WORKERS=2 IDLE_MS=0 node --max-old-space-size=8192 corpus_checks/heal_effect.ts
@@ -21,7 +22,7 @@ import { MESH_PROFILES, type TessellationRequest, type TessellationResult, faile
   '../packages/cad-scene/src/index.ts';
 import { openBrep, rowCount } from '../packages/cad-brep/src/index.ts';
 import { healImported, importStep } from '../packages/step-import/src/index.ts';
-import { poolHealer } from '../packages/cad-heal/src/index.ts';
+import { fixesNamed, poolHealer } from '../packages/cad-heal/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { init, Oracle, type OracleModule, trusted } from '../packages/cad-oracle/src/index.ts';
 import { corpusFiles, shortName } from './corpus.ts';
@@ -33,8 +34,11 @@ const { linearDeflection: LIN, angularDeflection: ANG } = MESH_PROFILES.medium;
 type Tally = Record<string, { n: number; ex: string[] }>;
 const hybrid = process.env.HYBRID === '1';
 type Backend = 'occt' | 'smlib' | 'cadio' | 'occtHybrid';
-/** HEAL_ON=<fixes>: fixes turned on beyond the defaults (pcurveMissing, pcurveMissingOnPlane). */
-const healOn = Object.fromEntries((process.env.HEAL_ON ?? '').split(',').filter(Boolean).map((f) => [f, true]));
+/** HEAL_ON=<fixes>: fixes turned on beyond the defaults (the pcurveMissing ones). */
+const healOn = Object.fromEntries((process.env.HEAL_ON ?? '').split(',').filter(Boolean).flatMap((f) => {
+  if (!fixesNamed(f).length) throw new Error(`HEAL_ON: no fix named ${f}`);
+  return fixesNamed(f).map((x) => [x, true]);
+}));
 /** BACKENDS=occt,smlib,cadio (default occt,smlib): which meshers. */
 const backends = [...(process.env.BACKENDS ?? 'occt,smlib').split(',') as Backend[],
   ...hybrid ? ['occtHybrid' as const] : []];

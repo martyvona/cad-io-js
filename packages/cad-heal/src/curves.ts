@@ -4,7 +4,7 @@
 import { type BrepData, CURVE_KIND, LOOP_KIND, PROVENANCE, rowCount, SURFACE_KIND, TRACE_STATUS, TRACE_STOP } from
   'cad-brep';
 import type { Geometry } from 'cad-geom';
-import { type Diagnostic, MESH_PROFILES } from 'cad-scene';
+import type { Diagnostic } from 'cad-scene';
 import type { Curve2, ModelEdit } from './edit.ts';
 import { reparameterize, reparameterized } from './fix/reparam.ts';
 import { projected, replacement } from './fix/replace.ts';
@@ -13,7 +13,7 @@ import { curveEndGaps, gapTo } from './fix/ends.ts';
 import { evalCurve2, intoDomain, overshoot } from './fix/domain.ts';
 import { curveOffSurface, type Grids, GROWTH } from './fix/tolerance.ts';
 import { Growth } from './fix/growth.ts';
-import type { HealFix } from './index.ts';
+import { type HealFix, PCURVE_FIT_TOLERANCE } from './options.ts';
 import { edgeRange, measureGiven, pcurveImage, tolerances } from './measure.ts';
 import { stubTracer, type Trace, type Tracer } from './trace.ts';
 
@@ -57,11 +57,10 @@ const PLACE_AT_MOST = 10;
 /** Samples along a placed p-curve's range where its move on the surface is measured. */
 const PLACE_SAMPLES = 65;
 /**
- * A p-curve healing makes for a bare use (a trace's, pcurveMissing's) is fitted within this times the mesh's
- * deflection where the curve allows, else at its edge's tolerance: tess-cadio's kMeshTolerance (edges.cpp) mirrored,
- * how it projects a use the model gives no p-curve, which a stored one replaces (trace.test.ts checks the two are
- * equal). Fitted at the edge's tolerance alone (0.08 mm off on bug31711 #11), the boundary's (u, v) skews against its
- * 3D points enough to cross itself or turn small faces' triangles over.
+ * pcurveFitTolerance's default (PCURVE_FIT_TOLERANCE) is this times the fine profile's deflection: tess-cadio's
+ * kMeshTolerance (edges.cpp) mirrored, how it projects a use the model gives no p-curve, which a stored one replaces
+ * (trace.test.ts checks the two are equal). Fitted at the edge's tolerance alone (0.08 mm off on bug31711 #11), the
+ * boundary's (u, v) skews against its 3D points enough to cross itself or turn small faces' triangles over.
  */
 export const MESH_FIT = 0.05;
 
@@ -70,11 +69,13 @@ export const PROGRESS_EVERY = 200;
 
 /**
  * `tracer`: what traces a bare coedge's curve where the grid can't bound it (trace.ts; its stub by default);
- * `progress`: told where the pass is, every PROGRESS_EVERY coedges and at each step after.
+ * `progress`: told where the pass is, every PROGRESS_EVERY coedges and at each step after; `fitTolerance` what a
+ * p-curve for a bare use is fitted within where that's tighter than its edge's tolerance (HealOptions'
+ * pcurveFitTolerance).
  */
 export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>, edit: ModelEdit,
   diagnostics: Diagnostic[], tracer: Tracer = stubTracer(g), progress: (what: string) => void = () => {},
-  meshDeflection: number = MESH_PROFILES.fine.linearDeflection): CurvesRecord {
+  fitTolerance: number = PCURVE_FIT_TOLERANCE): CurvesRecord {
   const nc = rowCount(d, 'coedge'), tol = tolerances(d), nan = () => new Float64Array(nc).fill(NaN);
   const record: CurvesRecord = { pcurveFrom: new Uint8Array(nc), deviation: nan(),
     edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), traces: [] };
@@ -89,12 +90,13 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   const toRange = new Tally();
   // Per edge: the interval its kept p-curves' domains allow its range, where one misses it by rounding.
   const clampTo = new Map<number, [number, number]>();
-  const made = new Tally(), notReplaced = new Map<string, Tally>(), notMade = new Map<string, Tally>();
+  // pcurveMissingOnElementary's and pcurveMissingOnFreeForm's p-curves made, and the uses left without (by why).
+  const made = new Map<HealFix, { t: Tally; worst: number }>(), notMade = new Map<HealFix, Map<string, Tally>>();
+  const notReplaced = new Map<string, Tally>();
   const madeOnPlane = new Tally(), notMadeOnPlane = new Map<string, Tally>();
   let worstOnPlane = 0;
   const add = (m: Map<string, Tally>, why: string, c: number) =>
     (m.get(why) ?? m.set(why, new Tally()).get(why)!).add(coedgeName(c));
-  let worstMade = 0;
   // Per fix that wrote a p-curve: those put on their surface's domain, and how far.
   const onDomain = new Map<HealFix, { t: Tally; past: number; moved: number }>();
   // Per edge: the largest disagreement measured along it (edgeTolerance's).
@@ -110,9 +112,12 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   for (let f = 0; f < rowCount(d, 'face'); f++) {
     const surface = d.face.surface[f]!, onPlane = d.surface.kind[surface] === SURFACE_KIND.plane;
     const closedForm = CLOSED_FORM.has(d.surface.kind[surface]!);
+    // The fix that makes the face's bare uses a p-curve: by its surface's kind.
+    const missing: HealFix = onPlane ? 'pcurveMissingOnPlane' : closedForm ? 'pcurveMissingOnElementary'
+      : 'pcurveMissingOnFreeForm';
     // Each coedge's p-curve parameters along its use, where it's one piece, and the face's periods: the face API's,
     // asked only where needed, since the face API's first query on a face projects every coedge of it that has no
-    // p-curve (the cost pcurveMissing's switch is for).
+    // p-curve (the cost the pcurveMissing fixes' switches are for).
     let travel: Map<number, [number, number] | null> | undefined, periods: [number, number] | undefined;
     const travelOf = (c: number) => {
       if (!travel) {
@@ -203,16 +208,16 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         // bounded on a grid where it can be, else traced (on a surface whose inversion is closed form, a plane, a
         // cylinder, a cone, a sphere or a torus, that inversion instead: no global search to replace), the trace's
         // p-curve kept where its fit is within the tolerance (grown to cover the curve's own distance where that's
-        // past it). `traceable` false: a projection already tried and failed (pcurveMissing's).
+        // past it). `traceable` false: a projection already tried and failed (a pcurveMissing fix's).
         const bare = (traceable = true) => {
           if (!fixes.has('edgeTolerance')) return;
           const tolE = tol.edge(e), curve = d.edge.curve[e]!;
           // First the face API's own projection of the use (made at the edge's tolerance when the face is first
           // asked, and kept): where it finds the curve within the tolerance, the edge needs nothing and the use stays
           // bare, as imported (the healed model stores a p-curve only where healing changes the edge: grown, or the
-          // mesher's own projection failing; pcurveMissing makes them all), without the grid or a trace (on a large
-          // surface the grid is too coarse to bound a correct curve, and every such use was traced: LMP1's). Not on
-          // a closed-form surface, measured exactly.
+          // mesher's own projection failing; the pcurveMissing fixes make them all), without the grid or a trace (on
+          // a large surface the grid is too coarse to bound a correct curve, and every such use was traced: LMP1's).
+          // Not on a closed-form surface, measured exactly.
           if (!closedForm && traceable) {
             const within = withinAsProjected(tolE);
             if (within !== undefined) return needs(e, within);
@@ -229,7 +234,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           return 'pieces' in p && p.status === 'ok' && p.error <= tolE ? p.offSurface : undefined;
         };
         const traced = (tolE: number) => {
-          const fine = Math.min(tolE, MESH_FIT * meshDeflection);
+          const fine = Math.min(tolE, fitTolerance);
           let tr = tracer.trace(c, fine), at = fine;
           if (fine < tolE && (tr.status !== 'ok' || 'why' in tr.fit || !tr.fit.within)) {
             tr = tracer.trace(c, tolE), at = tolE;
@@ -259,7 +264,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           worstTraced = Math.max(worstTraced, need);
           return need;
         };
-        if (pc < 0 && !fixes.has(onPlane ? 'pcurveMissingOnPlane' : 'pcurveMissing')) {
+        if (pc < 0 && !fixes.has(missing)) {
           bare();
           continue;
         }
@@ -330,25 +335,27 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           continue;
         }
         if (pc < 0) {
-          // Fitted as a trace is, as the mesher projects a use it isn't given (MESH_FIT x the deflection where that's
+          // Fitted as a trace is, as the mesher projects a use it isn't given (within fitTolerance where that's
           // tighter than the edge's tolerance), else at the edge's (the face API's own projection).
-          const tolE = tol.edge(e), fine = Math.min(tolE, MESH_FIT * meshDeflection);
+          const tolE = tol.edge(e), fine = Math.min(tolE, fitTolerance);
           let p = fine < tolE ? projected(g, c, g.projectCoedge(c, fine)) : undefined;
           if (!p || 'why' in p) p = projected(g, c);
           const curve = 'why' in p ? undefined : onRange(p.curve, p.range);
           if (!curve) {
-            add(notMade, 'why' in p ? p.why : 'on another range', c);
+            add(notMade.get(missing) ?? notMade.set(missing, new Map()).get(missing)!, 'why' in p ? p.why
+              : 'on another range', c);
             bare(false);
             continue;
           }
-          const pl = placed(curve, c, 'pcurveMissing', range), error = p.error + pl.moved;
+          const pl = placed(curve, c, missing, range), error = p.error + pl.moved;
           edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
           record.deviation[c] = error;
           needs(e, error);
-          worstMade = Math.max(worstMade, error);
-          made.add(coedgeName(c));
+          const t = made.get(missing) ?? made.set(missing, { t: new Tally(), worst: 0 }).get(missing)!;
+          t.worst = Math.max(t.worst, error);
+          t.t.add(coedgeName(c));
           continue;
         }
         // The same parameter, but its domain short of the edge's range by rounding (vertices a hair off the curve
@@ -498,12 +505,12 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     diagnostics.push({ severity: 'warning', message: `edgeTolerance: ${stopped.n} traces stopped before their `
       + `curves' ends: ${stopped.ex.join(', ')}${stopped.more()}` });
   }
-  if (made.n) {
-    diagnostics.push({ severity: 'warning', message: `pcurveMissing: ${made.n} p-curves made by projecting their `
-      + `edges' curves (off by up to ${worstMade.toPrecision(3)} mm): ${made.ex.join(', ')}${made.more()}` });
+  for (const [fix, { t, worst }] of made) {
+    diagnostics.push({ severity: 'warning', message: `${fix}: ${t.n} p-curves made by projecting their edges' `
+      + `curves (off by up to ${worst.toPrecision(3)} mm): ${t.ex.join(', ')}${t.more()}` });
   }
-  for (const [why, t] of notMade) {
-    diagnostics.push({ severity: 'warning', message: `pcurveMissing: ${t.n} coedges left without a p-curve (the `
+  for (const [fix, why, t] of [...notMade].flatMap(([fix, m]) => [...m].map(([w, t]) => [fix, w, t] as const))) {
+    diagnostics.push({ severity: 'warning', message: `${fix}: ${t.n} coedges left without a p-curve (the `
       + `projection ${why}): ${t.ex.join(', ')}${t.more()}` });
   }
   if (madeOnPlane.n) {

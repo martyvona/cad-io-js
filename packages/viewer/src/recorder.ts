@@ -56,7 +56,7 @@ export type RecordedEvent = { t: number } & (
   /** A node's appearance override set exactly (the tree's Override Appearance...). */
   | { type: 'appearance'; path: string; override: AppearanceOverride }
   | { type: 'control'; path: string; value?: unknown }
-  /** Mesh again's question before loading the file again for other healing, answered (after its button's press). */
+  /** Older recordings' answer to a question Mesh again no longer asks (it heals again in place): ignored. */
   | { type: 'reload'; confirmed: boolean }
   | { type: 'camera'; camera: CameraState }
   | { type: 'api'; method: string; args: unknown[] }
@@ -260,8 +260,7 @@ export class Recorder {
         path: e.id !== undefined && model ? model.pathOf(e.id) : null, ...(e.point ? { point: e.point } : {}) });
     } else if (e.type === 'appearance') {
       if (model) this.push({ type: 'appearance', path: model.pathOf(e.id), override: e.override });
-    } else if (e.type === 'reload') this.push({ type: 'reload', confirmed: e.confirmed });
-    else this.push({ type: 'status', text: e.text, error: e.error });
+    } else this.push({ type: 'status', text: e.text, error: e.error });
   }
 }
 
@@ -401,18 +400,9 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const c = control;
       if (!c) { divergences.push(`${at}: no control ${e.path}`); continue; }
       show?.flash(c);
-      // A button's work done (Mesh again: its load) before the next event, whatever the pace; Mesh again's question
-      // (before loading the file again) answered as recorded next, else yes (a recording from before it was asked).
-      if (c.$button) {
-        const answer = rec.events.slice(k + 1).find((x) => x.type === 'reload' || x.type === 'control');
-        const asked = ui.confirmReload;
-        ui.confirmReload = async () => (answer?.type === 'reload' ? answer.confirmed : true);
-        try {
-          await (c.getValue() as () => unknown).call(c.object);
-        } finally {
-          ui.confirmReload = asked;
-        }
-      } else c.setValue(e.value);
+      // A button's work done (Mesh again: its load) before the next event, whatever the pace.
+      if (c.$button) await (c.getValue() as () => unknown).call(c.object);
+      else c.setValue(e.value);
       applied++;
     } else if (e.type === 'api') {
       await session.call(e.method, e.args);

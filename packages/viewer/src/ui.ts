@@ -21,7 +21,7 @@ import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { HEAL_FIXES } from 'cad-heal/options';
-import { BACKEND_NAMES, defaultSettings, healingOf, profileSettings, type TessellationSettings }
+import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSettings }
   from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { TreePanel } from './tree-panel.ts';
@@ -93,11 +93,6 @@ export interface Ui {
   opened(): Promise<unknown>;
   /** The current model's source: its name, size, SHA-256, and its File or URL. */
   source(): Source | undefined;
-  /**
-   * Asked before Mesh again loads the file again for other healing (the models as imported aren't kept); default the
-   * dialog saying so. Replay sets it to answer as the recording did.
-   */
-  confirmReload?: () => Promise<boolean>;
   /** These settings take effect through the controls (which follow). */
   setSections(s: SectionSettings): void;
   setRender(r: Partial<RenderSettings>): void;
@@ -140,9 +135,7 @@ export type UiEvent =
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean }
-  | { type: 'appearance'; id: number; override: AppearanceOverride }
-  /** Mesh again's question before loading the file again for other healing, and its answer. */
-  | { type: 'reload'; confirmed: boolean };
+  | { type: 'appearance'; id: number; override: AppearanceOverride };
 
 /** How long the status line, and the details while nothing is selected, stay after they last changed. */
 const HIDE_AFTER = 5000;
@@ -244,15 +237,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
-  // Mesh again with other healing: the file is loaded again, so ask.
-  const confirmReload = async () => (await showDialog({ title: 'Load the model again?', body: [
-    'Heal B-reps has changed since the model was meshed. Meshing it with other healing loads the file again and ' +
-    'heals it afresh: the viewer keeps no copy of the models as imported (it would take as much memory as the ' +
-    'models), nor of the file (read again from disk, or fetched again).',
-    'The view, the selection, appearance overrides and the other settings are kept.'],
-  buttons: [{ label: 'Load again', value: 'reload', primary: true }, { label: 'Cancel', value: 'cancel' }] }))
-    .button === 'reload';
-
   // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
   // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
   // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
@@ -278,20 +262,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let screenshotControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   /**
-   * The model meshed again, the view kept (Mesh again): from the import worker's models in place, or by loading the
-   * file again where the worker hasn't them; `as` the settings to mesh with instead of the controls' (a model lost
-   * with the import worker, made again as it was: the controls back after).
+   * The model meshed again, the view kept (Mesh again): from the import worker's models in place (healed again there
+   * where the healing changed), or by loading the file again where the worker hasn't them; `as` the settings to mesh
+   * with instead of the controls' (a model lost with the import worker, made again as it was: the controls back
+   * after).
    */
   const meshAgain = async (as?: Partial<TessellationSettings>) => {
     if (!last) return;
-    // Other healing than the model's: the file loaded again (the models as imported aren't kept), once confirmed.
-    const was = viewer.model?.meshedWith;
-    if (was && healingOf(was) !== healingOf({ ...viewer.settings, ...as })) {
-      const confirmed = await (ui.confirmReload ?? confirmReload)();
-      hooks.onEvent?.({ type: 'reload', confirmed });
-      if (!confirmed) return say(`${last.name}: not meshed again (Heal B-reps changed: Mesh again loads the file ` +
-        'again)');
-    }
     const nodes = viewer.nodes;
     const top = panel?.topRow();
     restore = { overrides: nodes?.overrides() ?? [], lost: [], selected: nodes ? selected.map((id) =>
@@ -787,6 +764,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add(settings, 'heal').name('Heal B-reps');
   const fixes = step.addFolder('Healing fixes').close();
   for (const f of HEAL_FIXES) fixes.add(settings.healFixes, f);
+  fixes.add(settings, 'healFit').name('Fit (mm)');
   // tess-cadio's own settings (read only where it's the backend or the fallback), under a disclosure, closed; its
   // debugging switch in a folder of its own, named so.
   const cadio = step.addFolder('tess-cadio').close();
