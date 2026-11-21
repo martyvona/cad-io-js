@@ -131,6 +131,10 @@ fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-data
   path.join(content, 'broken.stp'));
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp'),
   path.join(content, 'face-failed.stp'));
+// A part whose B-spline faces' edges have no p-curves, all within tolerance: healing leaves them bare unless
+// pcurveMissing asks for every one.
+fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug24595_281390.stp'),
+  path.join(content, 'bare-edges.stp'));
 fs.writeFileSync(path.join(content, 'warned.stp'), fs.readFileSync(step, 'latin1').replace(/\nENDSEC;\s*END-ISO/,
   "\n#999999=CARTESIAN_POINT('',(0.,0.,#99999999999));\nENDSEC;\nEND-ISO"), 'latin1');
 // Half transparent everywhere (a copy of the scene's materials at opacity 0.5).
@@ -2718,8 +2722,8 @@ await check('heal B-reps', async () => {
   expect(a.meshedWith.heal && a.meshedWith.healFixes.strayPole === true && !a.meshedWith.healFixes.pcurveMissing,
     `meshed with healing: ${j}`);
   expect(a.triangles > 0 && a.parts.total === 4 && a.parts.failed === 0, `meshed: ${j}`);
-  expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissing,pcurveReparam,pcurveReplace,pcurveEnds,'
-    + 'edgeTolerance,vertexTolerance', `the fixes, closed: ${j}`);
+  expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissing,pcurveMissingOnPlane,pcurveReparam,pcurveReplace,'
+    + 'pcurveEnds,edgeTolerance,vertexTolerance', `the fixes, closed: ${j}`);
   expect(a.off.said.length === 0 && !a.off.heal && a.off.triangles > 0, `unticked, meshed again as imported: ${j}`);
   const f = await page(`?url=${encodeURIComponent('/content/heal.stp')}&healOff=strayPole&check`, `(async () => {
     await cadViewer.idle();
@@ -2868,6 +2872,35 @@ await check('reload for other healing', async () => {
   expect(!played.after.aborted && !played.after.open && !played.after.heal && played.after.control
     && played.after.triangles > 0 && !played.after.divergences.length,
     `replayed as answered: ${JSON.stringify(played.after)}`);
+  return undefined;
+});
+
+// Healing's pcurveMissing and pcurveMissingOnPlane in the browser, the switches for consumers that want every p-curve
+// (off a plane, on one): healOn=<fix> on a file whose bare uses are all within tolerance makes a p-curve for each of
+// that fix's (said in its diagnostic, the fix on in meshedWith and its checkbox ticked), and only that fix's; heal=1
+// alone makes none (a correct bare use stays bare).
+await check('heal pcurveMissing', async () => {
+  const made = (fix: string) => `(() => viewer.model.diagnostics.map((d) => /^${fix}: (\\d+) p-curves made/
+    .exec(d.message)).filter(Boolean).map((m) => Number(m[1])))()`;
+  const load = (query: string) => page(`?url=${encodeURIComponent('/content/bare-edges.stp')}&heal=1${query}&check`,
+    `(async () => {
+    await cadViewer.idle();
+    const box = (f) => ui.gui.controllersRecursive().find((c) => c._name === f)?.getValue();
+    const w = viewer.model.meshedWith.healFixes;
+    return { off: ${made('pcurveMissing')}, on: ${made('pcurveMissingOnPlane')}, fixes: [w.pcurveMissing,
+      w.pcurveMissingOnPlane], boxes: [box('pcurveMissing'), box('pcurveMissingOnPlane')] };
+  })()`) as Promise<{ after: { off: number[]; on: number[]; fixes: boolean[]; boxes: boolean[] } }>;
+  const [m, p, none] = [await load('&healOn=pcurveMissing'), await load('&healOn=pcurveMissingOnPlane'), await load('')];
+  const j = JSON.stringify({ pcurveMissing: m.after, pcurveMissingOnPlane: p.after, neither: none.after });
+  expect(m.after.off.length === 1 && m.after.off[0]! > 0 && m.after.on.length === 0
+    && m.after.fixes.join() === 'true,false' && m.after.boxes.join() === 'true,false',
+    `healOn=pcurveMissing: off the planes only, its checkbox ticked: ${j}`);
+  expect(p.after.on.length === 1 && p.after.on[0]! > 0 && p.after.off.length === 0
+    && p.after.fixes.join() === 'false,true' && p.after.boxes.join() === 'false,true',
+    `healOn=pcurveMissingOnPlane: on the planes only, its checkbox ticked: ${j}`);
+  expect(none.after.off.length === 0 && none.after.on.length === 0 && none.after.fixes.join() === 'false,false',
+    `heal=1 alone: none made: ${j}`);
+  process.stderr.write(` (pcurveMissing ${m.after.off[0]} p-curves made, pcurveMissingOnPlane ${p.after.on[0]})`);
   return undefined;
 });
 // Our own tessellator in the browser (tess-cadio's module in the pool's workers, as Vite bundles it): the assembly
