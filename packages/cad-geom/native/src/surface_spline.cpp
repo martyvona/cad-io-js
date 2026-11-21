@@ -527,13 +527,17 @@ private:
     struct SumKept {
       uint64_t owner = 0;
       double a = NAN, b = NAN, c = NAN, d = NAN;
-      bool have[kPartials] = {};
+      bool have[kPartials] = {}, haveB[kPartials] = {}, haveS[kPartials] = {};
       Sum sum[kPartials];
+      double B[kPartials];
+      IV S[kPartials];
     };
     thread_local SumKept SK;
     if (SK.owner != id_ || SK.a != ru.lo || SK.b != ru.hi || SK.c != rv.lo || SK.d != rv.hi) {
       SK.owner = id_, SK.a = ru.lo, SK.b = ru.hi, SK.c = rv.lo, SK.d = rv.hi;
       std::fill(SK.have, SK.have + kPartials, false);
+      std::fill(SK.haveB, SK.haveB + kPartials, false);
+      std::fill(SK.haveS, SK.haveS + kPartials, false);
     }
     auto summary = [&](int kk, int m) -> const Sum& {
       const int at = pidx(kk, m);
@@ -563,24 +567,20 @@ private:
     const Sum& z = summary(0, 0);
     const double e0 = z.e, wmin = z.wmin, s0 = z.s0;
     if (!(wmin > 0)) return out = entireBox(), Status::singular;
-    double B[kPartials] = {}, Am[kPartials] = {}, Wm[kPartials] = {};
-    B[0] = s0 * (1 + 16 * kEps) + std::sqrt(3.0) * e0 / wmin;
+    // (Each partial's B and S below depend on the rectangle alone, each from the lower partials' before it: kept in
+    // SK with the summaries, a rectangle's partials asked one after another each take the lower ones' as they are.)
+    double* B = SK.B;
+    if (!SK.haveB[0]) B[0] = s0 * (1 + 16 * kEps) + std::sqrt(3.0) * e0 / wmin, SK.haveB[0] = true;
+    auto wm = [&](int i, int j) { return i > p_ || j > q_ ? 0.0 : summary(i, j).wm; };
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
-        if (kk > k || m > l || kk > p_ || m > q_) continue;
-        const Sum& sm = summary(kk, m);
-        Am[pidx(kk, m)] = sm.am, Wm[pidx(kk, m)] = sm.wm;
-      }
-    for (int t = 1; t <= k + l; t++)
-      for (int m = 0; m <= t; m++) {
-        int kk = t - m;
-        if (kk > k || m > l) continue;
-        double v = Am[pidx(kk, m)];
+        if (kk > k || m > l || SK.haveB[pidx(kk, m)]) continue;
+        double v = kk > p_ || m > q_ ? 0.0 : summary(kk, m).am;
         for (int i = 0; i <= kk; i++)
           for (int j = 0; j <= m; j++)
-            if (i || j) v += binom(kk, i) * binom(m, j) * Wm[pidx(i, j)] * B[pidx(kk - i, m - j)];
-        B[pidx(kk, m)] = v / wmin * (1 + 16 * kEps);
+            if (i || j) v += binom(kk, i) * binom(m, j) * wm(i, j) * B[pidx(kk - i, m - j)];
+        B[pidx(kk, m)] = v / wmin * (1 + 16 * kEps), SK.haveB[pidx(kk, m)] = true;
       }
     out = ballBox({}, B[pidx(k, l)]);
     if (k + l < 2) return Status::ok;
@@ -588,35 +588,28 @@ private:
     // ranges from their nets' control points (restricted to the rectangle where it's one span, so they shrink with
     // it), S^(k,l) = (A^(k,l) - sum (k i)(l j) w^(i,j) S^(k-i,l-j)) / w. Signs and cancellations kept, which the
     // magnitudes above lose: tight as the rectangle shrinks, where those stay a constant factor off.
-    IV IA[kPartials], S[kPartials];
-    Interval IW[kPartials];
-    IA[0] = z.ia, IW[0] = z.iw;
-    if (!(IW[0].lo > 0)) return Status::ok;
+    const Interval IW0 = z.iw;
+    if (!(IW0.lo > 0)) return Status::ok;
+    IV* S = SK.S;
+    auto iw = [&](int i, int j) { return i > p_ || j > q_ ? Interval::point(0) : summary(i, j).iw; };
+    if (!SK.haveS[0]) {
+      for (int d = 0; d < 3; d++) S[0].c[d] = z.ia.c[d] / IW0;
+      SK.haveS[0] = true;
+    }
     for (int t = 1; t <= k + l; t++)
       for (int m = 0; m <= t; m++) {
         int kk = t - m;
-        if (kk > k || m > l) continue;
-        if (kk > p_ || m > q_) {
-          for (int d = 0; d < 3; d++) IA[pidx(kk, m)].c[d] = Interval::point(0);
-          IW[pidx(kk, m)] = Interval::point(0);
-          continue;
-        }
-        const Sum& sm = summary(kk, m);
-        IA[pidx(kk, m)] = sm.ia, IW[pidx(kk, m)] = sm.iw;
-      }
-    for (int d = 0; d < 3; d++) S[0].c[d] = IA[0].c[d] / IW[0];
-    for (int t = 1; t <= k + l; t++)
-      for (int m = 0; m <= t; m++) {
-        int kk = t - m;
-        if (kk > k || m > l) continue;
+        if (kk > k || m > l || SK.haveS[pidx(kk, m)]) continue;
+        const bool past = kk > p_ || m > q_;
         for (int d = 0; d < 3; d++) {
-          Interval v = IA[pidx(kk, m)].c[d];
+          Interval v = past ? Interval::point(0) : summary(kk, m).ia.c[d];
           for (int i = 0; i <= kk; i++)
             for (int j = 0; j <= m; j++)
               if (i || j)
-                v = v - Interval::point(binom(kk, i) * binom(m, j)) * IW[pidx(i, j)] * S[pidx(kk - i, m - j)].c[d];
-          S[pidx(kk, m)].c[d] = v / IW[0];
+                v = v - Interval::point(binom(kk, i) * binom(m, j)) * iw(i, j) * S[pidx(kk - i, m - j)].c[d];
+          S[pidx(kk, m)].c[d] = v / IW0;
         }
+        SK.haveS[pidx(kk, m)] = true;
       }
     const IV& r = S[pidx(k, l)];
     Box3 box{r.c[0], r.c[1], r.c[2]};
