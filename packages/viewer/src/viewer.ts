@@ -37,7 +37,7 @@ import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
 import type { ImportProgress } from 'step-import';
-import { clearCache, defaultSettings, deflectionsOf, healingOf, wantedOf, workerCount, type TessellationSettings }
+import { clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
   from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
@@ -89,6 +89,7 @@ export interface MeshedWith {
   /** Whether the models were healed, and with which fixes. */
   heal: boolean;
   healFixes: TessellationSettings['healFixes'];
+  healFit: number;
   /** tess-cadio's smallest angle (degrees) and its debugging switch (each read only where tess-cadio meshed). */
   minAngle: number;
   keepFailing: boolean;
@@ -96,10 +97,10 @@ export interface MeshedWith {
 
 /** The settings' MeshedWith (copies). */
 export function meshedWithOf(s: TessellationSettings): MeshedWith {
-  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes, minAngle,
-    keepFailing } = s;
+  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes, healFit,
+    minAngle, keepFailing } = s;
   return { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal,
-    healFixes: { ...healFixes }, minAngle, keepFailing };
+    healFixes: { ...healFixes }, healFit, minAngle, keepFailing };
 }
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
@@ -1087,14 +1088,13 @@ export class Viewer {
    * The model meshed again with the settings now, in place, from the import worker's scene (its B-rep models: no
    * import): each part keeps its mesh until its new one comes; one that fails is then shown as a load shows it (the
    * file's own level, else its faces' outlines, else nothing). The view stays. Resolves true once every part is meshed
-   * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole, or
-   * other healing: the worker keeps no models as imported to heal otherwise): load it again instead. Rejects if the
-   * worker can't (it lost the model): load it again.
+   * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole):
+   * load it again instead. Other healing heals the worker's models again in place (model-load.ts's healIn). Rejects if
+   * the worker can't (it lost the model): load it again.
    */
   async meshAgain(): Promise<boolean> {
     const graph = this.graph, model = this.model;
     if (!graph || !model || !this.worker || this.shown !== this.generation) return false;
-    if (healingOf(model.meshedWith ?? {}) !== healingOf(this.settings)) return false;
     const gen = ++this.generation;
     this.shown = gen;
     if (this.meshing) {

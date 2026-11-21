@@ -220,24 +220,27 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
 export const HEAL_MODULE = 'cad-heal';
 
 /**
- * What healIn did to a scene: the healing it was healed with (healingOf; RELOAD_HEALING where a healing was
- * cancelled partway, its models part healed) and healing's diagnostics. The models as imported aren't kept (they'd
- * cost as much memory as the scene's own): other healing is the file loaded again (Viewer.meshAgain, ui.ts).
+ * What healIn did to a scene: the healing it was healed with (healingOf; PART_HEALED where a healing was cancelled
+ * partway, its models part healed) and healing's diagnostics. The models as imported aren't kept (they'd cost as much
+ * memory as the scene's own): other healing heals each part again from its source's values, which its analysis keeps
+ * (cad-heal's healPart).
  */
 interface Healing { key: string; diagnostics: Diagnostic[] }
 const healings = new WeakMap<Scene, Healing>();
 /** The healing of a scene still going, which the next waits for (a cancelled one ends as its pool's workers stop). */
 const healingNow = new WeakMap<Scene, Promise<unknown>>();
-/** A healing key no settings make: the scene's models part healed, by a healing cancelled before it ended. */
+/**
+ * A healing key no settings make: the scene's models part healed, by a healing cancelled before it ended (healing it
+ * again heals each part as asked, from whatever healing it had).
+ */
 const PART_HEALED = '\0part healed';
-
-/** healIn's error for a scene healed otherwise than asked: its models can't be had as imported, load the file again. */
-export const RELOAD_HEALING = 'healed otherwise: the file must be loaded again to heal it as asked';
 
 /**
  * The scene's models healed as the settings ask, in `pool`'s workers, `workers` at once (none asked: as imported),
- * with healing's diagnostics; the import's healing phase emitted as it goes. As imported, or healed already as asked:
- * kept. Healed otherwise (or a healing of it cancelled partway): rejects with RELOAD_HEALING, the scene unchanged.
+ * with healing's diagnostics; the import's healing phase emitted as it goes. Healed already as asked (or as imported,
+ * none asked): kept. Healed otherwise (or a healing of it cancelled partway): healed again in place, each part from
+ * its source's values (its analysis's), or put back as its source with healing off; a pole strayPole moved stays
+ * moved, said.
  */
 export async function healIn(scene: Scene, settings: Partial<TessellationSettings>,
   pool: Pick<PoolTessellator, 'run'>, workers: number, emit: (e: ModelEvent) => void, cancelled: () => boolean):
@@ -247,12 +250,12 @@ export async function healIn(scene: Scene, settings: Partial<TessellationSetting
     await prior?.catch(() => {});
     const key = healingOf(settings), was = healings.get(scene);
     if ((was?.key ?? '') === key) return was?.diagnostics ?? [];
-    if (was) throw new Error(RELOAD_HEALING);
     const before = scene.diagnostics.length;
     let told = -Infinity;
     // (Marked before the first part changes: a cancel or a throw leaves its models part healed.)
     healings.set(scene, { key: PART_HEALED, diagnostics: [] });
-    await healScene(scene, { heal: true, fixes: settings.healFixes, concurrency: workers,
+    await healScene(scene, { heal: !!key, fixes: settings.healFixes, ...(settings.healFit === undefined ? {}
+      : { pcurveFitTolerance: settings.healFit }), concurrency: workers,
       healer: poolHealer(pool, HEAL_MODULE),
       onPart: (done, total) => {
         const t = performance.now();

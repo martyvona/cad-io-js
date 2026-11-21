@@ -137,7 +137,7 @@ fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-data
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp'),
   path.join(content, 'face-failed.stp'));
 // A part whose B-spline faces' edges have no p-curves, all within tolerance: healing leaves them bare unless
-// pcurveMissing asks for every one.
+// pcurveMissingOnFreeForm asks for every one.
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug24595_281390.stp'),
   path.join(content, 'bare-edges.stp'));
 fs.writeFileSync(path.join(content, 'warned.stp'), fs.readFileSync(step, 'latin1').replace(/\nENDSEC;\s*END-ISO/,
@@ -2689,19 +2689,14 @@ await check('mesh again', async () => {
 });
 // Healing in the browser (cad-heal and cad-geom's module in the tessellation pool's workers, as Vite bundles them):
 // heal=1 in the address heals before meshing (its warnings the model's, its settings in meshedWith); Heal B-reps
-// unticked and Mesh again (its question answered Load again), the models as imported; healOff= a fix off; without
-// heal=, HEAL_BY_DEFAULT; the checkbox and its closed fixes folder.
+// unticked and Mesh again, the models put back as imported in place (but the moved pole, said kept); healOff= a fix
+// off; without heal=, HEAL_BY_DEFAULT; the checkbox and its closed fixes folder.
 await check('heal B-reps', async () => {
   const healingSaid = `(() => viewer.model.diagnostics.filter((d) => /^(strayPole|tolerances grown):/.test(d.message))
     .map((d) => d.message.split(':')[0]).sort())()`;
   const again = `(async () => {
     const model = viewer.nextLoad();
     ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
-    // (Other healing: loading the file again, asked first.)
-    for (let t = 0; t < 20 && !document.querySelector('dialog.cv-dialog[open]'); t++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    document.querySelector('dialog.cv-dialog[open] button[value=reload]')?.click();
     for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -2724,12 +2719,14 @@ await check('heal B-reps', async () => {
     off: { said: string[]; heal: boolean; triangles: number }; backend?: string } };
   const a = r.after, j = JSON.stringify(a);
   expect(a.said.join() === 'strayPole,tolerances grown', `healed, in the workers: ${j}`);
-  expect(a.meshedWith.heal && a.meshedWith.healFixes.strayPole === true && !a.meshedWith.healFixes.pcurveMissing,
-    `meshed with healing: ${j}`);
+  expect(a.meshedWith.heal && a.meshedWith.healFixes.strayPole === true
+    && !a.meshedWith.healFixes.pcurveMissingOnFreeForm, `meshed with healing: ${j}`);
   expect(a.triangles > 0 && a.parts.total === 4 && a.parts.failed === 0, `meshed: ${j}`);
-  expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissing,pcurveMissingOnPlane,pcurveReparam,pcurveReplace,'
-    + 'pcurveEnds,edgeTolerance,vertexTolerance', `the fixes, closed: ${j}`);
-  expect(a.off.said.length === 0 && !a.off.heal && a.off.triangles > 0, `unticked, meshed again as imported: ${j}`);
+  expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissingOnPlane,pcurveMissingOnElementary,'
+    + 'pcurveMissingOnFreeForm,pcurveReparam,pcurveReplace,pcurveEnds,edgeTolerance,vertexTolerance,Fit (mm)',
+    `the fixes and the fit, closed: ${j}`);
+  expect(a.off.said.join() === 'strayPole' && !a.off.heal && a.off.triangles > 0,
+    `unticked, meshed again as imported in place (the moved pole said kept): ${j}`);
   const f = await page(`?url=${encodeURIComponent('/content/heal.stp')}&healOff=strayPole&check`, `(async () => {
     await cadViewer.idle();
     return { said: ${healingSaid}, heal: viewer.settings.heal, fix: viewer.settings.healFixes.strayPole };
@@ -2745,13 +2742,14 @@ await check('heal B-reps', async () => {
   return undefined;
 });
 
-// Mesh again with other healing: the import worker keeps no models as imported, so the file is loaded again (fetched
-// again), after a question; Cancel keeps the scene as meshed (the control as set), Load again meshes the file afresh
-// as asked, the view and the selection kept; Mesh again with the same healing meshes in place, nothing asked or
-// fetched. The page keeps no copy of the file: the source has its size and SHA-256 only.
-await check('reload for other healing', async () => {
+// Mesh again with other healing heals again in place: no question, the file not fetched again, the same scene (the
+// import worker's models healed again from their analyses' source values), the view and the selection kept; unticked,
+// the models put back as imported, but heal.stp's stray pole, which stays moved, said kept; ticked again, healed as at
+// first. The page keeps no copy of the file: the source has its size and SHA-256 only. Recorded and replayed in
+// another page: the same end, nothing diverging.
+await check('re-heal in place', async () => {
   const healingSaid = `(() => viewer.model.diagnostics.filter((d) => /^(strayPole|tolerances grown):/.test(d.message))
-    .map((d) => d.message.split(':')[0]).sort())()`;
+    .map((d) => d.message.replace(/\\d+/g, 'N')).sort())()`;
   const r = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
     await cadViewer.idle();
     // The file's fetches from now on, counted (the page's resource timing buffer is full of the dev server's modules).
@@ -2761,109 +2759,74 @@ await check('reload for other healing', async () => {
       if (new URL(String(u), location.href).href === url) fetched++;
       return fetchWas(u, o);
     };
-    const fetches = () => fetched;
-    // (Mesh again with other healing goes straight to loading again: not tried in place first, failing.)
     const warned = [], warn = console.warn;
     console.warn = (...a) => { warned.push(String(a[0])); warn(...a); };
     const open = () => document.querySelector('dialog.cv-dialog[open]');
     const button = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
     const heal = ui.gui.controllersRecursive().find((c) => c._name === 'Heal B-reps');
-    // Pressed; asked (or not, within a second), answered with the button of that value; then its work done.
-    const press = async (answer) => {
-      const before = viewer.nextLoad();
+    // Pressed (asked or not, within a second: a dialog open then would be the question); then its work done.
+    const press = async () => {
       const done = button.getValue().call(button.object);
-      let title;
-      for (let t = 0; t < 20 && !open(); t++) await new Promise((res) => setTimeout(res, 50));
-      if (open()) {
-        title = open().querySelector('h2').textContent;
-        open().querySelector('button[value=' + answer + ']').click();
-      }
+      let asked = false;
+      for (let t = 0; t < 20 && !asked; t++) asked = !!open(), await new Promise((res) => setTimeout(res, 50));
       await done;
       await cadViewer.idle();
-      return { title, loaded: viewer.nextLoad() !== before };
+      return { asked };
     };
     const src = ui.source();
     const kept = { bytes: src.bytes === undefined, sha: /^[0-9a-f]{64}$/.test(src.sha256), size: src.size };
-    const graph0 = viewer.graph, fetched0 = fetches();
-    // A part selected, the view moved: both kept by Load again.
+    const graph0 = viewer.graph, first = { said: ${healingSaid}, triangles: viewer.stats().triangles };
+    // A part selected, the view moved: both kept.
     const part = viewer.nodes.find('heal.stp/stray') ?? viewer.nodes.find(viewer.nodes.pathOf(1));
     ui.select([part]);
     const path = viewer.nodes.pathOf(part);
     viewer.controls.target.set(1, 2, 3);
     viewer.controls.update();
     heal.setValue(false);
-    const cancel = await press('cancel');
-    const cancelled = { ...cancel, heal: viewer.model.meshedWith.heal, same: viewer.graph === graph0,
-      said: ${healingSaid}, fetched: fetches() - fetched0, control: heal.getValue(),
-      status: document.getElementById('status').textContent };
-    const reload = await press('reload');
-    const reloaded = { ...reload, heal: viewer.model.meshedWith.heal, same: viewer.graph === graph0,
-      said: ${healingSaid}, fetched: fetches() - fetched0, triangles: viewer.stats().triangles,
-      selected: ui.selected().map((id) => viewer.nodes.pathOf(id)), target: viewer.controls.target.toArray(),
-      bytes: ui.source().bytes === undefined };
-    const graph1 = viewer.graph;
-    const same = await press('reload');
-    const unchanged = { ...same, sameGraph: viewer.graph === graph1, fetched: fetches() - fetched0,
-      triangles: viewer.stats().triangles };
-    // Ticked again with the server giving the file changed (a line more): loaded again as it is now, said.
-    const bytes = new Uint8Array(await (await fetchWas(url)).arrayBuffer());
-    const more = new Uint8Array(bytes.length + 1);
-    more.set(bytes);
-    more[bytes.length] = 10;
-    window.fetch = async (u, o) => (new URL(String(u), location.href).href === url ? new Response(more)
-      : fetchWas(u, o));
+    const off = { ...await press(), heal: viewer.model.meshedWith.heal, same: viewer.graph === graph0,
+      said: ${healingSaid}, fetched, triangles: viewer.stats().triangles,
+      selected: ui.selected().map((id) => viewer.nodes.pathOf(id)), target: viewer.controls.target.toArray() };
     heal.setValue(true);
-    const change = await press('reload');
-    const changed = { ...change, heal: viewer.model.meshedWith.heal, size: ui.source().size,
-      status: document.getElementById('status').textContent };
-    return { kept, cancelled, reloaded, unchanged, changed, warned, path };
-  })()`) as { after: { kept: { bytes: boolean; sha: boolean; size: number };
-    cancelled: { title?: string; loaded: boolean; heal: boolean; same: boolean; said: string[]; fetched: number;
-      control: boolean; status: string };
-    reloaded: { title?: string; heal: boolean; same: boolean; said: string[]; fetched: number; triangles: number;
-      selected: string[]; target: number[]; bytes: boolean };
-    unchanged: { title?: string; sameGraph: boolean; fetched: number; triangles: number };
-    changed: { title?: string; heal: boolean; size: number; status: string }; warned: string[]; path: string } };
+    const on = { ...await press(), heal: viewer.model.meshedWith.heal, same: viewer.graph === graph0,
+      said: ${healingSaid}, fetched, triangles: viewer.stats().triangles };
+    return { kept, first, off, on, warned, path, bytes: ui.source().bytes === undefined };
+  })()`) as { after: { kept: { bytes: boolean; sha: boolean; size: number }; first: { said: string[];
+    triangles: number }; off: { asked: boolean; heal: boolean; same: boolean; said: string[]; fetched: number;
+    triangles: number; selected: string[]; target: number[] }; on: { asked: boolean; heal: boolean; same: boolean;
+    said: string[]; fetched: number; triangles: number }; warned: string[]; path: string; bytes: boolean } };
   const a = r.after, j = JSON.stringify(a);
-  expect(a.kept.bytes && a.kept.sha && a.kept.size === fs.statSync(path.join(content, 'heal.stp')).size,
+  expect(a.kept.bytes && a.kept.sha && a.kept.size === fs.statSync(path.join(content, 'heal.stp')).size && a.bytes,
     `no copy of the file kept, its size and SHA-256: ${j}`);
-  expect(a.cancelled.title === 'Load the model again?' && a.cancelled.heal && a.cancelled.same && !a.cancelled.fetched
-    && a.cancelled.said.join() === 'strayPole,tolerances grown' && !a.cancelled.control
-    && /not meshed again/.test(a.cancelled.status), `asked; cancelled, the scene as meshed, the control as set: ${j}`);
-  expect(a.reloaded.title === 'Load the model again?' && !a.reloaded.heal && !a.reloaded.same
-    && a.reloaded.fetched === 1 && a.reloaded.said.length === 0 && a.reloaded.triangles > 0 && a.reloaded.bytes,
-    `Load again: fetched again, meshed as imported: ${j}`);
-  expect(a.reloaded.selected.join() === a.path && a.reloaded.target.join() === '1,2,3',
-    `the selection and the view kept: ${j}`);
-  expect(a.unchanged.title === undefined && a.unchanged.sameGraph && a.unchanged.fetched === 1
-    && a.unchanged.triangles > 0, `the same healing: in place, nothing asked or fetched: ${j}`);
-  expect(a.changed.heal && a.changed.size === a.kept.size + 1 && /the file had changed since it was loaded/.test(
-    a.changed.status), `changed on the server: loaded as it is now, said: ${j}`);
-  expect(!a.warned.some((w) => /meshing again from the models failed/.test(w)), `not tried in place first: ${j}`);
-  // Recorded: each answer after its press; replayed (another page, heal=1), answered as recorded: no dialog left
-  // open, the end meshed as imported with Heal B-reps ticked (its Mesh again cancelled).
+  const kept = 'strayPole: N stray poles moved by an earlier healing kept';
+  const grown = a.first.said.find((x) => x.startsWith('tolerances grown: '));
+  expect(a.first.said.length === 2 && a.first.said[0]!.startsWith('strayPole: N poles of N curves moved') && !!grown,
+    `healed at first: ${j}`);
+  expect(!a.off.asked && !a.off.heal && a.off.same && a.off.fetched === 0 && a.off.triangles > 0
+    && a.off.said.join() === kept,
+    `unticked: in place, nothing asked or fetched, as imported but the pole, said kept: ${j}`);
+  expect(a.off.selected.join() === a.path && a.off.target.join() === '1,2,3', `the selection and the view kept: ${j}`);
+  expect(!a.on.asked && a.on.heal && a.on.same && a.on.fetched === 0 && a.on.triangles === a.first.triangles
+    && a.on.said.join() === [kept, grown].join(),
+    `ticked again: healed in place as at first, the pole said kept: ${j}`);
+  expect(!a.warned.some((w) => /meshing again from the models failed/.test(w)), `nothing failed in place: ${j}`);
+  // Recorded (unticked, Mesh again; ticked, Mesh again) and replayed in another page (heal=1): the same end.
   const rec = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
     await cadViewer.idle();
-    const open = () => document.querySelector('dialog.cv-dialog[open]');
     const button = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
     cadViewer.record(true);
-    // Unticked, Load again; ticked again, Cancel (so a replay answering either way throughout ends otherwise). (Clicked
-    // as a user does: a change by setValue isn't a recorded one.)
-    for (const answer of ['reload', 'cancel']) {
+    // (Clicked as a user does: a change by setValue isn't a recorded one.)
+    for (let k = 0; k < 2; k++) {
       ui.gui.controllersRecursive().find((c) => c._name === 'Heal B-reps').$input.click();
       button.$button.click();
-      for (let t = 0; t < 40 && !open(); t++) await new Promise((res) => setTimeout(res, 50));
-      open()?.querySelector('button[value=' + answer + ']').click();
       await new Promise((res) => setTimeout(res, 200));
       await ui.opened();
       await cadViewer.idle();
     }
     const r = cadViewer.record(false);
-    return { rec: r, events: r.events.filter((e) => e.type === 'reload' || e.type === 'control').map((e) =>
-      e.type === 'reload' ? String(e.confirmed) : /Mesh again/.test(e.path) ? 'press' : e.path + '=' + e.value) };
-  })()`) as { after: { rec: unknown; events: string[] } };
-  expect(rec.after.events.join() === 'B-Rep Meshing/Heal B-reps=false,press,true,B-Rep Meshing/Heal B-reps=true,'
-    + 'press,false',
+    return { rec: r, events: r.events.filter((e) => e.type === 'control').map((e) => /Mesh again/.test(e.path)
+      ? 'press' : e.path + '=' + e.value), triangles: viewer.stats().triangles };
+  })()`) as { after: { rec: unknown; events: string[]; triangles: number } };
+  expect(rec.after.events.join() === 'B-Rep Meshing/Heal B-reps=false,press,B-Rep Meshing/Heal B-reps=true,press',
     `recorded: ${JSON.stringify(rec.after.events)}`);
   const played = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
     await cadViewer.idle();
@@ -2874,38 +2837,86 @@ await check('reload for other healing', async () => {
       divergences: report.divergences };
   })()`) as { after: { aborted?: string; open: boolean; heal: boolean; control: boolean; triangles: number;
     divergences: string[] } };
-  expect(!played.after.aborted && !played.after.open && !played.after.heal && played.after.control
-    && played.after.triangles > 0 && !played.after.divergences.length,
-    `replayed as answered: ${JSON.stringify(played.after)}`);
+  expect(!played.after.aborted && !played.after.open && played.after.heal && played.after.control
+    && played.after.triangles === rec.after.triangles && !played.after.divergences.length,
+    `replayed: ${JSON.stringify(played.after)}`);
   return undefined;
 });
 
-// Healing's pcurveMissing and pcurveMissingOnPlane in the browser, the switches for consumers that want every p-curve
-// (off a plane, on one): healOn=<fix> on a file whose bare uses are all within tolerance makes a p-curve for each of
-// that fix's (said in its diagnostic, the fix on in meshedWith and its checkbox ticked), and only that fix's; heal=1
-// alone makes none (a correct bare use stays bare).
+// Mesh again's fallback (the import worker can't mesh in place: here its meshAgain made to reject, as when the worker
+// lost the model) after the file changed on the server (a line more): the file fetched again once, loaded as it is
+// now, said in the status line, its size the new one; the view kept.
+await check('reload changed file', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/heal.stp')}&check`, `(async () => {
+    await cadViewer.idle();
+    const url = new URL('/content/heal.stp', location.href).href, fetchWas = window.fetch;
+    const bytes = new Uint8Array(await (await fetchWas(url)).arrayBuffer());
+    const more = new Uint8Array(bytes.length + 1);
+    more.set(bytes);
+    more[bytes.length] = 10;
+    let fetched = 0;
+    window.fetch = async (u, o) => {
+      if (new URL(String(u), location.href).href !== url) return fetchWas(u, o);
+      fetched++;
+      return new Response(more);
+    };
+    const size0 = ui.source().size, graph0 = viewer.graph;
+    viewer.controls.target.set(1, 2, 3);
+    viewer.controls.update();
+    viewer.meshAgain = async () => { throw new Error('the worker lost the model (planted)'); };
+    const statuses = [], st = document.getElementById('status');
+    new MutationObserver(() => statuses.push(st.textContent)).observe(st, { childList: true, characterData: true,
+      subtree: true });
+    const button = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+    await button.getValue().call(button.object);
+    await cadViewer.idle();
+    return { fetched, size0, size: ui.source().size, same: viewer.graph === graph0, status: statuses.join(' | '),
+      triangles: viewer.stats().triangles, target: viewer.controls.target.toArray(),
+      open: !!document.querySelector('dialog.cv-dialog[open]') };
+  })()`) as { after: { fetched: number; size0: number; size: number; same: boolean; status: string;
+    triangles: number; target: number[]; open: boolean } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.fetched === 1 && a.size === a.size0 + 1 && !a.same && a.triangles > 0 && !a.open,
+    `loaded again, fetched once, as it is now: ${j}`);
+  expect(/the file had changed since it was loaded: meshed as it is now/.test(a.status), `said: ${j}`);
+  expect(a.target.join() === '1,2,3', `the view kept: ${j}`);
+  return undefined;
+});
+
+// Healing's pcurveMissing fixes in the browser, the switches for consumers that want every p-curve (on planes, on
+// elementary surfaces, on free-form ones): healOn=<fix> on a file whose bare uses are all within tolerance makes a
+// p-curve for each of that fix's (said in its diagnostic, the fix on in meshedWith and its checkbox ticked), and only
+// that fix's; healOn=pcurveMissing (the alias of the elementary and free-form ones, for older links) both; heal=1
+// alone makes none (a correct bare use stays bare). healFit= sets the fit tolerance: its field and meshedWith.
 await check('heal pcurveMissing', async () => {
-  const made = (fix: string) => `(() => viewer.model.diagnostics.map((d) => /^${fix}: (\\d+) p-curves made/
-    .exec(d.message)).filter(Boolean).map((m) => Number(m[1])))()`;
+  const FIXES = ['pcurveMissingOnPlane', 'pcurveMissingOnElementary', 'pcurveMissingOnFreeForm'];
   const load = (query: string) => page(`?url=${encodeURIComponent('/content/bare-edges.stp')}&heal=1${query}&check`,
     `(async () => {
     await cadViewer.idle();
     const box = (f) => ui.gui.controllersRecursive().find((c) => c._name === f)?.getValue();
-    const w = viewer.model.meshedWith.healFixes;
-    return { off: ${made('pcurveMissing')}, on: ${made('pcurveMissingOnPlane')}, fixes: [w.pcurveMissing,
-      w.pcurveMissingOnPlane], boxes: [box('pcurveMissing'), box('pcurveMissingOnPlane')] };
-  })()`) as Promise<{ after: { off: number[]; on: number[]; fixes: boolean[]; boxes: boolean[] } }>;
-  const [m, p, none] = [await load('&healOn=pcurveMissing'), await load('&healOn=pcurveMissingOnPlane'), await load('')];
-  const j = JSON.stringify({ pcurveMissing: m.after, pcurveMissingOnPlane: p.after, neither: none.after });
-  expect(m.after.off.length === 1 && m.after.off[0]! > 0 && m.after.on.length === 0
-    && m.after.fixes.join() === 'true,false' && m.after.boxes.join() === 'true,false',
-    `healOn=pcurveMissing: off the planes only, its checkbox ticked: ${j}`);
-  expect(p.after.on.length === 1 && p.after.on[0]! > 0 && p.after.off.length === 0
-    && p.after.fixes.join() === 'false,true' && p.after.boxes.join() === 'false,true',
+    const made = (fix) => viewer.model.diagnostics.map((d) => new RegExp('^' + fix + ': (\\\\d+) p-curves made')
+      .exec(d.message)).filter(Boolean).map((m) => Number(m[1]));
+    const fixes = ${JSON.stringify(FIXES)}, w = viewer.model.meshedWith;
+    return { made: fixes.map(made), fixes: fixes.map((f) => w.healFixes[f]), boxes: fixes.map(box),
+      fit: w.healFit, fitBox: box('Fit (mm)') };
+  })()`) as Promise<{ after: { made: number[][]; fixes: boolean[]; boxes: boolean[]; fit: number; fitBox: number } }>;
+  const runs = { plane: await load('&healOn=pcurveMissingOnPlane'), free: await load('&healOn=pcurveMissingOnFreeForm'),
+    alias: await load('&healOn=pcurveMissing'), none: await load('&healFit=0.01') };
+  const j = JSON.stringify(Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, v.after])));
+  const { plane, free, alias, none } = Object.fromEntries(Object.entries(runs).map(([k, v]) => [k, v.after]));
+  const one = (r: typeof plane, i: number) => r!.made.every((m, k) => k === i ? m.length === 1 && m[0]! > 0 : k === 1
+    || m.length === 0);
+  expect(one(plane, 0) && plane!.fixes.join() === 'true,false,false' && plane!.boxes.join() === 'true,false,false',
     `healOn=pcurveMissingOnPlane: on the planes only, its checkbox ticked: ${j}`);
-  expect(none.after.off.length === 0 && none.after.on.length === 0 && none.after.fixes.join() === 'false,false',
-    `heal=1 alone: none made: ${j}`);
-  process.stderr.write(` (pcurveMissing ${m.after.off[0]} p-curves made, pcurveMissingOnPlane ${p.after.on[0]})`);
+  expect(one(free, 2) && free!.fixes.join() === 'false,false,true' && free!.boxes.join() === 'false,false,true',
+    `healOn=pcurveMissingOnFreeForm: on free-form surfaces only, its checkbox ticked: ${j}`);
+  expect(alias!.made[2]!.join() === free!.made[2]!.join() && alias!.made[0]!.length === 0
+    && alias!.fixes.join() === 'false,true,true' && alias!.boxes.join() === 'false,true,true',
+    `healOn=pcurveMissing: the elementary and free-form ones: ${j}`);
+  expect(none!.made.every((m) => m.length === 0) && none!.fixes.join() === 'false,false,false' && none!.fit === 0.01
+    && none!.fitBox === 0.01, `heal=1 alone (healFit=0.01): none made, the fit in its field and meshedWith: ${j}`);
+  process.stderr.write(` (pcurveMissingOnFreeForm ${free!.made[2]![0]} p-curves made, pcurveMissingOnPlane `
+    + `${plane!.made[0]![0]})`);
   return undefined;
 });
 // Our own tessellator in the browser (tess-cadio's module in the pool's workers, as Vite bundles it): the assembly
@@ -2931,11 +2942,6 @@ await check('tess-cadio', async () => {
   const again = `(async () => {
     const model = viewer.nextLoad();
     ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
-    // (Other healing: loading the file again, asked first.)
-    for (let t = 0; t < 20 && !document.querySelector('dialog.cv-dialog[open]'); t++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    document.querySelector('dialog.cv-dialog[open] button[value=reload]')?.click();
     for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }

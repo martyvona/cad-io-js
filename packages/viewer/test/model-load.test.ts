@@ -6,8 +6,7 @@ import v8 from 'node:v8';
 import vm from 'node:vm';
 import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
 import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn, needsEdges, edgeJobs,
-  postable, RELOAD_HEALING,
-  type ModelEvent, type ModelInput } from '../src/model-load.ts';
+  postable, type ModelEvent, type ModelInput } from '../src/model-load.ts';
 import { exportView, leafParts, pruneView, viewDifferences } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
@@ -382,7 +381,8 @@ test('loadModelIn with heal on: the scene first, then healing in the pool (its p
 });
 
 test('meshModelIn (Mesh again) with other healing: as imported, healed as asked; healed the same again: kept; healed '
-  + 'otherwise, or cancelled partway: RELOAD_HEALING, the file to be loaded again', async () => {
+  + 'otherwise, or cancelled partway: healed again in place (off: the sources back), a moved pole kept, said',
+  async () => {
   const off = { ...DEFAULT_SETTINGS, heal: false };
   const load = async () => {
     let kept: Scene | undefined;
@@ -409,16 +409,26 @@ test('meshModelIn (Mesh again) with other healing: as imported, healed as asked;
   // The same healing again: kept, the same diagnostics, nothing run.
   assert.deepEqual(await again(kept, on), { runs: 0, said: a.said });
   assert.equal(kept.parts[stray]!.brep!.model, healed);
-  // Off, or a fix off: can't (no models as imported kept), the scene as it was.
-  for (const other of [off, { ...on, healFixes: { ...on.healFixes, strayPole: false } }]) {
-    await assert.rejects(again(kept, other), new RegExp(RELOAD_HEALING));
-    assert.equal(kept.parts[stray]!.brep!.model, healed);
-  }
-  // Cancelled while healing: part healed, so any healing after it needs the file again, even as imported.
+  const bytes = (m: { buffer: ArrayBuffer }) => [...new Uint8Array(m.buffer)].join();
+  const healedBytes = kept.parts.map((p) => bytes(p.brep!.model));
+  // Off: each healed part put back as its source in place, but the moved pole, which stays, said.
+  const o = await again(kept, off);
+  assert.deepEqual(o.said, ['strayPole'], 'the moved poles said kept');
+  kept.parts.forEach((p, i) => {
+    if (i !== stray) assert.equal(bytes(p.brep!.model), bytes(imported[i]!), `part ${i}: as imported`);
+  });
+  assert.notEqual(bytes(kept.parts[stray]!.brep!.model), bytes(imported[stray]!), 'the pole still moved');
+  // A fix off, then on again: healed in place, as healing the file afresh would, the pole said kept.
+  const noPole = await again(kept, { ...on, healFixes: { ...on.healFixes, pcurveReplace: false } });
+  assert.ok(noPole.said!.includes('strayPole'), noPole.said!.join());
+  assert.deepEqual(await again(kept, on), { runs: 4, said: a.said });
+  assert.deepEqual(kept.parts.map((p) => bytes(p.brep!.model)), healedBytes, 'as healed the first time');
+  // Cancelled while healing: part healed; healed again as asked from there, in place.
   const fresh = await load();
   let calls = 0;
   assert.deepEqual(await again(fresh, on, () => ++calls > 2), { runs: 4, said: undefined });
-  for (const other of [off, on]) await assert.rejects(again(fresh, other), new RegExp(RELOAD_HEALING));
+  await again(fresh, on);
+  assert.deepEqual(fresh.parts.map((p) => bytes(p.brep!.model)), healedBytes, 'healed as asked after the cancel');
 });
 
 test('healing keeps no models as imported: once healed, the imported ones are free to be collected', async () => {

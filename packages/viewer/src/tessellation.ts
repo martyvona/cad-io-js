@@ -9,7 +9,8 @@
 
 import { FallbackTessellator, MESH_PROFILES, meshDeflections, type Deflections, type MeshProfile, type Tessellator }
   from 'cad-scene';
-import { FIXES_OFF_BY_DEFAULT, HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix } from 'cad-heal/options';
+import { FIXES_OFF_BY_DEFAULT, HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix, PCURVE_FIT_TOLERANCE } from
+  'cad-heal/options';
 import { DEFAULT_MIN_ANGLE_DEGREES, KEEP_FAILING } from 'tess-cadio/options';
 import type { DeviceClass } from './device.ts';
 import { CachedTessellator, IndexedDbStore, type CacheStats } from 'tess-cache/browser';
@@ -46,6 +47,9 @@ export interface TessellationSettings {
   heal: boolean;
   /** Under `heal`, each fix on or off (cad-heal's HEAL_FIXES). */
   healFixes: Record<HealFix, boolean>;
+  /** Under `heal`, the tolerance (mm) healing's p-curves for bare uses are fitted within (cad-heal's
+   * pcurveFitTolerance). */
+  healFit: number;
   /**
    * tess-cadio's smallest angle in its triangles, degrees (the request's minAngle; 0 none); only asked where tess-cadio
    * is the backend or the fallback, and its own default (DEFAULT_MIN_ANGLE_DEGREES) not asked at all, so those meshes
@@ -78,7 +82,8 @@ export function profileSettings(profile: MeshProfile): Pick<TessellationSettings
  * HEAL_BY_DEFAULT. */
 export function defaultSettings(profile: MeshProfile): TessellationSettings {
   return { backend: 'occt', fallback: 'smlib', ...profileSettings(profile), cache: true, timeout: DEFAULT_TIMEOUT,
-    heal: HEAL_BY_DEFAULT, healFixes: defaultFixes(), minAngle: DEFAULT_MIN_ANGLE_DEGREES, keepFailing: false };
+    heal: HEAL_BY_DEFAULT, healFixes: defaultFixes(), healFit: PCURVE_FIT_TOLERANCE,
+    minAngle: DEFAULT_MIN_ANGLE_DEGREES, keepFailing: false };
 }
 
 /** Whether tess-cadio meshes with these settings: as the backend or the fallback. */
@@ -101,12 +106,13 @@ export const keepsFailing = (s: Pick<TessellationSettings, 'backend' | 'fallback
 
 /**
  * The healing the settings ask for, as a key: '' for none (heal off, or an older recording's settings without it),
- * else the fixes on, in HEAL_FIXES's order.
+ * else the fixes on, in HEAL_FIXES's order, then the fit tolerance where it isn't the default (absent in an older
+ * recording's).
  */
-export function healingOf(s: Partial<Pick<TessellationSettings, 'heal' | 'healFixes'>>): string {
+export function healingOf(s: Partial<Pick<TessellationSettings, 'heal' | 'healFixes' | 'healFit'>>): string {
   if (!s.heal) return '';
-  const fixes = { ...defaultFixes(), ...s.healFixes };
-  return HEAL_FIXES.filter((f) => fixes[f]).join(',');
+  const fixes = { ...defaultFixes(), ...s.healFixes }, fit = s.healFit ?? PCURVE_FIT_TOLERANCE;
+  return HEAL_FIXES.filter((f) => fixes[f]).join(',') + (fit === PCURVE_FIT_TOLERANCE ? '' : `;fit=${fit}`);
 }
 
 /** The fallback the settings mean: none where it's the backend itself (or absent, as in an older recording). */

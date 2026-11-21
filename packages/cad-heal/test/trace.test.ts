@@ -6,7 +6,7 @@ import { Geometry, init } from 'cad-geom';
 import { type Diagnostic, MESH_PROFILES, type Scene } from 'cad-scene';
 import { type CurvesRecord, healCurves, MESH_FIT } from '../src/curves.ts';
 import { ModelEdit } from '../src/edit.ts';
-import { fixesOn, healPart, healScene, traceRows } from '../src/index.ts';
+import { fixesOn, healPart, healScene, PCURVE_FIT_TOLERANCE, traceRows } from '../src/index.ts';
 import { GROWTH } from '../src/fix/tolerance.ts';
 import { stubTracer, type Trace, type Tracer } from '../src/trace.ts';
 import { bsplineCylinder, cylinderSide, line2 } from './models.ts';
@@ -110,20 +110,20 @@ test('a finished trace with its fit within: the fit kept as the coedge\'s p-curv
   assert.equal(record.deviation[BOTTOM], 0.05);
 });
 
-test('a trace fitted within MESH_FIT x the deflection, the edge\'s tolerance only where that fit fails', () => {
-  // A deflection of 1e-5 (5e-7 the fine fit, under the edge's 1e-6); a tracer whose fit is within only at the edge's
-  // tolerance, or at any.
+test('a trace fitted within the fit tolerance, the edge\'s tolerance only where that fit fails', () => {
+  // A fit tolerance of 5e-7 (under the edge's 1e-6); a tracer whose fit is within only at the edge's tolerance, or at
+  // any.
   for (const fineOk of [false, true]) {
     // (The bottom circle off its surface, so past the face API's projection's check: traced.)
     const tols: number[] = [], d = cylinder(2.05), edit = new ModelEdit(d);
     using g = new Geometry(module, new Uint8Array(d.buffer));
     const record = healCurves(g, d, new Set(fixesOn()), edit, [], { trace: (c, tol) => (tols.push(tol), {
       status: 'ok', offSurface: 1e-9, stopAt: NaN, stopWhy: 0,
-      fit: { ...fitted, error: tol / 2, within: fineOk || tol >= 1e-6 } }) }, undefined, 1e-5);
+      fit: { ...fitted, error: tol / 2, within: fineOk || tol >= 1e-6 } }) }, undefined, 5e-7);
     const what = fineOk ? 'the fine fit within' : 'the fine fit short';
     assert.deepEqual(tols.map((t) => t.toExponential(2)), fineOk ? ['5.00e-7'] : ['5.00e-7', '1.00e-6'], what);
-    assert.equal(recorded(record, BOTTOM).tol, fineOk ? MESH_FIT * 1e-5 : 1e-6, `${what}: the tolerance recorded`);
-    assert.equal(record.deviation[BOTTOM], fineOk ? MESH_FIT * 1e-5 / 2 : 5e-7, `${what}: the fit kept`);
+    assert.equal(recorded(record, BOTTOM).tol, fineOk ? 5e-7 : 1e-6, `${what}: the tolerance recorded`);
+    assert.equal(record.deviation[BOTTOM], fineOk ? 2.5e-7 : 5e-7, `${what}: the fit kept`);
     assert.ok(edit.finish().coedge.pcurve[BOTTOM]! >= 0, what);
   }
 });
@@ -152,22 +152,24 @@ test('MESH_FIT mirrors tess-cadio\'s kMeshTolerance (edges.cpp), how the mesher 
   assert.equal(MESH_FIT, Number(m[1]));
 });
 
-test('healPart\'s meshDeflection reaches the traces: fitted within MESH_FIT x it', async () => {
-  const r = await healPart(cylinder(2.05), { meshDeflection: 1e-5 }, module);
+test('healPart\'s pcurveFitTolerance reaches the traces, and the analysis\'s healing row', async () => {
+  const r = await healPart(cylinder(2.05), { pcurveFitTolerance: 5e-7 }, module);
   const a = await analysisFor(r.model, r.analysis!);
-  assert.equal(traceRow(a, BOTTOM)!.tol, MESH_FIT * 1e-5);
+  assert.equal(traceRow(a, BOTTOM)!.tol, 5e-7);
+  assert.equal(a.healing.pcurveFitTolerance[0], 5e-7);
   assert.ok(r.model.coedge.pcurve[BOTTOM]! >= 0);
 });
 
-test('by default the traces are fitted for the fine profile: MESH_FIT x its deflection, under a coarse tolerance',
-  () => {
+test('by default the traces are fitted for the fine profile (PCURVE_FIT_TOLERANCE: MESH_FIT x its deflection), under '
+  + 'a coarse tolerance', () => {
+  assert.ok(Math.abs(PCURVE_FIT_TOLERANCE - MESH_FIT * MESH_PROFILES.fine.linearDeflection) <= 1e-15);
   const d = cylinder(2.05);
   d.edge.tolerance.fill(0.01);
   const tols: number[] = [];
   using g = new Geometry(module, new Uint8Array(d.buffer));
   healCurves(g, d, new Set(fixesOn()), new ModelEdit(d), [], { trace: (c, tol) => (tols.push(tol), { status: 'notMade',
     offSurface: NaN, stopAt: NaN, stopWhy: 0, fit: { why: 'spy' } }) });
-  assert.equal(tols[0], MESH_FIT * MESH_PROFILES.fine.linearDeflection);
+  assert.equal(tols[0], PCURVE_FIT_TOLERANCE);
   assert.equal(tols[1], 0.01, 'then the edge\'s tolerance');
 });
 
