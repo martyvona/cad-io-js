@@ -200,17 +200,21 @@ public:
     // deviation alone there).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p) && !(own && turnedAsOutput(t, q));
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, false);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, q));
   }
 
   bool acceptFan(const Vec2 t[3]) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p) && !(own && turnedAsOutput(t, q));
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, true);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnedAsOutput(t, q));
   }
 
   int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
@@ -236,11 +240,15 @@ public:
   Refusal refusal(const Vec2 t[3], bool normals, bool fan) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
+    Vec3 q[3];
+    const bool own = output(t, p, q);
+    if (belowFloor(t, p, evaluated))
+      return normals && (turnedOver(t, p) || (own && turnedAsOutput(t, q))) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
     if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
+    if (r == Refusal::none && normals && own && turnedAsOutput(t, q)) r = Refusal::normalFacet;
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -335,6 +343,27 @@ private:
     if (fresh) it->second.st = s_.normal(u, v, it->second.v);
     n = it->second.v;
     return it->second.st;
+  }
+
+  /** The boundary's own points by (u, v)'s bits (setBoundaryPoints). */
+  std::unordered_map<std::pair<uint64_t, uint64_t>, Vec3, PairHash> boundary_;
+  void setBoundaryPoints(const std::vector<std::pair<Vec2, Vec3>>& points) override {
+    boundary_.clear();
+    for (const auto& [uv, p] : points) boundary_[{bits(uv.x), bits(uv.y)}] = p;
+  }
+  /**
+   * A triangle's corners as the output has them: the boundary's own point at a corner on it, else p's; whether any
+   * corner has one. (Only the output's own turn is judged on these, checkFacing's test: the angle to the normals, on a
+   * thin triangle along a boundary a little off its surface, grows as refinement thins it, and a facet against one
+   * corner's normal but not their mean, a refusal it can't mend either; chasing them turns others.)
+   */
+  bool output(const Vec2 t[3], const Vec3 p[3], Vec3 q[3]) const {
+    bool any = false;
+    for (int i = 0; i < 3; i++) {
+      auto it = boundary_.empty() ? boundary_.end() : boundary_.find({bits(t[i].x), bits(t[i].y)});
+      q[i] = it != boundary_.end() ? (any = true, it->second) : p[i];
+    }
+    return any;
   }
 
   bool corners(const Vec2 t[3], Vec3 p[3]) const {
@@ -786,6 +815,22 @@ private:
     return normalAt(q.x, q.y, n);
   }
 
+  /**
+   * Turned as the part judges its output (part.cpp's checkFacing): the facet of q, the corners as output, against the
+   * mean of the corners' normals; not with a corner within the tolerance of a pole or apex.
+   */
+  bool turnedAsOutput(const Vec2 t[3], const Vec3 q[3]) const {
+    for (const Vec3& s : poles_)
+      for (int i = 0; i < 3; i++)
+        if (norm(q[i] - s) <= tolerance_) return false;
+    const Vec3 g = cross(q[1] - q[0], q[2] - q[0]);
+    Vec3 sum{0, 0, 0};
+    for (int i = 0; i < 3; i++) {
+      Vec3 n;
+      if (cornerNormal(t, i, n) == Status::ok) sum = sum + n;
+    }
+    return facetAgainst(g, sum);
+  }
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
     for (const Vec3& q : poles_)
       for (int i = 0; i < 3; i++)
