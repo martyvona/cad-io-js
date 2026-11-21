@@ -50,6 +50,9 @@ bool countInsertions = false;
 bool countAngles = false;
 // PartOptions::failCapped and failTurnedOver for the next calls.
 bool failCapped = true, failTurnedOver = true;
+// PartOptions::analysis for the next calls: the caller's buffer, kept alive by it until set again.
+const uint8_t* analysis = nullptr;
+size_t analysisSize = 0;
 
 void put(std::vector<float>& out, Vec3 p, const double* o) {
   out.insert(out.end(), {static_cast<float>(p.x - o[0]), static_cast<float>(p.y - o[1]),
@@ -67,7 +70,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 8; }
+int tc_api_version() { return 9; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -108,6 +111,15 @@ void tc_set_count_angles(int on) { countAngles = on != 0; }
 void tc_set_fail_capped(int on) { failCapped = on != 0; }
 void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
 
+/**
+ * The model's analysis buffer for the next calls (PartOptions::analysis: 8-byte aligned, held by the caller until
+ * set again), or none (size 0).
+ */
+void tc_set_analysis(const uint8_t* data, int size) {
+  analysis = size > 0 ? data : nullptr;
+  analysisSize = size > 0 ? static_cast<size_t>(size) : 0;
+}
+
 int tc_tessellate(const uint8_t* data, int size, double linear, double angular, double ox, double oy, double oz,
   int wantEdges) {
   result = {};
@@ -131,6 +143,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.countAngles = countAngles;
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
+  opts.analysis = analysis, opts.analysisSize = analysisSize;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);

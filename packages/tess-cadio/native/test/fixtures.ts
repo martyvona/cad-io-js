@@ -1,10 +1,11 @@
 // Writes native/test/models.ts's B-reps as a C++ header for the tests (WebAssembly ones too, so no file access):
 //   node native/test/fixtures.ts <header>
 //   #include "tess_models.h"   tessfixtures::model("band") -> {name, data, size}
+//   tessfixtures::analysis("pcurveNearHealed") -> {name, model, data, size} (models.ts's ANALYSES)
 // cad-brep's own test models come from cad-geom's generator (brep_models.h).
 import fs from 'node:fs';
 import path from 'node:path';
-import { MODELS } from './models.ts';
+import { ANALYSES, MODELS } from './models.ts';
 
 const out = process.argv[2];
 if (!out) throw new Error('usage: fixtures.ts <header>');
@@ -17,10 +18,24 @@ for (const name of names) {
   for (let i = 0; i < data.length; i += 24) lines.push(`  ${Array.from(data.subarray(i, i + 24)).join(', ')},`);
   lines.push('};', '');
 }
+const analyses = Object.keys(ANALYSES).sort();
+for (const name of analyses) {
+  const data = ANALYSES[name]!.data();
+  lines.push(`alignas(8) inline const uint8_t analysis_${name}[${data.length}] = {`);
+  for (let i = 0; i < data.length; i += 24) lines.push(`  ${Array.from(data.subarray(i, i + 24)).join(', ')},`);
+  lines.push('};', '');
+}
 lines.push('struct Model {', '  const char* name;', '  const uint8_t* data;', '  size_t size;', '};', '',
   'inline const Model models[] = {', ...names.map((n) => `  {"${n}", ${n}, sizeof ${n}},`), '};', '',
   '/** The model of that name, null if there\'s none. */', 'inline const Model* model(const char* name) {',
   '  for (const Model& m : models)', '    if (std::strcmp(m.name, name) == 0) return &m;', '  return nullptr;', '}', '',
+  '/** An analysis buffer (ANALYSES: of the model named), its name, model and bytes. */',
+  'struct Analysis {', '  const char* name;', '  const char* model;', '  const uint8_t* data;', '  size_t size;', '};',
+  '', 'inline const Analysis analyses[] = {',
+  ...analyses.map((n) => `  {"${n}", "${ANALYSES[n]!.model}", analysis_${n}, sizeof analysis_${n}},`), '};', '',
+  '/** The analysis of that name, null if there\'s none. */', 'inline const Analysis* analysis(const char* name) {',
+  '  for (const Analysis& a : analyses)', '    if (std::strcmp(a.name, name) == 0) return &a;', '  return nullptr;', '}',
+  '',
   '} // namespace tessfixtures', '');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, lines.join('\n'));

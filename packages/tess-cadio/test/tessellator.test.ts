@@ -10,7 +10,8 @@ import { openEdges, oracleMeasures, type TessellationProgress, type Tessellation
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, VERSION } from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses } from '../src/causes.ts';
-import { affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap, cuspPocket_, fold, halfCap, knotAtEnd,
+import { ANALYSES, MODELS as TESS_MODELS, affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap,
+  cuspPocket_, fold, halfCap, knotAtEnd,
   loopless, luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
 
@@ -220,6 +221,21 @@ test('init({failCapped, failTurnedOver}): false keeps a capped face, meshed; by 
   };
   assert.equal(await turned(true), true);
   assert.equal(await turned(false), false);
+});
+
+test('a request\'s analysis read (info.readsAnalysis): an edge past repair fails its faces, said with its growth; ' +
+  'the same request without it meshes them', { skip }, async () => {
+  const t = new CadioTessellator();
+  await t.init();
+  assert.equal(t.info.readsAnalysis, true);
+  const data = new Uint8Array(TESS_MODELS.poleLunes().finish().buffer);
+  const run = (analysis?: Uint8Array) => t.tessellate({ ...req('cube'), data, linearDeflection: 0.01,
+    ...(analysis ? { analysis } : {}) });
+  const causes = failedCauses(await run(ANALYSES.lunesEdgePast!.data()));
+  assert.ok(causes.size > 0);
+  for (const why of causes.values())
+    assert.match(why, /an edge \(#\d+\) whose tolerance healing grew from 1e-05 to .* past repair/);
+  assert.equal(failedCauses(await run()).size, 0);
 });
 
 test('init({countAngles}): the faces\' triangles under the minimum angle said, by angle; none without it',

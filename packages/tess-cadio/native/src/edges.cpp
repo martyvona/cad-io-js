@@ -8,12 +8,14 @@
 #include "tess_cadio/edges.h"
 
 #include "tess_cadio/criteria.h"
+#include "cad_analysis.h"
 
 #include <algorithm>
 #include <cmath>
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 
 #include "cad_geom/curve.h"
 #include "cad_geom/project.h"
@@ -378,6 +380,7 @@ struct EdgeMesh::Impl {
     std::map<double, SurfaceInversion> inverted;  // by edge parameter: each sample inverted once
     double givenMiss = 0;                // a given p-curve used: its inside samples' largest distance from their points
     double offSurface = 0;               // its curve this far off its face's surface (projectMissing): not inverted
+    double healedTol = 0;                // its given p-curve healing's projection, within this (readAnalysis)
     CoedgeSamples s;
   };
   struct Crossing {
@@ -420,6 +423,53 @@ struct EdgeMesh::Impl {
 
   /** The tolerances edges and faces are judged by (cad-geom's tolerance.h, as the face API's). */
   Tolerances tols;
+  /** Per edge and per vertex: why healing's tolerance growth put it past repair (readAnalysis), else empty. */
+  std::vector<std::string> edgePast, vertexPast;
+
+  /**
+   * The analysis's healed p-curves (each use's healedTol: its trace row's tol, else its edge's) and its edges and
+   * vertices past repair, by their rows (an analysis's tables are its model's rows); nothing where a column's length
+   * isn't its table's. The tolerance named is healing's start, max(the source's where it gave one, the analysis's
+   * uncertainty), and the model's, grown.
+   */
+  void readAnalysis(const cba_view* v) {
+    auto u8 = [&](int k) { return static_cast<const uint8_t*>(v[k].data); };
+    auto f64 = [&](int k) { return static_cast<const double*>(v[k].data); };
+    const double floor = v[CBA_ANALYSIS_UNCERTAINTY].count ? f64(CBA_ANALYSIS_UNCERTAINTY)[0] : 0;
+    auto start = [&](double given) { return std::isfinite(given) ? std::fmax(given, floor) : floor; };
+    auto say = [](const char* what, uint32_t id, double from, double to) {
+      char b[160];
+      std::snprintf(b, sizeof b, "%s (#%u) whose tolerance healing grew from %.3g to %.3g mm, past repair", what, id,
+        from, to);
+      return std::string(b);
+    };
+    if (static_cast<int>(v[CBA_COEDGE_PCURVE_FROM].count) == m.coedges()) {
+      for (int c = 0; c < m.coedges(); c++)
+        if (u8(CBA_COEDGE_PCURVE_FROM)[c] == CBA_PROVENANCE_HEALED && coedges[c].pcurve)
+          coedges[c].healedTol = tols.edge(m.coedgeEdge(c));
+      const auto* tc = static_cast<const int32_t*>(v[CBA_TRACE_COEDGE].data);
+      if (v[CBA_TRACE_TOL].count == v[CBA_TRACE_COEDGE].count)
+        for (uint32_t r = 0; r < v[CBA_TRACE_COEDGE].count; r++) {
+          const int c = tc[r];
+          const double t = f64(CBA_TRACE_TOL)[r];
+          if (c >= 0 && c < m.coedges() && coedges[c].healedTol > 0 && t > 0 && std::isfinite(t))
+            coedges[c].healedTol = t;
+        }
+    }
+    edgePast.assign(m.edges(), {}), vertexPast.assign(m.vertices(), {});
+    if (static_cast<int>(v[CBA_EDGE_TOLERANCE_ERROR].count) == m.edges() &&
+      v[CBA_EDGE_GIVEN_TOLERANCE].count == v[CBA_EDGE_TOLERANCE_ERROR].count)
+      for (int e = 0; e < m.edges(); e++)
+        if (u8(CBA_EDGE_TOLERANCE_ERROR)[e])
+          edgePast[e] = say("an edge", m.u32(CBR_EDGE_ID)[e], start(f64(CBA_EDGE_GIVEN_TOLERANCE)[e]),
+            m.f64(CBR_EDGE_TOLERANCE)[e]);
+    if (static_cast<int>(v[CBA_VERTEX_TOLERANCE_ERROR].count) == m.vertices() &&
+      v[CBA_VERTEX_GIVEN_TOLERANCE].count == v[CBA_VERTEX_TOLERANCE_ERROR].count)
+      for (int i = 0; i < m.vertices(); i++)
+        if (u8(CBA_VERTEX_TOLERANCE_ERROR)[i])
+          vertexPast[i] = say("a vertex", m.u32(CBR_VERTEX_ID)[i], start(f64(CBA_VERTEX_GIVEN_TOLERANCE)[i]),
+            m.f64(CBR_VERTEX_TOLERANCE)[i]);
+  }
 
   Impl(const Model& model, const EdgeOptions& options) : m(model), o(options), tols(model) {
     tol = tols.part();
@@ -674,6 +724,11 @@ struct EdgeMesh::Impl {
   void sampleModelEdge(int e) {
     Edge& E = edges[e];
     Range r;
+    // (Its faces fail for it: not sampled, which on such an edge can run for minutes.)
+    if (e < static_cast<int>(edgePast.size()) && !edgePast[e].empty()) {
+      E.s.status = Status::invalidModel;
+      return;
+    }
     if (!E.geom) {
       E.s.status = worse(E.s.status, Status::unsupported);
       return;
@@ -1025,17 +1080,22 @@ struct EdgeMesh::Impl {
    * tolerance (tols.edge, as the face API's), from and to its vertices' feet, the seam copy the use takes; where a
    * projection is ok, its p-curve, and each pole it passes through (a pole piece's parameter) a sample of the edge,
    * so the use's sample there is doubled across the pole line (throughPoles). Else by inversion. Counted in
-   * `projections`.
+   * `projections`. Only with EdgeOptions::projectMissingPcurves; and, whatever it says, with placeHealedPcurves each
+   * use whose given p-curve healing projected (healedTol) marked projected at that tolerance, its ends at its
+   * vertices' feet.
    */
   void projectMissing() {
     for (int c = 0; c < m.coedges(); c++) {
       Coedge& C = coedges[c];
       const int e = m.coedgeEdge(c);
       Edge& E = edges[e];
-      if (C.pcurve || C.face < 0 || !faces[C.face].s || !E.curve || E.pcurveOnly || E.s.t.size() < 2) continue;
+      // (A p-curve healing projected: placed as this code's own are, at its tolerance, its ends at its vertices'
+      // feet.)
+      const bool healed = C.pcurve && C.healedTol > 0 && o.placeHealedPcurves;
+      if ((C.pcurve && !healed) || C.face < 0 || !faces[C.face].s || E.s.t.size() < 2) continue;
+      if (!healed && (!o.projectMissingPcurves || !E.curve || E.pcurveOnly)) continue;
       const double t0 = E.s.t.front(), t1 = E.s.t.back();
       if (!(t0 != t1)) continue;
-      const PcurveSource source{&m, m.edgeCurve(e), m.faceSurface(C.face)};
       // Its ends at its vertices' feet (each vertex searched once per face, the copy a use takes by its next
       // sample's side: vertexFoot), so uses meeting at a vertex meet in (u, v) and a closed edge closes; not at a
       // pole (its free coordinate the projection's, by continuation).
@@ -1062,6 +1122,11 @@ struct EdgeMesh::Impl {
         (low ? ends.hasStart : ends.hasEnd) = true;
         (low ? ends.start : ends.end) = uv;
       }
+      if (healed) {
+        C.projected = true, C.projectedTol = C.healedTol;
+        continue;
+      }
+      const PcurveSource source{&m, m.edgeCurve(e), m.faceSurface(C.face)};
       // Judged against the mesh: within kMeshTolerance x the deflection where the curve allows (a p-curve within
       // the model's tolerance but farther from its feet than that has the mesh chase the difference), else at the
       // edge's tolerance (the curve that far off its surface), else by inversion.
@@ -1898,6 +1963,27 @@ struct EdgeMesh::Impl {
   FaceBoundary face(int f) const {
     FaceBoundary out;
     const Face& F = faces[f];
+    // A loop through an edge or vertex past repair: failed at once, for the first such (a model may have vertices and
+    // no edges: a sphere's vertex loop).
+    if (!edgePast.empty() || !vertexPast.empty())
+      for (int k = 0; k < m.faceLoopCount(f); k++) {
+        const int l = m.faceFirstLoop(f) + k;
+        if (m.loopKind(l) == CBR_LOOP_VERTEX) {
+          const int vx = m.loopFirst(l);
+          if (vx >= 0 && !vertexPast[vx].empty()) out.cause = vertexPast[vx];
+        } else {
+          for (int j = 0; j < m.loopCount(l) && out.cause.empty(); j++) {
+            const int e = m.coedgeEdge(m.loopFirst(l) + j);
+            if (!edgePast[e].empty()) out.cause = edgePast[e];
+            for (int vx : {m.edgeStart(e), m.edgeEnd(e)})
+              if (out.cause.empty() && vx >= 0 && !vertexPast[vx].empty()) out.cause = vertexPast[vx];
+          }
+        }
+        if (!out.cause.empty()) {
+          out.status = Status::invalidModel;
+          return out;
+        }
+      }
     // (The first cause found is the one given.)
     auto because = [&](const char* why) {
       if (out.cause.empty() && why) out.cause = why;
@@ -2107,6 +2193,8 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     Status st;
     if (m.coedgePcurve(c) >= 0) I.coedges[c].pcurve = makeCurve(m, m.coedgePcurve(c), st);
   }
+  if (cba_view v[CBA_COLUMN_COUNT]; options.analysis && cba_open(options.analysis, options.analysisSize, v) == 0)
+    I.readAnalysis(v);
   for (int e = 0; e < I.nModel; e++) {
     Impl::Edge& E = I.edges[e];
     E.start = m.edgeStart(e), E.end = m.edgeEnd(e);
@@ -2133,7 +2221,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     if (options.progress) options.progress(e, I.nModel + m.coedges(), -1);
     I.sampleModelEdge(e);
   }
-  if (options.projectMissingPcurves) I.projectMissing();
+  I.projectMissing();
   for (int c = 0; c < m.coedges(); c++) {
     if (options.progress) options.progress(I.nModel + c, I.nModel + m.coedges(), I.coedges[c].face);
     I.computeCoedge(c);

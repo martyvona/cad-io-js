@@ -10,7 +10,7 @@ import { sha256 } from 'cad-scene';
 import { CAUSES_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 8;
+const API_VERSION = 9;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -81,6 +81,7 @@ interface CadioExports {
   _tc_set_count_angles: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
+  _tc_set_analysis: Fn;
   _tc_set_max_points: Fn;
   _tc_set_min_angle: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
@@ -182,7 +183,7 @@ export class CadioTessellator implements Tessellator {
   private minAngle = -1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
-    supportsEdges: true, supportsCurves: false,
+    supportsEdges: true, supportsCurves: false, readsAnalysis: true,
   };
   private m: CadioExports | undefined;
 
@@ -238,6 +239,11 @@ export class CadioTessellator implements Tessellator {
     // (Pointers come back as signed 32-bit numbers: unsigned, as the module's memory may pass 2 GB.)
     const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
+    // (The part's analysis where healing gave one: its healed p-curves placed as projected, faces through edges or
+    // vertices past repair failed. malloc's blocks are 8-byte aligned, as the analysis's columns need.)
+    const an = req.analysis?.length ? m._malloc(req.analysis.length) >>> 0 : 0;
+    if (an) m.HEAPU8.set(req.analysis!, an);
+    m._tc_set_analysis(an, an ? req.analysis!.length : 0);
     let rc: number;
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
@@ -254,6 +260,8 @@ export class CadioTessellator implements Tessellator {
         origin[2], req.edges ? 1 : 0);
     } finally {
       m._free(ptr);
+      if (an) m._free(an);
+      m._tc_set_analysis(0, 0);
       m.tcProgress = undefined;
     }
     const diag = JSON.parse(m.UTF8ToString(m._tc_diag() >>> 0)) as Record<string, unknown>;
