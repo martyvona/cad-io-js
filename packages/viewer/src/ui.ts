@@ -21,12 +21,14 @@ import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { HEAL_FIXES } from 'cad-heal/options';
-import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
+import { BACKEND_NAMES, defaultSettings, healingOf, profileSettings, type TessellationSettings }
+  from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
-import { contentUrl, fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Source } from './sources.ts';
+import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
+  type Source } from './sources.ts';
 import { askExport, rememberedExport } from './export-dialog.ts';
 import { EXPORT_FORMATS } from './export-formats.ts';
 import { shownEdits } from './export-shown.ts';
@@ -81,16 +83,21 @@ export interface Ui {
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
   /** Loads a model by URL; `fetched`: its bytes already fetched (from `fromUrl`), not fetched again. */
   openUrl(url: string, fetched?: Source): Promise<Record<string, unknown>>;
-  /** Opens a model from local files (with a .gltf's .bin), as picked or dropped. */
-  openFiles(files: File[]): Promise<Record<string, unknown>>;
+  /** Opens a model from local files (with a .gltf's .bin), as picked or dropped; `read`: already read (fromFiles). */
+  openFiles(files: File[], read?: Source): Promise<Record<string, unknown>>;
   /** The current model's URL, if it came from one. */
   currentUrl(): string | undefined;
   /** Settles once the tree, the highlight and the restored state have caught up with the meshes that arrived. */
   refreshed(): Promise<void>;
   /** Settles once the last model opened, by any means, has loaded or failed. */
   opened(): Promise<unknown>;
-  /** The current model's source: its name, bytes and URL (if any). */
+  /** The current model's source: its name, size, SHA-256, and its File or URL. */
   source(): Source | undefined;
+  /**
+   * Asked before Mesh again loads the file again for other healing (the models as imported aren't kept); default the
+   * dialog saying so. Replay sets it to answer as the recording did.
+   */
+  confirmReload?: () => Promise<boolean>;
   /** These settings take effect through the controls (which follow). */
   setSections(s: SectionSettings): void;
   setRender(r: Partial<RenderSettings>): void;
@@ -128,7 +135,9 @@ export type UiEvent =
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean }
-  | { type: 'appearance'; id: number; override: AppearanceOverride };
+  | { type: 'appearance'; id: number; override: AppearanceOverride }
+  /** Mesh again's question before loading the file again for other healing, and its answer. */
+  | { type: 'reload'; confirmed: boolean };
 
 /** How long the status line, and the details while nothing is selected, stay after they last changed. */
 const HIDE_AFTER = 5000;
@@ -220,6 +229,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
+  // Mesh again with other healing: the file is loaded again, so ask.
+  const confirmReload = async () => (await showDialog({ title: 'Load the model again?', body: [
+    'Heal B-reps has changed since the model was meshed. Meshing it with other healing loads the file again and ' +
+    'heals it afresh: the viewer keeps no copy of the models as imported (it would take as much memory as the ' +
+    'models), nor of the file (read again from disk, or fetched again).',
+    'The view, the selection, appearance overrides and the other settings are kept.'],
+  buttons: [{ label: 'Load again', value: 'reload', primary: true }, { label: 'Cancel', value: 'cancel' }] }))
+    .button === 'reload';
 
   // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
   // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
@@ -250,8 +267,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
    * file again where the worker hasn't them; `as` the settings to mesh with instead of the controls' (a model lost
    * with the import worker, made again as it was: the controls back after).
    */
-  const meshAgain = (as?: Partial<TessellationSettings>) => {
+  const meshAgain = async (as?: Partial<TessellationSettings>) => {
     if (!last) return;
+    // Other healing than the model's: the file loaded again (the models as imported aren't kept), once confirmed.
+    const was = viewer.model?.meshedWith;
+    if (was && healingOf(was) !== healingOf({ ...viewer.settings, ...as })) {
+      const confirmed = await (ui.confirmReload ?? confirmReload)();
+      hooks.onEvent?.({ type: 'reload', confirmed });
+      if (!confirmed) return say(`${last.name}: not meshed again (Heal B-reps changed: Mesh again loads the file ` +
+        'again)');
+    }
     const nodes = viewer.nodes;
     const top = panel?.topRow();
     restore = { overrides: nodes?.overrides() ?? [], lost: [], selected: nodes ? selected.map((id) =>
@@ -426,6 +451,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
           gen = viewer.nextLoad();
         }
       }
+      // (A file loaded again has no bytes kept: read again, checked against what it was when it loaded.)
+      let changed = '';
+      if (!inPlace && !src.bytes) {
+        const again = await readAgain(src);
+        if (!again.same) {
+          changed = '; the file had changed since it was loaded: meshed as it is now';
+          Object.assign(src, { size: again.bytes.byteLength, sha256: await hashOf(again.bytes) });
+        }
+        src.bytes = again.bytes;
+      }
       if (!inPlace) await viewer.load(src, { keep });
       if (!viewer.latest(gen)) return { superseded: true };
       restoreNodes();
@@ -448,7 +483,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
       const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
-        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored);
+        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored + changed, !!changed);
       if (problems) console.warn(m.diagnostics);
       if (problems && problemsDialog) void showProblems(src.name, m.diagnostics ?? []);
       if (notRestored) console.warn('meshed again, not found again:', lost);
@@ -468,8 +503,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       return { error: (e as Error).message };
     }
   };
-  const openFiles = (files: File[]) => files.length ? (hooks.onEvent?.({ type: 'load', files }), open(async () => {
-    const src = await fromFiles(files);
+  const openFiles = (files: File[], read?: Source) => files.length ? (hooks.onEvent?.({ type: 'load', files }),
+    open(async () => {
+    const src = read ?? await fromFiles(files);
     if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json, .3mf)');
     return src;
   }, files.map((f) => f.name).join(', '))) : undefined;
@@ -510,13 +546,30 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (url) await openUrl(url);
     else failed(typed, 'not a URL, nor a path within the content root');
   } }, 'load').name('Load URL...');
-  // The open model's file as it was read (its bytes, not an export), where the user chooses, its name suggested
-  // (the file's, or the URL's last segment); a .gltf's .bin and images aren't saved with it.
+  // The open model's file (not an export), read again from its File or URL, where the user chooses, its name
+  // suggested (the file's, or the URL's last segment); a .gltf's .bin and images aren't saved with it.
   saveControl = file.add({ save: async () => {
     const src = saving;
     if (!src) return;
     try {
-      const how = await saveFile(src.name, src.bytes);
+      // Read again (no copy is kept), and saved as it is now only if it's what was loaded, or once confirmed.
+      let again;
+      try {
+        again = await readAgain(src);
+      } catch (e) {
+        say(`saving ${src.name}: ${(e as Error).message}`, true);
+        void showDialog({ title: `Could not read ${src.name}`, error: true, body: [(e as Error).message],
+          buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+        return;
+      }
+      if (!again.same) {
+        const r = await showDialog({ title: `${src.name} has changed`, error: true, body: [`${src.name} isn't what ` +
+          `was loaded: ${src.file ? 'the file has changed on disk' : 'the server now gives another file'} since ` +
+          '(another size or SHA-256). The model shown is the one loaded; saving writes the file as it is now.'],
+          buttons: [{ label: 'Save anyway', value: 'save' }, { label: 'Cancel', value: 'cancel', primary: true }] });
+        if (r.button !== 'save') return say(`${src.name}: not saved (it has changed since it was loaded)`);
+      }
+      const how = await saveFile(src.name, again.bytes);
       if (how === 'cancelled') return;
       const others = formatOf(src.name) === 'gltf' ? ' (only the .gltf: not its .bin or images)' : '';
       say(`${how === 'saved' ? 'saved' : 'downloaded'} ${src.name}${others}`);
@@ -1018,7 +1071,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     details: () => (viewer.nodes ? details(viewer.nodes, selected, causes()) : []),
     openUrl,
-    openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
+    openFiles: async (files, read) => (await openFiles(files, read)) ?? { error: 'no files' },
     currentUrl: () => last?.url,
     refreshed: () => refreshed,
     opened: () => opening,

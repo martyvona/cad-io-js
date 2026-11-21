@@ -1,23 +1,40 @@
 // Where models come from: a URL (the dev server's /content/, the same server, or another that allows CORS), or local
 // files, picked with the File System Access API where the browser has it (desktop Chrome, in a secure context) and an
-// <input type="file"> elsewhere, or dropped on the page (docs/viewer.md). No handles or files are stored. Models
+// <input type="file"> elsewhere, or dropped on the page (docs/viewer.md). No copy of a file is kept: a local file as
+// its File (read from disk again when needed), a URL fetched again, each checked against the SHA-256 it had when it
+// loaded (readAgain). No file system handles are stored. Models
 // below the content root (content/ beside the page: the dev server's /content/, and the demo models in a deployment)
 // can be named by their path within it: a relative path in `?model=` and in Load URL..., which read what they're given
 // alike (typedUrl).
 
+import { sha256 } from 'cad-scene';
 import { formatOf, type Format } from './formats.ts';
 import type { ModelInput } from './model-load.ts';
 
-/** A model as it was read: its bytes, and where the files it names (a .gltf's .bin) are found. */
+/**
+ * A model's file: where it's read from (a local File, or a URL), its size and SHA-256 as it loaded, and where the files
+ * it names (a .gltf's .bin) are found. Its bytes only while it's being loaded: they go to the import worker (moved, not
+ * copied), and are read again from the file or URL when needed (readAgain).
+ */
 export interface Source {
   /** The file's name (for messages and its format). */
   name: string;
-  bytes: ArrayBuffer;
-  /** Where relative references resolve: the file's URL, or undefined for a local file. */
+  /** Its size in bytes, and its SHA-256 (hex), as it loaded. */
+  size: number;
+  sha256: string;
+  /** The local file (read again from disk), or undefined for one from a URL. */
+  file?: File;
+  /** Where it's fetched again and relative references resolve: the file's URL, or undefined for a local file. */
   url?: string;
-  /** Local files given with it, by name (a .gltf's .bin). */
+  /** Local files given with it, by name (a .gltf's .bin), read when it's loaded. */
   siblings?: Map<string, Blob>;
+  /** Its bytes, from its reading until they're handed to the import worker (then detached). */
+  bytes?: ArrayBuffer;
 }
+
+/** A SHA-256 in hex. */
+export const hashOf = async (bytes: ArrayBuffer): Promise<string> =>
+  Array.from(await sha256(new Uint8Array(bytes)), (x) => x.toString(16).padStart(2, '0')).join('');
 
 /** The content root's URL: content/ beside the page. */
 export const contentRoot = (): string => new URL('content/', document.baseURI).href;
@@ -56,6 +73,12 @@ export function typedUrl(typed: string): string | undefined {
 }
 
 export async function fromUrl(url: string): Promise<Source> {
+  const { name, bytes, url: abs } = await fetchBytes(url);
+  return { name, bytes, size: bytes.byteLength, sha256: await hashOf(bytes), url: abs };
+}
+
+/** A URL's bytes, its name (the path's last segment) and its absolute URL; throws, saying why, if it can't be had. */
+async function fetchBytes(url: string): Promise<{ name: string; bytes: ArrayBuffer; url: string }> {
   const abs = new URL(url, document.baseURI).href;
   let r: Response;
   try {
@@ -79,17 +102,38 @@ export async function fromFiles(files: readonly File[]): Promise<Source | undefi
   const model = files.find((f) => formatOf(f.name) !== undefined);
   if (!model) return undefined;
   const siblings = new Map(files.filter((f) => f !== model).map((f) => [f.name, f as Blob] as const));
-  return { name: model.name, bytes: await model.arrayBuffer(), siblings };
+  const bytes = await model.arrayBuffer();
+  return { name: model.name, bytes, size: bytes.byteLength, sha256: await hashOf(bytes), file: model, siblings };
 }
 
 /**
- * What the import worker is given for a model: a copy of its bytes (the source keeps its own, to be meshed again),
+ * The file read again (its File from disk, its URL fetched), and whether it's what loaded (the same size and
+ * SHA-256). Throws, saying so, where it can't be read: a local file moved, deleted or changed since (the browser then
+ * refuses it), a URL the server no longer gives or that can't be reached.
+ */
+export async function readAgain(src: Source): Promise<{ bytes: ArrayBuffer; same: boolean }> {
+  let bytes: ArrayBuffer;
+  if (src.file) {
+    try {
+      bytes = await src.file.arrayBuffer();
+    } catch (e) {
+      throw new Error(`${src.name} can't be read again (${(e as Error).message}): it was moved, deleted or changed ` +
+        'since it was opened; open it again');
+    }
+  } else if (src.url) bytes = (await fetchBytes(src.url)).bytes;
+  else throw new Error(`${src.name}: nowhere to read it again from`);
+  return { bytes, same: bytes.byteLength === src.size && await hashOf(bytes) === src.sha256 };
+}
+
+/**
+ * What the import worker is given for a model: its bytes (the source's own, to be transferred: the source keeps none),
  * and for a .gltf the buffers it names by URI (not data URIs, which it holds), from the local files given with it
  * (by the URI's last segment) or beside its URL. Images aren't fetched: textures aren't read. Throws if a buffer
- * can't be found.
+ * can't be found, or the source has no bytes (read it again first).
  */
 export async function modelInput(src: Source, format: Format): Promise<ModelInput> {
-  const bytes = new Uint8Array(src.bytes.slice(0));
+  if (!src.bytes || !src.bytes.byteLength && src.size) throw new Error(`${src.name}: not read (read it again first)`);
+  const bytes = new Uint8Array(src.bytes);
   if (format !== 'gltf') return { format, bytes };
   let json: { buffers?: { uri?: string }[] };
   try {
@@ -102,7 +146,7 @@ export async function modelInput(src: Source, format: Format): Promise<ModelInpu
   for (const uri of (json.buffers ?? []).flatMap((b) => (b.uri && !b.uri.startsWith('data:') ? [b.uri] : []))) {
     const local = src.siblings?.get(decodeURIComponent(uri.split('/').pop() ?? ''));
     if (local) resources[uri] = new Uint8Array(await local.arrayBuffer());
-    else if (src.url) resources[uri] = new Uint8Array((await fromUrl(new URL(uri, src.url).href)).bytes);
+    else if (src.url) resources[uri] = new Uint8Array((await fetchBytes(new URL(uri, src.url).href)).bytes);
     else throw new Error(`${src.name} needs ${uri}: open it together with the .gltf`);
   }
   return { format, bytes, resources };
