@@ -959,6 +959,63 @@ TEST_CASE("deviationBound: at least the triangle's distance from the surface, ov
   }
 }
 
+TEST_CASE("the criteria's deviation verdicts sound inside knot cells: whatever they accept within d, measured "
+  "(bumpPatch's bicubic, random triangles in single cells about the size d allows: the cached cell bound's fast "
+  "accept among them)") {
+  cadgeom::Model m = load("bumpPatch");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  const cadgeom::SurfaceDomain D = s->domain();
+  int nearAll = 0;
+  for (double d : {0.3, 0.1, 1e-2}) {
+    auto crit = makeCriteria(m, 0, *s, cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}}, Deflections{d, 0.26}, st);
+    REQUIRE(crit);
+    std::mt19937 rng(5);
+    std::uniform_real_distribution<double> unit(0, 1);
+    int accepted = 0, over = 0, near = 0, looser = 0;
+    for (int n = 0; n < 3000; n++) {
+      // A cell of the knots 0..4 both ways, a triangle inside it, its size from a hundredth of the cell up.
+      const double cu = std::floor(4 * unit(rng)), cv = std::floor(4 * unit(rng));
+      const double size = std::pow(10.0, -1.5 + 1.5 * unit(rng));
+      cadgeom::Vec2 o{cu + unit(rng), cv + unit(rng)}, tri[3];
+      for (int i = 0; i < 3; i++)
+        tri[i] = {std::clamp(o.x + size * (unit(rng) - 0.5), cu, cu + 1),
+          std::clamp(o.y + size * (unit(rng) - 0.5), cv, cv + 1)};
+      if (!crit->acceptDeviation(tri)) continue;
+      accepted++;
+      // Never one the triangle's own bounds refuse, the box's and the pieces' (deviationBound): the cell's only
+      // accepts sooner, as they would.
+      double whole, pieces;
+      if (crit->deviationBound(tri, whole, false) && crit->deviationBound(tri, pieces, true) && whole > d &&
+        pieces > d)
+        looser++;
+      Vec3 p[3];
+      for (int i = 0; i < 3; i++) {
+        cadgeom::SurfacePoint q;
+        s->eval(tri[i].x, tri[i].y, 0, q);
+        p[i] = q.p;
+      }
+      double dev = 0;
+      for (int i = 0; i <= 8; i++)
+        for (int j = 0; i + j <= 8; j++) {
+          Vec3 x = (i / 8.0) * p[0] + (j / 8.0) * p[1] + ((8 - i - j) / 8.0) * p[2];
+          cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, x, D.u, D.v, 1e-10);
+          if (inv.status == cadgeom::Status::ok) dev = std::fmax(dev, inv.distance);
+        }
+      over += dev > d * (1 + 1e-6);
+      near += dev > 0.5 * d;
+    }
+    if (over || looser)
+      std::printf("  bumpPatch at %g: %d of %d accepted past d, %d past their own bounds\n", d, over, accepted, looser);
+    CHECK_EQ(over, 0);
+    CHECK_EQ(looser, 0);
+    nearAll += near;
+  }
+  CHECK(nearAll > 10);  // (accepted triangles close to d: a looser verdict would show)
+}
+
 TEST_CASE("the criteria's metric: sizes from the principal curvatures, every direction within them, graded") {
   auto criteria = [](const char* name, int f, cadgeom::Box2 box, double d, double angle,
     std::unique_ptr<cadgeom::Surface>& s) {

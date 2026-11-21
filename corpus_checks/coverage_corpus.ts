@@ -6,7 +6,8 @@
 //   - every face of every model accounted for once: meshed by ours, or failed by ours with its cause (our part's
 //     status, else our "faces failed to mesh, by cause" diagnostic, else "not in our diagnostics") and its surface
 //     kind; crossed with whether OCCT and SMLib give it triangles (the matrix);
-//   - each of our failures in a class: "unclassified" for every one until what counts as beyond repair is decided;
+//   - each face without our triangles in a class: beyond repair (input the user has decided is past repair, by its
+//     cause: BEYOND_REPAIR), counted apart from our failures and out of their percentage, else a failure;
 //   - every part and face ours doesn't mesh listed in full at the end, per list (the coverage's record).
 // The references are the raw backends, as smlib_occt.ts runs them: no fallback, join or fill.
 // Usage: node corpus_checks/coverage_corpus.ts [list[,list...]] [max MB, default 1000]   (progress on standard error)
@@ -19,7 +20,8 @@
 //                only meshed face), part (our result replaced by a crash: every face ours failed, "part crash"; parts
 //                without faces not planted), occt and smlib (that reference's first meshed face emptied: must be
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause diagnostic of
-//                two entries: must be ours failed with the planted cause)
+//                two entries: must be ours failed with the planted cause), beyond (our first meshed face emptied and
+//                named with a cause beyond repair: must be counted beyond repair, not failed)
 //   SURVEY=1     the mesh survey too (shape_survey.ts), over the faces all three backends mesh: each backend's
 //                triangles by smallest angle and aspect in 3D (quantiles, and faces by their worst), its triangles per
 //                face against SMLib's, each face's worst deviation from its surface sampled at its largest triangles'
@@ -65,7 +67,7 @@ import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
 import { INSERTED_HEAD, INSERTED_KINDS } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
-import { addInto, division, runFiles, type FileCheck } from './runner.ts';
+import { addInto, division, initAll, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
 import { Geometry } from '../packages/cad-geom/src/index.ts';
 import {
@@ -82,7 +84,7 @@ const DENSITY = process.env.DENSITY ?? '';
 /** The profile's angle in degrees, the normals' check's limit. */
 const ANG_DEG = (ANG * 180) / Math.PI;
 const PLANT = process.env.PLANT ?? '';
-const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'survey', 'insertions'];
+const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'survey', 'insertions'];
 const SURVEY = process.env.SURVEY === '1';
 const INSERTIONS = process.env.INSERTIONS === '1';
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
@@ -99,12 +101,17 @@ if (PLANT === 'survey' && !SURVEY) throw new Error('PLANT=survey needs SURVEY=1'
 if (DENSITY && !SURVEY) throw new Error('DENSITY needs SURVEY=1');
 if (PLANT === 'insertions' && !INSERTIONS) throw new Error('PLANT=insertions needs INSERTIONS=1');
 const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
-/** What our failures are, until the user decides what counts as beyond repair. */
-const UNCLASSIFIED = 'unclassified';
+/**
+ * Our causes for faces whose input is beyond repair (own-tessellator.md, the coverage goal): counted apart from our
+ * failures. As failedCauses gives them, "status: cause".
+ */
+const BEYOND_REPAIR = new Set(["invalidModel: a use of an edge whose curve is far off its face's surface"]);
+const BEYOND = 'beyond repair', FAILURE = 'failure';
 
 const BACKENDS = ['cadio', 'occt', 'smlib'] as const;
 type Backend = typeof BACKENDS[number];
 const LABEL: Record<Backend, string> = { cadio: 'ours', occt: 'OCCT', smlib: 'SMLib' };
+const PKG: Record<Backend, string> = { cadio: 'tess-cadio', occt: 'tess-occt', smlib: 'tess-smlib' };
 type PartStatus = string;
 const STATUSES: PartStatus[] = ['ok', 'partial', 'no triangles', 'error', OVER, 'timeout', 'crash', 'no faces'];
 /** A part's statuses that are no failure: every face meshed, or no face to mesh (a part of curves or points). */
@@ -192,6 +199,15 @@ function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
       + `(#999999999, #999999998); planted: cause 3 1 (#${id})` }] };
     return { expect: 'planted: cause 3', face: id };
   }
+  if (PLANT === 'beyond') {
+    const id = emptyFirst('cadio');
+    if (id === undefined) return undefined;
+    const r = o.cadio as TessellationResult;
+    const [status, cause] = [...BEYOND_REPAIR][0]!.split(': ');
+    o.cadio = { ...r, diagnostics: [...r.diagnostics, { severity: 'info', message: `${CAUSES_HEAD}${status}: `
+      + `${cause} 1 (#${id})` }] };
+    return { expect: BEYOND, face: id };
+  }
   if (PLANT === 'survey') return plantSurvey(o);
   if (PLANT === 'insertions') {
     // Ours's insertions said with a million more by size, the last kind's count moved to the front.
@@ -259,11 +275,14 @@ const statuses = () => Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record
 const fresh = () => ({
   files: 0, skippedBig: 0, failedFiles: 0, parts: 0, faces: 0,
   status: { cadio: statuses(), occt: statuses(), smlib: statuses() },
-  // Faces each backend gives no triangles (whole parts' failures included).
+  // Faces each backend gives no triangles (whole parts' failures included); ours's beyond repair not among them.
   facesFailed: { cadio: 0, occt: 0, smlib: 0 },
+  // Faces ours gives no triangles whose input is beyond repair (BEYOND_REPAIR), and by cause with its surface kind.
+  beyondRepair: 0,
+  beyondCauses: new Map<string, number>(),
   // Key: our verdict ("ours meshes" or our cause), a tab, the references' column.
   matrix: new Map<string, number>(),
-  // Our failed faces by class (every one unclassified for now) and by cause with its surface kind.
+  // The faces ours gives no triangles by class (BEYOND, FAILURE); our failures by cause with its surface kind.
   classes: new Map<string, number>(),
   causes: new Map<string, number>(),
   // Faces in our result that the model doesn't have (ids), and per-part accounting that didn't add up.
@@ -415,9 +434,10 @@ export const check: FileCheck<string, Tallies> = {
       backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls,
         ...(cpu && INSERTIONS ? { options: { countInsertions: true } } : {}) }, workers,
       ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS } : { timeoutMs: TIMEOUT_MS }) });
-    pools = { cadio: pool('tess-cadio', 'CadioTessellator', true), occt: pool('tess-occt', 'OcctTessellator', false),
-      smlib: pool('tess-smlib', 'SmlibTessellator', false) };
-    await Promise.all(BACKENDS.map((b) => pools[b].init()));
+    pools = { cadio: pool(PKG.cadio, 'CadioTessellator', true), occt: pool(PKG.occt, 'OcctTessellator', false),
+      smlib: pool(PKG.smlib, 'SmlibTessellator', false) };
+    // (Named so a backend that won't start fails the run saying which: runner.ts.)
+    await initAll(Object.fromEntries(BACKENDS.map((b) => [`${LABEL[b]} (${PKG[b]})`, pools[b]])));
   },
   async teardown() {
     await Promise.all(BACKENDS.map((b) => pools[b].dispose()));
@@ -518,16 +538,23 @@ export const check: FileCheck<string, Tallies> = {
           continue;
         }
         failedHere++;
-        T.facesFailed.cadio++;
         // (A part with no triangles may still name each face's cause: those first, the part's status for the rest.)
         const why = causes.get(id) ?? (partFailed ? `part ${ours.status}` : 'not in our diagnostics');
         const kind = (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
+        const cls = BEYOND_REPAIR.has(why) ? BEYOND : FAILURE;
         bump(T.matrix, `${why}\t${col}`);
-        bump(T.causes, `${why} (${kind})`);
-        bump(T.classes, UNCLASSIFIED);
+        bump(T.classes, cls);
+        if (cls === BEYOND) {
+          T.beyondRepair++;
+          bump(T.beyondCauses, `${why} (${kind})`);
+        } else {
+          T.facesFailed.cadio++;
+          bump(T.causes, `${why} (${kind})`);
+        }
         if (why === 'not in our diagnostics') note('face without our triangles not in our diagnostics',
           `${where} face #${id} (${kind})`);
-        T.unmeshed.push(`${where} face #${id} (${kind}): ${why}; ${col}; ${UNCLASSIFIED}`);
+        T.unmeshed.push(`${where} face #${id} (${kind}): ${why}; ${col}; ${cls}`);
+        if (planted?.expect === BEYOND && planted.face === id && cls === BEYOND) plantSeen = true;
         // (Emptying a part's only meshed face leaves it no triangles, so the part's status names the face.)
         const seenAs = (x: string) => x === why || (x === 'not in our diagnostics' && why === 'part no triangles'
           && !causes.has(id));
@@ -613,12 +640,18 @@ function report(label: string, T: Tallies): void {
     + `${T.parts} B-rep parts, ${T.faces} faces`);
   for (const b of BACKENDS) {
     console.log(`  ${LABEL[b]} parts: ${STATUSES.map((s) => `${s} ${T.status[b][s]}`).join(', ')}; faces without `
-      + `triangles ${pct(T.facesFailed[b], T.faces)}`);
+      + `triangles ${b === 'cadio' ? 'failed ' : ''}${pct(T.facesFailed[b], T.faces)}`);
   }
-  console.log(`  ours meshes ${T.faces - T.facesFailed.cadio} faces, ${T.oursAlone} of them where OCCT and SMLib both`
-    + ` fail; faces in our results the models don't have: ${T.foreign}`);
+  console.log(`  ours: faces beyond repair (input, apart from our failures): ${pct(T.beyondRepair, T.faces)}; by cause `
+    + `and surface: ${[...T.beyondCauses].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} ${n}`).join(', ')
+    || 'none'}`);
+  // (Our meshed faces as the matrix has them: what's left once failures and beyond repair are taken out, checked
+  // below.)
+  const meshed = COLUMNS.reduce((a, c) => a + (T.matrix.get(`ours meshes\t${c}`) ?? 0), 0);
+  console.log(`  ours meshes ${meshed} faces, ${T.oursAlone} of them where `
+    + `OCCT and SMLib both fail; faces in our results the models don't have: ${T.foreign}`);
   const classes = [...T.classes].map(([k, n]) => `${k} ${n}`).join(', ') || 'none';
-  console.log(`  our failures by class: ${classes} (what's beyond repair not yet decided)`);
+  console.log(`  faces without our triangles by class: ${classes}`);
   console.log('  the matrix, faces (rows ours, columns OCCT and SMLib):');
   const rowsOf = [...new Set([...T.matrix.keys()].map((k) => k.split('\t')[0]!))]
     .sort((a, b) => (a === 'ours meshes' ? -1 : b === 'ours meshes' ? 1 : a < b ? -1 : 1));
@@ -630,8 +663,14 @@ function report(label: string, T: Tallies): void {
       + `${String(cells.reduce((a, n) => a + n, 0)).padStart(10)}  ${row}`);
   }
   const sum = [...T.matrix.values()].reduce((a, n) => a + n, 0);
-  const all = sum === T.faces && !T.mismatches.length && !T.failedFiles;
+  // (Our meshed faces, failures and beyond repair against the faces, and the by-cause lines against them.)
+  const total = (m: Map<string, number>) => [...m.values()].reduce((a, n) => a + n, 0);
+  const split = meshed + T.facesFailed.cadio + T.beyondRepair === T.faces && total(T.causes) === T.facesFailed.cadio
+    && total(T.beyondCauses) === T.beyondRepair;
+  const all = sum === T.faces && split && !T.mismatches.length && !T.failedFiles;
   console.log(`  every face accounted for: ${all ? 'yes' : 'NO'} (${sum} in the matrix of ${T.faces}`
+    + `${split ? '' : `; meshed ${meshed}, failed ${T.facesFailed.cadio} (by cause ${total(T.causes)}), beyond `
+      + `repair ${T.beyondRepair} (by cause ${total(T.beyondCauses)}) don't add up`}`
     + `${T.mismatches.length ? `; ${T.mismatches.length} parts don't add up` : ''}`
     + `${T.failedFiles ? `; ${T.failedFiles} files failed, their faces uncounted (listed at the end)` : ''})`);
   console.log(`  our failures by cause and surface: ${[...T.causes].sort((x, y) => y[1] - x[1])
@@ -708,6 +747,13 @@ if (import.meta.main) {
     }
     merge(into, out.result);
   });
+  // (A run in which no file was checked is an error, not an empty report.)
+  const checked = [...per.values()].reduce((a, T) => a + T.files, 0);
+  if (!checked) {
+    const big = [...per.values()].reduce((a, T) => a + T.skippedBig, 0);
+    throw new Error(`coverage: no file ran: ${files.length} listed (${ls.join(', ')}), ${big} over `
+      + `${maxBytes / 1e6} MB, ${errors.length} failed${errors.length ? `, first ${errors[0]}` : ''}`);
+  }
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, ${PROFILE} profile (${LIN} mm, ${ANG} rad), `

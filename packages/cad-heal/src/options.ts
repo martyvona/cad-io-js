@@ -35,6 +35,13 @@ export interface HealOptions {
   fixes?: Partial<Record<HealFix, boolean>>;
   /** Told where healing is (each part, each fix, every few hundred coedges), for a caller watching a long part. */
   progress?: (what: string) => void;
+  /**
+   * The finest linear deflection (mm) the healed model is to be meshed at: a trace's p-curve, which the model keeps,
+   * is fitted within MESH_FIT x it where the curve allows, as tess-cadio projects a use the model gives none, else at
+   * its edge's tolerance. Default the fine profile's (cad-scene's MESH_PROFILES), so a stored p-curve is as good as
+   * the mesher's own at every profile.
+   */
+  meshDeflection?: number;
 }
 
 /** The fixes the options turn on, in HEAL_FIXES's order; none where `heal` is false. Throws on an unknown name. */

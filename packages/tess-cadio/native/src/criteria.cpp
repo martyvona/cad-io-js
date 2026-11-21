@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 
 namespace tesscadio {
@@ -297,6 +298,10 @@ private:
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
       // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
       if (!sampledDeviation(t, p)) return Refusal::deviationSampled;
+      // A fast accept by the bound over the knot cell holding the triangle's box (cellDeviation), cached: where
+      // that doesn't clear it, the triangle's own bounds decide as always.
+      double cd;
+      if (cellDeviation(t, cd) && cd <= d_.linear) return Refusal::none;
       if (!bounds(t, b, false)) {
         sampledAny_ = true;
       } else if (b.deviation > d_.linear) {
@@ -413,6 +418,42 @@ private:
     for (int i = 0; i < 3; i++) q[i] = {std::sqrt(au) * t[i].x, std::sqrt(av) * t[i].y};
     out.deviation = 0.5 * enclosing2(q) + strips;
     return true;
+  }
+
+  /**
+   * The deviation bound over the triangle (as bounds() has it) from the second partials' bounds over the surface's
+   * knot cell (between consecutive breaks, both ways) holding its (u, v) box, each cell's bounded once and kept:
+   * false where the box isn't within one cell, the domain isn't finite, or the cell has no bound. A bound over the
+   * cell holds over the box inside it, so the deviation is bounded too, if more loosely than the box's own bound.
+   */
+  bool cellDeviation(const Vec2 t[3], double& out) const {
+    if (!cellsReady_) {
+      cellsReady_ = true;
+      const SurfaceDomain D = s_.domain();
+      if (std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi))
+        s_.breaks(D.u, D.v, cellU_, cellV_);
+    }
+    if (cellU_.size() < 2 || cellV_.size() < 2) return false;
+    const Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
+    const Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
+    auto cell = [](const std::vector<double>& c, Range r) -> long {
+      auto it = std::upper_bound(c.begin(), c.end(), r.lo);
+      if (it == c.begin() || it == c.end()) return -1;
+      const long i = static_cast<long>(it - c.begin()) - 1;
+      return r.hi <= c[i + 1] ? i : -1;
+    };
+    const long i = cell(cellU_, ru), j = cell(cellV_, rv);
+    if (i < 0 || j < 0) return false;
+    auto [it, added] = cellBounds_.try_emplace(static_cast<uint64_t>(i) << 32 | static_cast<uint64_t>(j));
+    if (added) it->second.ok = wholeBounds({cellU_[i], cellU_[i + 1]}, {cellV_[j], cellV_[j + 1]}, it->second.d2);
+    if (!it->second.ok) return false;
+    const double* d2 = it->second.d2;
+    const double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo, e = Du > 0 && Dv > 0 ? Dv / Du : 1;
+    const double au = d2[0] + d2[1] * e, av = d2[2] + d2[1] / e;
+    Vec2 q[3];
+    for (int k = 0; k < 3; k++) q[k] = {std::sqrt(au) * t[k].x, std::sqrt(av) * t[k].y};
+    out = 0.5 * enclosing2(q);
+    return std::isfinite(out);
   }
 
   /**
@@ -729,6 +770,14 @@ private:
   bool bounded_;
   /** Whether any triangle's deviation was sampled so far (a bound unavailable there: bounded() then false). */
   mutable bool sampledAny_ = false;
+  /** The surface's knot cells (cellDeviation): their edges each way, and each cell's bounds once made. */
+  struct CellBound {
+    double d2[3] = {0, 0, 0};
+    bool ok = false;
+  };
+  mutable bool cellsReady_ = false;
+  mutable std::vector<double> cellU_, cellV_;
+  mutable std::unordered_map<uint64_t, CellBound> cellBounds_;
   /** The face's creases (setCreases). */
   std::vector<Crease> creases_;
   Kind kind_;
