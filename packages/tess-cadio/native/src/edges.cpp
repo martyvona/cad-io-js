@@ -770,6 +770,82 @@ struct EdgeMesh::Impl {
     E.s.t = std::move(t), E.s.points = std::move(p);
   }
 
+  /**
+   * Edge e's inside samples whose use's (u, v) steps back along a side of its face's (u, v) range that it runs on (u,
+   * or v, at a bound that doesn't wrap: its feet clamped there, the curve past the surface), against that run's
+   * direction, dropped from the edge where the chord bridging each block of them is within the deflection of their
+   * points: the curve itself wanders along the side there (its true feet do: LMP1 #1054461's edge #543108, 2.3e-4 in
+   * u along v = 1), so the loop reverses on one line, and in 3D the boundary zigzags (a repair of the (u, v) alone
+   * leaves facets turned). From the edge, so every use loses them; its uses placed again. True where any went.
+   */
+  bool dropReversals(int e) {
+    Edge& E = edges[e];
+    const size_t n = E.s.points.size();
+    if (n < 4) return false;
+    std::vector<char> drop(n, 0);
+    for (int c : E.coedges) {
+      const Coedge& C = coedges[c];
+      if (C.face < 0 || !faces[C.face].s) continue;
+      const Face& F = faces[C.face];
+      const CoedgeSamples& cs = C.s;
+      if (cs.uv.size() != cs.index.size()) continue;
+      for (int d = 0; d < 2; d++) {
+        if (F.period[d] > 0) continue;
+        const Range side = d == 0 ? F.dom.u : F.dom.v;
+        for (const double bound : {side.lo, side.hi}) {
+          auto on = [&](size_t j) { return (d == 0 ? cs.uv[j].x : cs.uv[j].y) == bound; };
+          auto free = [&](size_t j) { return d == 0 ? cs.uv[j].y : cs.uv[j].x; };
+          for (size_t i = 0; i < cs.uv.size();) {
+            if (!on(i)) {
+              i++;
+              continue;
+            }
+            size_t j = i;
+            while (j + 1 < cs.uv.size() && on(j + 1)) j++;
+            if (j - i >= 2) {
+              const double dir = free(j) > free(i) ? 1 : -1;
+              size_t a = i;
+              for (size_t b = i + 1; b <= j; b++) {
+                if (dir * (free(b) - free(a)) > 0) a = b;
+                else if (cs.index[b] > 0 && static_cast<size_t>(cs.index[b]) + 1 < n) drop[cs.index[b]] = 1;
+              }
+            }
+            i = j + 1;
+          }
+        }
+      }
+    }
+    // Each block of them kept where the chord bridging it strays past the deflection from any of their points.
+    bool any = false;
+    for (size_t k = 1; k + 1 < n;) {
+      if (!drop[k]) {
+        k++;
+        continue;
+      }
+      size_t j = k;
+      while (j + 1 < n - 1 && drop[j + 1]) j++;
+      const Vec3 A = E.s.points[k - 1], B = E.s.points[j + 1], AB = B - A;
+      const double l2 = dot(AB, AB);
+      bool ok = true;
+      for (size_t i = k; i <= j && ok; i++) {
+        const double x = l2 > 0 ? std::clamp(dot(E.s.points[i] - A, AB) / l2, 0.0, 1.0) : 0;
+        ok = norm(E.s.points[i] - (A + x * AB)) <= o.deflection;
+      }
+      if (!ok)
+        for (size_t i = k; i <= j; i++) drop[i] = 0;
+      any = any || ok;
+      k = j + 1;
+    }
+    if (!any) return false;
+    std::vector<double> t;
+    std::vector<Vec3> p;
+    for (size_t i = 0; i < n; i++)
+      if (!drop[i]) t.push_back(E.s.t[i]), p.push_back(E.s.points[i]);
+    E.s.t = std::move(t), E.s.points = std::move(p);
+    for (int c : E.coedges) computeCoedge(c);
+    return true;
+  }
+
   // ---- coedges ----
 
   void computeCoedge(int c) {
@@ -2253,6 +2329,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     if (options.progress) options.progress(I.nModel + c, I.nModel + m.coedges(), I.coedges[c].face);
     I.computeCoedge(c);
   }
+  for (int e = 0; e < I.nModel; e++) I.dropReversals(e);
   I.samplePoleCrossings();
   // Pole lines' density: the face's coedges' samples per period along it, at least kMinPolePoints.
   for (int f = 0; f < m.faces(); f++) {
@@ -2384,6 +2461,7 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       if (I.o.progress) I.o.progress(c, I.m.coedges(), I.coedges[c].face);
       I.computeCoedge(c);
     }
+    if (static_cast<int>(e) < I.nModel) I.dropReversals(static_cast<int>(e));
   }
   return bad ? Status::invalidModel : Status::ok;
 }
