@@ -90,13 +90,37 @@ Metric2 intersect(Metric2 A, Metric2 B) {
     l21 * l21 * D.a + 2 * l21 * l22 * D.b + l22 * l22 * D.c};
 }
 
+/** A (u, v) metric's smaller eigenvalue at least this times its larger: positive definite (sizes 1e7 apart at most). */
+constexpr double kUvFloor = 1e-14;
+
+/**
+ * m with its smaller eigenvalue at least `ratio` times its larger in 3D, through the surface's first fundamental form
+ * I = L L^T (Cholesky): m's form on 3D tangent vectors, L^-1 m L^-T, floored and taken back. In (u, v) the ratio would
+ * be the 3D one times the parameterization's distortion (a cylinder of radius r: |S_u| = r, |S_v| = 1), so it would
+ * cap a large one's size along its axis at a few times its size across. Then floored in (u, v) at kUvFloor, for
+ * positive definiteness whatever rounding did. I degenerate (a pole): floored in (u, v) alone.
+ */
+Metric2 flooredIn3d(Metric2 m, Metric2 I, double ratio) {
+  // (Degenerate as own() judges it, at a pole: L's tiny entry would turn rounding into the metric.)
+  const double det = I.a * I.c - I.b * I.b;
+  if (!(I.a > 0) || !(det > 1e-12 * (I.a + I.c) * (I.a + I.c)) || !std::isfinite(det)) return floored(m, ratio);
+  double l11 = std::sqrt(I.a), l21 = I.b / l11, l22 = std::sqrt(I.c - l21 * l21);
+  double i11 = 1 / l11, i21 = -l21 / (l11 * l22), i22 = 1 / l22;
+  double r1a = i11 * m.a, r1b = i11 * m.b;
+  double r2a = i21 * m.a + i22 * m.b, r2b = i21 * m.b + i22 * m.c;
+  const Metric2 D = floored({r1a * i11, r1a * i21 + r1b * i22, r2a * i21 + r2b * i22}, ratio);
+  return floored({l11 * l11 * D.a, l11 * (l21 * D.a + l22 * D.b),
+    l21 * l21 * D.a + 2 * l21 * l22 * D.b + l22 * l22 * D.c}, kUvFloor);
+}
+
 class Local : public SurfaceCriteria {
 public:
   /** The kinds whose deviation has a closed form: their frame (origin, axis), and radius and a second parameter. */
   enum class Kind { none, sphere, cone, torus };
   Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, Kind kind, Vec3 centre,
-    Vec3 axis, double radius, double second, double tolerance)
-    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
+    Vec3 axis, double radius, double second, double tolerance, bool elementary)
+    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), elementary_(elementary),
+      kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second),
       floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance) {
     std::vector<Singularity> sing;
@@ -124,7 +148,8 @@ public:
         }
       if (!missing) break;
     }
-    for (Metric2& m : grid_) m = floored(m, kFloor);
+    for (int i = 0; i <= kGrid; i++)
+      for (int j = 0; j <= kGrid; j++) grid_[at(i, j)] = floorOf(grid_[at(i, j)], node(i, j));
     for (int sweep = 0; sweep < 4 * kGrid; sweep++) {
       bool changed = false;
       for (int i = 0; i <= kGrid; i++)
@@ -158,8 +183,13 @@ public:
   bool bounded() const override { return (bounded_ || kind_ != Kind::none) && !sampledAny_; }
 
   Metric2 metric(Vec2 p) const override {
-    Metric2 g = interpolated(p), m;
-    return own(p, m) ? floored(intersect(g, m), kFloor) : g;
+    // (On an elementary surface each floored in 3D where its first fundamental form is its own: the grid's at its
+    // nodes, the point's own here. Not their intersection: near a pole the grid's, interpolated in (u, v) between
+    // nodes whose |S_u| differ many times, is far finer across u in 3D than the point's own, and a 3D floor of the two
+    // would pull the size along v down with it.)
+    Metric2 g = interpolated(p), m, I;
+    if (!own(p, m, &I)) return g;
+    return elementary_ ? floored(intersect(g, flooredIn3d(m, I, kFloor)), kUvFloor) : floored(intersect(g, m), kFloor);
   }
 
   bool accept(const Vec2 t[3]) const override {
@@ -183,6 +213,24 @@ public:
   }
 
   int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
+  bool worstPoint(const Vec2 t[3], Vec2& out) const override {
+    // (Elementary surfaces only: on free-form ones the point, off where the curvature metric expects points, turns
+    // triangles against the surface. Inside the triangle: the centroid, near each edge's middle and toward each
+    // corner; an edge's own middle would be on the edge, a constrained one's maybe.)
+    if (!elementary_) return false;
+    static const double w[7][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.45, 0.45, 0.1}, {0.1, 0.45, 0.45}, {0.45, 0.1, 0.45},
+      {0.6, 0.2, 0.2}, {0.2, 0.6, 0.2}, {0.2, 0.2, 0.6}};
+    Vec3 p[3];
+    if (!corners(t, p)) return false;
+    double worst = d_.linear;
+    bool found = false;
+    for (const auto& b : w) {
+      Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
+      const double dev = norm(at(uv) - (b[0] * p[0] + b[1] * p[1] + b[2] * p[2]));
+      if (dev > worst) worst = dev, out = uv, found = true;
+    }
+    return found;
+  }
 
   Refusal refusal(const Vec2 t[3], bool normals, bool fan) const override {
     Vec3 p[3];
@@ -639,7 +687,13 @@ private:
     return true;
   }
 
-  /** The metric's smaller eigenvalue at least this times its larger (a size ratio of 1000 at most). */
+  /**
+   * The metric's smaller eigenvalue at least this times its larger (a size ratio of 1000 at most): in 3D on an
+   * elementary surface, in (u, v) on the others. The curvature metric holds along a free-form surface's principal
+   * directions at a point but not how fast they turn (its twist): long triangles laid along them leave the surface
+   * where it twists (turned against it, or refined again and again), and the (u, v) floor, its ratio the 3D one times
+   * the parameterization's distortion, stands in for that.
+   */
   static constexpr double kFloor = 1e-6;
   /** A piece between breaks narrower than this of the triangle's extent there is a strip (stripBounds). */
   static constexpr double kStrip = 0.125;
@@ -712,12 +766,27 @@ private:
     return lo > 0 && len > 0 ? len / std::sqrt(lo) : hmax_;
   }
 
-  /** The metric of the point's own curvature, in (u, v); false where the parameterization degenerates there. */
-  bool own(Vec2 p, Metric2& out) const {
+  /** A grid node's metric floored as kFloor says. */
+  Metric2 floorOf(Metric2 m, Vec2 p) const {
+    return elementary_ ? flooredIn3d(m, first(p), kFloor) : floored(m, kFloor);
+  }
+  /** The surface's first fundamental form at p (zero where it can't be evaluated). */
+  Metric2 first(Vec2 p) const {
+    SurfacePoint q;
+    Status st = s_.eval(p.x, p.y, 1, q);
+    if (st != Status::ok && st != Status::outOfDomain) return {0, 0, 0};
+    return {dot(q.du, q.du), dot(q.du, q.dv), dot(q.dv, q.dv)};
+  }
+  /**
+   * The metric of the point's own curvature, in (u, v); false where the parameterization degenerates there. `I`, if
+   * given, receives the first fundamental form there.
+   */
+  bool own(Vec2 p, Metric2& out, Metric2* I = nullptr) const {
     SurfacePoint q;
     Status st = s_.eval(p.x, p.y, 2, q);
     if (st != Status::ok && st != Status::outOfDomain) return false;
     double E = dot(q.du, q.du), F = dot(q.du, q.dv), G = dot(q.dv, q.dv), det = E * G - F * F;
+    if (I) *I = {E, F, G};
     Vec3 nn = cross(q.du, q.dv);
     double nl = norm(nn);
     if (!(det > 1e-12 * (E + G) * (E + G)) || !(nl > 0) || !std::isfinite(det)) return false;
@@ -768,6 +837,8 @@ private:
   double hmax_, hmin_;
   /** Whether accept() bounds the deviation (Local::bounds), by a closed form (kind_), or samples it. */
   bool bounded_;
+  /** A plane, cylinder, cone, sphere or torus: the metric floored in 3D (kFloor). */
+  bool elementary_;
   /** Whether any triangle's deviation was sampled so far (a bound unavailable there: bounded() then false). */
   mutable bool sampledAny_ = false;
   /** The surface's knot cells (cellDeviation): their edges each way, and each cell's bounds once made. */
@@ -830,8 +901,9 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   Vec3 centre = closed != Local::Kind::none ? Vec3{r[0], r[1], r[2]} : Vec3{};
   Vec3 axis = closed != Local::Kind::none ? Vec3{r[3], r[4], r[5]} : Vec3{};
   double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
+  const bool elementary = kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS;
   return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
-    second, Tolerances(m).part());
+    second, Tolerances(m).part(), elementary);
 }
 
 } // namespace tesscadio

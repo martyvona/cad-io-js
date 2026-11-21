@@ -63,6 +63,7 @@ public:
   bool accept(const Vec2 t[3]) const override { return ask(t, kAccept, [&] { return field_.accept(t); }); }
   bool belowFloor(const Vec2 t[3]) const override { return ask(t, kFloor, [&] { return field_.belowFloor(t); }); }
   int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
 
 private:
   /**
@@ -846,11 +847,14 @@ struct PartMesher::Impl {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;
       out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
-      // Two segments that cross, or one through a point: each segment that is an edge's span split at its middle,
-      // for the next round to mesh again (two edges leaving a vertex nearly tangent: the coarser one's chord across
-      // the other's samples, which no criterion of either edge sees).
+      // Segments that cross, or one through a point: each segment the refusal names (every one, not the first:
+      // mesh2 names them all; a span named twice split once, as split keeps one request a span) that is an edge's
+      // span split at its middle, for the next round to mesh again.
+      // Two edges leaving a vertex nearly tangent (the coarser one's chord across the other's samples), or two loops
+      // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
+      // a few spans a round wouldn't mend many crossings within the rounds.
       if (mesh.rejected.size() >= 4)
-        for (size_t k = 0; k < 4; k += 2) {
+        for (size_t k = 0; k + 1 < mesh.rejected.size(); k += 2) {
           const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
           int edge, span;
           bool forward;
