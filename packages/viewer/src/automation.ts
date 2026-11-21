@@ -18,7 +18,7 @@ import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recor
   type ReplayReport, type Session } from './recorder.ts';
 import { replayed } from './replay-report.ts';
 import { nodeForPick } from './selection.ts';
-import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
+import { contentPath, fromFiles, fromUrl, pickFiles, typedUrl, type Source } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
 import { backendsFromQuery, fromQuery, healingFromQuery, renderChanges, toQuery, type CameraState, type ViewState } from
@@ -380,17 +380,17 @@ const bytesText = (n: number | undefined) => n === undefined ? 'not recorded' : 
  */
 async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> {
   const current = ui.source();
-  if (current && want.sha256 && hex(await sha256(new Uint8Array(current.bytes))) === want.sha256) return true;
+  if (current && want.sha256 && current.sha256 === want.sha256) return true;
   const recorded: [string, string][] = [['Name', want.name], ['Size', bytesText(want.size)],
     ['SHA-256', want.sha256 ?? 'not recorded'], ...(want.url ? [['URL', want.url] as [string, string]] : [])];
-  // True if the bytes are the recorded model's; else says so (the replay then stops).
-  const matches = async (name: string, bytes: ArrayBuffer) => {
-    const got = hex(await sha256(new Uint8Array(bytes)));
+  // True if the file read is the recorded model (by its SHA-256, as it was read); else says so (the replay stops).
+  const matches = async (src: Source) => {
+    const name = src.name, got = src.sha256;
     if (!want.sha256 || got === want.sha256) return true;
     await showDialog({ title: 'Not the recorded model', error: true, buttons: CLOSE, body: [
       `${name} isn't the model the recording was made with (their SHA-256 hashes differ), so it wasn't loaded and ` +
       'the replay stops.', 'The recording\'s model:', recorded, 'The file opened:',
-      [['Name', name], ['Size', bytesText(bytes.byteLength)], ['SHA-256', got]]] });
+      [['Name', name], ['Size', bytesText(src.size)], ['SHA-256', got]]] });
     return false;
   };
   for (;;) {
@@ -401,10 +401,11 @@ async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> 
     if (r.button === 'file') {
       const files = await pickFiles();
       if (!files.length) continue;
-      // Of several files (a .gltf with its .bin), the model's.
-      const model = files.find((f) => formatOf(f.name)) ?? files[0]!;
-      if (!(await matches(model.name, await model.arrayBuffer()))) return false;
-      return !('error' in ((await ui.openFiles(files)) ?? {}));
+      // Of several files (a .gltf with its .bin), the model's: read and hashed once, then opened as read.
+      const src = await fromFiles(files);
+      if (!src) continue;
+      if (!(await matches(src))) return false;
+      return !('error' in ((await ui.openFiles(files, src)) ?? {}));
     }
     if (r.button === 'url') {
       const typed = await askUrl({ title: 'Open the recorded model by URL', body: [recorded], value: want.url });
@@ -418,7 +419,7 @@ async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> 
         await showDialog({ title: 'Not loaded', error: true, buttons: CLOSE, body: [(e as Error).message] });
         continue;
       }
-      if (!(await matches(src.name, src.bytes))) return false;
+      if (!(await matches(src))) return false;
       return !('error' in await ui.openUrl(url, src));
     }
     return false;

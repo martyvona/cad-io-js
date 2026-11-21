@@ -109,6 +109,8 @@ fs.writeFileSync(path.join(content, 'heal.stp'), stepOf(healTestScene()));
 // A part with a face tess-cadio fails for its mesh (#453's #445, past its deflection), which keepFailing keeps.
 fs.copyFileSync(path.join(repo, 'test_corpus/third_party/gkv311-opencascade-dataset/step/pr1ct.stp'),
   path.join(content, 'pr1ct.stp'));
+// (A face tess-cadio fails past its deflection, alone in its part: arm-ap242 #119's cylinder #1231.)
+fs.copyFileSync(path.join(repo, 'test_corpus/models/arm/arm-ap242.step'), path.join(content, 'arm-ap242.step'));
 // as1 with its nut-bolt assemblies' nut (its occurrence: the tree's name for it, three levels down, so no row of it is
 // drawn before the tree is expanded, and the first below the first screen once it is) named long enough to be the
 // widest row in any font (the tree check).
@@ -2684,14 +2686,19 @@ await check('mesh again', async () => {
 });
 // Healing in the browser (cad-heal and cad-geom's module in the tessellation pool's workers, as Vite bundles them):
 // heal=1 in the address heals before meshing (its warnings the model's, its settings in meshedWith); Heal B-reps
-// unticked and Mesh again, the models as imported; healOff= a fix off; without heal=, HEAL_BY_DEFAULT; the checkbox
-// and its closed fixes folder.
+// unticked and Mesh again (its question answered Load again), the models as imported; healOff= a fix off; without
+// heal=, HEAL_BY_DEFAULT; the checkbox and its closed fixes folder.
 await check('heal B-reps', async () => {
   const healingSaid = `(() => viewer.model.diagnostics.filter((d) => /^(strayPole|tolerances grown):/.test(d.message))
     .map((d) => d.message.split(':')[0]).sort())()`;
   const again = `(async () => {
     const model = viewer.nextLoad();
     ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+    // (Other healing: loading the file again, asked first.)
+    for (let t = 0; t < 20 && !document.querySelector('dialog.cv-dialog[open]'); t++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    document.querySelector('dialog.cv-dialog[open] button[value=reload]')?.click();
     for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -2734,6 +2741,142 @@ await check('heal B-reps', async () => {
     JSON.stringify(d.after)}`);
   return undefined;
 });
+
+// Mesh again with other healing: the import worker keeps no models as imported, so the file is loaded again (fetched
+// again), after a question; Cancel keeps the scene as meshed (the control as set), Load again meshes the file afresh
+// as asked, the view and the selection kept; Mesh again with the same healing meshes in place, nothing asked or
+// fetched. The page keeps no copy of the file: the source has its size and SHA-256 only.
+await check('reload for other healing', async () => {
+  const healingSaid = `(() => viewer.model.diagnostics.filter((d) => /^(strayPole|tolerances grown):/.test(d.message))
+    .map((d) => d.message.split(':')[0]).sort())()`;
+  const r = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
+    await cadViewer.idle();
+    // The file's fetches from now on, counted (the page's resource timing buffer is full of the dev server's modules).
+    const url = new URL('/content/heal.stp', location.href).href, fetchWas = window.fetch;
+    let fetched = 0;
+    window.fetch = (u, o) => {
+      if (new URL(String(u), location.href).href === url) fetched++;
+      return fetchWas(u, o);
+    };
+    const fetches = () => fetched;
+    // (Mesh again with other healing goes straight to loading again: not tried in place first, failing.)
+    const warned = [], warn = console.warn;
+    console.warn = (...a) => { warned.push(String(a[0])); warn(...a); };
+    const open = () => document.querySelector('dialog.cv-dialog[open]');
+    const button = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+    const heal = ui.gui.controllersRecursive().find((c) => c._name === 'Heal B-reps');
+    // Pressed; asked (or not, within a second), answered with the button of that value; then its work done.
+    const press = async (answer) => {
+      const before = viewer.nextLoad();
+      const done = button.getValue().call(button.object);
+      let title;
+      for (let t = 0; t < 20 && !open(); t++) await new Promise((res) => setTimeout(res, 50));
+      if (open()) {
+        title = open().querySelector('h2').textContent;
+        open().querySelector('button[value=' + answer + ']').click();
+      }
+      await done;
+      await cadViewer.idle();
+      return { title, loaded: viewer.nextLoad() !== before };
+    };
+    const src = ui.source();
+    const kept = { bytes: src.bytes === undefined, sha: /^[0-9a-f]{64}$/.test(src.sha256), size: src.size };
+    const graph0 = viewer.graph, fetched0 = fetches();
+    // A part selected, the view moved: both kept by Load again.
+    const part = viewer.nodes.find('heal.stp/stray') ?? viewer.nodes.find(viewer.nodes.pathOf(1));
+    ui.select([part]);
+    const path = viewer.nodes.pathOf(part);
+    viewer.controls.target.set(1, 2, 3);
+    viewer.controls.update();
+    heal.setValue(false);
+    const cancel = await press('cancel');
+    const cancelled = { ...cancel, heal: viewer.model.meshedWith.heal, same: viewer.graph === graph0,
+      said: ${healingSaid}, fetched: fetches() - fetched0, control: heal.getValue(),
+      status: document.getElementById('status').textContent };
+    const reload = await press('reload');
+    const reloaded = { ...reload, heal: viewer.model.meshedWith.heal, same: viewer.graph === graph0,
+      said: ${healingSaid}, fetched: fetches() - fetched0, triangles: viewer.stats().triangles,
+      selected: ui.selected().map((id) => viewer.nodes.pathOf(id)), target: viewer.controls.target.toArray(),
+      bytes: ui.source().bytes === undefined };
+    const graph1 = viewer.graph;
+    const same = await press('reload');
+    const unchanged = { ...same, sameGraph: viewer.graph === graph1, fetched: fetches() - fetched0,
+      triangles: viewer.stats().triangles };
+    // Ticked again with the server giving the file changed (a line more): loaded again as it is now, said.
+    const bytes = new Uint8Array(await (await fetchWas(url)).arrayBuffer());
+    const more = new Uint8Array(bytes.length + 1);
+    more.set(bytes);
+    more[bytes.length] = 10;
+    window.fetch = async (u, o) => (new URL(String(u), location.href).href === url ? new Response(more)
+      : fetchWas(u, o));
+    heal.setValue(true);
+    const change = await press('reload');
+    const changed = { ...change, heal: viewer.model.meshedWith.heal, size: ui.source().size,
+      status: document.getElementById('status').textContent };
+    return { kept, cancelled, reloaded, unchanged, changed, warned, path };
+  })()`) as { after: { kept: { bytes: boolean; sha: boolean; size: number };
+    cancelled: { title?: string; loaded: boolean; heal: boolean; same: boolean; said: string[]; fetched: number;
+      control: boolean; status: string };
+    reloaded: { title?: string; heal: boolean; same: boolean; said: string[]; fetched: number; triangles: number;
+      selected: string[]; target: number[]; bytes: boolean };
+    unchanged: { title?: string; sameGraph: boolean; fetched: number; triangles: number };
+    changed: { title?: string; heal: boolean; size: number; status: string }; warned: string[]; path: string } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.kept.bytes && a.kept.sha && a.kept.size === fs.statSync(path.join(content, 'heal.stp')).size,
+    `no copy of the file kept, its size and SHA-256: ${j}`);
+  expect(a.cancelled.title === 'Load the model again?' && a.cancelled.heal && a.cancelled.same && !a.cancelled.fetched
+    && a.cancelled.said.join() === 'strayPole,tolerances grown' && !a.cancelled.control
+    && /not meshed again/.test(a.cancelled.status), `asked; cancelled, the scene as meshed, the control as set: ${j}`);
+  expect(a.reloaded.title === 'Load the model again?' && !a.reloaded.heal && !a.reloaded.same
+    && a.reloaded.fetched === 1 && a.reloaded.said.length === 0 && a.reloaded.triangles > 0 && a.reloaded.bytes,
+    `Load again: fetched again, meshed as imported: ${j}`);
+  expect(a.reloaded.selected.join() === a.path && a.reloaded.target.join() === '1,2,3',
+    `the selection and the view kept: ${j}`);
+  expect(a.unchanged.title === undefined && a.unchanged.sameGraph && a.unchanged.fetched === 1
+    && a.unchanged.triangles > 0, `the same healing: in place, nothing asked or fetched: ${j}`);
+  expect(a.changed.heal && a.changed.size === a.kept.size + 1 && /the file had changed since it was loaded/.test(
+    a.changed.status), `changed on the server: loaded as it is now, said: ${j}`);
+  expect(!a.warned.some((w) => /meshing again from the models failed/.test(w)), `not tried in place first: ${j}`);
+  // Recorded: each answer after its press; replayed (another page, heal=1), answered as recorded: no dialog left
+  // open, the end meshed as imported with Heal B-reps ticked (its Mesh again cancelled).
+  const rec = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
+    await cadViewer.idle();
+    const open = () => document.querySelector('dialog.cv-dialog[open]');
+    const button = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+    cadViewer.record(true);
+    // Unticked, Load again; ticked again, Cancel (so a replay answering either way throughout ends otherwise). (Clicked
+    // as a user does: a change by setValue isn't a recorded one.)
+    for (const answer of ['reload', 'cancel']) {
+      ui.gui.controllersRecursive().find((c) => c._name === 'Heal B-reps').$input.click();
+      button.$button.click();
+      for (let t = 0; t < 40 && !open(); t++) await new Promise((res) => setTimeout(res, 50));
+      open()?.querySelector('button[value=' + answer + ']').click();
+      await new Promise((res) => setTimeout(res, 200));
+      await ui.opened();
+      await cadViewer.idle();
+    }
+    const r = cadViewer.record(false);
+    return { rec: r, events: r.events.filter((e) => e.type === 'reload' || e.type === 'control').map((e) =>
+      e.type === 'reload' ? String(e.confirmed) : /Mesh again/.test(e.path) ? 'press' : e.path + '=' + e.value) };
+  })()`) as { after: { rec: unknown; events: string[] } };
+  expect(rec.after.events.join() === 'B-Rep Meshing/Heal B-reps=false,press,true,B-Rep Meshing/Heal B-reps=true,'
+    + 'press,false',
+    `recorded: ${JSON.stringify(rec.after.events)}`);
+  const played = await page(`?url=${encodeURIComponent('/content/heal.stp')}&heal=1&check`, `(async () => {
+    await cadViewer.idle();
+    const report = await cadViewer.replay(${JSON.stringify(rec.after.rec)});
+    await cadViewer.idle();
+    return { aborted: report.aborted, open: !!document.querySelector('dialog.cv-dialog[open]'),
+      heal: viewer.model.meshedWith.heal, control: viewer.settings.heal, triangles: viewer.stats().triangles,
+      divergences: report.divergences };
+  })()`) as { after: { aborted?: string; open: boolean; heal: boolean; control: boolean; triangles: number;
+    divergences: string[] } };
+  expect(!played.after.aborted && !played.after.open && !played.after.heal && played.after.control
+    && played.after.triangles > 0 && !played.after.divergences.length,
+    `replayed as answered: ${JSON.stringify(played.after)}`);
+  return undefined;
+});
+
 // Healing's pcurveMissing and pcurveMissingOnPlane in the browser, the switches for consumers that want every p-curve
 // (off a plane, on one): healOn=<fix> on a file whose bare uses are all within tolerance makes a p-curve for each of
 // that fix's (said in its diagnostic, the fix on in meshedWith and its checkbox ticked), and only that fix's; heal=1
@@ -2765,7 +2908,7 @@ await check('heal pcurveMissing', async () => {
 // Our own tessellator in the browser (tess-cadio's module in the pool's workers, as Vite bundles it): the assembly
 // with backend=cadio and no fallback, its triangles those it gives here in Node, at the controls' default min angle and
 // at 0 (fewer, the request's minAngle) after Mesh again, in meshedWith; the controls, closed; healing in the same
-// workers before cadio meshes, on (heal.stp's fixes said) and off; keepFailing=1, pr1ct's face that cadio fails
+// workers before cadio meshes, on (heal.stp's fixes said) and off; keepFailing=1, arm-ap242's face that cadio fails
 // meshed then (cadio given KEEP_FAILING), its pool's meshes not cached (no lookups, though the assembly's are cached
 // from above), the backend saying so; minAngle= ignored with another backend, said.
 await check('tess-cadio', async () => {
@@ -2783,6 +2926,11 @@ await check('tess-cadio', async () => {
   const again = `(async () => {
     const model = viewer.nextLoad();
     ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again').$button.click();
+    // (Other healing: loading the file again, asked first.)
+    for (let t = 0; t < 20 && !document.querySelector('dialog.cv-dialog[open]'); t++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    document.querySelector('dialog.cv-dialog[open] button[value=reload]')?.click();
     for (let t = 0; t < 1200 && (viewer.nextLoad() === model || !viewer.model?.meshing); t++) {
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -2854,7 +3002,7 @@ await check('tess-cadio', async () => {
   expect(!e.meshing.cache || (e.meshing.cache.misses === 0 && e.meshing.cache.hits === 0),
     `keepFailing=1, cadio cached: ${l}`);
   for (const keep of ['0', '1']) {
-    const f = await page(`?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`
+    const f = await page(`?url=${encodeURIComponent('/content/arm-ap242.step')}&backend=cadio&fallback=none`
       + `&keepFailing=${keep}&check`, `(async () => {
       await cadViewer.idle();
       return { parts: viewer.model.parts, errors: viewer.model.diagnostics.filter((d) => d.severity === 'error')
@@ -2862,7 +3010,7 @@ await check('tess-cadio', async () => {
     })()`) as { after: { parts: { total: number; done: number; failed: number }; errors: string[] } };
     const g = f.after, m = JSON.stringify(g);
     expect(keep === '1' ? !g.errors.some((x) => /failed to mesh/.test(x))
-      : g.errors.includes('1 faces failed to mesh: #445'), `pr1ct, keepFailing=${keep}: ${m}`);
+      : g.errors.includes('1 faces failed to mesh: #1231'), `arm-ap242, keepFailing=${keep}: ${m}`);
   }
   const o = await page(`?url=${encodeURIComponent('/content/as1.stp')}&minAngle=5&check`, `(async () => {
     await cadViewer.idle();
@@ -2875,11 +3023,11 @@ await check('tess-cadio', async () => {
     `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
   return undefined;
 });
-// Going to a face from the address, and why it failed: pr1ct with cadio alone, face=445 (a face cadio fails, past its
-// deflection): selected, the tree's detail on, revealed and zoomed to (the camera nearer than the whole model's), its
-// Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs) its cause in a third
-// column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no cause); part=453 the
-// part; an id matching nothing, and one that isn't an id, said in the address's problems.
+// Going to a face from the address, and why it failed: arm-ap242 with cadio alone, face=1231 (a face cadio fails, past
+// its deflection): selected, the tree's detail on, revealed and zoomed to (the camera nearer than the whole model's),
+// its Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs) its cause in a third
+// column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no cause); part=119 the part;
+// an id matching nothing, and one that isn't an id, said in the address's problems.
 await check('go to a face', async () => {
   const look = `(async () => {
     await cadViewer.idle();
@@ -2902,26 +3050,26 @@ await check('go to a face', async () => {
   })()`;
   type Got = { rows: string[][]; selected: string[]; detail: boolean; details: string[]; panel: string;
     height: number; all: number; status: string; meshedWith: { backend: string; keepFailing: boolean; heal: boolean } };
-  const url = `?url=${encodeURIComponent('/content/pr1ct.stp')}&backend=cadio&fallback=none`;
+  const url = `?url=${encodeURIComponent('/content/arm-ap242.step')}&backend=cadio&fallback=none`;
   const cause = 'Cause: noConvergence: meshed past its deflection';
-  const f = (await page(`${url}&face=445&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
-  expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#445') && f.detail, `face=445 selected: ${j}`);
+  const f = (await page(`${url}&face=1231&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
+  expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#1231') && f.detail, `face=1231 selected: ${j}`);
   expect(f.height < f.all, `zoomed to it: ${j}`);
   expect(f.details.includes('Failed to mesh: its outline is drawn in red')
     && f.details.some((l) => l.startsWith(cause)) && f.panel.includes(cause), `its Details: ${j}`);
-  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #445');
-  expect(row?.[0] === 'error #453' && row.length === 3 && row[2]!.startsWith('noConvergence: meshed past its '
-    + 'deflection') && row[2]!.endsWith(' (#445)'), `the problems dialog's cause: ${j}`);
+  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #1231');
+  expect(row?.[0] === 'error #119' && row.length === 3 && row[2]!.startsWith('noConvergence: meshed past its '
+    + 'deflection') && row[2]!.endsWith(' (#1231)'), `the problems dialog's cause: ${j}`);
   expect(!f.status.includes('the address'), `nothing said: ${j}`);
-  const k = (await page(`${url}&keepFailing=1&heal=1&face=445&check`, look) as { after: Got }).after;
+  const k = (await page(`${url}&keepFailing=1&heal=1&face=1231&check`, look) as { after: Got }).after;
   const l = JSON.stringify(k);
   expect(k.meshedWith.keepFailing && k.meshedWith.heal && k.selected.length === 1
-    && k.selected[0]!.endsWith('/face#445'), `keepFailing=1, heal=1, face=445: ${l}`);
+    && k.selected[0]!.endsWith('/face#1231'), `keepFailing=1, heal=1, face=1231: ${l}`);
   expect(k.details.some((x) => /^Triangles: [1-9]/.test(x)) && !k.details.some((x) => x.startsWith('Cause:'))
     && !k.details.some((x) => x.startsWith('Failed')), `the face kept, meshed: ${l}`);
-  const p = (await page(`${url}&part=453&face=999999,x1&check`, look) as { after: Got }).after;
+  const p = (await page(`${url}&part=119&face=999999,x1&check`, look) as { after: Got }).after;
   const q = JSON.stringify(p);
-  expect(p.selected.length === 1 && !p.selected[0]!.includes('face#'), `part=453: ${q}`);
+  expect(p.selected.length === 1 && !p.selected[0]!.includes('face#'), `part=119: ${q}`);
   expect(p.status.includes('face=: nothing has #999999') && p.status.includes('face=: not STEP ids: x1'),
     `face= that names nothing: ${q}`);
   return undefined;
@@ -5906,6 +6054,77 @@ await check('save', async () => {
   expect(a.cancelled === 'before', `cancelled: ${j}`);
   expect(a.download === 'as1.stp' && a.downloadedSame, `a download without the API: ${j}`);
   expect(a.kept && a.next === 'as1.glb', `the model shown's file: ${j}`);
+  return undefined;
+});
+
+// Save original... reads the file again (the page keeps no copy) and checks it against the SHA-256 it had when it
+// loaded: by URL, a server now giving other bytes is said and asked (Cancel: not saved; Save anyway: the new bytes
+// written), one that can't be fetched is said, nothing written; a local file (its File, read from disk again) the
+// same: as it was, saved; changed, asked; unreadable (moved, deleted), said.
+await check('save a file changed or gone', async () => {
+  const r = await page(`?check`, `(async () => {
+    await cadViewer.ready;
+    const save = ui.gui.controllersRecursive().find((c) => c._name === 'Save original...');
+    const open = () => document.querySelector('dialog.cv-dialog[open]');
+    let written;
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({
+      write: async (d) => { written = new Uint8Array(await d.arrayBuffer()); }, close: async () => {} }) });
+    // Saved, a dialog's title and the answer given (if it asks), the status line after.
+    const saveAs = async (answer) => {
+      written = undefined;
+      const done = save.getValue().call(save.object);
+      let title;
+      for (let t = 0; t < 20 && !open(); t++) await new Promise((res) => setTimeout(res, 50));
+      if (open()) {
+        title = open().querySelector('h2').textContent;
+        (open().querySelector('button[value=' + answer + ']') ?? open().querySelector('button')).click();
+      }
+      await done;
+      return { title, written: written?.length, status: document.getElementById('status').textContent };
+    };
+    await ui.openUrl('/content/heal.stp');
+    await cadViewer.idle();
+    const size = ui.source().size;
+    const fetchWas = window.fetch;
+    const url = new URL('/content/heal.stp', location.href).href;
+    window.fetch = async (u, o) => (new URL(String(u), location.href).href === url ? new Response(new Uint8Array(
+      [1, 2, 3])) : fetchWas(u, o));
+    const changedCancel = await saveAs('cancel'), changedSave = await saveAs('save');
+    window.fetch = async (u, o) => (new URL(String(u), location.href).href === url
+      ? Promise.reject(new TypeError('Failed to fetch')) : fetchWas(u, o));
+    const gone = await saveAs('ok');
+    window.fetch = fetchWas;
+    const same = await saveAs('ok');
+    // A local file: its File kept, read again.
+    const bytes = new Uint8Array(await (await fetch('/content/heal.stp')).arrayBuffer());
+    await ui.openFiles([new File([bytes], 'heal.stp')]);
+    await cadViewer.idle();
+    const local = { file: ui.source().file instanceof File, bytes: ui.source().bytes === undefined };
+    const localSame = await saveAs('ok');
+    // (The same size, one byte different: the hash tells.)
+    const flipped = bytes.slice();
+    flipped[flipped.length - 1] ^= 1;
+    ui.source().file = new File([flipped], 'heal.stp');
+    const localChanged = await saveAs('cancel');
+    ui.source().file = { name: 'heal.stp', arrayBuffer: () => Promise.reject(new DOMException('gone',
+      'NotReadableError')) };
+    const localGone = await saveAs('ok');
+    return { size, changedCancel, changedSave, gone, same, local, localSame, localChanged, localGone };
+  })()`) as { after: { [k in 'changedCancel' | 'changedSave' | 'gone' | 'same' | 'localSame' | 'localChanged'
+    | 'localGone']: { title?: string; written?: number; status: string } } & { size: number;
+    local: { file: boolean; bytes: boolean } } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.changedCancel.title === 'heal.stp has changed' && a.changedCancel.written === undefined
+    && /not saved/.test(a.changedCancel.status), `changed on the server, cancelled: ${j}`);
+  expect(a.changedSave.title === 'heal.stp has changed' && a.changedSave.written === 3, `saved anyway: ${j}`);
+  expect(a.gone.title === 'Could not read heal.stp' && a.gone.written === undefined, `can't be fetched: ${j}`);
+  expect(a.same.title === undefined && a.same.written === a.size, `unchanged: saved: ${j}`);
+  expect(a.local.file && a.local.bytes && a.localSame.title === undefined && a.localSame.written === a.size,
+    `a local file: its File kept, saved: ${j}`);
+  expect(a.localChanged.title === 'heal.stp has changed' && a.localChanged.written === undefined,
+    `a local file changed: asked: ${j}`);
+  expect(a.localGone.title === 'Could not read heal.stp' && a.localGone.written === undefined
+    && /moved, deleted or changed/.test(a.localGone.status), `a local file gone: said: ${j}`);
   return undefined;
 });
 await check('missing file', async () => {

@@ -37,7 +37,7 @@ import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
 import type { ImportProgress } from 'step-import';
-import { clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
+import { clearCache, defaultSettings, deflectionsOf, healingOf, wantedOf, workerCount, type TessellationSettings }
   from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
@@ -949,15 +949,16 @@ export class Viewer {
   }
 
   private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
-    const mb = src.bytes.byteLength / 1e6;
+    const mb = src.size / 1e6;
     const importing = `${src.name}: importing${mb >= 1 ? ` ${Math.round(mb)} MB` : ''}`;
     this.onStatus?.(`${importing}...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
-    // A copy goes (transferred) to the worker, a .gltf's buffers with it; the source keeps its bytes, to be meshed
-    // again.
+    // The bytes go (transferred) to the worker, a .gltf's buffers with it; the source keeps none (read again when
+    // needed: sources.ts's readAgain).
     const input = await modelInput(src, format);
+    delete src.bytes;
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
     const meshedWith = meshedWithOf(this.settings);
@@ -1086,12 +1087,14 @@ export class Viewer {
    * The model meshed again with the settings now, in place, from the import worker's scene (its B-rep models: no
    * import): each part keeps its mesh until its new one comes; one that fails is then shown as a load shows it (the
    * file's own level, else its faces' outlines, else nothing). The view stays. Resolves true once every part is meshed
-   * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole):
-   * load it again instead. Rejects if the worker can't (it lost the model): load it again.
+   * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole, or
+   * other healing: the worker keeps no models as imported to heal otherwise): load it again instead. Rejects if the
+   * worker can't (it lost the model): load it again.
    */
   async meshAgain(): Promise<boolean> {
     const graph = this.graph, model = this.model;
     if (!graph || !model || !this.worker || this.shown !== this.generation) return false;
+    if (healingOf(model.meshedWith ?? {}) !== healingOf(this.settings)) return false;
     const gen = ++this.generation;
     this.shown = gen;
     if (this.meshing) {
