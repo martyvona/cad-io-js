@@ -51,7 +51,7 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   const g = new Geometry(module ?? await init(), new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress);
+    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, opts.meshDeflection);
   } finally {
     g.dispose();
   }

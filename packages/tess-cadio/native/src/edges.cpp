@@ -314,7 +314,11 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
 }
 
 /** x shifted by a whole number of periods to be nearest `to` (period 0: unchanged). */
-/** A projected p-curve for meshing within this times the deflection of its feet, where the curve allows. */
+/**
+ * A projected p-curve for meshing within this times the deflection of its feet, where the curve allows. cad-heal's
+ * MESH_FIT (curves.ts) mirrors it, fitting the traces healing stores (which replace this projection) the same way; a
+ * test there checks they're equal.
+ */
 constexpr double kMeshTolerance = 0.05;
 /**
  * A use without a p-curve whose curve the projection finds farther off its face's surface than both this many edge
