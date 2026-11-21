@@ -387,6 +387,25 @@ TEST_CASE("an edge's inside sample within min(the part's tolerance, d / 10) of i
   CHECK(fm.status == cadgeom::Status::ok);
 }
 
+TEST_CASE("an edge's sample stepping back along a side its feet are clamped onto dropped from the edge (sideWobble), "
+  "the chord bridging it within the deflection: the loop no longer reverses there, the face meshed") {
+  // (Its top edge's samples 0.8, 0.52, 0.53, 0.5, 0.2 in u on v = 1: 0.53 steps back; dropped, 0.52 to 0.5 bridges
+  // it within 0.01 of it. At d = 0.005 the chord strays past d from it: kept.)
+  cadgeom::Model m = load("sideWobble");
+  REQUIRE(m.ok());
+  EdgeOptions eo;
+  eo.deflection = 0.1;
+  EdgeMesh em(m, eo);
+  CHECK_EQ(em.edge(0).points.size(), 4u);  // (the top edge, made first)
+  eo.deflection = 0.005;
+  EdgeMesh fine(m, eo);
+  CHECK_EQ(fine.edge(0).points.size(), 5u);
+  PartMesher pm(m, options(0.1, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  sideWobble: %s\n", fm.cause.c_str());
+  CHECK(fm.status == cadgeom::Status::ok);
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's

@@ -307,6 +307,30 @@ export function clampedCorner(uncertainty = 0.1): BrepBuilder {
 }
 
 /**
+ * A flat bilinear B-spline patch over [0, 1]^2 on z = 0 under an uncertainty of 0.01, a square loop from u = 0.2 to
+ * 0.8 whose top edge, a polyline 0.001 past v = 1 (its feet clamped onto that side), steps back along it: 0.8, 0.52,
+ * 0.53, 0.5, 0.2 in u (LMP1 #1054461's edge #543108, its curve wandering along the side).
+ */
+export function sideWobble(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.01 });
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 1, 0]], [[1, 0, 0], [1, 1, 0]]],
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const y = 1.001, c = [[0.2, 0.2, 0], [0.8, 0.2, 0], [0.8, y, 0], [0.2, y, 0]];
+  const vs = c.map((point) => b.addVertex({ point }));
+  const line = (j: number) => {
+    const p = c[j]!, q = c[(j + 1) % 4]!;
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
+      magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] });
+  };
+  const top = b.addEdge({ curve: b.addCurve({ kind: 'polyline', points: [c[2]!, [0.52, y, 0], [0.53, y, 0],
+    [0.5, y, 0], c[3]!] }), start: vs[2]!, end: vs[3]!, sameSense: true, range: [0, 4] });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [line(0), line(1), top, line(3)].map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
+  return b;
+}
+
+/**
  * A unit disc on z = 0 bounded by a closed edge with no 3D curve (its p-curve the circle, its use's range 0 to
  * 2 pi), and inside it an internal use of an edge with no curve and no vertices: the p-curve line from (-0.5, 0),
  * its use's range 0.2 to 0.8.
@@ -1975,8 +1999,9 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
-  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear, clampedCorner: () => clampedCorner(),
-  clampedCornerTight: () => clampedCorner(0.01),
+  roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
+  clampedCorner: () => clampedCorner(),
+  clampedCornerTight: () => clampedCorner(0.01), sideWobble,
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
