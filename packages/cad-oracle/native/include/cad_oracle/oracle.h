@@ -139,6 +139,11 @@ struct Options {
   /** The quadrature's relative tolerance on each edge's and loop's integral. */
   double relTol = 1e-10;
   /**
+   * classify and shellSide (debugging, corpus checks): a second usable ray must agree with the first, else the point
+   * is unknown ("rays disagree"), which shows a fault in the line's search or the faces' classification.
+   */
+  bool checkSecondRay = false;
+  /**
    * The model's analysis buffer (cad-brep's analysis-layout.ts; viewed, not copied, as the model: it must outlive the
    * oracle), or none: its coedges' deviations where healing made their p-curves (pcurveFrom healed), which
    * FaceMeasure::boundary takes instead of measuring them. The caller pairs it with its model (its hash).
@@ -184,6 +189,48 @@ struct RayFace {
   }
 };
 
+/** Why a ray was set aside: indexes of PointClass::rejected. */
+enum Rejected : int {
+  rejectedBoundary, rejectedTangency, rejectedOverlap, rejectedBudget, rejectedNear, rejectedKinds
+};
+
+/**
+ * A point against a closed shell by parity: the rays tried from it, in a fixed set of directions, and the first whose
+ * every hit is a crossing of a face of the shell (the second too with Options::checkSecondRay) counted. on: the point
+ * within the tolerance of the shell (a crossing that near on every ray). unknown: no usable ray, or two disagreeing.
+ */
+struct PointClass {
+  enum Side : uint8_t { inside, outside, on, unknown };
+  Side side = unknown;
+  /** Why unknown or on (static storage). */
+  const char* why = "";
+  /** The deciding ray: the point plus t times dir (a unit vector), t in [0, length], and its crossings. */
+  Vec3 dir;
+  double length = 0;
+  int crossings = 0;
+  /** Rays tried, and those set aside by why (Rejected). */
+  int tried = 0;
+  int rejected[rejectedKinds] = {};
+  /** A second ray counted and agreeing (Options::checkSecondRay). */
+  bool checked = false;
+};
+
+/**
+ * Which side of closed shell `shell` a point just outside face `face` lies on, the point at a point well inside the
+ * face moved eps along the face's normal (its sense applied): outside, the face's normal points out of the shell;
+ * inside, into it (a void's faces, rightly, face into the void, so a void shell's are inside); unknown where it can't
+ * be told (no point well inside the face, no offset clear of the other faces, or the point unknown).
+ */
+struct ShellSide {
+  enum Side : uint8_t { outside, inside, unknown };
+  Side side = unknown;
+  const char* why = "";
+  /** The point on the face, the point moved eps off it, and that point's classification. */
+  Vec3 from, point;
+  double eps = 0;
+  PointClass classified;
+};
+
 class Oracle {
 public:
   /**
@@ -215,6 +262,21 @@ public:
    * contact outside the face dropped. unsupported where the face has no surface or loops.
    */
   RayFace rayFace(int face, Vec3 o, Vec3 d, cadgeom::Range tr);
+  /** A point against a closed shell (row of the shell table), by parity (PointClass). */
+  PointClass classify(int shell, Vec3 p);
+  /**
+   * ShellSide for a closed shell's face (rows of the shell and face tables), eps the offset along its normal (where
+   * that offset meets another face, halved up to four times, not below 10 times the face's tolerance; negative,
+   * against the normal).
+   */
+  ShellSide shellSide(int shell, int face, double eps);
+  /**
+   * The closed shells of body `body` (a row of the body table) nested: per shell of the body, in order, the index
+   * (among them) of the smallest shell holding it, -1 for none, -2 where it can't be told (a point on it unknown
+   * against another); an open shell -2. A point of each face-bearing shell, well inside one of its faces, classified
+   * against each other closed shell.
+   */
+  std::vector<int> nesting(int body);
 
   struct Impl;
 
