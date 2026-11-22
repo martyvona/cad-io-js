@@ -1256,7 +1256,7 @@ export const pcurveShortStart = (): BrepBuilder => pcurveShort(5e-10, true);
  * past it): the corner convex in (u, v) and concave in 3D, its point 0.0085 off its (u, v)'s, within the tolerance.
  * The other sides lines without p-curves.
  */
-function cornerFoldAt(faceTolerance: number): BrepBuilder {
+function cornerFoldAt(faceTolerance: number, sense = true): BrepBuilder {
   const b = new BrepBuilder();
   const pts = [[0, 0, 0], [1, 0, 0], [1, 0.99, 0], [0.994, 0.994, 0], [0.99, 1, 0], [0, 1, 0]];
   const uvs: Array<number[] | undefined> = [undefined, undefined, [1, 0.99], [1, 1], [0.99, 1], undefined];
@@ -1270,11 +1270,13 @@ function cornerFoldAt(faceTolerance: number): BrepBuilder {
       tolerance: 0.01 });
     // (The corner's two edges with p-curves from (u, v) to (u, v) over their own lengths.)
     const a = uvs[k], c = uvs[(k + 1) % pts.length];
+    const orientation = sense ? 'forward' as const : 'reversed' as const;
     coedges.push(k === 2 || k === 3
-      ? { edge, orientation: 'forward', pcurve: b.addCurve(line2(a!, [(c![0]! - a![0]!) / l, (c![1]! - a![1]!) / l])) }
-      : { edge, orientation: 'forward' });
+      ? { edge, orientation, pcurve: b.addCurve(line2(a!, [(c![0]! - a![0]!) / l, (c![1]! - a![1]!) / l])) }
+      : { edge, orientation });
   }
-  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+  if (!sense) coedges.reverse();
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: sense,
     tolerance: faceTolerance,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
@@ -1282,6 +1284,8 @@ function cornerFoldAt(faceTolerance: number): BrepBuilder {
 export const cornerFold = (): BrepBuilder => cornerFoldAt(0.01);
 /** The same with the face's tolerance 0.001: the chord 0.0014 from the corner's point, past it. */
 export const cornerFoldTight = (): BrepBuilder => cornerFoldAt(0.001);
+/** cornerFoldTight with the face's sense against its plane's (its normal -z), its loop reversed. */
+export const cornerFoldTightAgainst = (): BrepBuilder => cornerFoldAt(0.001, false);
 
 /**
  * The unit square (z = 0) whose bottom edge is a cubic B-spline along it with interior knots 1e-13 from each end of
@@ -1386,6 +1390,32 @@ export function kinkAtEnd(w = 1e-6, bend = 2e-10): BrepBuilder {
     { edge: upper, orientation: 'reversed' as const, pcurve: pline([0, top], [1, top]) },
     { edge: left, orientation: 'reversed' as const, pcurve: pline([0, 0], [0, 1]) },
   ];
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A flat parallelogram as a bilinear B-spline, u along (10, 0, 0) and v along (5, 8.66, 0) (60 degrees apart, so its
+ * metric in (u, v) has a cross term), bounded by its four sides (lines, p-curves on the domain's sides).
+ */
+export function skewPatch(): BrepBuilder {
+  const b = new BrepBuilder();
+  const U = [10, 0, 0], V = [5, 10 * Math.sin(Math.PI / 3), 0];
+  const P = (u: number, v: number) => [u * U[0]! + v * V[0]!, u * U[1]! + v * V[1]!, 0];
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [0, 1].map((u) => [0, 1].map((v) => P(u, v))),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const vs = uv.map(([u, v]) => b.addVertex({ point: P(u!, v!) }));
+  const coedges = [0, 1, 2, 3].map((k) => {
+    const a = uv[k]!, c = uv[(k + 1) % 4]!, p = P(a[0]!, a[1]!), q = P(c[0]!, c[1]!);
+    const d = [q[0]! - p[0]!, q[1]! - p[1]!, 0], l = Math.hypot(d[0]!, d[1]!);
+    const line = b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l), magnitude: 1 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, l] });
+    const pcurve = b.addCurve({ kind: 'line', point: a, direction: [(c[0]! - a[0]!) / l, (c[1]! - a[1]!) / l],
+      magnitude: 1 });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
   sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
 }
@@ -2222,7 +2252,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   fineProjection, knotAtEnd, kinkAtEnd: () => kinkAtEnd(), kinkAtEndPlain: () => kinkAtEnd(0), cornerFold,
   sphereBelt: () => sphereBelt(3, 1, true), sphereBeltInward: () => sphereBelt(3, 1, false),
   sphereBeltEven: () => sphereBelt(3, 2, true), sphereBeltEvenInward: () => sphereBelt(3, 2, false),
-  planeHoleOnly, roof: () => roof(), roofJunction: () => roof(0, 1, true),
+  planeHoleOnly, cornerFoldTightAgainst, skewPatch, roof: () => roof(), roofJunction: () => roof(0, 1, true),
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),

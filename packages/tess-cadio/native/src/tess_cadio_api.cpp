@@ -50,8 +50,12 @@ bool countInsertions = false;
 bool countAngles = false;
 // Whether the next calls list each face's poles in the diagnostics ("poles").
 bool listPoles = false;
+// PartOptions::countExpected for the next calls.
+bool countExpected = false;
 // PartOptions::failCapped and failTurnedOver for the next calls.
 bool failCapped = true, failTurnedOver = true;
+// PartOptions::failFoldedFans for the next calls.
+bool failFoldedFans = PartOptions{}.failFoldedFans;
 // PartOptions::analysis for the next calls: the caller's buffer, kept alive by it until set again.
 const uint8_t* analysis = nullptr;
 size_t analysisSize = 0;
@@ -110,6 +114,11 @@ void tc_set_count_angles(int on) { countAngles = on != 0; }
  * the one checkFacing exempts corners at), in the diagnostics ("poles"; default 0).
  */
 void tc_set_list_poles(int on) { listPoles = on != 0; }
+/**
+ * Whether the next calls give each meshed face's triangles as its own size metric expects them
+ * (PartOptions::countExpected) in the diagnostics ("expected"; default 0).
+ */
+void tc_set_count_expected(int on) { countExpected = on != 0; }
 
 /**
  * Whether the next calls fail a face whose refinement reached its point cap (PartOptions::failCapped), and one with
@@ -117,6 +126,8 @@ void tc_set_list_poles(int on) { listPoles = on != 0; }
  */
 void tc_set_fail_capped(int on) { failCapped = on != 0; }
 void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
+/** Whether the next calls fail a face whose pole's fan folds over itself (PartOptions::failFoldedFans; default 1). */
+void tc_set_fail_folded_fans(int on) { failFoldedFans = on != 0; }
 
 /**
  * The model's analysis buffer for the next calls (PartOptions::analysis: 8-byte aligned, held by the caller until
@@ -148,9 +159,11 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
   opts.countAngles = countAngles;
+  opts.countExpected = countExpected;
   for (int k = 0; k < 3; k++) opts.outputOrigin[k] = o[k];
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
+  opts.failFoldedFans = failFoldedFans;
   opts.analysis = analysis, opts.analysisSize = analysisSize;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
@@ -183,6 +196,19 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       }
     }
   poles += "]";
+  // (With tc_set_count_expected: each face's expected triangles where it was meshed, those failed after (at the point
+  // cap, turned) too, and its mesh's (0 where it failed), 3 numbers each.)
+  std::string expected = "[";
+  if (countExpected)
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& fm = pm.face(f);
+      if (!(fm.expectedTriangles > 0)) continue;
+      char b[96];
+      std::snprintf(b, sizeof b, "%s%u,%.6g,%zu", expected.size() > 1 ? "," : "", faceId[f], fm.expectedTriangles,
+        fm.triangles.size() / 3);
+      expected += b;
+    }
+  expected += "]";
   const double tol = tols.part();
   for (int f = 0; f < m.faces(); f++) {
     const FaceMesh& fm = pm.face(f);
@@ -326,7 +352,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
     std::to_string(tc.local) + "," + std::to_string(tc.global) + "],\"traceFallbacks\":" + fallbacks + ",\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
-    ",\"poleSlivers\":" + std::to_string(poleSlivers) + (listPoles ? ",\"poles\":" + poles : std::string()) + "}";
+    ",\"poleSlivers\":" + std::to_string(poleSlivers) + (listPoles ? ",\"poles\":" + poles : std::string()) +
+    (countExpected ? ",\"expected\":" + expected : std::string()) + "}";
   return 0;
 }
 
@@ -364,7 +391,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
  * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces failed for refinement stopped at the
  * point cap: FaceMesh::capped), "poles" (with tc_set_list_poles, every face's singularities as its closed surface has
- * them, 5 numbers each [face id, cad-geom's Singularity::kind, x, y, z], absolute)}.
+ * them, 5 numbers each [face id, cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
+ * tc_set_count_expected, each face's [face id, triangles its size metric expects: FaceMesh::expectedTriangles,
+ * triangles meshed], for every face its mesher meshed, 0 meshed where it failed after: at its point cap, say)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }

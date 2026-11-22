@@ -94,8 +94,10 @@ test('faces meshed short of or over their area are errors, by the measures, the 
   const { part, diagnostics } = await run(fake({ 24: 2 }, { positions: big.positions }));
   assert.equal(part.measures!.faces.get(24)!.area, 1);
   const errors = diagnostics.filter((d) => d.severity === 'error');
-  assert.deepEqual(errors, [{ severity: 'error', message: '1 face meshed short of or over its measured area: #24',
-    source: { format: 'step', id: 7 } }]);
+  // (The corner pulled out in face 24's mesh alone opens the mesh there too.)
+  assert.deepEqual(errors, [{ severity: 'error', message: 'not a closed, oriented manifold over its closed shells: '
+    + '4 mesh edges (4 used once); faces #24, #21, #25', source: { format: 'step', id: 7 } }, { severity: 'error',
+    message: '1 face meshed short of or over its measured area: #24', source: { format: 'step', id: 7 } }]);
   // Measures from the source (an export's) judge the mesh too; this run measures nothing.
   const t = fake();
   const given = scene({ by: 'source', faces: new Map(FACES.map((id) => [id, { area: id === 21 ? 0.5 : 1,

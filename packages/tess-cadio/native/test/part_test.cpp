@@ -2553,6 +2553,36 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
+TEST_CASE("keepSteiner (the default): a face meshed again from its fourth meshing on starts from its last mesh's points, "
+  "so its rounds' asks settle: bumpPatch at 0.005 in fewer rounds than from its boundary alone, both within d; the "
+  "same bytes run to run") {
+  // (Meshed from scratch each round, the face's leftover refusals land somewhere new each time; kept, they settle.)
+  cadgeom::Model m = load("bumpPatch");
+  REQUIRE(m.ok());
+  PartOptions on = options(0.005, 0.26), off = on;
+  off.keepSteiner = false;
+  CHECK(PartOptions{}.keepSteiner);
+  PartMesher a(m, on), b(m, off), c(m, on);
+  for (int f = 0; f < m.faces(); f++) {
+    CHECK(a.face(f).status == cadgeom::Status::ok);
+    CHECK(b.face(f).status == cadgeom::Status::ok);
+    CHECK(a.face(f).triangles == c.face(f).triangles);
+    CHECK(a.face(f).points.size() == c.face(f).points.size());
+    for (size_t i = 0; i < a.face(f).points.size() && i < c.face(f).points.size(); i++)
+      CHECK(std::memcmp(&a.face(f).points[i], &c.face(f).points[i], sizeof(Vec3)) == 0);
+  }
+  CHECK(a.rounds() < b.rounds());
+  CHECK(b.rounds() >= 4);
+  // A seeded mesh that leaves a refused triangle is meshed again from its boundary alone: a kept point can stand in
+  // the way of a refused triangle that asks no split (pcurveOnlyWest at 0.001: 20 rounds without that, 6 with it).
+  cadgeom::Model w = load("pcurveOnlyWest");
+  REQUIRE(w.ok());
+  PartOptions onW = options(0.001, 0.26), offW = onW;
+  offW.keepSteiner = false;
+  PartMesher wa(w, onW), wb(w, offW);
+  CHECK(wa.rounds() <= wb.rounds());
+}
+
 TEST_CASE("a loop of two one-chord edges (a lens whose chords coincide) gets a sample at each edge's middle: meshed, "
   "its area the lens's within the chords' sag") {
   cadgeom::Model m = load("lensPlane");
@@ -3002,4 +3032,74 @@ TEST_CASE("a face whose edge loops are all holes on a surface with no natural ex
   REQUIRE(band.ok());
   PartMesher pb(band, options(0.05, 0.26));
   for (int f = 0; f < band.faces(); f++) CHECK(!pb.face(f).holesOnly);
+}
+
+TEST_CASE("flipTurned (the default): a triangle turned as shipped flipped with its neighbour across an interior edge, "
+  "both new ones within the criteria and facing the surface: cornerFoldTight at 1 meshed, failing without it") {
+  // (Its corner's point 0.0085 off its (u, v), past the face's tolerance: the fold not repaired, the ear there
+  // turned in 3D though accepted in (u, v); a flip across its interior edge leaves two triangles facing the plane.)
+  for (const char* name : {"cornerFoldTight", "cornerFoldTightAgainst"}) {
+    const bool against = name[15] == 'A';
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions on = options(1, 0.26), off = on;
+    off.flipTurned = false;
+    PartMesher a(m, on), b(m, off);
+    const FaceMesh& fm = a.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.turnedFlips >= 1);
+    int facing = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      facing += (cadgeom::cross(q - p, r - p).z <= 0) != against;
+    }
+    CHECK_EQ(facing, 0);
+    // Its boundary's segments all still in the mesh: none flipped away.
+    const FaceBoundary fb = a.edges().face(0);
+    std::set<std::pair<Vec3, Vec3>, bool (*)(const std::pair<Vec3, Vec3>&, const std::pair<Vec3, Vec3>&)> edges(
+      [](const std::pair<Vec3, Vec3>& x, const std::pair<Vec3, Vec3>& y) {
+        return std::tie(x.first.x, x.first.y, x.first.z, x.second.x, x.second.y, x.second.z) <
+          std::tie(y.first.x, y.first.y, y.first.z, y.second.x, y.second.y, y.second.z);
+      });
+    auto both = [&](Vec3 p, Vec3 q) { edges.insert({p, q}), edges.insert({q, p}); };
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      for (int k = 0; k < 3; k++) both(fm.points[fm.triangles[t + k]], fm.points[fm.triangles[t + (k + 1) % 3]]);
+    int missing = 0;
+    for (const auto& loop : fb.loops)
+      for (size_t k = 0; k < loop.size(); k++)
+        missing += !edges.count({loop[k].point, loop[(k + 1) % loop.size()].point});
+    CHECK_EQ(missing, 0);
+    CHECK(b.face(0).status == cadgeom::Status::noConvergence);
+    CHECK_EQ(b.face(0).turnedFlips, 0);
+  }
+}
+
+TEST_CASE("countExpected: a face's triangles as its own size metric expects them, the band's in closed form; none "
+  "without it, the mesh the same") {
+  // (The band, radius 2 and 5 high: across its axis the size sqrt(6 d / k) with k = 1 / 2, along it the face's
+  // extent, the diagonal of its box (4, 4, 5); its area 2 pi 2 x 5 in the metric's units over an equilateral
+  // triangle's sqrt(3) / 4.)
+  cadgeom::Model m = load("band");
+  REQUIRE(m.ok());
+  PartOptions on = options(0.001, 0.26), off = on;
+  on.countExpected = true;
+  PartMesher a(m, on), b(m, off);
+  const double across = std::sqrt(6 * 0.001 * 2), along = std::sqrt(16.0 + 16.0 + 25.0);
+  const double want = 2 * M_PI * 2 * 5 / (across * along) / (std::sqrt(3.0) / 4);
+  const double got = a.face(0).expectedTriangles;
+  if (!(std::fabs(got - want) <= 0.05 * want)) std::printf("  band: expected %.1f, closed form %.1f\n", got, want);
+  CHECK(std::fabs(got - want) <= 0.05 * want);
+  CHECK_EQ(b.face(0).expectedTriangles, 0.0);
+  CHECK(a.face(0).triangles == b.face(0).triangles);
+  // A parallelogram, flat: its size the face's extent everywhere, its metric in (u, v) the first fundamental form
+  // over it squared, cross term and all (its sides 60 degrees apart): its area over the extent squared, over
+  // sqrt(3) / 4. (Without the cross term, 1 / sin 60 degrees as many.)
+  cadgeom::Model s = load("skewPatch");
+  REQUIRE(s.ok());
+  PartMesher ps(s, on);
+  const double h = std::hypot(15.0, 10 * std::sin(M_PI / 3)), flat = 10 * 10 * std::sin(M_PI / 3) / (h * h);
+  const double skewWant = flat / (std::sqrt(3.0) / 4), skewGot = ps.face(0).expectedTriangles;
+  if (!(std::fabs(skewGot - skewWant) <= 0.05 * skewWant))
+    std::printf("  skewPatch: expected %.4f, closed form %.4f\n", skewGot, skewWant);
+  CHECK(std::fabs(skewGot - skewWant) <= 0.05 * skewWant);
 }

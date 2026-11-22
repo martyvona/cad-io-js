@@ -237,3 +237,63 @@ TEST_CASE("rayFace: tangent to a sphere, lying in a box's face, along a B-spline
   CHECK(bad == 0);
   CHECK(seen >= 12);
 }
+
+TEST_CASE("shellSide: the reference solids' faces outside, moved into the material inside; classify") {
+  // The reference solids are built facing out (each a body of one closed shell; some faces with their sense false,
+  // a box's bottom, so the normal's sense is taken). Every face, offset 1e-3 of the model's size along its normal,
+  // says outside; offset the other way, into the material, inside. A point at the middle of a convex one is inside,
+  // one far off outside, a point on a face on; with Options::checkSecondRay a second ray agrees.
+  int bad = 0, faces = 0;
+  for (const char* variant : {"s1", "far", "mirror", "s1e3"}) {
+    for (int i = 0; i < fixtures::nReferences; i++) {
+      const fixtures::Reference& ref = fixtures::references[i];
+      if (std::strcmp(ref.variant, variant) != 0) continue;
+      const Model m(ref.data, ref.size);
+      if (!allClosed(m)) continue;
+      Oracle oracle(ref.data, ref.size);
+      Vec3 lo, hi;
+      modelBox(m, lo, hi);
+      const double eps = 1e-3 * cadgeom::norm(hi - lo);
+      const std::vector<std::vector<int>> shells = shellFaces(m);
+      for (size_t s = 0; s < shells.size(); s++)
+        for (int f : shells[s]) {
+          const ShellSide side = oracle.shellSide(static_cast<int>(s), f, eps);
+          faces++;
+          if (side.side != ShellSide::outside && bad++ < 20)
+            std::printf("  %s %s: shell %zu face %d %s (%s)\n", ref.name, variant, s, f,
+              side.side == ShellSide::inside ? "inside" : "unknown", side.why);
+        }
+      // Moved the other way, into the material: inside, every face.
+      for (size_t sh = 0; sh < shells.size(); sh++)
+        for (int f : shells[sh]) {
+          const ShellSide in = oracle.shellSide(static_cast<int>(sh), f, -eps);
+          if (in.side != ShellSide::inside && bad++ < 20)
+            std::printf("  %s %s: shell %zu face %d into the material says %d (%s)\n", ref.name, variant, sh, f,
+              int(in.side), in.why);
+        }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(faces > 40);
+  // classify on the box: its middle inside (checked by a second ray), far off outside, on a face on.
+  for (const char* variant : {"s1", "far"}) {
+    const fixtures::Reference& r = *fixtures::reference("box", variant);
+    const Model m(r.data, r.size);
+    Options o;
+    o.checkSecondRay = true;
+    Oracle oracle(r.data, r.size, o);
+    Vec3 lo, hi;
+    modelBox(m, lo, hi);
+    const PointClass in = oracle.classify(0, 0.5 * (lo + hi));
+    CHECK(in.side == PointClass::inside);
+    CHECK(in.checked);
+    CHECK(oracle.classify(0, hi + (hi - lo)).side == PointClass::outside);
+    // The middle of face 0's vertices: on it.
+    Vec3 c{0, 0, 0};
+    int n = 0;
+    for (int l = m.faceFirstLoop(0); l < m.faceFirstLoop(0) + m.faceLoopCount(0); l++)
+      for (int k = m.loopFirst(l); k < m.loopFirst(l) + m.loopCount(l); k++)
+        c = c + m.vertexPoint(m.edgeStart(m.coedgeEdge(k))), n++;
+    CHECK(oracle.classify(0, (1.0 / n) * c).side == PointClass::on);
+  }
+}

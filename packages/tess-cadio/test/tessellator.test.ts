@@ -8,8 +8,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD, VERSION }
-  from '../src/index.ts';
+import { CadioTessellator, EXPECTED_HEAD, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD,
+  VERSION } from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses } from '../src/causes.ts';
 import { ANALYSES, MODELS as TESS_MODELS, affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap,
   cuspPocket_, fold, halfCap, knotAtEnd,
@@ -168,9 +168,9 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
     assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
     // bsplineApexHole's at 1e-3 mm and 0.1 rad: refused, none in a pole's fan (kept: past the deflection, the
-    // default would fail the face, maxDeviationFactor).
+    // default would fail the face, maxDeviationFactor; its fan folding there, failFoldedFans too).
     const keeping = new CadioTessellator();
-    await keeping.init({ maxDeviationFactor: 0 });
+    await keeping.init({ maxDeviationFactor: 0, failFoldedFans: false });
     const ro = await keeping.tessellate({ ...req('cube'), data: new Uint8Array(bsplineApexHole().finish().buffer),
       linearDeflection: 1e-3, angularDeflection: 0.1 });
     const o = ro.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
@@ -182,11 +182,12 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
 test('init({maxDeviationFactor}): a face left farther from its surface than that x the deflection fails; 0 never',
   { skip }, async () => {
     // bsplineApexHole at 1e-3 mm and 0.1 rad keeps refused triangles: a factor of 1e-6 fails its face (the failed
-    // faces' diagnostic, no triangles for it), 0 keeps it as meshed.
+    // faces' diagnostic, no triangles for it), 0 keeps it as meshed (its apex's fan folding there: failFoldedFans
+    // off).
     const data = new Uint8Array(bsplineApexHole().finish().buffer);
     const run = async (factor: number) => {
       const t = new CadioTessellator();
-      await t.init({ maxDeviationFactor: factor });
+      await t.init({ maxDeviationFactor: factor, failFoldedFans: false });
       return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
     };
     const strict = await run(1e-6), never = await run(0);
@@ -569,6 +570,39 @@ test('init({countInsertions}): the points inserted by what queued them, said; th
     assert.equal(sp.get('deviation sampled'), 0), assert.equal(sp.get('deviation bounded'), 0);
   });
 
+test('init({countExpected}): each meshed face\'s triangles as its size metric expects them beside its mesh\'s, 3 '
+  + 'numbers a face; the same mesh; nothing without it', { skip }, async () => {
+  const run = async (countExpected: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ countExpected });
+    const r = await t.tessellate(req('spheres'));
+    const said = r.diagnostics.filter((x) => x.message.startsWith(EXPECTED_HEAD));
+    return { r, said };
+  };
+  const on = await run(true), off = await run(false);
+  assert.equal(off.said.length, 0);
+  assert.equal(on.said.length, 1);
+  const rows = JSON.parse(on.said[0]!.message.slice(EXPECTED_HEAD.length)) as number[];
+  assert.equal(rows.length, 3 * on.r.faces.length);
+  // (In the faces' order; the fixture's faces have no ids.)
+  for (let k = 0; k < rows.length; k += 3) {
+    assert.ok(rows[k + 1]! > 0);
+    assert.equal(rows[k + 2], on.r.faces[k / 3]!.count / 3);
+  }
+  assert.deepEqual([...on.r.indices], [...off.r.indices]);
+  // Faces failed at their point cap still there, with 0 meshed.
+  const t = new CadioTessellator();
+  await t.init({ countExpected: true, maxPointsPerFace: 50 });
+  const capped = await t.tessellate(req('spheres'));
+  const failed = failedCauses(capped);
+  assert.ok(failed.size > 0 && [...failed.values()].every((c) => /point cap/.test(c)), JSON.stringify([...failed]));
+  const said = capped.diagnostics.find((x) => x.message.startsWith(EXPECTED_HEAD));
+  const cappedRows = JSON.parse(said!.message.slice(EXPECTED_HEAD.length)) as number[];
+  assert.equal(cappedRows.length, rows.length);
+  for (let k = 0; k < cappedRows.length; k += 3) assert.ok(cappedRows[k + 1]! > 0);
+  assert.ok(cappedRows.some((x, k) => k % 3 === 2 && x === 0));
+});
+
 test('a face bounded by holes only (sphereBelt\'s belt between two circles) said in an info diagnostic, meshed as '
   + 'its surface less them; none on a cube', { skip }, async () => {
   const t = new CadioTessellator();
@@ -581,4 +615,21 @@ test('a face bounded by holes only (sphereBelt\'s belt between two circles) said
     /^1 faces bounded by holes only, meshed as their surface's natural extent less them: faces \d+$/);
   assert.equal(belt[0]!.severity, 'info');
   assert.equal((await said(new Uint8Array(MODELS.cube().finish().buffer))).length, 0);
+});
+
+test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over itself fails, said so; off, meshed',
+  { skip }, async () => {
+  // (bsplineApexHole at 1e-3 mm and 0.1 rad: its apex's fan folds, 2 edges there used twice the same way welded.)
+  const data = new Uint8Array(bsplineApexHole().finish().buffer);
+  const run = async (failFoldedFans?: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ maxDeviationFactor: 0, ...(failFoldedFans === undefined ? {} : { failFoldedFans }) });
+    return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
+  };
+  const byDefault = failedCauses(await run()), off = await run(false);
+  assert.equal(byDefault.size, 1);
+  assert.match([...byDefault.values()][0]!,
+    /^noConvergence: a pole's fan folds over itself: \d+ edges? used twice the same way$/);
+  assert.equal(failedCauses(off).size, 0);
+  assert.ok(off.indices.length > 0);
 });

@@ -188,6 +188,10 @@ public:
   }
 
   double edgeSpacing() const override { return spacing_; }
+  double gridDensity(Vec2 p) const override {
+    const Metric2 g = interpolated(p);
+    return std::sqrt(std::max(0.0, g.a * g.c - g.b * g.b));
+  }
   void setCreases(std::vector<Crease> lines) override { creases_ = std::move(lines); }
 
   bool bounded() const override { return (bounded_ || kind_ != Kind::none) && !sampledAny_; }
