@@ -705,6 +705,110 @@ TEST_CASE("classify2: on a cone, past its apex's pole line, the other nappe, out
   CHECK(classify2(face, {2, 0}, per, 1e-9, st) == Side::on);
 }
 
+TEST_CASE("classify2: a cone face whose loop has a piece a period on: closed along the apex without winding") {
+  // nist_ctc_04's face #2286: up u = 4 pi (the p-curve as given, two periods on), back along v = 3 from 2 pi to pi,
+  // down u = pi to the apex at v = 0. Closed straight from (pi, 0) to (4 pi, 0) the loop winds a period and the face is
+  // taken for a band; closed to (2 pi, 0), the copy that keeps it from winding, it is the half cone u in [pi, 2 pi].
+  std::vector<Loop2> face{Loop2{{{line({4 * pi, 0}, {4 * pi, 3}), {0, 1}, false},
+    {line({2 * pi, 3}, {pi, 3}), {0, 1}, false}, {line({pi, 3}, {pi, 0}), {0, 1}, false}}}};
+  Periods per{2 * pi, 0, {}, {0}};
+  Status st;
+  CHECK(classify2(face, {4, 1.5}, per, 1e-9, st) == Side::in);
+  CHECK(classify2(face, {4 + 2 * pi, 1.5}, per, 1e-9, st) == Side::in);
+  for (Vec2 p : {Vec2{0.368, 1.5}, Vec2{0.368, 27.4}, Vec2{4, 27}, Vec2{4, 4}, Vec2{4, -1}})
+    CHECK(classify2(face, p, per, 1e-9, st) == Side::out);
+}
+
+TEST_CASE("classify2: a whole sphere's loop, down one seam, across a pole, up the other, back: all in") {
+  // trj4_k1_top's face #7409 (less its hole): u = 0 down, the south pole from 0 to 2 pi, u = 2 pi up, the north pole
+  // back. Its closures cancel; taken off one each, the loop would bound nothing.
+  const double h = pi / 2;
+  std::vector<Loop2> face{Loop2{{{line({0, h}, {0, -h}), {0, 1}, false}, {line({2 * pi, -h}, {2 * pi, h}), {0, 1},
+    false}}}};
+  Periods per{2 * pi, 0, {}, {-h, h}};
+  Status st;
+  for (Vec2 p : {Vec2{1, 0}, Vec2{6.2165, -0.628}, Vec2{4.77, -0.314}, Vec2{3, 1.5}})
+    CHECK(classify2(face, p, per, 1e-9, st) == Side::in);
+}
+
+TEST_CASE("classify2: a sliver's loop, there and back along one line: out everywhere off it") {
+  // Kuka.step #4099's cone face #28094: a spline and an arc within tolerance, their p-curves on one line v = c. Every
+  // ray from off it meets both pieces at once with opposite verdicts; the first found decided, so points far away
+  // came out in.
+  const double c = -0.397197677;
+  std::vector<Loop2> face{Loop2{{{line({3.069410352, c}, {3.213774955, c}), {0, 1}, false},
+    {line({3.213774955, c}, {3.069410352, c}), {0, 1}, false}}}};
+  for (bool pole : {false, true}) {
+    Periods per{2 * pi, 0, {}, {}};
+    if (pole) per.poleV.push_back(-50);
+    Status st;
+    for (double v : {1.0, 10.0, 50.0, 100.0, 1000.0, 13289.2, -1.0, -10.0})
+      for (double u : {3.698125, 3.1, 0.5})
+        CHECK(classify2(face, {u, v}, per, 2.4e-6, st) == Side::out);
+    CHECK(classify2(face, {3.1, c}, per, 2.4e-6, st) == Side::on);
+  }
+}
+
+TEST_CASE("classify2: a band narrower than the tolerance: its sides told apart by distance, points off it out") {
+  // bug27453_165-174_piattello's plane face #517: three quarters of a ring from radius 2.5 to 2.501, its tolerance
+  // 0.0508. A ray meets the two arcs 0.001 apart, nearer than the tolerance but not a tie: the nearest decides, and
+  // every point off it is out, the rays converging (taken as one, the arcs were passed and the centre came out in).
+  const double r0 = 2.5, r1 = 2.501;
+  auto arc = [](double r) {
+    keep.push_back(std::make_unique<Arc2>(Vec2{0, 0}, r));
+    return keep.back().get();
+  };
+  std::vector<Loop2> face{Loop2{{{line({r0, 0}, {r1, 0}), {0, 1}, false},
+    {arc(r1), {0, 1.5 * pi}, false}, {line({0, -r1}, {0, -r0}), {0, 1}, false}, {arc(r0), {0, 1.5 * pi}, true}}}};
+  Periods per{0, 0, {}, {}};
+  for (Vec2 p : {Vec2{0, 0}, Vec2{0, 3}, Vec2{0, 2}, Vec2{-3, -3}, Vec2{1.3, 2.3}, Vec2{1.77, -1.77}}) {
+    Status st;
+    CHECK(classify2(face, p, per, 0.0508, st) == Side::out);
+    CHECK(st == Status::ok);
+  }
+}
+
+TEST_CASE("classify2: a slit into a square, there and back: in on both sides of it") {
+  // The square [0, 4]^2 with a cut from its bottom side's middle up to (2, 2) and back: the region around the cut.
+  std::vector<Loop2> face{Loop2{{{line({0, 0}, {2, 0}), {0, 1}, false}, {line({2, 0}, {2, 2}), {0, 1}, false},
+    {line({2, 2}, {2, 0}), {0, 1}, false}, {line({2, 0}, {4, 0}), {0, 1}, false},
+    {line({4, 0}, {4, 4}), {0, 1}, false}, {line({4, 4}, {0, 4}), {0, 1}, false},
+    {line({0, 4}, {0, 0}), {0, 1}, false}}}};
+  Periods per{0, 0, {}, {}};
+  Status st;
+  for (Vec2 p : {Vec2{1.9, 1}, Vec2{2.1, 1}, Vec2{1.5, 1.5}, Vec2{2.5, 0.5}, Vec2{1, 3}})
+    CHECK(classify2(face, p, per, 1e-9, st) == Side::in);
+  for (Vec2 p : {Vec2{5, 1}, Vec2{2, -1}, Vec2{-1, 2}}) CHECK(classify2(face, p, per, 1e-9, st) == Side::out);
+}
+
+TEST_CASE("classify2: a ray through a self-crossing loop's crossing decides nothing") {
+  // A bowtie, and below it a hole (clockwise) from x 0.5 to 1.5: from (1, 3) the first ray, down, meets both diagonals
+  // at their crossing (1, 1), with opposite verdicts; they don't run along each other, so another ray decides: out.
+  // Taking the first found makes it in, and so does passing them as a sliver's (the hole's top side next, p on its
+  // left).
+  std::vector<Loop2> face{Loop2{{{line({0, 0}, {2, 2}), {0, 1}, false}, {line({2, 2}, {2, 0}), {0, 1}, false},
+    {line({2, 0}, {0, 2}), {0, 1}, false}, {line({0, 2}, {0, 0}), {0, 1}, false}}},
+    Loop2{{{line({0.5, -2}, {1.5, -2}), {0, 1}, false}, {line({1.5, -2}, {1.5, -3}), {0, 1}, false},
+    {line({1.5, -3}, {0.5, -3}), {0, 1}, false}, {line({0.5, -3}, {0.5, -2}), {0, 1}, false}}}};
+  Status st;
+  CHECK(classify2(face, {1, 3}, Periods{0, 0, {}, {}}, 1e-9, st) == Side::out);
+}
+
+TEST_CASE("classify2: on a pole its face's boundary reaches, at any u: the pole one point in space") {
+  // wgehaeuse_surface's sphere face #60155: up to the north pole at u 6.36, a degenerate edge along it from 7.43 back
+  // to 5.28 (over the closure from 6.36 to 7.43), down. At u 7.24 a point just under the pole is out of the face, but
+  // the pole itself is on its boundary.
+  const double h = pi / 2;
+  std::vector<Loop2> face{Loop2{{{line({5.206, -0.036}, {6.283, 0.016}), {0, 1}, false},
+    {line({6.283, 0.016}, {6.358, h}), {0, 1}, false}, {line({7.431, h}, {5.276, h}), {0, 1}, false},
+    {line({5.276, h}, {5.206, -0.036}), {0, 1}, false}}}};
+  Periods per{2 * pi, 0, {}, {-h, h}};
+  Status st;
+  for (double u : {7.242, 6.991, 0.5, 3.0, 5.5}) CHECK(classify2(face, {u, h}, per, 0.0122, st) == Side::on);
+  CHECK(classify2(face, {3, -h}, per, 0.0122, st) == Side::out);
+  CHECK(classify2(face, {5.8, 0.8}, per, 0.0122, st) == Side::in);
+}
+
 TEST_CASE("classify2: a point no ray meets anything from is out") {
   // A unit square 1000 away subtends a milliradian: none of the rays' directions meets it.
   std::vector<Loop2> far{polygon({{1000, 1000}, {1001, 1000}, {1001, 1001}, {1000, 1001}})};

@@ -1,8 +1,8 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 15.3; speed 5080 on 1 thread, 57177 on 18
-517 files, 3258 B-rep parts, 1259 solids, 1317 closed shells, 3927 faces asked; 1898 s in the parts, 392 s in all
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 12.3; speed 4900 on 1 thread, 48439 on 18
+517 files, 3258 B-rep parts, 1259 solids, 1317 closed shells, 3927 faces asked; 1950 s in the parts, 477 s in all
 
 ## Rays and volume, shell by shell, by depth
-  1067  agree: outside, depth 0
+  1030  agree: outside, depth 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 shell 0 of body 0 (29 faces): V 78179.4 +- 0.00021
       gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp #41 shell 0 of body 0 (6 faces): V 1000.00 +- 1.1e-11
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 shell 0 of body 0 (45 faces): V 0.544108 +- 2.1e-10
@@ -116,7 +116,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp #1415 shell 0 of body 0 (7 faces): V 3436.12 +- 0.0000015
       gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp #1183 shell 0 of body 0 (16 faces): V 96858.4 +- 0.0000087
       gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp #611 shell 0 of body 0 (18 faces): V 530575 +- 0.000030
-      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 shell 0 of body 0 (245 faces): V 43993.3 +- 0.000050
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 shell 0 of body 0 (86 faces): V 33652.9 +- 0.0025
       gkv311-opencascade-dataset/step/PRO10363.stp #169 shell 0 of body 0 (6 faces): V 800000 +- 1.5e-8
       gkv311-opencascade-dataset/step/PRO10363.stp #169 shell 0 of body 2 (2 faces): V 523599 +- 8.7e-7
@@ -236,8 +235,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3145 shell 0 of body 0 (19 faces): V 17378.8 +- 2.4e-10
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3142 shell 0 of body 0 (4 faces): V 22244.6 +- 1.1e-8
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3141 shell 0 of body 0 (8 faces): V 23396.9 +- 0.000017
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 shell 0 of body 0 (10 faces): V 2405.18 +- 0.0000088
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 shell 0 of body 0 (6 faces): V 2359.79 +- 0.0000051
       gkv311-opencascade-dataset/step/bug28454_directives.stp #4830 shell 0 of body 0 (6 faces): V 1.00000 +- 1.3e-14
       gkv311-opencascade-dataset/step/bug28454_directives.stp #4486 shell 0 of body 0 (6 faces): V 2.00000 +- 2.5e-14
       gkv311-opencascade-dataset/step/bug28454_directives.stp #4142 shell 0 of body 0 (6 faces): V 1.00000 +- 1.3e-14
@@ -294,8 +291,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj9_io1-sy-214.stp #2228 shell 0 of body 0 (26 faces): V 75170.0 +- 0.00027
       gkv311-opencascade-dataset/step/trj6_c1-ug-214.stp #23 shell 0 of body 0 (6 faces): V 16387.1 +- 1.8e-10
       gkv311-opencascade-dataset/step/xr1-db-214_7.stp #258 shell 0 of body 0 (4 faces): V 15708.0 +- 0.000034
-      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 0 (229 faces): V 601.581 +- 0.0000011
-      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 1 (229 faces): V 601.581 +- 0.0000010
       gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #566 shell 0 of body 0 (3 faces): V 15707.9 +- 2.1e-10
       gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #1409 shell 0 of body 0 (12 faces): V 96858.4 +- 4.6e-7
       gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #301 shell 0 of body 0 (5 faces): V 3436.11 +- 5.1e-8
@@ -379,7 +374,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_k1-al-214.stp #5477 shell 0 of body 0 (39 faces): V 7936.17 +- 2.9e-10
       gkv311-opencascade-dataset/step/trj9_io1-id-214.stp #38 shell 0 of body 0 (17 faces): V 78179.4 +- 0.000044
       gkv311-opencascade-dataset/step/trj6_c1-tc-214.stp #219 shell 0 of body 0 (6 faces): V 1.00000e+6 +- 1.1e-8
-      gkv311-opencascade-dataset/step/bug31685_2.stp #17 shell 0 of body 0 (147 faces): V 3.32355e+6 +- 0.0052
       gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 shell 0 of body 0 (247 faces): V 503633 +- 0.00048
       gkv311-opencascade-dataset/step/bug22821_test.step #10 shell 0 of body 0 (6 faces): V 0.00502000 +- 5.9e-17
       gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 shell 0 of body 0 (12 faces): V 530575 +- 0.000022
@@ -520,7 +514,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/2.stp #317 shell 0 of body 0 (6 faces): V 15179.2 +- 3.0e-8
       gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 shell 0 of body 0 (44 faces): V 8757.41 +- 0.000018
       gkv311-opencascade-dataset/step/trj6_k1-ct-214.stp #2176 shell 0 of body 0 (62 faces): V 8916.35 +- 0.0000076
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 0 of body 0 (2643 faces): V 934334 +- 0.00039
       gkv311-opencascade-dataset/step/trj2_io1-tc-214.stp #979 shell 0 of body 0 (29 faces): V 78179.6 +- 0.00020
       gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949 shell 0 of body 0 (6 faces): V 1.00000e+6 +- 1.1e-8
       gkv311-opencascade-dataset/step/tr8_ha1_ct.stp #202 shell 0 of body 0 (6 faces): V 1.00000e+6 +- 1.1e-8
@@ -584,13 +577,11 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #79 shell 0 of body 0 (19 faces): V 17941.3 +- 2.3e-10
       gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #78 shell 0 of body 0 (19 faces): V 296195 +- 4.5e-9
       gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #77 shell 0 of body 0 (3 faces): V 22244.6 +- 0.000066
-      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 shell 0 of body 0 (292 faces): V 271424 +- 0.012
       gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp #106 shell 0 of body 0 (671 faces): V 4.71014e+7 +- 0.011
       gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_04_asme1_ap242.stp #16167 shell 0 of body 0 (517 faces): V 1.75191e+7 +- 0.0032
       gkv311-opencascade-dataset/step/nist/bug29531_nist_ctc_02_asme1_ap242-2.stp #106 shell 0 of body 0 (671 faces): V 4.71014e+7 +- 0.011
       gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_01_asme1_ap242.stp #5180 shell 0 of body 0 (151 faces): V 1.46428e+7 +- 0.0025
       gkv311-opencascade-dataset/step/nist/bug30616_nist_ctc_01_asme1_ap242.stp #643 shell 0 of body 0 (117 faces): V 1.46448e+7 +- 0.0023
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 shell 0 of body 0 (144 faces): V 3.33693e+6 +- 0.0083
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp #1341 shell 0 of body 0 (635 faces): V 4.71069e+7 +- 0.013
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 shell 0 of body 0 (247 faces): V 503633 +- 0.00048
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_01_asme1_ap242-e1.stp #643 shell 0 of body 0 (117 faces): V 1.46448e+7 +- 0.0023
@@ -598,7 +589,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_08_asme1_ap242-e3.stp #1781 shell 0 of body 0 (270 faces): V 503592 +- 0.00032
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_10_asme1_ap242-e2.stp #17967 shell 0 of body 0 (264 faces): V 188318 +- 0.00027
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_09_asme1_ap242-e3.stp #4622 shell 0 of body 0 (125 faces): V 136445 +- 0.0085
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 shell 0 of body 0 (304 faces): V 1.72625e+6 +- 0.00081
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_03_asme1_ap242-e2.stp #922 shell 0 of body 0 (120 faces): V 332123 +- 0.0019
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_09_asme1_ap242-e1.stp #6016 shell 0 of body 0 (158 faces): V 136445 +- 0.0010
       nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_03_asme1_rc.stp #13 shell 0 of body 0 (139 faces): V 331938 +- 0.0027
@@ -607,15 +597,10 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces): V 1.75191e+7 +- 0.0029
       nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 shell 0 of body 0 (139 faces): V 1.46428e+7 +- 0.0026
       nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-904 rev c.stp #116 shell 0 of body 0 (117 faces): V 22869.9 +- 0.0000058
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 shell 0 of body 0 (89 faces): V 22963.4 +- 0.0000058
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 shell 0 of body 0 (9 faces): V 272.985 +- 8.2e-7
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 shell 0 of body 0 (9 faces): V 272.985 +- 8.2e-7
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 shell 0 of body 0 (89 faces): V 22963.4 +- 0.0000058
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_08_asme1_rc.stp #7969 shell 0 of body 0 (270 faces): V 503592 +- 0.00035
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_09_asme1_rd.stp #5785 shell 0 of body 0 (158 faces): V 136445 +- 0.0010
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp #199 shell 0 of body 0 (6 faces): V 5129.39 +- 0.000068
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 shell 0 of body 0 (214 faces): V 188318 +- 0.00027
-      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces): V 3.32355e+6 +- 0.0081
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces): V 1.72625e+6 +- 0.0035
       gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/mainbodyback.stp #730 shell 0 of body 0 (20 faces): V 69512.0 +- 5.2e-8
       gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/footfront.stp #512 shell 0 of body 0 (13 faces): V 2403.68 +- 2.5e-10
@@ -638,7 +623,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/foot_back_prt.stp #321 shell 0 of body 0 (9 faces): V 2358.29 +- 4.1e-10
       gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/foot_front_prt.stp #499 shell 0 of body 0 (13 faces): V 2403.68 +- 0.0000038
       gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/tail_turbine_prt.stp #889 shell 0 of body 0 (20 faces): V 296638 +- 5.8e-9
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 shell 0 of body 0 (156 faces): V 1.27252e+7 +- 0.0063
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 shell 0 of body 0 (487 faces): V 4.71012e+7 +- 0.018
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 shell 0 of body 0 (139 faces): V 331938 +- 0.0027
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 shell 0 of body 0 (405 faces): V 1.75189e+7 +- 13
@@ -652,13 +636,11 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces): V 1.75191e+7 +- 0.0029
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 shell 0 of body 0 (214 faces): V 188318 +- 0.00027
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 shell 0 of body 0 (139 faces): V 1.46428e+7 +- 0.0026
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces): V 3.32355e+6 +- 0.0081
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces): V 1.72625e+6 +- 0.0035
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_08_asme1_rc.stp #7969 shell 0 of body 0 (270 faces): V 503592 +- 0.00035
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_09_asme1_rd.stp #5785 shell 0 of body 0 (158 faces): V 136445 +- 0.0010
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp #199 shell 0 of body 0 (6 faces): V 5129.39 +- 0.000068
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 shell 0 of body 0 (214 faces): V 188318 +- 0.00027
-      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces): V 3.32355e+6 +- 0.0081
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces): V 1.72625e+6 +- 0.0035
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 shell 0 of body 0 (139 faces): V 331938 +- 0.0027
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_05_asme1_rd.stp #6603 shell 0 of body 0 (208 faces): V 1.26949e+7 +- 0.0065
@@ -760,7 +742,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 shell 0 of body 0 (156 faces): V NaN +- Infinity
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 shell 0 of body 0 (31 faces): V NaN +- Infinity
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 shell 0 of body 0 (22 faces): V NaN +- Infinity
-  60  one unknown: rays unknown, volume outside, depth 0
+  58  one unknown: rays unknown, volume outside, depth 0
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 shell 0 of body 0 (20 faces): V 4.33976e+6 +- 6.2e-8
       gkv311-opencascade-dataset/step/trj3_s1-ac-214.stp #3895 shell 0 of body 0 (20 faces): V 7.49911e+9 +- 0.00011
       gkv311-opencascade-dataset/step/PRO10363.stp #169 shell 0 of body 1 (4 faces): V 115659 +- 0.000060
@@ -774,7 +756,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #74640 shell 0 of body 0 (35 faces): V 6813.73 +- 0.0000051
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #239746 shell 0 of body 0 (48 faces): V 8699.20 +- 0.00011
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 shell 0 of body 0 (517 faces): V 1.75189e+7 +- 0.000041
-      gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 shell 0 of body 0 (14 faces): V 1.65659 +- 3.2e-13
       gkv311-opencascade-dataset/step/OCC29.stp #5308 shell 0 of body 0 (163 faces): V 7645.08 +- 0.0000064
       gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #4195 shell 0 of body 0 (20 faces): V 296628 +- 4.1e-9
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 9 (9 faces): V 290502 +- 1.3e-8
@@ -804,13 +785,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #5744 shell 0 of body 0 (13 faces): V 2403.68 +- 0.0000017
       gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #5298 shell 0 of body 0 (13 faces): V 2403.68 +- 0.0000017
       gkv311-opencascade-dataset/step/trj5_s1-ac-214.stp #3236 shell 0 of body 0 (20 faces): V 264828 +- 3.7e-9
-      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 shell 0 of body 0 (187 faces): V 3.32355e+6 +- 0.0035
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_04_asme1_ap242-e1.stp #18027 shell 0 of body 0 (483 faces): V 1.75198e+7 +- 0.0028
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 shell 0 of body 0 (256 faces): V 188313 +- 0.00027
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 shell 0 of body 0 (42 faces): V 5135.05 +- 0.000072
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 shell 0 of body 0 (304 faces): V 1.72625e+6 +- 0.00080
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 shell 0 of body 0 (12 faces): V 23636.8 +- 1.2e-7
-  35  agree: outside, depth 1
+  34  agree: outside, depth 1
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 1 of body 0 (6 faces): V 3000.00 +- 4.0e-10
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 2 of body 0 (6 faces): V 16000.0 +- 6.5e-10
       gkv311-opencascade-dataset/step/tr8_bv1_tc.stp #464 shell 1 of body 0 (6 faces): V 1.57316e+6 +- 3.7e-8
@@ -825,6 +805,24 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 5 of body 0 (4 faces): V 7.01002 +- 1.1e-8
       gkv311-opencascade-dataset/step/tr8_bv1_db.stp #949 shell 1 of body 0 (6 faces): V 3000.00 +- 4.0e-10
       gkv311-opencascade-dataset/step/tr8_bv1_db.stp #949 shell 2 of body 0 (6 faces): V 16000.0 +- 6.5e-10
+  24  one unknown: rays outside, volume unknown (a face's measure flagged: orientation), depth 0
+      gkv311-opencascade-dataset/step/bug30790.step #2448 shell 0 of body 0 (105 faces): V 21.9844 +- 1.6e-10
+      gkv311-opencascade-dataset/step/bug30790.step #2445 shell 0 of body 0 (105 faces): V 21.9860 +- 1.4e-8
+      gkv311-opencascade-dataset/step/bug30790.step #2442 shell 0 of body 0 (105 faces): V 21.9882 +- 1.4e-8
+      gkv311-opencascade-dataset/step/bug30790.step #2439 shell 0 of body 0 (105 faces): V 21.9905 +- 1.5e-8
+      gkv311-opencascade-dataset/step/bug30790.step #2436 shell 0 of body 0 (105 faces): V 21.9921 +- 2.3e-10
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 shell 0 of body 0 (245 faces): V 43993.3 +- 0.000050
+      gkv311-opencascade-dataset/step/2.stp #322 shell 0 of body 0 (65 faces): V -1.64908e+6 +- 0.00087
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1659 shell 0 of body 0 (68 faces): V 45018.9 +- 0.000069
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1398 shell 0 of body 0 (73 faces): V 34620.0 +- 0.0000010
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1362 shell 0 of body 0 (26 faces): V 24485.3 +- 0.000044
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1209 shell 0 of body 0 (10 faces): V 83.6243 +- 0.0000014
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 shell 0 of body 0 (292 faces): V 271424 +- 0.012
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 shell 0 of body 0 (89 faces): V 22963.4 +- 0.0000058
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 shell 0 of body 0 (9 faces): V 272.985 +- 8.2e-7
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 shell 0 of body 0 (9 faces): V 272.985 +- 8.2e-7
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 shell 0 of body 0 (89 faces): V 22963.4 +- 0.0000058
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 shell 0 of body 0 (156 faces): V 1.27252e+7 +- 0.0063
   21  agree: inside, depth 1
       gkv311-opencascade-dataset/step/brep_wv2.stp #949 shell 1 of body 0 (6 faces): V -3000.00 +- 4.0e-10
       gkv311-opencascade-dataset/step/brep_wv2.stp #949 shell 2 of body 0 (6 faces): V -16000.0 +- 6.5e-10
@@ -868,12 +866,24 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #3023 shell 0 of body 0 (5 faces): V NaN +- Infinity
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2781 shell 0 of body 0 (81 faces): V NaN +- Infinity
       gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1781 shell 0 of body 0 (5 faces): V NaN +- Infinity
-  10  agree: outside, depth -1
+  11  agree: outside, depth -1
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 1 of body 0 (13 faces): V 75.7185 +- 2.8e-10
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 2 of body 0 (8 faces): V 36.9580 +- 1.2e-10
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 3 of body 0 (11 faces): V 78.6773 +- 2.9e-10
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 4 of body 0 (14 faces): V 72.6171 +- 2.0e-10
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 5 of body 0 (14 faces): V 70.6143 +- 2.2e-10
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 7 of body 0 (4 faces): V 2.49233 +- 5.7e-8
+  10  one unknown: rays outside, volume unknown (a face's measure flagged: sphereSide), depth 0
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 shell 0 of body 0 (10 faces): V 2405.18 +- 0.0000088
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 shell 0 of body 0 (6 faces): V 2359.79 +- 0.0000051
+      gkv311-opencascade-dataset/step/bug31685_2.stp #17 shell 0 of body 0 (147 faces): V 3.32355e+6 +- 0.0052
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 0 of body 0 (2643 faces): V 934334 +- 0.00039
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1486 shell 0 of body 0 (2 faces): V 32.9731 +- 4.5e-11
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1377 shell 0 of body 0 (2 faces): V 32.5720 +- 4.5e-10
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1170 shell 0 of body 0 (2 faces): V 112.940 +- 5.9e-9
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces): V 3.32355e+6 +- 0.0081
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces): V 3.32355e+6 +- 0.0081
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces): V 3.32355e+6 +- 0.0081
   9  agree: inside, depth 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 shell 0 of body 0 (58 faces): V -8916.32 +- 0.0000088
       gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 shell 0 of body 0 (58 faces): V -8916.32 +- 0.0000088
@@ -890,21 +900,30 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 15 of body 0 (4 faces): V 3.74635 +- 6.3e-8
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 23 of body 0 (4 faces): V 3.74635 +- 9.1e-8
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 24 of body 0 (4 faces): V 3.74635 +- 1.3e-7
-  3  disagree: rays outside, volume inside, depth 0
+  5  one unknown: rays outside, volume unknown (a face's measure flagged: offSurface), depth 0
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 0 (229 faces): V 601.581 +- 0.0000011
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 1 (229 faces): V 601.581 +- 0.0000010
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 10 (11 faces): V -9323.90 +- 0.0000014
       gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 12 (11 faces): V -9323.90 +- 0.0000014
-      gkv311-opencascade-dataset/step/2.stp #322 shell 0 of body 0 (65 faces): V -1.64908e+6 +- 0.00087
-  2  one unknown: rays mixed, volume outside, depth 0
-      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 3 (3 faces): V 261799 +- 0.00073
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #561 shell 0 of body 0 (5 faces): V 22244.6 +- 0.00026
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 shell 0 of body 0 (304 faces): V 1.72625e+6 +- 0.00081
   2  one unknown: rays unknown, volume unknown (a face's moments failed), depth -1
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 shell 0 of body 0 (6 faces): V NaN +- Infinity
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 shell 1 of body 0 (70 faces): V NaN +- Infinity
+  1  one unknown: rays mixed, volume unknown (a face's measure flagged: orientation), depth 0
+      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 3 (3 faces): V 261799 +- 0.00073
+  1  one unknown: rays unknown, volume unknown (a face's measure flagged: offSurface, orientation), depth 0
+      gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 shell 0 of body 0 (14 faces): V 1.65659 +- 3.2e-13
   1  one unknown: rays inside, volume unknown (a face's moments failed), depth 0
       gkv311-opencascade-dataset/step/bug32239.STEP #83837 shell 0 of body 0 (7 faces): V NaN +- Infinity
+  1  one unknown: rays outside, volume unknown (a face's measure flagged: orientation, winds), depth 0
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 shell 0 of body 0 (16 faces): V 47320.2 +- 0.0012
+  1  one unknown: rays unknown, volume unknown (a face's measure flagged: offSurface), depth 0
+      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 shell 0 of body 0 (187 faces): V 3.32355e+6 +- 0.0035
+  1  one unknown: rays outside, volume unknown (a face's measure flagged: orientation, sphereSide), depth 0
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 shell 0 of body 0 (144 faces): V 3.33693e+6 +- 0.0083
 
 ## Shells by the rays' verdict and depth
-  1091  outside, depth 0
+  1092  outside, depth 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 shell 0 of body 0 (29 faces)
       gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp #41 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 shell 0 of body 0 (45 faces)
@@ -1709,7 +1728,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 shell 0 of body 0 (12 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 shell 0 of body 0 (31 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 shell 0 of body 0 (22 faces)
-  35  outside, depth 1
+  34  outside, depth 1
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 2 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr8_bv1_tc.stp #464 shell 1 of body 0 (6 faces)
@@ -1746,6 +1765,13 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/tr9_bv1-ec.stp #11 shell 2 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949 shell 2 of body 0 (6 faces)
+  11  outside, depth -1
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 1 of body 0 (13 faces)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 2 of body 0 (8 faces)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 3 of body 0 (11 faces)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 4 of body 0 (14 faces)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 5 of body 0 (14 faces)
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 7 of body 0 (4 faces)
   10  inside, depth 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 shell 0 of body 0 (58 faces)
       gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 shell 0 of body 0 (58 faces)
@@ -1757,27 +1783,20 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp #250 shell 0 of body 0 (58 faces)
       gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp #294 shell 0 of body 0 (58 faces)
       gkv311-opencascade-dataset/step/bug32239.STEP #83837 shell 0 of body 0 (7 faces)
-  10  outside, depth -1
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 1 of body 0 (13 faces)
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 2 of body 0 (8 faces)
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 3 of body 0 (11 faces)
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 4 of body 0 (14 faces)
-      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 5 of body 0 (14 faces)
   6  unknown, depth 1
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 13 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 14 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 15 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 23 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 24 of body 0 (4 faces)
-  2  mixed, depth 0
-      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 3 (3 faces)
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #561 shell 0 of body 0 (5 faces)
   2  unknown, depth -1
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 shell 1 of body 0 (70 faces)
+  1  mixed, depth 0
+      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 3 (3 faces)
 
 ## Shells by the volume's sign and depth
-  1129  outside, depth 0
+  1088  outside, depth 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 shell 0 of body 0 (29 faces)
       gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp #41 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 shell 0 of body 0 (45 faces)
@@ -1891,7 +1910,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp #1415 shell 0 of body 0 (7 faces)
       gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp #1183 shell 0 of body 0 (16 faces)
       gkv311-opencascade-dataset/step/trj6_as1-pe-214.stp #611 shell 0 of body 0 (18 faces)
-      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 shell 0 of body 0 (245 faces)
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 shell 0 of body 0 (86 faces)
       gkv311-opencascade-dataset/step/PRO10363.stp #169 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/PRO10363.stp #169 shell 0 of body 1 (4 faces)
@@ -1929,7 +1947,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_d3-tc-214.stp #270 shell 0 of body 0 (9 faces)
       gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 2 (4 faces)
-      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 3 (3 faces)
       gkv311-opencascade-dataset/step/trj2_io1-ug-203.stp #11 shell 0 of body 0 (17 faces)
       gkv311-opencascade-dataset/step/xr1-tc-rod.stp #109 shell 0 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/trj6_as1-pe-203.stp #2003 shell 0 of body 0 (4 faces)
@@ -2014,7 +2031,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3145 shell 0 of body 0 (19 faces)
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3142 shell 0 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3141 shell 0 of body 0 (8 faces)
-      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 shell 0 of body 0 (10 faces)
       gkv311-opencascade-dataset/step/bug28454_directives.stp #4830 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/bug28454_directives.stp #4486 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/bug28454_directives.stp #4142 shell 0 of body 0 (6 faces)
@@ -2069,13 +2085,10 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug24283_spheres.stp #8 shell 0 of body 0 (1 faces)
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 shell 0 of body 0 (517 faces)
       gkv311-opencascade-dataset/step/tr9_3dt-ct.stp #191 shell 0 of body 0 (6 faces)
-      gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 shell 0 of body 0 (14 faces)
       gkv311-opencascade-dataset/step/trj9_io1-sy-214.stp #2228 shell 0 of body 0 (26 faces)
       gkv311-opencascade-dataset/step/trj6_c1-ug-214.stp #23 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/xr1-db-214_7.stp #258 shell 0 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/OCC29.stp #5308 shell 0 of body 0 (163 faces)
-      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 0 (229 faces)
-      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 1 (229 faces)
       gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #566 shell 0 of body 0 (3 faces)
       gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #1409 shell 0 of body 0 (12 faces)
       gkv311-opencascade-dataset/step/trj7_as1-id-214.stp #301 shell 0 of body 0 (5 faces)
@@ -2166,7 +2179,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_k1-al-214.stp #5477 shell 0 of body 0 (39 faces)
       gkv311-opencascade-dataset/step/trj9_io1-id-214.stp #38 shell 0 of body 0 (17 faces)
       gkv311-opencascade-dataset/step/trj6_c1-tc-214.stp #219 shell 0 of body 0 (6 faces)
-      gkv311-opencascade-dataset/step/bug31685_2.stp #17 shell 0 of body 0 (147 faces)
       gkv311-opencascade-dataset/step/sp7_08_nx-242.stp #2252 shell 0 of body 0 (247 faces)
       gkv311-opencascade-dataset/step/bug22821_test.step #10 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj2_as1-md-214.stp #1214 shell 0 of body 0 (12 faces)
@@ -2316,7 +2328,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/2.stp #317 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj4_k1_top-ug-214.stp #11 shell 0 of body 0 (44 faces)
       gkv311-opencascade-dataset/step/trj6_k1-ct-214.stp #2176 shell 0 of body 0 (62 faces)
-      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 0 of body 0 (2643 faces)
       gkv311-opencascade-dataset/step/trj2_io1-tc-214.stp #979 shell 0 of body 0 (29 faces)
       gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr8_ha1_ct.stp #202 shell 0 of body 0 (6 faces)
@@ -2380,14 +2391,11 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #79 shell 0 of body 0 (19 faces)
       gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #78 shell 0 of body 0 (19 faces)
       gkv311-opencascade-dataset/step/trj4_s1-ug-214.stp #77 shell 0 of body 0 (3 faces)
-      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 shell 0 of body 0 (292 faces)
       gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_02_asme1_ap242-2.stp #106 shell 0 of body 0 (671 faces)
       gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_04_asme1_ap242.stp #16167 shell 0 of body 0 (517 faces)
       gkv311-opencascade-dataset/step/nist/bug29531_nist_ctc_02_asme1_ap242-2.stp #106 shell 0 of body 0 (671 faces)
-      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 shell 0 of body 0 (187 faces)
       gkv311-opencascade-dataset/step/nist/bug26689_nist_ctc_01_asme1_ap242.stp #5180 shell 0 of body 0 (151 faces)
       gkv311-opencascade-dataset/step/nist/bug30616_nist_ctc_01_asme1_ap242.stp #643 shell 0 of body 0 (117 faces)
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 shell 0 of body 0 (144 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_02_asme1_ap242-e2.stp #1341 shell 0 of body 0 (635 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp #1711 shell 0 of body 0 (247 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_01_asme1_ap242-e1.stp #643 shell 0 of body 0 (117 faces)
@@ -2398,7 +2406,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_10_asme1_ap242-e2.stp #3044 shell 0 of body 0 (256 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 shell 0 of body 0 (42 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_09_asme1_ap242-e3.stp #4622 shell 0 of body 0 (125 faces)
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 shell 0 of body 0 (304 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_07_asme1_ap242-e3.stp #11020 shell 0 of body 0 (304 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_03_asme1_ap242-e2.stp #922 shell 0 of body 0 (120 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_09_asme1_ap242-e1.stp #6016 shell 0 of body 0 (158 faces)
@@ -2408,15 +2415,10 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces)
       nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_01_asme1_rd.stp #13 shell 0 of body 0 (139 faces)
       nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-904 rev c.stp #116 shell 0 of body 0 (117 faces)
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 shell 0 of body 0 (89 faces)
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 shell 0 of body 0 (9 faces)
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 shell 0 of body 0 (9 faces)
-      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 shell 0 of body 0 (89 faces)
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_08_asme1_rc.stp #7969 shell 0 of body 0 (270 faces)
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_09_asme1_rd.stp #5785 shell 0 of body 0 (158 faces)
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_11_asme1_rb.stp #199 shell 0 of body 0 (6 faces)
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_10_asme1_rb.stp #6468 shell 0 of body 0 (214 faces)
-      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces)
       nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/mainbodyback.stp #730 shell 0 of body 0 (20 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1-tu-203/footfront.stp #512 shell 0 of body 0 (13 faces)
@@ -2440,7 +2442,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/foot_back_prt.stp #321 shell 0 of body 0 (9 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/foot_front_prt.stp #499 shell 0 of body 0 (13 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1_pe_214/tail_turbine_prt.stp #889 shell 0 of body 0 (20 faces)
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 shell 0 of body 0 (156 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 shell 0 of body 0 (487 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_03_asme1_ap203.stp #154 shell 0 of body 0 (139 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_04_asme1_ap203.stp #559 shell 0 of body 0 (405 faces)
@@ -2454,13 +2455,11 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_10_asme1_rb.stp #6468 shell 0 of body 0 (214 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_01_asme1_rd.stp #13 shell 0 of body 0 (139 faces)
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces)
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_08_asme1_rc.stp #7969 shell 0 of body 0 (270 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_09_asme1_rd.stp #5785 shell 0 of body 0 (158 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_11_asme1_rb.stp #199 shell 0 of body 0 (6 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_10_asme1_rb.stp #6468 shell 0 of body 0 (214 faces)
-      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_03_asme1_rc.stp #13 shell 0 of body 0 (139 faces)
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_05_asme1_rd.stp #6603 shell 0 of body 0 (208 faces)
@@ -2576,7 +2575,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ctc_05_asme1_ap242-e1.stp #1177 shell 0 of body 0 (156 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_BACK.stp #1485 shell 0 of body 0 (31 faces)
       gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/MAINBODY_FRONT.stp #1124 shell 0 of body 0 (22 faces)
-  41  outside, depth 1
+  40  outside, depth 1
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 2 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr8_bv1_tc.stp #464 shell 1 of body 0 (6 faces)
@@ -2591,6 +2590,25 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 5 of body 0 (4 faces)
       gkv311-opencascade-dataset/step/tr8_bv1_db.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr8_bv1_db.stp #949 shell 2 of body 0 (6 faces)
+  25  unknown (a face's measure flagged: orientation), depth 0
+      gkv311-opencascade-dataset/step/bug30790.step #2448 shell 0 of body 0 (105 faces)
+      gkv311-opencascade-dataset/step/bug30790.step #2445 shell 0 of body 0 (105 faces)
+      gkv311-opencascade-dataset/step/bug30790.step #2442 shell 0 of body 0 (105 faces)
+      gkv311-opencascade-dataset/step/bug30790.step #2439 shell 0 of body 0 (105 faces)
+      gkv311-opencascade-dataset/step/bug30790.step #2436 shell 0 of body 0 (105 faces)
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 shell 0 of body 0 (245 faces)
+      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 3 (3 faces)
+      gkv311-opencascade-dataset/step/2.stp #322 shell 0 of body 0 (65 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1659 shell 0 of body 0 (68 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1398 shell 0 of body 0 (73 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1362 shell 0 of body 0 (26 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1209 shell 0 of body 0 (10 faces)
+      gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 shell 0 of body 0 (292 faces)
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-908.stp #19 shell 0 of body 0 (89 faces)
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-905.stp #19 shell 0 of body 0 (9 faces)
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-907.stp #19 shell 0 of body 0 (9 faces)
+      nist-pmi-models/NIST-D2MI-Models/NIST-D2MI-Models/827-9999-906.stp #19 shell 0 of body 0 (89 faces)
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_05_asme1_ap203.stp #91 shell 0 of body 0 (156 faces)
   21  inside, depth 1
       gkv311-opencascade-dataset/step/brep_wv2.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/brep_wv2.stp #949 shell 2 of body 0 (6 faces)
@@ -2613,31 +2631,53 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/tr9_bv1-ec.stp #11 shell 2 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr9_bv1-db.stp #949 shell 2 of body 0 (6 faces)
-  12  inside, depth 0
-      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 1 (2 faces)
-      gkv311-opencascade-dataset/step/trj8_k1-ct-203.stp #2099 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 4 (4 faces)
-      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 10 (11 faces)
-      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 12 (11 faces)
-      gkv311-opencascade-dataset/step/trj8_k1-ct-214.stp #2070 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/trj4_k1_top-ct-203.stp #121 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp #250 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp #294 shell 0 of body 0 (58 faces)
-      gkv311-opencascade-dataset/step/2.stp #322 shell 0 of body 0 (65 faces)
-  10  outside, depth -1
+  11  outside, depth -1
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 1 of body 0 (13 faces)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 2 of body 0 (8 faces)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 3 of body 0 (11 faces)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 4 of body 0 (14 faces)
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799 shell 5 of body 0 (14 faces)
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 7 of body 0 (4 faces)
+  10  unknown (a face's measure flagged: sphereSide), depth 0
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 shell 0 of body 0 (10 faces)
+      gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3139 shell 0 of body 0 (6 faces)
+      gkv311-opencascade-dataset/step/bug31685_2.stp #17 shell 0 of body 0 (147 faces)
+      gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397 shell 0 of body 0 (2643 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1486 shell 0 of body 0 (2 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1377 shell 0 of body 0 (2 faces)
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1170 shell 0 of body 0 (2 faces)
+      nist-pmi-models/NIST_MBE_PMI_FTC_Definitions/NIST_MBE_PMI_FTC_Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces)
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces)
+      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces)
+  9  inside, depth 0
+      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 shell 0 of body 0 (58 faces)
+      gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 shell 0 of body 0 (58 faces)
+      gkv311-opencascade-dataset/step/PRO7071.stp #403 shell 0 of body 1 (2 faces)
+      gkv311-opencascade-dataset/step/trj8_k1-ct-203.stp #2099 shell 0 of body 0 (58 faces)
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 4 (4 faces)
+      gkv311-opencascade-dataset/step/trj8_k1-ct-214.stp #2070 shell 0 of body 0 (58 faces)
+      gkv311-opencascade-dataset/step/trj4_k1_top-ct-203.stp #121 shell 0 of body 0 (58 faces)
+      gkv311-opencascade-dataset/step/trj5_k1-ct-203.stp #250 shell 0 of body 0 (58 faces)
+      gkv311-opencascade-dataset/step/trj5_k1-ct-214.stp #294 shell 0 of body 0 (58 faces)
+  6  unknown (a face's measure flagged: offSurface), depth 0
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 0 (229 faces)
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 1 (229 faces)
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 10 (11 faces)
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 shell 0 of body 12 (11 faces)
+      gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 shell 0 of body 0 (187 faces)
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 shell 0 of body 0 (304 faces)
   2  unknown (a face's moments failed), depth -1
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 shell 1 of body 0 (70 faces)
+  1  unknown (a face's measure flagged: offSurface, orientation), depth 0
+      gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 shell 0 of body 0 (14 faces)
+  1  unknown (a face's measure flagged: orientation, winds), depth 0
+      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 shell 0 of body 0 (16 faces)
+  1  unknown (a face's measure flagged: orientation, sphereSide), depth 0
+      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_stc_06_asme1_ap242-e3.stp #5079 shell 0 of body 0 (144 faces)
 
 ## Shells facing as their depth wants (a root out, a void in), by the rays
-  1091  depth 0: as expected
+  1092  depth 0: as expected
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 shell 0 of body 0 (29 faces)
       gkv311-opencascade-dataset/step/trj12_is1-oc-214.stp #41 shell 0 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 shell 0 of body 0 (45 faces)
@@ -3349,7 +3389,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       occt-import-js/test/testfiles/cax-if/as1-oc-214.stp #62 shell 0 of body 0 (8 faces)
       occt-import-js/test/testfiles/cax-if/io1-cm-214.stp #8840 shell 0 of body 0 (29 faces)
       occt-import-js/test/testfiles/simple-basic-cube/cube.stp #11 shell 0 of body 0 (6 faces)
-  35  depth 1: facing out (want in)
+  34  depth 1: facing out (want in)
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 1 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/brep_wv1.stp #949 shell 2 of body 0 (6 faces)
       gkv311-opencascade-dataset/step/tr8_bv1_tc.stp #464 shell 1 of body 0 (6 faces)
@@ -3400,31 +3440,31 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
 
 ## Faces asked, by side and surface
   1738  outside (plane)
-  814  outside (cylinder)
-  326  outside (bspline)
+  810  outside (cylinder)
+  327  outside (bspline)
   251  unknown (plane)
-  149  unknown (bspline)
-  128  unknown (cylinder)
-  120  outside (sphere)
+  148  unknown (bspline)
+  132  unknown (cylinder)
+  122  outside (sphere)
   86  outside (cone)
   70  inside (plane)
-  56  outside (torus)
-  51  unknown (torus)
+  70  outside (torus)
   42  unknown (cone)
+  37  unknown (torus)
   24  outside (revolution)
   18  outside (extrusion)
   15  unknown (revolution)
-  12  unknown (sphere)
+  11  unknown (sphere)
   7  inside (extrusion)
   7  inside (cylinder)
   6  unknown (extrusion)
-  3  inside (sphere)
+  2  inside (sphere)
   2  inside (cone)
   1  inside (bspline)
   1  inside (torus)
 
 ## Faces unknown, by why
-  402  no offset clear of the shell's other faces
+  401  no offset clear of the shell's other faces
       gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #2256 shell 0 of body 0 (13 faces) face #2071
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 shell 0 of body 0 (110 faces) face #93
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #79 shell 0 of body 0 (19 faces) face #657
@@ -3478,7 +3518,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj3_s1-pe-203.stp #5183 shell 0 of body 0 (20 faces) face #4857
       gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 shell 0 of body 0 (95 faces) face #5707
       gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #2811 shell 0 of body 0 (13 faces) face #2652
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #561 shell 0 of body 0 (5 faces) face #505
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 shell 0 of body 0 (150 faces) face #71124
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 shell 0 of body 0 (150 faces) face #193789
       gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #324164 shell 0 of body 0 (26 faces) face #268483
@@ -3662,12 +3701,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_06_asme1_rd.stp #13 shell 0 of body 0 (144 faces) face #334
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces) face #117
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_02_asme1_rc.stp #20754 shell 0 of body 0 (663 faces) face #20651
-  239  no point well inside the face
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 shell 0 of body 0 (7 faces) face #392813
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392310 shell 0 of body 0 (7 faces) face #392499
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391996 shell 0 of body 0 (7 faces) face #392185
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391682 shell 0 of body 0 (7 faces) face #391871
-      gkv311-opencascade-dataset/step/bug32314_corrupted.stp #391368 shell 0 of body 0 (7 faces) face #391557
+  227  no point well inside the face
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 shell 0 of body 0 (414 faces) face #17
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 shell 0 of body 0 (414 faces) face #12583
       gkv311-opencascade-dataset/step/bug31292.stp #62 shell 0 of body 0 (8 faces) face #65
@@ -3701,7 +3735,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/OCC29.stp #5308 shell 0 of body 0 (163 faces) face #2565
       gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 0 (229 faces) face #9565
       gkv311-opencascade-dataset/step/OCC5099.stp #14343 shell 0 of body 1 (229 faces) face #19557
-      gkv311-opencascade-dataset/step/trj10_ch1-id-chs.stp #127 shell 0 of body 0 (12 faces) face #226
       gkv311-opencascade-dataset/step/pr1sy.stp #293 shell 0 of body 3 (3 faces) face #264
       gkv311-opencascade-dataset/step/trj6_k1-al-214.stp #5529 shell 0 of body 0 (39 faces) face #828
       gkv311-opencascade-dataset/step/bug32596_abc_0_13.step #113 shell 0 of body 0 (99 faces) face #319
@@ -3788,7 +3821,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 with PMI/nist_ctc_02_asme1_ap203.stp #295 shell 0 of body 0 (487 faces) face #1349
       nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces) face #7818
       nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/FTC Definitions/nist_ftc_07_asme1_rd.stp #7830 shell 0 of body 0 (269 faces) face #7818
-  12  rays disagree
+  9  rays disagree
       gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 shell 0 of body 3 (6 faces) face #136
       gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 shell 0 of body 3 (6 faces) face #420
       gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 shell 0 of body 3 (6 faces) face #450
@@ -3797,28 +3830,27 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug32239.STEP #83837 shell 0 of body 0 (7 faces) face #17034
       gkv311-opencascade-dataset/step/bug32239.STEP #83837 shell 0 of body 0 (7 faces) face #5084
       gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 shell 0 of body 0 (292 faces) face #17
-      nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces) face #6601
-      nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/AP203 geometry only/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces) face #6601
-      nist-pmi-models/NIST-FTC-CTC-PMI-CAD-models/NIST-FTC-CTC-PMI-CAD-models/CTC Definitions/nist_ctc_04_asme1_rd.stp #14149 shell 0 of body 0 (517 faces) face #6601
-  1  no usable ray
+  5  no usable ray
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 shell 0 of body 0 (324 faces) face #31683
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 shell 0 of body 0 (324 faces) face #42681
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 shell 0 of body 0 (438 faces) face #28918
+      gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110 shell 0 of body 0 (324 faces) face #32095
+      gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110 shell 0 of body 0 (324 faces) face #43093
 
 ## Parts over 20 s
-  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10: 50.6 s
-  gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11: 92.5 s
-  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794: 25.6 s
-  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5727: 55.2 s
-  gkv311-opencascade-dataset/step/r0901_ec.stp #11: 25.5 s
-  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858: 65.5 s
-  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799: 22.7 s
-  gkv311-opencascade-dataset/step/OCC8228.stp #10: 37.5 s
-  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10: 48.8 s
-  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110: 53.6 s
-  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #23172: 43.3 s
-  gkv311-opencascade-dataset/step/bug26889_export.step #33: 136.9 s
-  gkv311-opencascade-dataset/step/OCC5157.stp #11: 126.0 s
-  gkv311-opencascade-dataset/step/bug31711.stp #11: 66.7 s
-  gkv311-opencascade-dataset/step/bug32239.STEP #116154: 31.1 s
-  gkv311-opencascade-dataset/step/2.stp #342: 167.8 s
-  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397: 31.5 s
-  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10: 83.0 s
+  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10: 54.3 s
+  gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11: 69.1 s
+  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794: 27.5 s
+  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5727: 60.8 s
+  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858: 53.8 s
+  gkv311-opencascade-dataset/step/OCC8228.stp #10: 27.3 s
+  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10: 53.8 s
+  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110: 55.2 s
+  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #23172: 54.9 s
+  gkv311-opencascade-dataset/step/bug26889_export.step #33: 216.0 s
+  gkv311-opencascade-dataset/step/OCC5157.stp #11: 152.4 s
+  gkv311-opencascade-dataset/step/bug31711.stp #11: 75.4 s
+  gkv311-opencascade-dataset/step/bug32239.STEP #116154: 43.7 s
+  gkv311-opencascade-dataset/step/2.stp #342: 157.1 s
+  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397: 57.6 s
+  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10: 73.4 s

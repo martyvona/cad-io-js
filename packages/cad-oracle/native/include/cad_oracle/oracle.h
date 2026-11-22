@@ -272,9 +272,10 @@ public:
   ShellSide shellSide(int shell, int face, double eps);
   /**
    * The closed shells of body `body` (a row of the body table) nested: per shell of the body, in order, the index
-   * (among them) of the smallest shell holding it, -1 for none, -2 where it can't be told (a point on it unknown
-   * against another); an open shell -2. A point of each face-bearing shell, well inside one of its faces, classified
-   * against each other closed shell.
+   * (among them) of the smallest shell holding it, -1 for none, -2 where it can't be told (its points on either side
+   * of another, the two crossing or overlapping; inside and on it, touching it from inside; or a point unknown); an
+   * open shell -2. Points of each shell well inside up to 6 of its faces, spread over them, classified against each
+   * other closed shell: held where all are inside, not where some are outside and none inside.
    */
   std::vector<int> nesting(int body);
 

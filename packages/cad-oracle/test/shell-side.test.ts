@@ -1,8 +1,9 @@
 // Point classification on built solids (cad-brep's test models): RayShellSide and the Oracle's classify, shellSide
 // and nesting against how each was built. A box with a box-shaped void: the outer shell's faces outside, the void's
 // inside (facing into the void), the void nested in the outer; a box built inside out and used as built: inside; one
-// built inside out and used reversed: outside; two lumps side by side in one solid: neither holds the other. With
-// checkSecondRay a second ray agrees. Skipped where the module isn't built (build.sh module).
+// built inside out and used reversed: outside; two lumps side by side in one solid: neither holds the other; two
+// crossing: nesting can't tell. With checkSecondRay a second ray agrees. Skipped where the module isn't built
+// (build.sh module).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +32,8 @@ function sides(ss: RayShellSide, d: BrepData, eps: number): string[][] {
   return shellFaces(d).map((faces, s) => faces.map((f) => ss.side(d, s, f, eps).side));
 }
 
-test('withVoid: the outer shell faces out, the void into the void, the void nested in the outer', { skip }, async () => {
+test('withVoid: the outer shell faces out, the void into the void, the void nested in the outer', { skip },
+  async () => {
   const d = MODELS.withVoid().finish();
   using ss = new RayShellSide(await init());
   const s = sides(ss, d, 1e-3);
@@ -66,6 +68,29 @@ test('two lumps side by side in one solid: neither holds the other', { skip }, a
   using o = new Oracle(await init(), b.finish().buffer);
   assert.deepEqual(o.nesting(0), [-1, -1]);
 });
+
+test('two lumps crossing in one solid: neither held nor apart, -2 for both', { skip }, async () => {
+  // A 2 x 2 x 2 box and a 2 x 1 x 1 one from x 1 to 3 through its side: each has faces inside the other (the long
+  // one's end at x 1, the cube's side at x 2) and outside it, so neither holds the other and nesting can't tell.
+  const b = new BrepBuilder();
+  const one = box(b, [2, 2, 2]), two = box(b, [2, 1, 1], [1, 0.5, 0.5], 100);
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: one, sense: true },
+    { ref: two, sense: true }] }) });
+  using o = new Oracle(await init(), b.finish().buffer);
+  assert.deepEqual(o.nesting(0), [-2, -2]);
+});
+
+test('a box inside another touching three of its faces: points on it, so nesting can\'t tell, -2', { skip },
+  async () => {
+    // The unit box in the corner of a 2 x 2 x 2 one: its faces at x, y, z = 0 lie on the outer's, their points on it,
+    // the other three inside. Held needs every point inside; a touch (not a manifold void) is left untold.
+    const b = new BrepBuilder();
+    const outer = box(b, [2, 2, 2]), inner = box(b, [1, 1, 1], [0, 0, 0], 100);
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: outer, sense: true },
+      { ref: inner, sense: false }] }) });
+    using o = new Oracle(await init(), b.finish().buffer);
+    assert.deepEqual(o.nesting(0), [-1, -2]);
+  });
 
 test('checkSecondRay: a second ray agrees; the evidence names the point and the ray', { skip }, async () => {
   const d = MODELS.cube().finish();
@@ -108,7 +133,8 @@ test('three shells nested: a lump inside a void inside the outer shell', { skip 
   assert.deepEqual(o.nesting(0), [-1, 0, 1]);
 });
 
-test('nesting by the body\'s members, not the shell table\'s rows: the void\'s shell built first', { skip }, async () => {
+test('nesting by the body\'s members, not the shell table\'s rows: the void\'s shell built first', { skip },
+  async () => {
   const b = new BrepBuilder();
   const hole = box(b, [1, 1, 1], [1, 1, 1], 100), outer = box(b, [4, 4, 4]);
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: outer, sense: true },
