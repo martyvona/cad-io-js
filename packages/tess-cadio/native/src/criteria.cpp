@@ -8,7 +8,8 @@
 // (Borouchaki, Hecht and Frey, "Mesh gradation control", 1998: M / (1 + beta L)^2 at metric length L), the size
 // growing at most kGrowth per unit of its own length; a query takes the grid's, interpolated, intersected with its
 // own point's. Where the parameterization degenerates (a pole: S_u x S_v vanishing) the point's own is skipped and
-// the grid's used.
+// the grid's used; in a knot span narrower in 3D than the refinement floor, its run of such spans too, the point's own
+// is the nearest wider span's (Local::spans, Local::wide).
 // accept() bounds a triangle's deviation from the surface on planes and cylinders by the second derivative bounds over
 // its (u, v) box (Local::bounds), takes a sphere's exactly, and samples the rest (the centroid and edges' middles:
 // makeCriteria says why). The normals are sampled: the corners' within the angle of one another and of the facet's
@@ -128,6 +129,14 @@ public:
     s.singularities(sing);
     for (const Singularity& g : sing)
       if (g.kind != Singularity::normalVanishes) poles_.push_back(g.point);
+    {
+      const SurfaceDomain D = s.domain();
+      if (std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi)) {
+        std::vector<double> ku, kv;
+        s.breaks(D.u, D.v, ku, kv);
+        spans(ku, true, D, spansU_), spans(kv, false, D, spansV_);
+      }
+    }
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -902,6 +911,7 @@ private:
    * given, receives the first fundamental form there.
    */
   bool own(Vec2 p, Metric2& out, Metric2* I = nullptr) const {
+    p = {wide(spansU_, p.x), wide(spansV_, p.y)};
     SurfacePoint q;
     Status st = s_.eval(p.x, p.y, 2, q);
     if (st != Status::ok && st != Status::outOfDomain) return false;
@@ -935,6 +945,55 @@ private:
     out = {i1 * w1.x * w1.x + i2 * w2.x * w2.x, i1 * w1.x * w1.y + i2 * w2.x * w2.y,
       i1 * w1.y * w1.y + i2 * w2.y * w2.y};
     return std::isfinite(out.a) && std::isfinite(out.b) && std::isfinite(out.c);
+  }
+
+  /** A knot span (between consecutive breaks) and whether its 3D width is within the floor (narrow). */
+  struct Span {
+    double lo, hi;
+    bool narrow;
+  };
+  /**
+   * The spans between consecutive breaks k one way (u if inU), each narrow where its width there in 3D is within the
+   * floor and so is that of the run of such spans it's in: knots halving toward a side (LMP1 #172768's face 1060536,
+   * five spans of 0.02 to 0.04 mm under a floor of 0.15, 0.16 together, its curvature all there) keep their own.
+   */
+  void spans(const std::vector<double>& k, bool inU, const SurfaceDomain& D, std::vector<Span>& out) const {
+    std::vector<double> width;
+    for (size_t i = 0; i + 1 < k.size(); i++) {
+      double o[3];
+      const Range r{k[i], k[i + 1]};
+      const bool known =
+        s_.derivBound(inU ? r : D.u, inU ? D.v : r, 1, o) == Status::ok && std::isfinite(o[inU ? 0 : 1]);
+      width.push_back(known ? (r.hi - r.lo) * o[inU ? 0 : 1] : INFINITY);
+      out.push_back({r.lo, r.hi, width.back() <= floor_});
+    }
+    for (size_t i = 0; i < out.size();) {
+      size_t j = i;
+      double run = 0;
+      while (j < out.size() && out[j].narrow) run += width[j++];
+      if (run > floor_)
+        for (size_t l = i; l < j; l++) out[l].narrow = false;
+      i = std::max(j, i + 1);
+    }
+    if (std::all_of(out.begin(), out.end(), [](const Span& x) { return x.narrow; })) out.clear();
+  }
+  /**
+   * x, or where it lies in a narrow span, the nearest point inside a span that isn't (a hair past the knot between,
+   * the evaluation there taking that span's side): a span no mesh resolves, a B-spline's knots a hair apart where it
+   * bends sharply (r0901_ec part #11's face 32955: |S_vv| 2742 over 8.5e-7 of v), mustn't set the curvature's sizes
+   * along a whole boundary.
+   */
+  static double wide(const std::vector<Span>& sp, double x) {
+    size_t i = 0;
+    while (i < sp.size() && !(x <= sp[i].hi)) i++;
+    if (i == sp.size() || !sp[i].narrow || x < sp[i].lo) return x;
+    size_t a = i, b = i;
+    while (a > 0 && sp[a].narrow) a--;
+    while (b + 1 < sp.size() && sp[b].narrow) b++;
+    const bool left = !sp[a].narrow, right = !sp[b].narrow;
+    const double dl = left ? x - sp[a].hi : INFINITY, dr = right ? sp[b].lo - x : INFINITY;
+    if (dl <= dr) return sp[a].hi - 1e-9 * (sp[a].hi - sp[a].lo);
+    return sp[b].lo + 1e-9 * (sp[b].hi - sp[b].lo);
   }
 
   Metric2 interpolated(Vec2 p) const {
@@ -982,6 +1041,8 @@ private:
   double tolerance_;
   /** The refinement floor (belowFloor). */
   double floor_;
+  /** The surface's knot spans each way (spans()), empty where none is narrow or the domain isn't finite. */
+  std::vector<Span> spansU_, spansV_;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
 };
