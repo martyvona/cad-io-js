@@ -11,6 +11,7 @@ import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
 import { orientResult } from './orient.ts';
 import { openEdgesCount } from './open-edges.ts';
+import { notManifoldMessage, reported, shellDefects, shellsManifold } from './manifold.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
 import type { TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from
@@ -25,7 +26,8 @@ export interface Verdict {
   /**
    * How bad, to choose between two results (compareVerdicts), kind by kind, the worst kind first: whether the request
    * threw (or timed out), whether the part has no triangles, then the faces without triangles, the faces short of or
-   * over their area, the open edges, the other errors. A face missing outweighs any number of edges open.
+   * over their area, the open edges with the mesh edges and vertices that keep a closed shell's mesh from being an
+   * oriented manifold (manifold.ts), the other errors. A face missing outweighs any number of edges open.
    */
   rank: [number, number, number, number, number, number];
 }
@@ -38,7 +40,8 @@ export function compareVerdicts(a: Verdict, b: Verdict): number {
 
 /**
  * Whether a backend's result for a part (or the error its request threw) is sound: the request didn't throw, the part
- * has triangles, no error diagnostic (faces that failed to mesh, open edges: every backend gives both), and no face of
+ * has triangles, no error diagnostic (faces that failed to mesh, open edges: every backend gives both), each closed
+ * shell's mesh a closed, oriented manifold (shellDefects, judged here on any backend's result), and no face of
  * the model missing or wrong by its area (faceFailures: failed, partly, excess; unverified isn't counted, as nothing
  * tells). A face's area is the oracle's where it has one (`given`, else the result's `oracle`, else made from
  * `model` on this thread: oracleAreas), else the result's own measure: a backend can mesh a face wrongly and measure
@@ -54,15 +57,19 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
   const kinds = { failed: 0, partly: 0, excess: 0 };
   for (const k of badFaces(r, model, deflection, given).values()) kinds[k]++;
   const open = openEdgesCount(r.diagnostics);
+  const shells = model ? reported(shellDefects(model, r), open > 0) : undefined;
+  const manifold = !shells || shellsManifold(shells);
+  const defects = shells ? shells.open + shells.misoriented + shells.nonManifold + shells.vertices : 0;
   // (Faces that failed and open edges are counted above, whatever their errors say.)
   const others = errors.filter((d) => !/^\d+ faces failed to mesh/.test(d.message) && openEdgesCount([d]) === 0);
   const problems: string[] = [];
   for (const [k, n] of Object.entries(kinds)) if (n) problems.push(`${n} ${n === 1 ? 'face' : 'faces'} ${k === 'failed'
     ? 'without triangles' : k === 'partly' ? 'meshed only in part' : `meshed over ${n === 1 ? 'its' : 'their'} area`}`);
   if (open) problems.push(`open along ${open} ${open === 1 ? 'edge' : 'edges'}`);
+  if (!manifold) problems.push(notManifoldMessage(shells!));
   for (const d of others) problems.push(d.message);
   return { ok: !problems.length, problems,
-    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open, others.length] };
+    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open + defects, others.length] };
 }
 
 /**

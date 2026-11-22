@@ -6,6 +6,8 @@
 // levels of detail (the scene holds its geometry, exact and meshed).
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
+import { notManifoldDiagnostic } from './manifold.ts';
+import { openEdgesCount } from './open-edges.ts';
 import { addLod } from './lod.ts';
 import { meshBox, sceneBounds } from './bounds.ts';
 import type { BrepData } from 'cad-brep';
@@ -43,6 +45,11 @@ export interface TessellateOptions {
    * false keeps them.
    */
   dropDegenerate?: boolean;
+  /**
+   * Check each part's mesh, as kept (after dropDegenerate and orient), is a closed, oriented manifold over its model's
+   * closed shells (manifold.ts's shellDefects), with an error diagnostic per part where it isn't. Default true.
+   */
+  manifold?: boolean;
   /**
    * Where faces fail to mesh (no triangles), or a whole part does (an error, a timeout), and the part can outline its
    * faces from the source (Brep.outline): the outlines of those faces in the mesh (`faceOutlines`), and for a part that
@@ -279,6 +286,10 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
             message: `${n} closed ${n === 1 ? 'shell' : 'shells'} turned over (inside out, and inside no other shell)`,
             ...(source ? { source } : {}) });
         }
+      }
+      if (mesh && (opts.manifold ?? true)) {
+        const x = notManifoldDiagnostic(brep.model, mesh, openEdgesCount(diagnostics) > 0);
+        if (x) diagnostics.push({ ...x, ...(source ? { source } : {}) });
       }
     } catch (e) {
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`,
