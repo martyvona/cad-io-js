@@ -282,6 +282,24 @@ interface PageOptions {
   focus?: boolean;
 }
 
+/**
+ * Defined in every page before its own scripts: `settled()`, what a check awaits before it reads pixels or picks, as
+ * the load from other work on the machine can delay what the page does next by frames: the viewer idle, the view's
+ * resize reached the camera's projection (as many pixels a millimetre across as down: the canvas's box and the
+ * projection agree, up to 2 s), then two frames drawn and idle again.
+ */
+const SETTLED = `globalThis.settled = async () => {
+  await globalThis.cadViewer?.idle?.();
+  const v = globalThis.viewer;
+  if (v) {
+    const P = () => v.camera.projectionMatrix.elements, el = v.renderer.domElement;
+    for (let t = 0; t < 40 && el.clientHeight && Math.abs(P()[0] * el.clientWidth / (P()[5] * el.clientHeight) - 1)
+      > 1e-6; t++) await new Promise((r) => setTimeout(r, 50));
+  }
+  for (let i = 0; i < 2; i++) await new Promise((r) => requestAnimationFrame(r));
+  await globalThis.cadViewer?.idle?.();
+};`;
+
 async function page(query: string, after?: string, opts: PageOptions = {}): Promise<Record<string, unknown>> {
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
@@ -295,10 +313,9 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
   if (opts.light || opts.dark) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme',
     value: opts.light ? 'light' : 'dark' }] }, sessionId);
   if (opts.focus) await send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);
-  if (opts.first) {
-    await send('Page.enable', {}, sessionId);
-    await send('Page.addScriptToEvaluateOnNewDocument', { source: opts.first }, sessionId);
-  }
+  await send('Page.enable', {}, sessionId);
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: SETTLED }, sessionId);
+  if (opts.first) await send('Page.addScriptToEvaluateOnNewDocument', { source: opts.first }, sessionId);
   // Thin edges unless the check asks: fat ones cost several times as much in software rendering (SwiftShader), which
   // the timing checks would feel (the fat edges check asks for them).
   const thin = opts.asIs || /[?&]edgeStyle=/.test(query) || !query.startsWith('?') ? query
@@ -584,6 +601,7 @@ await check('panning', async () => {
 // prevented.
 await check('safari pinch', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await settled();
     const v = globalThis.viewer, canvas = v.renderer.domElement, c = canvas.getBoundingClientRect(), cam = v.camera;
     const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
@@ -628,8 +646,8 @@ await check('safari pinch', async () => {
 await check('zoom at the cursor', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
-  const where = (x: number, y: number) => `(() => { const v = globalThis.viewer, c = v.renderer.domElement
-    .getBoundingClientRect(), cam = v.camera;
+  const where = (x: number, y: number) => `(async () => { await settled();
+    const v = globalThis.viewer, c = v.renderer.domElement.getBoundingClientRect(), cam = v.camera;
     v.camera.updateMatrixWorld();
     const px = (p) => { const q = p.clone().project(cam); return [c.left + (q.x + 1) / 2 * c.width,
       c.top + (1 - q.y) / 2 * c.height]; };
@@ -641,6 +659,7 @@ await check('zoom at the cursor', async () => {
   type Where = { target: number[]; targetPx: number[]; height: number; hit: number[] | null; hitPx: number[] | null;
     dir: number[]; depth: number | null };
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await settled();
     const v = globalThis.viewer, c = v.renderer.domElement.getBoundingClientRect(), cam = v.camera;
     const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
@@ -717,12 +736,8 @@ await check('zoom at the cursor', async () => {
 await check('picks on caps', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const v = globalThis.viewer, cam = v.camera;
-    // (The view's resize, after the page's layout, waited for: under load it can come frames later, and the click
-    // below is placed by the canvas's box and the camera's projection, which must agree.)
-    const P = () => cam.projectionMatrix.elements, el = v.renderer.domElement;
-    for (let t = 0; t < 40 && Math.abs(P()[0] * el.clientWidth / (P()[5] * el.clientHeight) - 1) > 1e-6; t++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    // (Settled first: the clicks below are placed by the canvas's box and the camera's projection, which must agree.)
+    await settled();
     const rod = ui.panel().model.nodes.find((n) => n.kind === 'part' && partOf(n) === 'rod').object.children[0];
     rod.geometry.computeBoundingBox();
     const centre = rod.geometry.boundingBox.getCenter(v.controls.target.clone()).applyMatrix4(rod.matrixWorld);
@@ -738,8 +753,8 @@ await check('picks on caps', async () => {
     const off = cadViewer.pickAt(fx, fy) && (v.setSections({ ...v.sections.get(), caps: false }),
       cadViewer.pickAt(fx, fy));
     v.setSections({ ...v.sections.get(), caps: true });
-    // The zoom's orbit centre found a little above the rod's centre, on the cap (the canvas's box as it is now).
-    await cadViewer.idle();
+    // The zoom's orbit centre found a little above the rod's centre, on the cap (drawn again; the canvas's box now).
+    await settled();
     const c = v.renderer.domElement.getBoundingClientRect();
     v.centreAt(c.left + fx * c.width, c.top + fy * c.height - 10);
     return { picked, off, centre: centre.toArray(), target: v.controls.target.toArray() };
@@ -1383,11 +1398,10 @@ await check('fit beside the controls', async () => {
         hi: px(s.center.clone().addScaledVector(right, s.radius)), target, height: c.height,
         top: c.top + (1 - s.center.clone().project(cam).y) / 2 * c.height };
     };
-    // Not squashed: as many pixels a millimetre across as down, after the load's own fit, zoom all and a view. (The
-    // view's resize, after the page's layout, waited for first, up to 2 s: under load it can come frames later.)
+    // Not squashed: as many pixels a millimetre across as down, after the load's own fit, zoom all and a view.
     const scales = () => { const P = cam.projectionMatrix.elements, c = v.renderer.domElement;
       return P[0] * c.clientWidth / (P[5] * c.clientHeight); };
-    for (let t = 0; t < 40 && Math.abs(scales() - 1) > 1e-6; t++) await new Promise((r) => setTimeout(r, 50));
+    await settled();
     const squash = [scales()];
     v.zoomAll();
     squash.push(scales());
@@ -2256,6 +2270,7 @@ await check('two planes', async () => {
     // On the X cap, halfway between the Z plane and the plate's top.
     const p = c.clone().setZ((c.z + pb.max.z) / 2);
     const colour = async () => {
+      await settled();
       for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
       viewer.composer.render(); viewer.composer.render();
       const dpr = viewer.renderer.getPixelRatio(), n = 8, q = p.clone().project(viewer.camera);
