@@ -60,6 +60,14 @@ public:
    */
   virtual double edgeSpacing() const = 0;
   /**
+   * The graded grid's metric at p (bilinear between its nodes, without the point's own curvature): sqrt(det M), the
+   * metric's area per unit area of (u, v). 0 where the criteria keep no grid.
+   */
+  virtual double gridDensity(cadgeom::Vec2 p) const {
+    (void)p;
+    return 0;
+  }
+  /**
    * A crease inside the face: the iso-line u = at (isoU) or v = at where its normal jumps; a point within `near` of it
    * in that coordinate (the face's (u, v) tolerance: a boundary point there is the loop's) is on it.
    */

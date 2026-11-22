@@ -17,7 +17,7 @@ LIBS=("$B"/lin32/clang/lib/lib*.a)
 mkdir -p dist build
 EXPORTS='["_occt_probe_read","_occt_probe_faces","_occt_probe_num_faces","_occt_probe_edges",'\
 '"_occt_probe_num_edges","_occt_probe_diag","_occt_probe_eval","_occt_probe_free","_occt_probe_build",'\
-'"_occt_probe_classify","_occt_probe_pcurve","_malloc",'\
+'"_occt_probe_classify","_occt_probe_classify_solid","_occt_probe_pcurve","_malloc",'\
 '"_free"]'
 # (-DNo_Exception as OCCT's libraries and build.sh.)
 for f in occt_probe occt_build; do

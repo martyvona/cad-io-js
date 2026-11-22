@@ -28,9 +28,10 @@
 // non-periodic direction to beyond the boundary, or one period along a periodic one. One meeting nothing decides
 // nothing (a band's loops run along a period, a polar cap's region is unbounded toward its pole), nor does one whose
 // first hit is tangent, overlapping, or at a corner (p on different sides of the pieces meeting there): another at a
-// different angle is cast; p is out only if none meets anything. In periodic directions the pieces are copied by
-// multiples of the periods to cover the ray. Loop pieces that don't meet are closed by a straight segment where the
-// jump lies along a pole line (Periods), or are a band closing around its period (a whole period apart, no segment).
+// different angle is cast; p is out only if none meets anything. A point beyond a pole line the boundary lies all on
+// one side of (a cone's other nappe) is out. In periodic directions the pieces are copied by multiples of the periods
+// to cover the ray. Loop pieces that don't meet are closed by a straight segment where the jump lies along a pole
+// line (Periods), or are a band closing around its period (a whole period apart, no segment).
 #include "cad_geom/geom2d.h"
 
 #include <algorithm>
@@ -521,6 +522,25 @@ void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, do
   const std::vector<Bbox>* boxes = nullptr) {
   const size_t n = loop.pieces.size();
   const int first = static_cast<int>(out.pieces.size());
+  // A loop closed along a pole line bounds a region the pole line is on, so it doesn't wind around the period along
+  // it. Its pieces and its closures along poles (joints a period apart drawn as none) can sum to whole periods along
+  // a pole line where a piece lies a period on (a face's p-curves as given): then the first closure along such a line
+  // runs to the copy of the next piece's start that cancels them, or the loop would wind and the face be taken for a
+  // band. A whole sphere's loop (down one seam, across a pole, up the other, back across the other) sums to 0 as is.
+  auto poleJoint = [&](size_t i) {
+    Vec2 e = pieceEnd(loop.pieces[i]), s = pieceStart(loop.pieces[(i + 1) % n]);
+    bool eu, su;
+    double ec, sc;
+    return len(s - e) > tol && onPole(e, per, tol, eu, ec) && onPole(s, per, tol, su, sc) && eu == su && ec == sc;
+  };
+  Vec2 net{0, 0};
+  for (size_t i = 0; i < n; i++) {
+    net = net + (pieceEnd(loop.pieces[i]) - pieceStart(loop.pieces[i]));
+    if (poleJoint(i)) net = net + (pieceStart(loop.pieces[(i + 1) % n]) - pieceEnd(loop.pieces[i]));
+  }
+  // Periods to take off the first closure along a pole line in u (index 0) and in v (1).
+  double unwind[2] = {per.u > 0 ? per.u * std::round(net.x / per.u) : 0,
+    per.v > 0 ? per.v * std::round(net.y / per.v) : 0};
   for (size_t i = 0; i < n; i++) {
     out.pieces.push_back(loop.pieces[i]);
     out.boxes.push_back(boxes ? (*boxes)[i] : pieceBox(loop.pieces[i]));
@@ -531,7 +551,12 @@ void addLoop(Boundary& out, const Loop2& loop, int index, const Periods& per, do
     double ec, sc;
     bool pole = onPole(e, per, tol, eu, ec) && onPole(s, per, tol, su, sc) && eu == su && ec == sc;
     if (pole) {
-      out.segments.push_back(std::make_unique<Segment>(e, s));
+      // (Along the pole line: v on a pole u = c (onPole's eu), u on a pole v = c.)
+      Vec2 to = s;
+      double& off = unwind[eu ? 1 : 0];
+      (eu ? to.y : to.x) -= off;
+      off = 0;
+      out.segments.push_back(std::make_unique<Segment>(e, to));
       out.pieces.push_back({out.segments.back().get(), {0, 1}, false});
       out.boxes.push_back(pieceBox(out.pieces.back()));
       out.loopOf.push_back(index);
@@ -641,15 +666,20 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
 
 enum class RayResult { in, out, retry, none };
 
-/** The ray from p along dir (length L): in or out by the nearest boundary it meets, or retry if that's degenerate. */
+/**
+ * The ray from p along dir (length L): in or out by the nearest boundary it meets, or retry if that's degenerate. Two
+ * pieces met at one distance there, running opposite ways along each other with opposite verdicts, bound a
+ * region of no width (a sliver face's loop, there and back, or a slit): they decide nothing and the ray goes on past
+ * them; taking either, the first found, made a sliver's every far point in or out by the pieces' order.
+ */
 RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& per, double tol) {
   Segment ray(p, p + L * dir);
   Bbox near;
   near.add(p);
   near.add(p + L * dir);
-  double best = kInf;
-  RayResult result = RayResult::out;
-  bool hit = false;
+  // Each meeting: its distance along the ray, its verdict and the piece's direction of travel there (0 for none).
+  struct Met { double s; RayResult r; Vec2 travel; };
+  std::vector<Met> mets;
   // The ray's parameters (0 to 1) inside the box [x0, x1] x [y0, y1]: none where it misses (slabs).
   auto meets = [&](double x0, double x1, double y0, double y1) {
     double lo = 0, hi = 1;
@@ -674,15 +704,12 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
       if (!meets(b.x0 + d.x - tol, b.x1 + d.x + tol, b.y0 + d.y - tol, b.y1 + d.y + tol)) continue;
       Shifted copy(*piece.curve, d);
       Intersections2 x = intersect2(ray, {0, 1}, copy, piece.range, tol);
-      for (const Overlap& o : x.overlaps)
-        if (o.a.lo * L < best) best = o.a.lo * L, result = RayResult::retry, hit = true;
+      for (const Overlap& o : x.overlaps) mets.push_back({o.a.lo * L, RayResult::retry, {0, 0}});
       for (const Crossing& c : x.crossings) {
-        double s = c.ta * L;
-        if (s >= best) continue;
-        best = s;
-        hit = true;
+        const double s = c.ta * L;
+        RayResult result;
         if (c.tangent) {
-          result = RayResult::retry;
+          mets.push_back({s, RayResult::retry, {0, 0}});
           continue;
         }
         // At a piece's end the loop goes on in its neighbour (the same piece, a period on, for a band): p must be on
@@ -696,10 +723,10 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
           double joint = travelStart != nb.reversed ? nb.range.hi : nb.range.lo;  // the neighbour's end at the joint
           double here = cross(travel(piece, c.tb), p - c.p), there = cross(travel(nb, joint), p - c.p);
           if ((here > 0) != (there > 0) || here == 0 || there == 0) {
-            result = RayResult::retry;
+            mets.push_back({s, RayResult::retry, {0, 0}});
             continue;
           }
-          result = here > 0 ? RayResult::in : RayResult::out;
+          mets.push_back({s, here > 0 ? RayResult::in : RayResult::out, {0, 0}});
           continue;
         }
         // p on the piece's left (its direction of travel): in.
@@ -712,10 +739,29 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
           side = cross(travel(piece, c.tb), p - c.p);
         }
         result = side > 0 ? RayResult::in : side < 0 ? RayResult::out : RayResult::retry;
+        mets.push_back({s, result, travel(piece, c.tb)});
       }
     }
   }
-  return hit ? result : RayResult::none;
+  // The nearest decides (the first found among equals), unless the meetings at its distance (within 1e-3 x tol: a tie,
+  // not a band narrower than tol, whose sides the nearest tells apart) have opposite verdicts: passed where their
+  // pieces run along each other, else (pieces crossing there) degenerate.
+  std::stable_sort(mets.begin(), mets.end(), [](const Met& a, const Met& b) { return a.s < b.s; });
+  for (size_t i = 0; i < mets.size();) {
+    size_t j = i;
+    bool in = false, out = false, along = true;
+    for (; j < mets.size() && mets[j].s <= mets[i].s + 1e-3 * tol; j++) {
+      in |= mets[j].r == RayResult::in, out |= mets[j].r == RayResult::out;
+      const Vec2 t = mets[j].travel, t0 = mets[i].travel;
+      const double l = len(t), l0 = len(t0);
+      if (!(l > 0 && l0 > 0) || std::fabs(cross(t, t0)) > 1e-6 * l * l0) along = false;
+    }
+    if (!(in && out)) return mets[i].r;
+    // Pieces crossing where the ray meets them: it decides nothing (a ray through a self-crossing loop's crossing).
+    if (!along) return RayResult::retry;
+    i = j;
+  }
+  return RayResult::none;
 }
 
 Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol, Status& status) {
@@ -893,10 +939,14 @@ Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<
   for (size_t i = 0; i < loops.size(); i++)
     addLoop(bd, loops[i], static_cast<int>(i), periods, tol, boxes ? &(*boxes)[i] : nullptr);
   if (bd.gaps) status = Status::invalidModel;
-  // On a pole line: on if the face reaches it (a point just off it, on either side, is in).
+  // On a pole line: on if the face reaches it, the line one point in space: its boundary meets the line (anywhere
+  // along it), or a point just off it, on either side, is in (a cap whose loop stays clear of its pole).
   bool isU;
   double c;
   if (onPole(p, periods, tol, isU, c)) {
+    for (const LoopPiece& piece : bd.pieces)
+      for (Vec2 q : {pieceStart(piece), pieceEnd(piece)})
+        if (std::fabs((isU ? q.x : q.y) - c) <= tol) return Side::on;
     Status s2 = Status::ok;
     for (double side : {-1.0, 1.0}) {
       double off = 1e3 * tol + 1e-9 * std::fabs(c);
@@ -904,6 +954,22 @@ Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<
       if (classifyBoundary(bd, q, periods, tol, s2) != Side::out) return Side::on;
     }
     return Side::out;
+  }
+  // Beyond a pole line its boundary lies all on one side of: out. (A cone's apex, inside its domain: past it in (u, v)
+  // is the other nappe, which a face bounded on one side never reaches, but a ray from there would meet the boundary
+  // as from inside a polar cap, its region unbounded toward the pole.) Not across a period.
+  if (!bd.boxes.empty()) {
+    Bbox all;
+    for (const Bbox& b : bd.boxes) all.add({b.x0, b.y0}), all.add({b.x1, b.y1});
+    auto beyond = [&](double x, double lo, double hi, double c) {
+      return (hi <= c + tol && x > c + tol) || (lo >= c - tol && x < c - tol);
+    };
+    if (!(periods.u > 0))
+      for (double c : periods.poleU)
+        if (beyond(p.x, all.x0, all.x1, c)) return Side::out;
+    if (!(periods.v > 0))
+      for (double c : periods.poleV)
+        if (beyond(p.y, all.y0, all.y1, c)) return Side::out;
   }
   Side s = classifyBoundary(bd, p, periods, tol, status);
   return s;

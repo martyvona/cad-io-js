@@ -276,7 +276,8 @@ ShellSide Oracle::Impl::shellSide(int shell, int face, double eps) {
   // beyond meets the face alone, once, at x.
   // (eps's sign the side: negative, against the normal.)
   const double sign = eps < 0 ? -1 : 1;
-  for (double a = std::fabs(eps), tries = 0; tries < 5 && a >= 10 * tol; tries++, a *= 0.5) {
+  // (Not below 10 x the tolerance: an offset less than that is taken as that, its own test the clear one below.)
+  for (double a = std::fmax(std::fabs(eps), 10 * tol), tries = 0; tries < 5 && a >= 10 * tol; tries++, a *= 0.5) {
     const Vec3 q = x + (sign * a) * n, d = -(sign * (a + 2 * tol)) * n;
     bool clear = true;
     for (int f : faces) {
@@ -313,32 +314,38 @@ std::vector<int> Oracle::Impl::nesting(int body) {
   }
   const int n = static_cast<int>(shells.size());
   out.assign(n, -1);
-  // Per shell a point well inside one of its faces (on it), and which others hold it.
+  // Per shell points well inside up to 6 of its faces (on it), spread over them, and which others hold all of them. A
+  // shell some of whose points are inside another and some outside crosses or overlaps it: that can't be told, -2 (one
+  // point per shell would give a depth by whichever face came first).
   std::vector<std::vector<bool>> holds(n, std::vector<bool>(n, false));
   for (int a = 0; a < n; a++) {
     if (model.u8(CBR_SHELL_KIND)[shells[a]] != CBR_SHELL_CLOSED) {
       out[a] = -2;
       continue;
     }
-    Vec3 p;
-    bool have = false;
-    for (int f : shellFaces(shells[a])) {
+    const std::vector<int> faces = shellFaces(shells[a]);
+    std::vector<Vec3> points;
+    const size_t want = std::min<size_t>(6, faces.size());
+    for (size_t k = 0; k < want; k++) {
       cadgeom::Vec2 uv;
-      Vec3 nn;
-      if (interiorPoint(f, uv, p, nn)) {
-        have = true;
-        break;
-      }
+      Vec3 p, nn;
+      if (interiorPoint(faces[k * faces.size() / want], uv, p, nn)) points.push_back(p);
     }
-    if (!have) {
+    if (points.empty()) {
       out[a] = -2;
       continue;
     }
-    for (int b = 0; b < n; b++) {
+    for (int b = 0; b < n && out[a] != -2; b++) {
       if (b == a || model.u8(CBR_SHELL_KIND)[shells[b]] != CBR_SHELL_CLOSED) continue;
-      const PointClass c = classify(shells[b], p);
-      if (c.side == PointClass::inside) holds[a][b] = true;
-      else if (c.side != PointClass::outside) out[a] = -2;
+      int in = 0, outside = 0;
+      for (const Vec3& p : points) {
+        const PointClass c = classify(shells[b], p);
+        in += c.side == PointClass::inside, outside += c.side == PointClass::outside;
+      }
+      // Held: every point inside. Not held: some outside, none inside (the rest on it: touching from outside). Else
+      // (inside and outside: crossing; inside and on, or unknown) it can't be told.
+      if (in == static_cast<int>(points.size())) holds[a][b] = true;
+      else if (!(outside > 0 && in == 0)) out[a] = -2;
     }
   }
   // The smallest holder: the one held by the most of the others that hold it too (nested shells hold in a chain).

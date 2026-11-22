@@ -93,8 +93,7 @@ tests=$(find native/test -name '*_test.cpp' | sort)
 # And tess-cadio's own (native/test/models.ts).
 "$NODE" native/test/fixtures.ts build/test/fixtures/tess_models.h
 TI=(-I$G/native/test -Ibuild/test/fixtures)
-fail=0
-run() { local name=$1; shift; echo "== $name"; "$@" || { echo "== $name: exit $?" >&2; fail=1; }; }
+. $G/native/test/run.sh
 
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
 compile build/test/native/obj c++ "${SAN[@]}" "${COMMON[@]}" "${TI[@]}" -- $(gsrcs) $(srcs) $tests

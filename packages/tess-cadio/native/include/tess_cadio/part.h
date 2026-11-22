@@ -71,6 +71,13 @@ struct PartOptions {
    * and a cause saying so, as one past its deflection does: wrong output however rare.
    */
   bool failTurnedOver = true;
+  /**
+   * Fail a face whose pole's fan folds over itself (Status::noConvergence, "a pole's fan folds over itself: N edges
+   * used twice the same way"): its output welded at shipped positions, an edge with a corner within the face's
+   * tolerance of a pole or apex used twice the same way (as is any used more than twice). failTurnedOver exempts
+   * triangles there.
+   */
+  bool failFoldedFans = true;
   /** The model's analysis buffer, if given (EdgeOptions::analysis: healed p-curves, tolerances past repair). */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
@@ -96,6 +103,13 @@ struct PartOptions {
    */
   bool countAngles = false;
   /**
+   * Each meshed face's expected triangles from its own size metric (FaceMesh::expectedTriangles): the integral over its
+   * mesh's triangles in (u, v) of the criteria's graded grid's sqrt(det M) (SurfaceCriteria::gridDensity, at each
+   * triangle's centroid), over sqrt(3) / 4, an equilateral triangle of unit size in the metric. Off by default; the
+   * mesh is the same either way.
+   */
+  bool countExpected = false;
+  /**
    * Where the output's positions go as float32 minus this point (the C API's origin): the turned-over check
    * (failTurnedOver) judges each facet as shipped, its corners and normals so rounded; a needle's facet can turn in the
    * rounding alone. Not finite (the default): judged in double.
@@ -114,13 +128,36 @@ struct PartOptions {
    * The mesh is the same bits whatever the budget.
    */
   size_t verdictBudget = size_t{256} << 20;
+  /**
+   * A face meshed again after a split round, from its fourth meshing on, starts from its last mesh's points (but those
+   * beside the segments split), so refinement only works near the splits and the rounds' asks settle; meshed from its
+   * boundary alone again if that fails or leaves a refused triangle. Not the same mesh as meshing from the boundary
+   * alone, but deterministic.
+   */
+  bool keepSteiner = true;
+  /**
+   * A triangle turned against its corners' normals as shipped (failTurnedOver's test) flipped with its neighbour
+   * across an edge that isn't the boundary's, a constraint's or a ring's, where both new triangles keep their
+   * orientation in (u, v), pass the criteria and face as shipped (FaceMesh::turnedFlips): a sliver within the
+   * refinement floor at a boundary point off its surface turns there, which refinement neither judges nor splits.
+   */
+  bool flipTurned = true;
+  /**
+   * After every face is meshed, a triangle still turned as shipped (failTurnedOver's test) that no flip mended, its
+   * apex C one of the mesher's own points and its longest edge AB a boundary span where a split at the edge's point
+   * nearest C's projection would leave AP or PB under the refinement floor: C collapsed onto the nearer end of AB,
+   * its triangles taking that point (FaceMesh::collapsed). Every triangle at that point rechecked for facing as
+   * shipped and for its deviation (maxDeviationFactor x max(d, the face's tolerance)), the collapse undone where any
+   * fails. Faces at their point cap that failCapped fails aren't tried.
+   */
+  bool collapseTurned = true;
 };
 
 /** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */
 constexpr int kThinBins = 6;
 
-/** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */
-constexpr int kInsertionKinds = 10;
+/** FaceMesh::inserted's kinds: size, thinness, mesh2d's refusal kinds 0 to 7, and kept from the last mesh. */
+constexpr int kInsertionKinds = 11;
 
 struct FaceMesh {
   /**
@@ -166,8 +203,17 @@ struct FaceMesh {
    */
   int thin = 0, thinByAngle[kThinBins] = {}, thinBoundary = 0, thinFrozen = 0, thinFloor = 0;
   double thinArea = 0;
+  /**
+   * With PartOptions::countExpected, its triangles as its own size metric expects them (0 otherwise), kept where the
+   * face fails after meshing (at its point cap, turned).
+   */
+  double expectedTriangles = 0;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
+  /** Its triangles turned as shipped flipped with a neighbour (PartOptions::flipTurned). */
+  int turnedFlips = 0;
+  /** Its triangles turned as shipped mended by PartOptions::collapseTurned. */
+  int collapsed = 0;
   /**
    * The meshings (the first and each split round's) in which refinement asked for a pole ring's segment to be split,
    * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.

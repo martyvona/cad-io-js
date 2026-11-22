@@ -95,8 +95,11 @@ test('judge: a sound result passes; each problem is counted, ranked and said', (
   const by = [0, 1, 2].map((i) => c0![i]! - c2![i]!) as [number, number, number];
   const big = { ...quads(model, { face: 24, corner: 0, by }), measures: sound().measures!.map((m) =>
     (m.entityId === 24 ? { ...m, area: 2 } : m)) };
-  assert.ok(judgeResult(big, model, 0.01, none).ok);
-  assert.deepEqual(judgeResult(big, model, 0.01).problems, ['1 face meshed over its area']);
+  // (Pulled out in face 24's mesh alone, the corner opens its two edges there, their copies in faces 21 and 25 left
+  // as they were: not a closed manifold, told though the backend said nothing.)
+  const gap = 'not a closed, oriented manifold over its closed shells: 4 mesh edges (4 used once); faces #24, #21, #25';
+  assert.deepEqual(judgeResult(big, model, 0.01, none).problems, [gap]);
+  assert.deepEqual(judgeResult(big, model, 0.01).problems, ['1 face meshed over its area', gap]);
   // Open edges, from the backend's error, by its count; another error by its message, one each.
   const open = { ...sound(), diagnostics: [{ severity: 'error' as const, message: openEdgesMessage(3) },
     { severity: 'error' as const, message: 'something else' },

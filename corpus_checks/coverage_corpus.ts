@@ -23,7 +23,9 @@
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause diagnostic of
 //                two entries: must be ours failed with the planted cause), beyond (our first meshed face emptied and
 //                named with a cause beyond repair: must be counted beyond repair, not failed), pastrepair (the same
-//                with healing's past-repair cause, an edge's id and sizes in it)
+//                with healing's past-repair cause, an edge's id and sizes in it), alone (our result replaced by a
+//                timeout at CPU_MS under load: set aside, run again alone, and tallied by that result, which mustn't
+//                be over the limit; parts without faces not planted)
 //   SURVEY=1     the mesh survey too (shape_survey.ts), over the faces all three backends mesh: each backend's
 //                triangles by smallest angle and aspect in 3D (quantiles, and faces by their worst), its triangles per
 //                face against SMLib's, each face's worst deviation from its surface sampled at its largest triangles'
@@ -56,9 +58,10 @@
 //   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
 //                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
 //                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
-//                progress (a performance worklist), and run again alone at the end, the host otherwise as it is,
-//                both verdicts reported (on this host's efficiency cores a thread's CPU time runs about 2 x, so a
-//                part can pass the limit under load only)
+//                progress (a performance worklist), and run again alone at the end (all three backends, ours first
+//                and by itself, the host otherwise as it is), its alone result the one tallied, both verdicts listed
+//                (on this host's efficiency cores a thread's CPU time runs about 2 x, so a part can pass the limit
+//                under load only); ALONE=0 tallies the verdict under load instead
 //   TIMEOUT_MS=<ms> OCCT's and SMLib's limit per part, in wall time (default 600000)
 //   SLOW_MS=<ms>    ours slower than this in CPU time on a part it meshes is listed as slow (default 120000)
 //   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 0, none: every request has
@@ -69,10 +72,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import type { TessellationRequest, TessellationResult } from '../packages/cad-scene/src/index.ts';
-import { MESH_PROFILES } from '../packages/cad-scene/src/index.ts';
+import { MESH_PROFILES, type Part } from '../packages/cad-scene/src/index.ts';
 import { type BrepData, decode } from '../packages/cad-brep/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
-import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
+import { type RequestTimes, WorkerTessellator } from '../packages/tess-workers/src/node.ts';
 import { BEYOND_REPAIR, beyondRepair, CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
 import { INSERTED_HEAD, INSERTED_KINDS, ROUNDS_HEAD } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
@@ -93,7 +96,9 @@ const DENSITY = process.env.DENSITY ?? '';
 /** The profile's angle in degrees, the normals' check's limit. */
 const ANG_DEG = (ANG * 180) / Math.PI;
 const PLANT = process.env.PLANT ?? '';
-const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'pastrepair', 'survey', 'insertions'];
+/** Whether a part over CPU_MS under load is tallied by its run alone at the end (the default), not as over. */
+const ALONE = process.env.ALONE !== '0';
+const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'pastrepair', 'survey', 'insertions', 'alone'];
 const SURVEY = process.env.SURVEY === '1';
 const HEAL = process.env.HEAL === '1';
 /** The import's options: healing on with HEAL, else off whatever step-import's default. */
@@ -120,6 +125,7 @@ if (PLANT && !PLANTS.includes(PLANT)) throw new Error(`PLANT=${PLANT}: one of ${
 if (PLANT === 'survey' && !SURVEY) throw new Error('PLANT=survey needs SURVEY=1');
 if (DENSITY && !SURVEY) throw new Error('DENSITY needs SURVEY=1');
 if (PLANT === 'insertions' && !INSERTIONS) throw new Error('PLANT=insertions needs INSERTIONS=1');
+if (PLANT === 'alone' && !ALONE) throw new Error('PLANT=alone needs ALONE (not 0)');
 const DEFAULT_LISTS = ['test_corpus/files.txt', 'test_corpus/models.txt'];
 /**
  * Our causes for faces whose input is beyond repair (own-tessellator.md, the coverage goal): counted apart from our
@@ -137,7 +143,8 @@ const STATUSES: PartStatus[] = ['ok', 'partial', 'no triangles', 'error', OVER, 
 const fine = (s: PartStatus) => s === 'ok' || s === 'no faces';
 
 let maxBytes = 1000e6;
-let pools: Record<Backend, WorkerTessellator>;
+// (Set by the check's setup: in each child, and in the main process for the alone reruns.)
+let pools!: Record<Backend, WorkerTessellator>;
 
 /** A thrown error's status: ours's CPU limit, the pool's wall-time limit, a worker that died, or anything else. */
 const thrown = (m: string): PartStatus => /timed out after \d+ ms of CPU time/.test(m) ? OVER
@@ -324,6 +331,8 @@ const fresh = () => ({
   slow: [] as string[],
   // Ours's parts stopped at CPU_MS: file, part id, where, the last progress (run again alone at the end).
   capped: [] as string[],
+  /** Parts ours stopped at CPU_MS under load, tallied once run again alone (ALONE): "file\tpart id\twhere\twhy". */
+  deferred: [] as string[],
   // SURVEY's tallies (shape_survey.ts), over the faces all three mesh: shapes, triangles per face against SMLib's
   // (ours, OCCT), faces by worst sampled deviation over the deflection and those with no point inverted, the faces
   // some backend leaves past 1.1 x, and the time inverting took.
@@ -471,12 +480,6 @@ export const check: FileCheck<string, Tallies> = {
   async file(f, list) {
     void list;
     const T = fresh();
-    const note = (k: string, ex: string) => {
-      const t = T.tally.get(k) ?? { n: 0, ex: [] };
-      t.n++;
-      if (t.ex.length < EXAMPLES) t.ex.push(ex);
-      T.tally.set(k, t);
-    };
     if (fs.statSync(f).size > maxBytes) { T.skippedBig++; return T; }
     T.files++;
     const name = shortName(f);
@@ -494,130 +497,157 @@ export const check: FileCheck<string, Tallies> = {
         Record<Backend, TessellationResult | Error> };
     }));
     for (const { p, times, r } of results) {
-      T.parts++;
       const where = `${name} #${p.sources[0]!.id}`;
-      const d: BrepData = p.brep!.model;
-      const rows = d.face.surface.length;
-      const ids = Array.from({ length: rows }, (_, i) => d.face.id[i]!);
-      const planted = PLANT && plantedPart(where) ? plant(r, rows) : undefined;
-      if (planted) T.planted.cases++;
-      const o = Object.fromEntries(BACKENDS.map((b) => [b, outcome(r[b], ids)])) as Record<Backend, Outcome>;
-      for (const b of BACKENDS) {
-        T.status[b][o[b].status] = (T.status[b][o[b].status] ?? 0) + 1;
-        if (!fine(o[b].status) && o[b].status !== 'partial') note(`${LABEL[b]} ${o[b].status}: ${generic(o[b].why)}`,
-          where);
+      let plantedAlone = false;
+      if (PLANT === 'alone' && plantedPart(where) && p.brep!.model.face.surface.length) {
+        r.cadio = new Error(`tessellation timed out after ${CPU_MS} ms of CPU time (planted)`);
+        T.planted.cases++;
+        plantedAlone = true;
       }
-      const ours = o.cadio;
-      let insertionPlantSeen = false;
-      if (ours.result) {
-        for (const x of ours.result.diagnostics) {
-          if (x.severity === 'warning') bump(T.warnings, generic(x.message));
-        }
-        if (INSERTIONS) {
-          const said = ours.result.diagnostics.find((x) => x.message.startsWith(INSERTED_HEAD));
-          if (!said) T.insertedUnsaid++;
-          else said.message.slice(INSERTED_HEAD.length).split(', ').forEach((x, k) => {
-            const n = Number(x.slice(x.lastIndexOf(' ') + 1));
-            T.inserted[k]! += n;
-            if (planted && PLANT === 'insertions' && k === 0 && n >= 1e6) insertionPlantSeen = true;
-          });
-        }
+      // (A part ours stopped at the limit under load is tallied once run again alone, at the end.)
+      if (ALONE && outcome(r.cadio, []).status === OVER) {
+        T.deferred.push(`${f}\t${p.sources[0]!.id}\t${where}\t${(r.cadio as Error).message.split('\n')[0]}\t`
+          + `${plantedAlone ? 'planted' : ''}`);
+        continue;
       }
-      const partFailed = !fine(ours.status) && ours.status !== 'partial';
-      const cpu = times?.cpuMs;
-      if (!partFailed && rows && cpu === undefined) T.untimed++;
-      if (!partFailed && rows && cpu !== undefined) {
-        T.times[timeBin(cpu)]!++;
-        T.wallTimes[timeBin(times!.wallMs)]!++;
-        if (cpu > SLOW_MS) T.slow.push(`${where} (${rows} faces): ${(cpu / 1000).toFixed(1)} s CPU, `
-          + `${(times!.wallMs / 1000).toFixed(1)} s wall, ${ours.status}`);
-      }
-      if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
-      if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
-      const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
-      if (ROUNDS && rows) {
-        // Its rounds as said, or (over CPU_MS) at least the last its progress named; its faces still wanting splits.
-        const said = ours.result?.diagnostics.find((x) => x.message.startsWith(ROUNDS_HEAD));
-        const seen = ours.status === OVER ? Number(/split round (\d+)/.exec(ours.why)?.[1] ?? 0) : undefined;
-        const n = said ? Number(said.message.slice(ROUNDS_HEAD.length)) : seen;
-        if (n === undefined) T.roundsUnsaid++;
-        else T.rounds[seen !== undefined ? 3 : n >= ROUND_CAP ? 0 : n >= MANY_ROUNDS ? 1 : 2]!++;
-        const unsplit = Number(/^(\d+) faces still wanting their edges split/.exec(ours.result?.diagnostics.find((x) =>
-          /still wanting their edges split/.test(x.message))?.message ?? '')?.[1] ?? 0);
-        const failed = rows - ours.meshed.size, cpuMs = times?.cpuMs;
-        const triangles = ours.result ? ours.result.indices.length / 3 : 0;
-        const rounds = n === undefined ? '' : seen !== undefined ? `>=${n}` : String(n);
-        const cpuText = cpuMs === undefined ? '-' : (cpuMs / 1000).toFixed(1);
-        if (n !== undefined && n >= MANY_ROUNDS) T.manyRounds.push(`${where} (${rows} faces): ${rounds} rounds, `
-          + `${unsplit} faces unsplit, ${failed} failed, ${cpuText} s CPU, ${triangles} triangles, ${ours.status}`);
-        fs.appendFileSync(`${ROUNDS}.${process.pid}.tsv`, [where, rounds, unsplit, failed, cpuMs === undefined ? ''
-          : Math.round(cpuMs), triangles, ours.status].join('\t') + '\n');
-      }
-      const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids, planted?.tilted)
-        : undefined;
-      const modelIds = new Set(ids);
-      for (const id of ours.meshed) if (!modelIds.has(id)) T.foreign++;
-      let meshedHere = 0, failedHere = 0, plantSeen = insertionPlantSeen;
-      let plantGot = '';
-      if (planted && PLANT === 'survey') {
-        const x = surveyed!.get(planted.face!);
-        if (x && x.angle < 0.1 && x.deviation > 1.5 * LIN && x.tilted > 30) plantSeen = true;
-        plantGot = x ? `; got ${x.angle.toPrecision(3)} degrees, ${(x.deviation / LIN).toPrecision(3)} x, tilted `
-          + `${x.tilted.toPrecision(3)} degrees` : '; not surveyed';
-      }
-      for (let row = 0; row < rows; row++) {
-        const id = ids[row]!;
-        T.faces++;
-        const occtOk = o.occt.meshed.has(id), smlibOk = o.smlib.meshed.has(id);
-        if (!occtOk) T.facesFailed.occt++;
-        if (!smlibOk) T.facesFailed.smlib++;
-        const col = references(occtOk, smlibOk);
-        if (ours.meshed.has(id)) {
-          meshedHere++;
-          bump(T.matrix, `ours meshes\t${col}`);
-          if (col === 'both fail') {
-            T.oursAlone++;
-            note('ours meshes where OCCT and SMLib both fail', `${where} face #${id}`);
-          }
-          if (planted?.face === id && refFailed(planted.expect, occtOk, smlibOk)) plantSeen = true;
-          continue;
-        }
-        failedHere++;
-        // (A part with no triangles may still name each face's cause: those first, the part's status for the rest.)
-        const why = causes.get(id) ?? (partFailed ? `part ${ours.status}` : 'not in our diagnostics');
-        const kind = (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
-        const cls = beyondRepair(why) ? BEYOND : FAILURE;
-        bump(T.matrix, `${why}\t${col}`);
-        bump(T.classes, cls);
-        if (cls === BEYOND) {
-          T.beyondRepair++;
-          bump(T.beyondCauses, `${why} (${kind})`);
-        } else {
-          T.facesFailed.cadio++;
-          bump(T.causes, `${why} (${kind})`);
-        }
-        if (why === 'not in our diagnostics') note('face without our triangles not in our diagnostics',
-          `${where} face #${id} (${kind})`);
-        T.unmeshed.push(`${where} face #${id} (${kind}): ${why}; ${col}; ${cls}`);
-        if (planted?.expect === BEYOND && planted.face === id && cls === BEYOND) plantSeen = true;
-        // (Emptying a part's only meshed face leaves it no triangles, so the part's status names the face.)
-        const seenAs = (x: string) => x === why || (x === 'not in our diagnostics' && why === 'part no triangles'
-          && !causes.has(id));
-        if (planted && seenAs(planted.expect) && (planted.face === undefined || planted.face === id)) plantSeen = true;
-        if (planted?.face === id && refFailed(planted.expect, occtOk, smlibOk)) plantSeen = true;
-      }
-      if (meshedHere + failedHere !== rows || meshedHere !== ids.filter((id) => ours.meshed.has(id)).length) {
-        T.mismatches.push(`${where}: ${rows} faces, ${meshedHere} meshed + ${failedHere} failed`);
-      }
-      if (planted) {
-        if (plantSeen) T.planted.seen++;
-        else T.planted.missed.push(`${where}${planted.face !== undefined ? ` face #${planted.face}` : ''}: `
-          + `expected "${planted.expect}"${plantGot}`);
-      }
+      await tallyPart(T, f, name, p, times, r);
     }
     return T;
   },
 };
+
+/** A tally's example list: `k` counted once more, `ex` kept among its first EXAMPLES. */
+function note(T: Tallies, k: string, ex: string): void {
+  const t = T.tally.get(k) ?? { n: 0, ex: [] };
+  t.n++;
+  if (t.ex.length < EXAMPLES) t.ex.push(ex);
+  T.tally.set(k, t);
+}
+
+/** One part's results (`r`, ours timed by `times`) into the tallies: file `f`, shown as `name`. */
+async function tallyPart(T: Tallies, f: string, name: string, p: Part, times: RequestTimes | undefined,
+  r: Record<Backend, TessellationResult | Error>): Promise<void> {
+    T.parts++;
+    const where = `${name} #${p.sources[0]!.id}`;
+    const d: BrepData = p.brep!.model;
+    const rows = d.face.surface.length;
+    const ids = Array.from({ length: rows }, (_, i) => d.face.id[i]!);
+    const planted = PLANT && plantedPart(where) ? plant(r, rows) : undefined;
+    if (planted) T.planted.cases++;
+    const o = Object.fromEntries(BACKENDS.map((b) => [b, outcome(r[b], ids)])) as Record<Backend, Outcome>;
+    for (const b of BACKENDS) {
+      T.status[b][o[b].status] = (T.status[b][o[b].status] ?? 0) + 1;
+      if (!fine(o[b].status) && o[b].status !== 'partial') note(T, `${LABEL[b]} ${o[b].status}: ${generic(o[b].why)}`,
+        where);
+    }
+    const ours = o.cadio;
+    let insertionPlantSeen = false;
+    if (ours.result) {
+      for (const x of ours.result.diagnostics) {
+        if (x.severity === 'warning') bump(T.warnings, generic(x.message));
+      }
+      if (INSERTIONS) {
+        const said = ours.result.diagnostics.find((x) => x.message.startsWith(INSERTED_HEAD));
+        if (!said) T.insertedUnsaid++;
+        else said.message.slice(INSERTED_HEAD.length).split(', ').forEach((x, k) => {
+          const n = Number(x.slice(x.lastIndexOf(' ') + 1));
+          T.inserted[k]! += n;
+          if (planted && PLANT === 'insertions' && k === 0 && n >= 1e6) insertionPlantSeen = true;
+        });
+      }
+    }
+    const partFailed = !fine(ours.status) && ours.status !== 'partial';
+    const cpu = times?.cpuMs;
+    if (!partFailed && rows && cpu === undefined) T.untimed++;
+    if (!partFailed && rows && cpu !== undefined) {
+      T.times[timeBin(cpu)]!++;
+      T.wallTimes[timeBin(times!.wallMs)]!++;
+      if (cpu > SLOW_MS) T.slow.push(`${where} (${rows} faces): ${(cpu / 1000).toFixed(1)} s CPU, `
+        + `${(times!.wallMs / 1000).toFixed(1)} s wall, ${ours.status}`);
+    }
+    if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
+    if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
+    const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
+    if (ROUNDS && rows) {
+      // Its rounds as said, or (over CPU_MS) at least the last its progress named; its faces still wanting splits.
+      const said = ours.result?.diagnostics.find((x) => x.message.startsWith(ROUNDS_HEAD));
+      const seen = ours.status === OVER ? Number(/split round (\d+)/.exec(ours.why)?.[1] ?? 0) : undefined;
+      const n = said ? Number(said.message.slice(ROUNDS_HEAD.length)) : seen;
+      if (n === undefined) T.roundsUnsaid++;
+      else T.rounds[seen !== undefined ? 3 : n >= ROUND_CAP ? 0 : n >= MANY_ROUNDS ? 1 : 2]!++;
+      const unsplit = Number(/^(\d+) faces still wanting their edges split/.exec(ours.result?.diagnostics.find((x) =>
+        /still wanting their edges split/.test(x.message))?.message ?? '')?.[1] ?? 0);
+      const failed = rows - ours.meshed.size, cpuMs = times?.cpuMs;
+      const triangles = ours.result ? ours.result.indices.length / 3 : 0;
+      const rounds = n === undefined ? '' : seen !== undefined ? `>=${n}` : String(n);
+      const cpuText = cpuMs === undefined ? '-' : (cpuMs / 1000).toFixed(1);
+      if (n !== undefined && n >= MANY_ROUNDS) T.manyRounds.push(`${where} (${rows} faces): ${rounds} rounds, `
+        + `${unsplit} faces unsplit, ${failed} failed, ${cpuText} s CPU, ${triangles} triangles, ${ours.status}`);
+      fs.appendFileSync(`${ROUNDS}.${process.pid}.tsv`, [where, rounds, unsplit, failed, cpuMs === undefined ? ''
+        : Math.round(cpuMs), triangles, ours.status].join('\t') + '\n');
+    }
+    const surveyed = SURVEY ? await surveyPart(T, where, d, p.brep!.model.buffer, r, ids, planted?.tilted)
+      : undefined;
+    const modelIds = new Set(ids);
+    for (const id of ours.meshed) if (!modelIds.has(id)) T.foreign++;
+    let meshedHere = 0, failedHere = 0, plantSeen = insertionPlantSeen;
+    let plantGot = '';
+    if (planted && PLANT === 'survey') {
+      const x = surveyed!.get(planted.face!);
+      if (x && x.angle < 0.1 && x.deviation > 1.5 * LIN && x.tilted > 30) plantSeen = true;
+      plantGot = x ? `; got ${x.angle.toPrecision(3)} degrees, ${(x.deviation / LIN).toPrecision(3)} x, tilted `
+        + `${x.tilted.toPrecision(3)} degrees` : '; not surveyed';
+    }
+    for (let row = 0; row < rows; row++) {
+      const id = ids[row]!;
+      T.faces++;
+      const occtOk = o.occt.meshed.has(id), smlibOk = o.smlib.meshed.has(id);
+      if (!occtOk) T.facesFailed.occt++;
+      if (!smlibOk) T.facesFailed.smlib++;
+      const col = references(occtOk, smlibOk);
+      if (ours.meshed.has(id)) {
+        meshedHere++;
+        bump(T.matrix, `ours meshes\t${col}`);
+        if (col === 'both fail') {
+          T.oursAlone++;
+          note(T, 'ours meshes where OCCT and SMLib both fail', `${where} face #${id}`);
+        }
+        if (planted?.face === id && refFailed(planted.expect, occtOk, smlibOk)) plantSeen = true;
+        continue;
+      }
+      failedHere++;
+      // (A part with no triangles may still name each face's cause: those first, the part's status for the rest.)
+      const why = causes.get(id) ?? (partFailed ? `part ${ours.status}` : 'not in our diagnostics');
+      const kind = (decode.surface(d, d.face.surface[row]!) as { kind: string }).kind;
+      const cls = beyondRepair(why) ? BEYOND : FAILURE;
+      bump(T.matrix, `${why}\t${col}`);
+      bump(T.classes, cls);
+      if (cls === BEYOND) {
+        T.beyondRepair++;
+        bump(T.beyondCauses, `${why} (${kind})`);
+      } else {
+        T.facesFailed.cadio++;
+        bump(T.causes, `${why} (${kind})`);
+      }
+      if (why === 'not in our diagnostics') note(T, 'face without our triangles not in our diagnostics',
+        `${where} face #${id} (${kind})`);
+      T.unmeshed.push(`${where} face #${id} (${kind}): ${why}; ${col}; ${cls}`);
+      if (planted?.expect === BEYOND && planted.face === id && cls === BEYOND) plantSeen = true;
+      // (Emptying a part's only meshed face leaves it no triangles, so the part's status names the face.)
+      const seenAs = (x: string) => x === why || (x === 'not in our diagnostics' && why === 'part no triangles'
+        && !causes.has(id));
+      if (planted && seenAs(planted.expect) && (planted.face === undefined || planted.face === id)) plantSeen = true;
+      if (planted?.face === id && refFailed(planted.expect, occtOk, smlibOk)) plantSeen = true;
+    }
+    if (meshedHere + failedHere !== rows || meshedHere !== ids.filter((id) => ours.meshed.has(id)).length) {
+      T.mismatches.push(`${where}: ${rows} faces, ${meshedHere} meshed + ${failedHere} failed`);
+    }
+    if (planted) {
+      if (plantSeen) T.planted.seen++;
+      else T.planted.missed.push(`${where}${planted.face !== undefined ? ` face #${planted.face}` : ''}: `
+        + `expected "${planted.expect}"${plantGot}`);
+    }
+}
 
 /** SURVEY's summary lines (shape_survey.ts's bins). */
 function surveyReport(T: Tallies): void {
@@ -810,6 +840,48 @@ if (import.meta.main) {
     throw new Error(`coverage: no file ran: ${files.length} listed (${ls.join(', ')}), ${big} over `
       + `${maxBytes / 1e6} MB, ${errors.length} failed${errors.length ? `, first ${errors[0]}` : ''}`);
   }
+  // The parts ours stopped at the CPU limit under load (ALONE), again one at a time with the limit unchanged, the
+  // host otherwise as it is: ours alone in a pool of one worker, then the references; each part tallied by these
+  // results into its list, so a part over the limit only under load (a thread on the efficiency cores) counts as
+  // it meshes alone.
+  const deferred = [...per].flatMap(([l, T]) => T.deferred.map((c) => [l, ...c.split('\t')] as string[]))
+    .sort((x, y) => (x.join('\t') < y.join('\t') ? -1 : 1));
+  const aloneLines: string[] = [];
+  const aloneLoad = (await import('node:os')).loadavg()[0]!.toFixed(1);
+  if (deferred.length) {
+    await check.setup!({ meshWorkers: 3, args: process.argv.slice(2) });
+    const byFile = new Map<string, string[][]>();
+    for (const [l, file, ...rest] of deferred) byFile.set(file!, [...(byFile.get(file!) ?? []), [l!, ...rest]]);
+    for (const [file, rows] of byFile) {
+      const { scene } = await imported(file);
+      for (const [l, id, where, why, planted] of rows) {
+        const p = scene.parts.find((q) => q.brep && q.sources[0]!.id === Number(id));
+        if (!p) { aloneLines.push(`  ${where}: not found again`); continue; }
+        const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(p.brep!.model.buffer),
+          ...analysisOf(p), origin: p.origin, linearDeflection: LIN, angularDeflection: ANG, edges: true };
+        const ours = await pools.cadio.tessellate(req).catch((e: Error) => e);
+        const [occt, smlib] = await Promise.all([pools.occt.tessellate(req).catch((e: Error) => e),
+          pools.smlib.tessellate(req).catch((e: Error) => e)]);
+        const times = ours instanceof Error ? undefined : pools.cadio.timesOf(ours);
+        const facesBefore = per.get(l!)!.faces;
+        await tallyPart(per.get(l!)!, file, shortName(file), p, times, { cadio: ours, occt, smlib });
+        const tallied = per.get(l!)!.faces - facesBefore;
+        const ids = Array.from({ length: p.brep!.model.face.surface.length }, (_, i) => p.brep!.model.face.id[i]!);
+        const o = outcome(ours, ids);
+        // (PLANT=alone: a part planted over the limit under load must mesh alone, within it, in the tally.)
+        if (planted) {
+          const T = per.get(l!)!;
+          if (o.status !== OVER && tallied === ids.length) T.planted.seen++;
+          else T.planted.missed.push(`${where}: planted over the limit; alone ${o.status}, ${tallied} of `
+            + `${ids.length} faces tallied`);
+        }
+        const t = times ? ` (${((times.cpuMs ?? NaN) / 1000).toFixed(1)} s CPU, ${(times.wallMs / 1000).toFixed(1)} s `
+          + 'wall)' : '';
+        aloneLines.push(`  ${where}: under load ${OVER} (${why}); alone ${o.status}${t}${o.why ? `: ${o.why}` : ''}`);
+      }
+    }
+    await check.teardown!();
+  }
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, ${PROFILE} profile (${LIN} mm, ${ANG} rad), `
@@ -825,9 +897,14 @@ if (import.meta.main) {
     report('all lists', all);
   }
   for (const e of errors) console.log(e);
-  // The parts ours stopped at the CPU limit, again one at a time in a pool of one worker, with the limit unchanged:
-  // a part over it only under load (a thread on the efficiency cores) shows here as meshing alone.
-  const capped = [...per.values()].flatMap((T) => T.capped).sort();
+  if (aloneLines.length) {
+    console.log(`\n### Parts over ${CPU_MS / 1000} s of CPU under load, run again alone at the end (load ${aloneLoad} `
+      + 'at the start) and tallied above by their alone results: the verdict under the run\'s load; alone');
+    for (const x of aloneLines) console.log(x);
+  }
+  // With ALONE=0: the parts ours stopped at the CPU limit, tallied as over it, again one at a time in a pool of one
+  // worker, with the limit unchanged: a part over it only under load shows here as meshing alone.
+  const capped = ALONE ? [] : [...per.values()].flatMap((T) => T.capped).sort();
   if (capped.length) {
     const os = await import('node:os');
     console.log(`\n### Parts over ${CPU_MS / 1000} s of CPU, run again alone at the end (load ${os.loadavg()[0]!
