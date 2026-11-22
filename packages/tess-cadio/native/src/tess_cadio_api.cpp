@@ -141,6 +141,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
   opts.countAngles = countAngles;
+  for (int k = 0; k < 3; k++) opts.outputOrigin[k] = o[k];
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
   opts.analysis = analysis, opts.analysisSize = analysisSize;

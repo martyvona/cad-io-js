@@ -96,6 +96,12 @@ struct PartOptions {
    */
   bool countAngles = false;
   /**
+   * Where the output's positions go as float32 minus this point (the C API's origin): the turned-over check
+   * (failTurnedOver) judges each facet as shipped, its corners and normals so rounded; a needle's facet can turn in the
+   * rounding alone. Not finite (the default): judged in double.
+   */
+  double outputOrigin[3] = {NAN, NAN, NAN};
+  /**
    * Keep each face's criteria verdicts (accept, belowFloor, the metric) from its last two meshings and answer the
    * same question again from them: a face meshed again after a split round asks mostly about the triangles it asked
    * about before. The mesh is the same bits either way (the criteria are functions of a triangle's corners as given);

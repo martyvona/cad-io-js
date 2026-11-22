@@ -306,9 +306,10 @@ public:
 
   /**
    * Each cut applied to its edge, once for every face using it (the samples are the edge's, its coedges redone): a
-   * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
-   * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between
-   * them kept empty from then on: split() drops a request inside it, so the refinement rounds never refill a ring.
+   * sample at the approach and one at the crossing (an existing sample within a millionth of a span, or within the
+   * refinement floor of it in 3D, used instead, so a vertex at the pole stays the sample there), the samples strictly
+   * between them removed, and the span between them kept empty from then on: split() drops a request inside it, so the
+   * refinement rounds never refill a ring.
    * A cut from the approach of a ring already on the edge (within a millionth of the edge's range), its crossing
    * inside that ring, shrinks it instead: a sample at the new crossing, the span from there to the old one an
    * ordinary span. Bad cuts (no such edge, parameters not finite or outside

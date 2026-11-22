@@ -1305,10 +1305,10 @@ struct EdgeMesh::Impl {
   }
 
   /**
-   * t inserted into edge e's samples in order (an existing one within a millionth of its span used instead): the
-   * sample's parameter, which callers must keep (a reused one isn't t).
+   * t inserted into edge e's samples in order (an existing one within a millionth of its span used instead, or within
+   * `near` of its point in 3D): the sample's parameter, which callers must keep (a reused one isn't t).
    */
-  double insertSample(int e, double t) {
+  double insertSample(int e, double t, double near = 0) {
     Edge& E = edges[e];
     std::vector<double>& ts = E.s.t;
     bool up = ts.back() > ts.front();
@@ -1317,6 +1317,11 @@ struct EdgeMesh::Impl {
     double span = std::fabs(ts[i + 1] - ts[i]);
     if (std::fabs(t - ts[i]) <= 1e-6 * span) return ts[i];
     if (std::fabs(ts[i + 1] - t) <= 1e-6 * span) return ts[i + 1];
+    if (near > 0) {
+      const Vec3 p = E.geom->at(t);
+      const double a = norm(p - E.s.points[i]), b = norm(p - E.s.points[i + 1]);
+      if (a <= near || b <= near) return a <= b ? ts[i] : ts[i + 1];
+    }
     ts.insert(ts.begin() + static_cast<long>(i) + 1, t);
     E.s.points.insert(E.s.points.begin() + static_cast<long>(i) + 1, E.geom->at(t));
     return t;
@@ -2615,6 +2620,9 @@ Status EdgeMesh::respace(const std::vector<double>& faceSpacing) {
 
 Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {
   Impl& I = *impl_;
+  // (A cut's sample within the refinement floor of an existing one in 3D is that one: no two of an edge's samples a
+  // hair apart, a needle between them: cnc-box #92's cone #35567, a ring's crossing 2.1e-5 from the edge's middle.)
+  const double floor = refinementFloor(I.tol, I.o.deflection);
   bool bad = false;
   std::set<int> touched;
   for (const RingCut& c : cuts) {
@@ -2641,14 +2649,14 @@ Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {
       const double near = 1e-6 * (hi - lo);
       const bool fromLo = std::fabs(c.approach - old.lo) <= near, fromHi = std::fabs(c.approach - old.hi) <= near;
       if (!(fromLo || fromHi) || !(c.crossing > old.lo && c.crossing < old.hi)) continue;
-      const double b = I.insertSample(c.edge, c.crossing);
+      const double b = I.insertSample(c.edge, c.crossing, floor);
       if (b == old.lo || b == old.hi) break;
       E.s.rings[k] = fromLo ? Range{old.lo, b} : Range{b, old.hi};
       touched.insert(c.edge);
       shrunk = true;
     }
     if (shrunk) continue;
-    const double a = I.insertSample(c.edge, c.approach), b = I.insertSample(c.edge, c.crossing);
+    const double a = I.insertSample(c.edge, c.approach, floor), b = I.insertSample(c.edge, c.crossing, floor);
     if (a == b) {
       bad = true;
       continue;
