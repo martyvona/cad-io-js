@@ -91,6 +91,51 @@ test('backendsFromQuery: backend= and fallback= by name, minAngle= and keepFaili
     'fallback: not one of occt, truck, smlib, cadio, none: cad'] });
 });
 
+test('deflectionFromQuery: profile= by name, linearDeflection= and angularDeflection= making it custom (the other '
+  + 'the settings\'), what\'s malformed said and left out; deflectionQuery writes what it reads back', async () => {
+  const { deflectionFromQuery, deflectionQuery } = await import('../src/view-state.ts');
+  const { profileSettings } = await import('../src/tessellation.ts');
+  const cur = { linearDeflection: 0.1, angularDeflection: 17 };
+  const q = (s: string) => deflectionFromQuery(new URLSearchParams(s), cur);
+  assert.deepEqual(q(''), { problems: [] });
+  assert.deepEqual(q('profile=fine'), { meshing: profileSettings('fine'), problems: [] });
+  assert.deepEqual(q('profile=coarse'), { meshing: profileSettings('coarse'), problems: [] });
+  assert.deepEqual(q('profile=custom'), { meshing: { profile: 'custom', ...cur }, problems: [] });
+  // Below the control's least (0.001 mm): a deflection that fails a face by construction.
+  assert.deepEqual(q('linearDeflection=1.2e-6'), { meshing: { profile: 'custom', linearDeflection: 1.2e-6,
+    angularDeflection: 17 }, problems: [] });
+  assert.deepEqual(q('angularDeflection=90'), { meshing: { profile: 'custom', linearDeflection: 0.1,
+    angularDeflection: 90 }, problems: [] });
+  assert.deepEqual(q('linearDeflection=0.5&angularDeflection=20&profile=custom'), { meshing: { profile: 'custom',
+    linearDeflection: 0.5, angularDeflection: 20 }, problems: [] });
+  assert.deepEqual(q('profile=fine&linearDeflection=0.5'), { meshing: { profile: 'custom', linearDeflection: 0.5,
+    angularDeflection: 17 }, problems: ['profile=fine with a deflection: custom'] });
+  assert.deepEqual(q('profile=best'), { problems: ['profile: not one of coarse, medium, fine, custom: best'] });
+  for (const v of ['0', '-1', 'x', '', 'Infinity']) {
+    assert.deepEqual(q(`linearDeflection=${v}`), { problems: [
+      `linearDeflection: not a positive number of millimetres: ${v}`] });
+  }
+  for (const v of ['0', '91', 'x']) {
+    assert.deepEqual(q(`angularDeflection=${v}`), { problems: [
+      `angularDeflection: not a number of degrees above 0, at most 90: ${v}`] });
+  }
+  // A bad deflection beside a good one: the good one, custom.
+  assert.deepEqual(q('linearDeflection=x&angularDeflection=30'), { meshing: { profile: 'custom', linearDeflection: 0.1,
+    angularDeflection: 30 }, problems: ['linearDeflection: not a positive number of millimetres: x'] });
+  // Written back: the device's profile not at all, another by name, custom by its deflections; each read back.
+  assert.deepEqual(deflectionQuery(profileSettings('medium'), 'medium'), []);
+  assert.deepEqual(deflectionQuery(profileSettings('medium'), 'coarse'), [['profile', 'medium']]);
+  // No device profile (Include device defaults): always written, the device's too.
+  assert.deepEqual(deflectionQuery(profileSettings('medium')), [['profile', 'medium']]);
+  assert.deepEqual(deflectionQuery({ profile: 'custom', linearDeflection: 0.5, angularDeflection: 20 }),
+    [['linearDeflection', '0.5'], ['angularDeflection', '20']]);
+  for (const m of [profileSettings('fine'), { profile: 'custom' as const, linearDeflection: 1.2e-6,
+    angularDeflection: 22.5 }]) {
+    const back = deflectionFromQuery(new URLSearchParams(deflectionQuery(m, 'medium')), cur);
+    assert.deepEqual(back, { meshing: m, problems: [] });
+  }
+});
+
 test('the settings\' tess-cadio: its minAngle asked (radians) only where it meshes and not its own default; the '
   + 'level wanted with it; its debugging switch only where it meshes', async () => {
   const { defaultSettings, keepsFailing, minAngleOf, usesCadio, wantedOf } = await import('../src/tessellation.ts');
@@ -127,15 +172,36 @@ test('healingFromQuery: heal=1 or 0, healOn and healOff from the defaults turnin
   assert.deepEqual(q('heal=0'), { meshing: { heal: false, healFixes: d }, problems: [] });
   assert.deepEqual(q('healOff=strayPole,pcurveEnds'), { meshing: { heal: true, healFixes: { ...d, strayPole: false,
     pcurveEnds: false } }, problems: [] });
-  assert.deepEqual(q('heal=1&healOn=pcurveMissing'), { meshing: { heal: true, healFixes: { ...d,
-    pcurveMissing: true } }, problems: [] });
-  assert.deepEqual(q('healOn=nope,pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, pcurveMissing: true } },
-    problems: [`healOn: not one of strayPole, pcurveMissing, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, `
-      + 'vertexTolerance: nope'] });
+  // pcurveMissing: an alias of elementary and free-form.
+  const both = { pcurveMissingOnElementary: true, pcurveMissingOnFreeForm: true };
+  assert.deepEqual(q('heal=1&healOn=pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, ...both } },
+    problems: [] });
+  assert.deepEqual(q('healOn=pcurveMissingOnFreeForm'), { meshing: { heal: true, healFixes: { ...d,
+    pcurveMissingOnFreeForm: true } }, problems: [] });
+  assert.deepEqual(q('healOn=nope,pcurveMissing'), { meshing: { heal: true, healFixes: { ...d, ...both } },
+    problems: [`healOn: not one of strayPole, pcurveMissingOnPlane, pcurveMissingOnElementary, `
+      + 'pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
   assert.deepEqual(q('healOn=strayPole,pcurveMissing&healOff=strayPole'), { meshing: { heal: true, healFixes: { ...d,
-    pcurveMissing: true } }, problems: ['healOn and healOff: strayPole in both, left as it is'] });
+    ...both } }, problems: ['healOn and healOff: strayPole in both, left as it is'] });
   assert.deepEqual(q('heal=0&healOff=strayPole'), { meshing: { heal: false, healFixes: d },
-    problems: ['heal=0 with healOn or healOff: the fixes ignored'] });
-  assert.deepEqual(q('healOff=nope'), { problems: ['healOff: not one of strayPole, pcurveMissing, pcurveReparam, '
-    + 'pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance: nope'] });
+    problems: ['heal=0 with healOn, healOff or healFit: ignored'] });
+  assert.deepEqual(q('healFit=0.01'), { meshing: { heal: true, healFixes: d, healFit: 0.01 }, problems: [] });
+  assert.deepEqual(q('heal=1&healFit=0'), { meshing: { heal: true, healFixes: d },
+    problems: ['healFit: not a positive number of mm: 0'] });
+  assert.deepEqual(q('healFit=x'), { problems: ['healFit: not a positive number of mm: x'] });
+  assert.deepEqual(q('heal=0&healFit=1'), { meshing: { heal: false, healFixes: d },
+    problems: ['heal=0 with healOn, healOff or healFit: ignored'] });
+  assert.deepEqual(q('healOff=nope'), { problems: ['healOff: not one of strayPole, pcurveMissingOnPlane, '
+    + 'pcurveMissingOnElementary, pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, '
+    + 'vertexTolerance: nope'] });
+});
+
+test('healingOf: the fixes on, and the fit tolerance where it isn\'t cad-heal\'s default (an older recording\'s none)',
+  async () => {
+  const { defaultFixes, healingOf } = await import('../src/tessellation.ts');
+  const { PCURVE_FIT_TOLERANCE } = await import('cad-heal/options');
+  const on = { heal: true, healFixes: defaultFixes() };
+  assert.equal(healingOf(on), healingOf({ ...on, healFit: PCURVE_FIT_TOLERANCE }), 'the default: no fit said');
+  assert.equal(healingOf({ ...on, healFit: 0.01 }), `${healingOf(on)};fit=0.01`);
+  assert.equal(healingOf({ heal: false, healFit: 0.01 }), '');
 });

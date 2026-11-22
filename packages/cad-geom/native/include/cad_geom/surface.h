@@ -150,4 +150,48 @@ struct SurfaceFoot {
 SurfaceInversion invertSurface(const Surface& s, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint = nullptr,
   std::vector<SurfaceFoot>* all = nullptr, bool distanceOnly = false);
 
+/** A point where a line meets a surface: the line's parameter, the surface's, the point, and d . n there (unit). */
+struct LineHit {
+  double t = 0;
+  Vec2 uv;
+  Vec3 point;
+  double cosine = 0;
+  /** At a singularity (a pole or an apex) within tol: uv's free parameter is one choice. */
+  bool atSingularity = false;
+  /** The t the hit covers: a crossing's t alone, a tangency's cluster (the line within reach of the surface there). */
+  Range span;
+};
+
+/**
+ * Where a line meets a surface, within tol. Crossings: the line through the surface, |cosine| at least
+ * kLineMargin, each one proven unique where it was found. Tangencies: contacts that aren't such crossings, the line
+ * within tol of the surface or too near it for the search to tell at its finest size, 1e-6 of the range's 3D size
+ * (touching it, crossing it too obliquely for tol to place the crossing along t, or meeting it at a pole, where the
+ * normal is undefined): each one a cluster of contacts, at its point nearest the line, any crossing within its reach
+ * part of it. Conservative: a caller that needs every contact resolved takes a tangency as "can't tell". Overlaps: t
+ * ranges where the line lies within tol of the surface, in closed form (a plane holding the line, a cylinder's or
+ * cone's generator). noConvergence where the budget ran out with rectangles unresolved (what was found is given): a
+ * line lying in a surface without a closed form for it (a B-spline cylinder's generator) can take that.
+ */
+struct LineIntersection {
+  Status status = Status::unsupported;
+  std::vector<LineHit> crossings, tangencies;
+  std::vector<Range> overlaps;
+};
+
+/** |d . n| below this, about 1e-3 rad between the line and the tangent plane, is a tangency, not a crossing. */
+constexpr double kLineMargin = 1e-3;
+
+/**
+ * Where the line o + t d, t in tr (finite; d not 0, t in its units), meets s over ru x rv, within tol (a distance):
+ * branch and bound on parameter rectangles as invertSurface's, a rectangle dropped where its box widened by tol misses
+ * the segment, solved where the surface is transversal to the line all over it (interval Newton, Krawczyk's operator,
+ * on the projection of S - o onto the plane normal to d: no root or exactly one), else split; periodic directions
+ * searched over one period from the range's start, results in [lo, lo + period). Crossings, tangencies and overlaps
+ * sorted by t; a crossing found from two rectangles (on the side they share) given once. A crossing exactly on the
+ * search range's side (not a periodic seam: a surface closed in fact, or a range cut short) is a tangency, Krawczyk's
+ * test needing a little room past the root.
+ */
+LineIntersection intersectLine(const Surface& s, Vec3 o, Vec3 d, Range tr, Range ru, Range rv, double tol);
+
 } // namespace cadgeom

@@ -37,7 +37,7 @@ Options for shot:
   --view <name>        front, back, left, right, top, bottom or iso (default: as the page fits it)
   --state <query>      more of the view, as in a link's address: "cut=x:10&hide=as1/plate&ao=0" (README.md)
   --heal, --no-heal    the models healed before they're meshed (Heal B-reps), or as imported (default: the
-                       viewer's; fixes by --state "healOff=strayPole" and "healOn=pcurveMissing")
+                       viewer's; fixes by --state "healOff=strayPole" and "healOn=pcurveMissingOnFreeForm")
   --json <file>        also write the page's state, the view's link and its status line there ("-": standard output)
   --theme <theme>      dark (the default), light, or auto (the viewer's Auto: headless Chrome's preference, light)
   --background <color> the view's background instead of the theme's, #rrggbb (white for pictures on a white page)

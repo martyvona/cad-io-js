@@ -70,6 +70,21 @@ public:
   /** The face's creases, for the normals: a triangle's corner on one takes its normal from the triangle's side. */
   virtual void setCreases(std::vector<Crease> lines) = 0;
   /**
+   * The boundary's own 3D points by their (u, v) (an edge's curve points, which its faces share and the mesh outputs):
+   * a triangle is also refused as turned over when its facet with these at its corners where it has them, as the
+   * output has it, faces against the mean of its corners' normals (the part's own check of its output). The other
+   * tests, the deviation and the normals' angles, stay judged on the surface's
+   * points, so a boundary off its surface within the face's tolerance isn't refused for being where the model put it.
+   * None by default.
+   */
+  virtual void setBoundaryPoints(const std::vector<std::pair<cadgeom::Vec2, cadgeom::Vec3>>& points) { (void)points; }
+  /**
+   * Where the output's positions go as float32 minus this point (PartOptions::outputOrigin): the turned-over tests
+   * judge each facet with its corners so rounded, as shipped, so refinement mends a facet the rounding alone turns.
+   * None by default (in double).
+   */
+  virtual void setOutputOrigin(const double origin[3]) { (void)origin; }
+  /**
    * Whether accept() has bounded every triangle's deviation from the surface it judged so far (by derivative bounds
    * or a distance function) rather than sampling it: false for the kinds it samples (extrusions, revolutions,
    * offsets) and wherever a bound wasn't available (near a cone's apex).

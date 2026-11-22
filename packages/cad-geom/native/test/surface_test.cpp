@@ -1749,3 +1749,72 @@ TEST_CASE("rational B-spline boxes: two surfaces asked in turn over one rectangl
       CHECK(!same(first, after));
     }
 }
+
+TEST_CASE("inversion beside a C0 knot: a convex rectangle's minimum from its own partials, not the next span's") {
+  // A strip whose v parameterization is C0 at v = 1/2 (a double knot, degree 2), slow beyond it, so the partials on
+  // the rectangle's side v = 1/2 are the next span's: Newton from there was thrown out and cycled between corners.
+  // The strip creases there too, so a point at the knot line has its foot on it, where the distance has a kink and
+  // the rectangles on either side each find the minimum pushed against their shared side. Points near the knot on
+  // its fast side and on it, on the surface and off it along the normals' bisector (at the knot, the two pieces'):
+  // each one's distance at most its offset (the point it's offset from is on the surface) and the foot at the
+  // distance reported.
+  for (double a : {60.0, 20.0, 40.0})
+    for (double bend : {3.0, 30.0}) {
+      std::vector<std::vector<Vec3>> P;
+      for (double x : {0.0, 0.5})
+        P.push_back({{x, 0, 0}, {x, a, 1}, {x, 228, 0}, {x, 230, -bend}, {x, 229, -2 * bend}});
+      auto S = rawSpline(1, 2, {0, 1}, {2, 2}, {0, 0.5, 1}, {3, 2, 3}, P);
+      REQUIRE(S);
+      const SurfaceDomain d = S->domain();
+      for (double u : {0.0, 0.3, 1.0})
+        for (double v : {0.45, 0.48, 0.49, 0.495, 0.499, 0.4999, 0.5})
+          for (double off : {0.0, 1e-7, 0.01, 0.3, -0.3}) {
+            SurfacePoint sp, below;
+            REQUIRE(S->eval(u, v, 1, sp) == Status::ok);
+            REQUIRE(S->eval(u, v - 1e-12, 1, below) == Status::ok);
+            const Vec3 n1 = cross(sp.du, sp.dv), n2 = cross(below.du, below.dv);
+            const Vec3 n = (1 / norm(n1)) * n1 + (1 / norm(n2)) * n2;
+            const Vec3 q = sp.p + off / norm(n) * n;
+            SurfaceInversion inv = invertSurface(*S, q, d.u, d.v, 1e-9);
+            CHECK(inv.status == Status::ok);
+            CHECK(inv.distance <= std::fabs(off) + 1e-9);
+            SurfacePoint f;
+            S->eval(inv.uv.x, inv.uv.y, 0, f);
+            CHECK_NEAR(norm(f.p - q), inv.distance, 1e-12, 1e-12);
+          }
+    }
+}
+
+TEST_CASE("rational B-spline boxes about the rectangle: a narrow strip far from its poles' centroid, tight") {
+  // A strip 0.125 mm across (a rational cubic arc in u, its weights varying) and 200 mm long in v: about the
+  // surface's centroid every term of the quotient rule carries |S - c|, up to 100 mm, against S_u's 0.16; about the
+  // rectangle's own origin a small rectangle's partials are bounded within a few times their sampled maxima.
+  const Vec3 arc[4] = {{0, -0.0625, 0.0454}, {0.0262, -0.0284, 0}, {0.0262, 0.0284, 0}, {0, 0.0625, 0.0454}};
+  const double wu[4] = {0.866025, 0.635085, 0.635085, 0.866025};
+  std::vector<std::vector<Vec3>> P(4);
+  std::vector<std::vector<double>> W(4);
+  for (int i = 0; i < 4; i++)
+    for (int j = 0; j < 6; j++) P[i].push_back(arc[i] + Vec3{40.0 * j, 0, 0.5 * j * j}), W[i].push_back(wu[i]);
+  auto S = rawSpline(3, 2, {0, 1}, {4, 4}, {0, 0.25, 0.5, 0.75, 1}, {3, 1, 1, 1, 3}, P, W);
+  const SurfaceImpl* s = impl(S.get());
+  REQUIRE(s != nullptr);
+  for (Range rv : {Range{0.02, 0.02 + 1.0 / 64}, Range{0.95, 0.95 + 1.0 / 64}}) {
+    const Range ru{0.5 - 1.0 / 32, 0.5 + 1.0 / 32};
+    double most[2] = {0, 0};
+    for (int a = 0; a <= 32; a++)
+      for (int b = 0; b <= 32; b++) {
+        Vec3 d[kPartials];
+        s->derivs(ru.lo + (ru.hi - ru.lo) * a / 32, rv.lo + (rv.hi - rv.lo) * b / 32, 2, d);
+        most[0] = std::fmax(most[0], norm(d[pidx(1, 0)])), most[1] = std::fmax(most[1], norm(d[pidx(2, 0)]));
+      }
+    Box3 bu, buu;
+    REQUIRE(s->derivBox(ru, rv, 1, 0, bu) == Status::ok);
+    REQUIRE(s->derivBox(ru, rv, 2, 0, buu) == Status::ok);
+    auto far = [](const Box3& b) {
+      auto m = [](Interval i) { return std::fmax(std::fabs(i.lo), std::fabs(i.hi)); };
+      return std::hypot(m(b.x), std::hypot(m(b.y), m(b.z)));
+    };
+    CHECK(far(bu) <= 6 * most[0]);
+    CHECK(far(buu) <= 3 * most[1]);
+  }
+}

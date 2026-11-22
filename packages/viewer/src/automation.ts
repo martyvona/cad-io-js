@@ -12,16 +12,18 @@ import { sha256 } from 'cad-scene';
 import { parseIds } from './step-ids.ts';
 import { VIEWS, type ViewName } from './camera.ts';
 import { askUrl, showDialog } from './dialog.ts';
+import { DEVICE_PROFILES } from './device.ts';
 import { formatOf } from './formats.ts';
 import { AXES, type SectionSettings } from './section.ts';
 import { hex, Recorder, RECORDING_FORMAT, replay, type RecordedModel, type Recording, type ReplayOptions,
   type ReplayReport, type Session } from './recorder.ts';
 import { replayed } from './replay-report.ts';
 import { nodeForPick } from './selection.ts';
-import { contentPath, fromUrl, pickFiles, typedUrl } from './sources.ts';
+import { contentPath, fromFiles, fromUrl, pickFiles, typedUrl, type Source } from './sources.ts';
 import type { RenderSettings } from './style.ts';
 import type { Ui } from './ui.ts';
-import { backendsFromQuery, fromQuery, healingFromQuery, renderChanges, toQuery, type CameraState, type ViewState } from
+import { backendsFromQuery, deflectionFromQuery, deflectionQuery, fromQuery, healingFromQuery, renderChanges, toQuery,
+  type CameraState, type ViewState } from
   './view-state.ts';
 import type { TessellationSettings } from './tessellation.ts';
 import type { MeshedWith, Viewer } from './viewer.ts';
@@ -191,9 +193,13 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
 
   const link = (): string => {
     const s = state();
-    const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps,
-      render: renderChanges(s.render), tree: s.tree, pick: s.pick, instances: s.instances, hidden: s.hidden,
-      shown: s.shown, opacity: s.opacity, triangleEdges: s.triangleEdges, selected: s.selected };
+    // (Include device defaults: the settings whose defaults depend on the device spelled out, so the link shows the
+    // same on another: the edge style here, the deflections below.)
+    const spell = ui.linkDeviceDefaults();
+    const render = { ...renderChanges(s.render), ...(spell ? { edgeStyle: s.render.edgeStyle } : {}) };
+    const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps, render, tree: s.tree, pick: s.pick,
+      instances: s.instances, hidden: s.hidden, shown: s.shown, opacity: s.opacity, triangleEdges: s.triangleEdges,
+      selected: s.selected };
     const url = new URL(location.pathname, location.origin);
     const from = ui.currentUrl();
     // A model below the content root is linked by its path there, so the link works wherever the viewer is served
@@ -201,6 +207,14 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     // the link works however the server is reached.
     if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
       ? from.slice(location.origin.length) : from));
+    // Its deflections where they aren't the device's profile (or always, with Include device defaults), so the link
+    // meshes it as it's shown.
+    const m = viewer.model?.meshedWith;
+    if (from && m) {
+      for (const [k, v] of deflectionQuery(m, spell ? undefined : DEVICE_PROFILES[viewer.device])) {
+        url.searchParams.set(k, v);
+      }
+    }
     // The view after #, which no server sees: a long hide= or select= list would outgrow the request line servers take
     // (GitHub Pages refuses a query over about 8 KB, Node's dev server about 16 KB).
     url.hash = new URLSearchParams(toQuery(view)).toString();
@@ -235,7 +249,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
       ...new URLSearchParams(location.search)]);
     const { state: st, problems } = fromQuery(params);
-    // Healing (heal=, healOn=, healOff=) before the model opens: it decides the models meshed.
+    // Healing (heal=, healOn=, healOff=, healFit=) before the model opens: it decides the models meshed.
     const healing = healingFromQuery(params);
     if (healing.meshing) ui.setMeshing(healing.meshing);
     problems.push(...healing.problems);
@@ -243,6 +257,10 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const backends = backendsFromQuery(params, viewer.settings);
     if (backends.meshing) ui.setMeshing(backends.meshing);
     problems.push(...backends.problems);
+    // The deflections (profile=, linearDeflection=, angularDeflection=) likewise.
+    const deflection = deflectionFromQuery(params, viewer.settings);
+    if (deflection.meshing) ui.setMeshing(deflection.meshing);
+    problems.push(...deflection.problems);
     const given = params.get('model') ?? params.get('url');
     if (params.has('model') && params.has('url')) problems.push('model and url both given: url ignored');
     const url = given !== null ? typedUrl(given) : undefined;
@@ -380,17 +398,17 @@ const bytesText = (n: number | undefined) => n === undefined ? 'not recorded' : 
  */
 async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> {
   const current = ui.source();
-  if (current && want.sha256 && hex(await sha256(new Uint8Array(current.bytes))) === want.sha256) return true;
+  if (current && want.sha256 && current.sha256 === want.sha256) return true;
   const recorded: [string, string][] = [['Name', want.name], ['Size', bytesText(want.size)],
     ['SHA-256', want.sha256 ?? 'not recorded'], ...(want.url ? [['URL', want.url] as [string, string]] : [])];
-  // True if the bytes are the recorded model's; else says so (the replay then stops).
-  const matches = async (name: string, bytes: ArrayBuffer) => {
-    const got = hex(await sha256(new Uint8Array(bytes)));
+  // True if the file read is the recorded model (by its SHA-256, as it was read); else says so (the replay stops).
+  const matches = async (src: Source) => {
+    const name = src.name, got = src.sha256;
     if (!want.sha256 || got === want.sha256) return true;
     await showDialog({ title: 'Not the recorded model', error: true, buttons: CLOSE, body: [
       `${name} isn't the model the recording was made with (their SHA-256 hashes differ), so it wasn't loaded and ` +
       'the replay stops.', 'The recording\'s model:', recorded, 'The file opened:',
-      [['Name', name], ['Size', bytesText(bytes.byteLength)], ['SHA-256', got]]] });
+      [['Name', name], ['Size', bytesText(src.size)], ['SHA-256', got]]] });
     return false;
   };
   for (;;) {
@@ -401,10 +419,11 @@ async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> 
     if (r.button === 'file') {
       const files = await pickFiles();
       if (!files.length) continue;
-      // Of several files (a .gltf with its .bin), the model's.
-      const model = files.find((f) => formatOf(f.name)) ?? files[0]!;
-      if (!(await matches(model.name, await model.arrayBuffer()))) return false;
-      return !('error' in ((await ui.openFiles(files)) ?? {}));
+      // Of several files (a .gltf with its .bin), the model's: read and hashed once, then opened as read.
+      const src = await fromFiles(files);
+      if (!src) continue;
+      if (!(await matches(src))) return false;
+      return !('error' in ((await ui.openFiles(files, src)) ?? {}));
     }
     if (r.button === 'url') {
       const typed = await askUrl({ title: 'Open the recorded model by URL', body: [recorded], value: want.url });
@@ -418,7 +437,7 @@ async function openRecordedModel(ui: Ui, want: RecordedModel): Promise<boolean> 
         await showDialog({ title: 'Not loaded', error: true, buttons: CLOSE, body: [(e as Error).message] });
         continue;
       }
-      if (!(await matches(src.name, src.bytes))) return false;
+      if (!(await matches(src))) return false;
       return !('error' in await ui.openUrl(url, src));
     }
     return false;

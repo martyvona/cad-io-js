@@ -9,7 +9,7 @@ import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from '.
 import { addLod } from './lod.ts';
 import { meshBox, sceneBounds } from './bounds.ts';
 import type { BrepData } from 'cad-brep';
-import type { Diagnostic, Measures, Mesh, Part, Scene } from './scene.ts';
+import type { Diagnostic, FaceMeasures, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
 import { ORACLE_DISAGREE } from './area-oracle.ts';
@@ -237,7 +237,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       // (Kept at once, so `onPart` sees them.)
       if (measure && (r.measures?.length || r.oracle?.length)) {
         const uses = faceUses(brep.model);
-        const faces = new Map<number, { area: number; perimeter: number; valid: boolean; uses?: number }>();
+        const faces = new Map<number, FaceMeasures>();
         const add = (id: number, m: { area: number; perimeter: number; valid: boolean }) => {
           const n = uses.get(id) ?? 1;
           faces.set(id, { area: m.area, perimeter: m.perimeter, valid: m.valid, ...(n > 1 ? { uses: n } : {}) });
@@ -248,10 +248,13 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
           const m = faces.get(o.entityId);
           const agrees = m && m.valid && Number.isFinite(m.area)
             && Math.abs(m.area - o.area) <= ORACLE_DISAGREE * o.area;
-          if (agrees) continue;
-          // (A face the backend didn't measure, as truck can't, isn't a disagreement.)
-          if (m) replaced++;
-          add(o.entityId, { area: o.area, perimeter: o.perimeter, valid: true });
+          if (!agrees) {
+            // (A face the backend didn't measure, as truck can't, isn't a disagreement.)
+            if (m) replaced++;
+            add(o.entityId, { area: o.area, perimeter: o.perimeter, valid: true });
+          }
+          // The oracle's area with its error, for users, whichever area is kept.
+          if (Number.isFinite(o.error)) faces.get(o.entityId)!.oracle = { area: o.area, error: o.error! };
         }
         part.measures = { by: replaced ? `${by}, the area oracle's for ${replaced} ${replaced === 1 ? 'face' : 'faces'}`
           : by, faces };

@@ -32,7 +32,7 @@ struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
   Deflections d;
   /** Rounds of splitting edges and meshing their faces again at most (they end once no face asks for a split). */
-  int maxSplitRounds = 24;
+  int maxSplitRounds = 48;
   /**
    * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
    * left to the split rounds; for tests and tuning).
@@ -95,6 +95,12 @@ struct PartOptions {
    * number, by that angle, their area, and what holds them there. Off by default; the mesh is the same either way.
    */
   bool countAngles = false;
+  /**
+   * Where the output's positions go as float32 minus this point (the C API's origin): the turned-over check
+   * (failTurnedOver) judges each facet as shipped, its corners and normals so rounded; a needle's facet can turn in the
+   * rounding alone. Not finite (the default): judged in double.
+   */
+  double outputOrigin[3] = {NAN, NAN, NAN};
   /**
    * Keep each face's criteria verdicts (accept, belowFloor, the metric) from its last two meshings and answer the
    * same question again from them: a face meshed again after a split round asks mostly about the triangles it asked
@@ -180,6 +186,8 @@ struct FaceMesh {
   bool capped = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
+  /** Its boundary's FaceBoundary::holesOnly: its edge loops all holes, its surface's natural extent their outer. */
+  bool holesOnly = false;
   /** Its boundary's FaceBoundary::foldsRepaired. */
   int foldsRepaired = 0;
 };
@@ -195,6 +203,13 @@ public:
   const EdgeMesh& edges() const;
   /** The rounds of splitting run. */
   int rounds() const;
+  /**
+   * In the rounds, the poles whose rings were shrunk for a split another face asked inside them (never nearer the
+   * pole than the refinement floor; a shrink undone, a face it changed failing that didn't, not counted), and the
+   * faces meshed again for them, undoing included (counted each time).
+   */
+  int ringsShrunk() const;
+  int ringFacesRemeshed() const;
   /** The most bytes the kept verdicts took at once, as estimated (PartOptions::verdictBudget): for tests. */
   size_t verdictPeak() const;
 

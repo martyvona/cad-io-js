@@ -12,8 +12,8 @@ const digest = (b: ArrayBuffer | undefined) => b && createHash('sha256').update(
 const healed = (s: Scene) => ({ parts: s.parts.map((p) => ({ model: digest(p.brep!.model.buffer),
   analysis: digest(p.brep!.analysis?.buffer) })), diagnostics: s.diagnostics });
 
-for (const [what, opts] of [['the default fixes', {}], ['pcurveMissing on, edgeTolerance off',
-  { fixes: { pcurveMissing: true, edgeTolerance: false } }]] as [string, HealSceneOptions][]) {
+for (const [what, opts] of [['the default fixes', {}], ['pcurveMissingOnElementary on, edgeTolerance off',
+  { fixes: { pcurveMissingOnElementary: true, edgeTolerance: false } }]] as [string, HealSceneOptions][]) {
   test(`healScene in a pool's workers, 3 at once, gives what it gives serially, byte for byte (${what})`, async () => {
     const serial = healTestScene(), parallel = healTestScene(), before = healed(healTestScene());
     await healScene(serial, opts);

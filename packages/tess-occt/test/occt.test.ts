@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { AREA_ORACLE_ID } from 'cad-oracle';
 import { failedPart, meshDeflections, openEdgesMessage, partInstances, type Part, tessellateScene } from 'cad-scene';
 import { buildSubset, parseStep } from 'step-parser';
 import { STEP_ADAPTER, STEP_WRITER_VERSION, StepTessellator } from 'step-export';
@@ -449,7 +450,8 @@ test("a host's module: the glue and module given by URL, bytes, factory or compi
     options: { glue: glue.href, wasm: module, version: 'host OCCT 8.1 r7' } }, workers: 1 });
   await pool.init();
   try {
-    assert.equal(pool.info.version, compiled.version);
+    // (Its version names the workers' area oracle.)
+    assert.equal(pool.info.version, `${compiled.version}, area oracle ${AREA_ORACLE_ID}`);
     assert.deepEqual(await pool.tessellate(req), ours.result);
   } finally {
     pool.dispose();

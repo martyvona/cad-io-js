@@ -4,7 +4,8 @@
 // face's area. As JSON:
 //
 //   measures: { by: string, faces: { "<face source id>": [area, perimeter, valid (1 or 0), uses?] } }  mm^2 and mm;
-//             uses (FaceMeasures.uses) only where over 1
+//             uses (FaceMeasures.uses) only where over 1; the area oracle's area and error (FaceMeasures.oracle)
+//             not written, so a part read back shows only the area
 //   level: { linearDeflection?, angularDeflection?, backend? }   the exported level's (Lod), mm and radians
 //   unit: not written; files of earlier versions have it, the part's unit in mm where it isn't 1, its vertices,
 //         measures and node transforms in that unit (read: unitFrom, the part then scaled to mm)

@@ -15,7 +15,7 @@ export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoop
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
-const API_VERSION = 2;
+const API_VERSION = 4;
 
 /** A computed real with an a posteriori estimate of its error (result.h's Estimate). */
 export interface Estimate {
@@ -25,7 +25,7 @@ export interface Estimate {
 }
 
 export interface FaceMeasure {
-  /** In the model's units squared. */
+  /** In the model's units squared; its error the quadrature's plus `boundary` where that's known. */
   area: Estimate;
   /** Every edge of every edge loop, a seam twice. */
   perimeter: Estimate;
@@ -34,13 +34,27 @@ export interface FaceMeasure {
   flags: OracleFlag[];
   /** The largest distance of a loop's point from the surface over the loops' size (closed forms only; else NaN). */
   offSurface: number;
+  /**
+   * How far the area can be off for its loops' p-curves not being their edges' curves (oracle.h's
+   * FaceMeasure::boundary): the sum over the uses of the p-curve's deviation from the curve (given: measured by the
+   * p-curve's own parameter; healed: the analysis's; projected: the projection's error) times the edge's length; 0 on
+   * closed forms; NaN where it couldn't be had.
+   * Included in area.error where it's known (where it's NaN, area.error is the quadrature's alone and trusted()
+   * refuses the face).
+   */
+  boundary: number;
   /** Why the area is unsupported or failed, where it is. */
   why: string;
 }
 
-/** A measure to rely on: computed, no flags, its error within `relative` of its value (oracle.h's trusted). */
+/**
+ * A measure to rely on: computed, no flags but projectedBoundary, its boundary's error known, its error (the
+ * boundary's included) within `relative` of its value (oracle.h's trusted). What users see is the value and its error,
+ * with the flags no estimate covers said beside them.
+ */
 export function trusted(m: FaceMeasure, relative = 1e-6): boolean {
-  return m.area.status === 'ok' && m.flags.length === 0 && m.area.error <= relative * m.area.value;
+  return m.area.status === 'ok' && m.flags.every((f) => f === 'projectedBoundary') && Number.isFinite(m.boundary)
+    && m.area.error <= relative * m.area.value;
 }
 
 type Fn = (...args: number[]) => number;
@@ -121,6 +135,17 @@ async function load(opts: OracleInitOptions): Promise<OracleModule> {
 export interface OracleOptions {
   /** The quadrature's relative tolerance on each edge's and loop's integral (default oracle.h's, 1e-10). */
   relTol?: number;
+  /**
+   * The model's analysis (cad-brep's, as healing gives it; its hash the model's: the caller pairs them): the
+   * deviations of the p-curves healing made, which FaceMeasure.boundary takes instead of measuring them.
+   */
+  analysis?: { buffer: ArrayBuffer } | ArrayBuffer | Uint8Array;
+  /**
+   * Whether the face API projects the loops' coedges without p-curves (default true: oracle.h's
+   * Options::projectMissing). False: a face with such a coedge gets no area (status not ok), the projections' cost
+   * spared.
+   */
+  projectMissing?: boolean;
 }
 
 const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
@@ -145,8 +170,14 @@ export class Oracle {
       : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     const p = this.x._malloc(Math.max(8, bytes.length));
     this.x.HEAPU8.set(bytes, p);
-    // co_model_new owns p from here on, freed even where it isn't a model.
-    this.h = this.x._co_model_new!(p, bytes.length, opts.relTol ?? 0);
+    const a = opts.analysis === undefined ? undefined : opts.analysis instanceof Uint8Array ? opts.analysis
+      : new Uint8Array(opts.analysis instanceof ArrayBuffer ? opts.analysis : opts.analysis.buffer);
+    const q = a ? this.x._malloc(Math.max(8, a.length)) : 0;
+    if (a) this.x.HEAPU8.set(a, q);
+    // co_model_new owns p from here on, freed even where it isn't a model; the analysis is read, then ours to free.
+    this.h = this.x._co_model_new!(p, bytes.length, opts.relTol ?? 0, q, a?.length ?? 0,
+      opts.projectMissing === false ? 1 : 0);
+    if (q) this.x._free(q);
     if (this.h < 0) throw new Error('cad-oracle: not a B-rep model buffer');
   }
 
@@ -207,16 +238,18 @@ export class Oracle {
 
   /** Face row `face`'s area, perimeter and flags (oracle.h's face). */
   face(face: number): FaceMeasure {
-    const x = this.x, p = x._malloc(80);
+    const x = this.x, p = x._malloc(88);
     try {
-      x._co_face!(this.live(), face, p, p + 72);
-      const o = x.HEAPF64.subarray(p / 8, p / 8 + 9);
-      const why = x.UTF8ToString(x.HEAP32[(p + 72) / 4]!);
+      x._co_face!(this.live(), face, p, p + 80);
+      const o = x.HEAPF64.subarray(p / 8, p / 8 + 10);
+      const why = x.UTF8ToString(x.HEAP32[(p + 80) / 4]!);
       return { area: { value: o[0]!, error: o[1]!, status: STATUS[o[2]!]! },
         perimeter: { value: o[3]!, error: o[4]!, status: STATUS[o[5]!]! }, method: METHOD[o[6]!]!,
-        flags: flagsOf(o[7]!), offSurface: o[8]!, why };
+        flags: flagsOf(o[7]!), offSurface: o[8]!, boundary: o[9]!, why };
     } finally {
       x._free(p);
     }
   }
 }
+export { AREA_ORACLE_ID, areaOracle, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, type JudgedArea, type ModelLike }
+  from './judge.ts';

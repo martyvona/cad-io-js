@@ -865,6 +865,77 @@ TEST_CASE("a seam use by inversion that no neighbour places: Status::singular, n
   CHECK(!valid.againstSense);
 }
 
+TEST_CASE("a split in an edge's end span kept past the near-end drop (min(tol, d / 10) of the end), toward the span's "
+  "other sample; in an end span with no room for one, dropped") {
+  // (d = 10 tol: the reach, min(tol, d / 10), and the refinement floor, max(tol, d / 10), the same, so a span past
+  // the floor may still have its middle within the reach: trj6 pm4-ec-203's tori, tol 0.01 at d 0.1.)
+  cadgeom::Model m = load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 10 * cadgeom::Tolerances(m).part();
+  o.maxSpacing = 0.25;
+  EdgeMesh em(m, o);
+  const int e = 0;
+  const double within = std::fmin(cadgeom::Tolerances(m).part(), 0.1 * o.deflection);
+  const Vec3 end = em.edge(e).points.front();
+  // (The first span cut to 1.5 x the reach by an exact split: its middle, 0.75 x, would be dropped.)
+  const double first = cadgeom::norm(em.edge(e).points[1] - end);
+  REQUIRE(first > 2 * within);
+  REQUIRE(em.split({{e, 0, 1.5 * within / first, true}}) == cadgeom::Status::ok);
+  REQUIRE(std::fabs(cadgeom::norm(em.edge(e).points[1] - end) - 1.5 * within) <= 1e-6 * within);
+  CHECK(!em.endSpanFrozen(e, 0));
+  const size_t n = em.edge(e).t.size();
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  REQUIRE(em.edge(e).t.size() == n + 1);
+  const double kept = cadgeom::norm(em.edge(e).points[1] - end);
+  CHECK(kept > within);
+  CHECK(kept < 1.1 * within);
+  // Now the first span is just past the reach: 0.9 of the way isn't, so it's frozen and a split there dropped. A
+  // span inside the edge never frozen for it (the next, within the floor), nor one out of range; the one after, out
+  // to the edge's sample, split.
+  CHECK(em.endSpanFrozen(e, 0));
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 1);
+  CHECK(!em.endSpanFrozen(e, 1));
+  CHECK(!em.endSpanFrozen(-1, 0));
+  CHECK(em.split({{e, 2, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 2);
+  // The last span made as short (an exact split 1.01 x the reach from the far end): frozen, the ones inside not.
+  const std::vector<Vec3>& q = em.edge(e).points;
+  const size_t k = q.size();
+  const double last = cadgeom::norm(q[k - 1] - q[k - 2]);
+  REQUIRE(em.split({{e, static_cast<int32_t>(k - 2), 1 - 1.01 * within / last, true}}) == cadgeom::Status::ok);
+  const int spans = static_cast<int>(em.edge(e).t.size()) - 1;
+  CHECK(em.endSpanFrozen(e, spans - 1));
+  CHECK(!em.endSpanFrozen(e, 1));
+  CHECK(!em.endSpanFrozen(e, spans - 2));
+}
+
+TEST_CASE("a span with no width in parameter never split, however long (an end vertex off its curve's end)") {
+  cadgeom::Model m = load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  o.maxSpacing = 0.25;
+  EdgeMesh em(m, o);
+  const int e = 0;
+  // (A sample 1e-15 of the range past the edge's second, its point 0.2 off it: a span of no width, 0.2 long.)
+  EdgeSamples s = em.edge(e);
+  REQUIRE(s.t.size() >= 4u);
+  const double w = 1e-15 * (s.t.back() - s.t.front());
+  s.t.insert(s.t.begin() + 2, s.t[1] + w);
+  s.points.insert(s.points.begin() + 2, s.points[1] + Vec3{0, 0, 0.2});
+  em.restore(e, s);
+  const size_t n = em.edge(e).t.size();
+  CHECK(em.split({{e, 1, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n);
+  CHECK(em.split({{e, 1, 0.5, true}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n);
+  // The span after it, as wide as any: split.
+  CHECK(em.split({{e, 2, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 1);
+}
+
 TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing between, never refilled") {
   // The cube's edge 0 (shared by two faces), sampled at 0.25: a ring from its start vertex to 0.4 of the way along.
   cadgeom::Model m = load("cube");
@@ -917,6 +988,47 @@ TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing 
   // Repeated rounds asking the ring's span split at every fraction: still empty.
   for (double f : {0.1, 0.3, 0.5, 0.7, 0.9}) em.split({{e, 0, f}});
   for (double t : em.edge(e).t) CHECK(!(t > std::min(a, c) && t < std::max(a, c)));
+  // The ring shrunk (a cut from its approach, its crossing inside it): a sample at the new crossing, the ring to it,
+  // the span from there to the old crossing split as any; inside the smaller ring still dropped.
+  const double c2 = a + 0.25 * (c - a);
+  CHECK(em.cutRings({{e, a, c2}}) == cadgeom::Status::ok);
+  REQUIRE(em.edge(e).rings.size() == 1u);
+  CHECK(em.edge(e).rings[0].lo == std::min(a, c2));
+  CHECK(em.edge(e).rings[0].hi == std::max(a, c2));
+  CHECK(em.edge(e).t[1] == c2);
+  CHECK(em.edge(e).t[2] == c);
+  const size_t m2 = em.edge(e).t.size();
+  CHECK(em.split({{e, 1, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), m2 + 1);
+  CHECK(em.split({{e, 0, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), m2 + 1);
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "cube ring shrunk"), 0);
+  // Its samples saved, split, then restored: as saved, rings included, its uses placed on them again.
+  const EdgeSamples saved = em.edge(e);
+  em.split({{e, 2, 0.5}});
+  REQUIRE(em.edge(e).t.size() == saved.t.size() + 1);
+  em.restore(e, saved);
+  CHECK(em.edge(e).t == saved.t);
+  CHECK_EQ(em.edge(e).rings.size(), saved.rings.size());
+  for (int co = 0; co < m.coedges(); co++)
+    if (m.coedgeEdge(co) == e) CHECK_EQ(em.coedge(co).index.size(), saved.t.size());
+  CHECK_EQ(checkCoedges(m, em, 1e-9, "cube ring restored"), 0);
+  // A crossing within the refinement floor of a sample in 3D, though more than a millionth of the span from it: that
+  // sample, no new one a hair beside it (a needle between them).
+  {
+    EdgeMesh en(m, o);
+    const int e3 = 3;
+    const std::vector<double> w = en.edge(e3).t;
+    REQUIRE(w.size() >= 4u);
+    const double floor = std::max(cadgeom::Tolerances(m).part(), 0.1 * o.deflection);  // (criteria.h's refinementFloor)
+    const double per = cadgeom::norm(en.edge(e3).points[2] - en.edge(e3).points[1]) / std::fabs(w[2] - w[1]);
+    const double near = w[2] + 0.5 * floor / per * (w[3] > w[2] ? 1 : -1);
+    REQUIRE(std::fabs(near - w[2]) > 1e-6 * std::fabs(w[3] - w[2]));
+    CHECK(en.cutRings({{e3, w.front(), near}}) == cadgeom::Status::ok);
+    CHECK_EQ(en.edge(e3).t.size(), w.size() - 1);
+    REQUIRE(!en.edge(e3).rings.empty());
+    CHECK((en.edge(e3).rings[0].lo == w[2] || en.edge(e3).rings[0].hi == w[2]));
+  }
   // An approach between samples (a curve passing the pole): a sample there too, the ring the span to the crossing.
   const int e2 = 1;
   const std::vector<double> u = em.edge(e2).t;
@@ -1425,4 +1537,41 @@ TEST_CASE("splits: a sample inside the span asked, clamped, the rest kept; bad r
   std::vector<double> t1 = em.edge(1).t;
   CHECK(em.split({{1, static_cast<int32_t>(t1.size()) - 1, 0.5}}) == cadgeom::Status::invalidModel);
   CHECK(em.edge(1).t == t1);
+}
+
+TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, poleDipFarLoose): each use's samples at "
+          "the pole beside its pole line on the line, S there no farther from their points than the pole (part_test "
+          "meshes them)") {
+  // (poleDipFar's ends 1e-7 past the pole: doubled across it, their copies at the line's ends, which fold repair
+  // must leave there. poleDipFarLoose's 2e-3 past it at an uncertainty of 0.01, as LMP1 #172878's: no sample at the
+  // pole, its ends at the pole by their points taking a neighbour's free coordinate, the meridian they came down by,
+  // which off the line put S farther from them than the pole and the boundary through its own point.)
+  for (const char* name : {"poleDipFar", "poleDipFarLoose"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    EdgeMesh em(m, o);
+    const FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    cadgeom::Status st;
+    std::unique_ptr<cadgeom::Surface> s = closedSurface(m, cadgeom::Tolerances(m), 0, st);
+    REQUIRE(s != nullptr);
+    const Vec3 pole{0, 0, -1};
+    int beside = 0;
+    for (const auto& loop : fb.loops)
+      for (size_t i = 0; i < loop.size(); i++) {
+        const BoundaryPoint& q = loop[i];
+        const BoundaryPoint &a = loop[(i + loop.size() - 1) % loop.size()], &b = loop[(i + 1) % loop.size()];
+        const double d = cadgeom::norm(q.point - pole);
+        if (q.kind != BoundaryPoint::edgeSample || d > 0.01) continue;
+        if (a.kind != BoundaryPoint::poleLine && b.kind != BoundaryPoint::poleLine) continue;
+        beside++;
+        CHECK(q.uv.y == -M_PI / 2);
+        cadgeom::SurfacePoint sp;
+        s->eval(q.uv.x, q.uv.y, 0, sp);
+        CHECK(cadgeom::norm(sp.p - q.point) <= d * (1 + 1e-9) + 1e-15);
+      }
+    CHECK(beside >= 2);
+    CHECK(fb.foldsRepaired == 0);
+  }
 }

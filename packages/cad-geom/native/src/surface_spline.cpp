@@ -9,9 +9,11 @@
 // every order needed: over a rectangle the surface (or a partial of a polynomial surface) lies in the hull of the
 // active poles of the spans it meets (nonnegative basis functions summing to one, positive weights); a rational
 // partial is bounded by the quotient rule's recursion, each term by its own bound and w by its smallest active
-// weight, met with the same recursion in intervals. Those hulls don't shrink within a span, so each box is met with
-// the centred form on the next order's hulls, which does, within one span (across a knot the partial may jump). Each bound is widened by the rounding of the differences that made its net (carried pole by
-// pole). A row of poles all equal at a side of the domain is a pole of the surface (a collapsed iso-line).
+// weight, met with the same recursion in intervals, both about the rectangle's own origin. Those hulls don't shrink
+// within a span, so each box is met with the centred form on the next order's hulls, which does, within one span
+// (across a knot the partial may jump). Each bound is widened by the rounding of the differences that made its net
+// (carried pole by pole). A row of poles all equal at a side of the domain is a pole of the surface (a collapsed
+// iso-line).
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -92,7 +94,9 @@ public:
     int su = bspline::findSpan(p_, U_, nu_, u), sv = bspline::findSpan(q_, V_, nv_, v);
     int n = order;
     // On the stack to order 2 (evaluation) and a degree up to kStackDegree: no allocation in the hot path.
-    Scratch<double, 3 * (kStackDegree + 1)> Nu((n + 1) * (p_ + 1)), Nv((n + 1) * (q_ + 1));
+    // (Not zero-filled: basisDerivs writes every entry.)
+    using B = Scratch<double, 3 * (kStackDegree + 1)>;
+    B Nu((n + 1) * (p_ + 1), B::uninitialized), Nv((n + 1) * (q_ + 1), B::uninitialized);
     bspline::basisDerivs(su, u, p_, n, U_, Nu.data());
     bspline::basisDerivs(sv, v, q_, n, V_, Nv.data());
     // The active poles' centroid: the span's local origin.
@@ -513,7 +517,7 @@ private:
       return Status::ok;
     }
     // A rational partial: |S^(k,l)| <= (|A^(k,l)| + sum (k i)(l j) |w^(i,j)| |S^(k-i,l-j)|) / w_min, each from the
-    // control points of its own net; |S^(0,0) - c| from the order-0 net's projected ones.
+    // control points of its own net; |S^(0,0) - c - o| from the order-0 net's projected ones (o below).
     // Each net's summaries (its magnitudes, its weights' and coordinates' ranges) kept for the last rectangle, by
     // partial: every partial's bound reads all the lower ones', and derivBound asks a rectangle's partials together.
     struct IV {
@@ -527,6 +531,7 @@ private:
     struct SumKept {
       uint64_t owner = 0;
       double a = NAN, b = NAN, c = NAN, d = NAN;
+      Vec3 o;
       bool have[kPartials] = {}, haveB[kPartials] = {}, haveS[kPartials] = {};
       Sum sum[kPartials];
       double B[kPartials];
@@ -545,20 +550,39 @@ private:
       if (SK.have[at]) return S;
       S = Sum{};
       const std::vector<double>& cc = over(kk, m, ru, rv, oneSpan, su, sv, S.e);
-      const double e = S.e;
+      // Every net about the rectangle's own origin o, its order-0 net's projected centroid (asked first, before any
+      // other): the recursion holds about any origin, and every term carries |S - o|, which about the surface's
+      // centroid is the surface's size (a narrow strip's poles far from it made its partials' boxes 100 x loose
+      // however small the rectangle). Each point less its weight times o, (w (P - c - o), w), the subtraction's
+      // rounding added to the net's error.
+      if (at == 0) {
+        Vec3 o{};
+        for (size_t a = 0; a < cc.size(); a += 4) o = o + (1 / cc[a + 3]) * Vec3{cc[a], cc[a + 1], cc[a + 2]};
+        SK.o = cc.empty() ? Vec3{} : (4.0 / cc.size()) * o;
+      }
+      const Vec3 o = SK.o;
+      double shiftErr = 0, wlo = kInf, amax = 0, wmax = 0;
       for (int d = 0; d < 3; d++) S.ia.c[d] = {kInf, -kInf};
       S.iw = {kInf, -kInf};
       for (size_t a = 0; a < cc.size(); a += 4) {
+        const double w = cc[a + 3], wo[3] = {w * o.x, w * o.y, w * o.z};
+        const Vec3 x{cc[a] - wo[0], cc[a + 1] - wo[1], cc[a + 2] - wo[2]};
+        for (int d = 0; d < 3; d++) shiftErr = maxNum(shiftErr, 2 * kEps * (std::fabs(cc[a + d]) + std::fabs(wo[d])));
         if (at == 0) {
-          S.wmin = minNum(S.wmin, cc[a + 3] - e);
-          S.s0 = maxNum(S.s0, norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) / cc[a + 3]);
+          wlo = minNum(wlo, w);
+          S.s0 = maxNum(S.s0, norm(x) / w);
         } else {
-          S.am = maxNum(S.am, norm(Vec3{cc[a], cc[a + 1], cc[a + 2]}) + std::sqrt(3.0) * e);
-          S.wm = maxNum(S.wm, std::fabs(cc[a + 3]) + e);
+          amax = maxNum(amax, norm(x));
+          wmax = maxNum(wmax, std::fabs(w));
         }
-        for (int d = 0; d < 3; d++) S.ia.c[d] = {minNum(S.ia.c[d].lo, cc[a + d]), maxNum(S.ia.c[d].hi, cc[a + d])};
-        S.iw = {minNum(S.iw.lo, cc[a + 3]), maxNum(S.iw.hi, cc[a + 3])};
+        const double xs[3] = {x.x, x.y, x.z};
+        for (int d = 0; d < 3; d++) S.ia.c[d] = {minNum(S.ia.c[d].lo, xs[d]), maxNum(S.ia.c[d].hi, xs[d])};
+        S.iw = {minNum(S.iw.lo, w), maxNum(S.iw.hi, w)};
       }
+      S.e += shiftErr;
+      const double e = S.e;
+      if (at == 0) S.wmin = wlo - e;
+      else S.am = amax + std::sqrt(3.0) * e, S.wm = wmax + e;
       for (int d = 0; d < 3; d++) S.ia.c[d] = {S.ia.c[d].lo - e, S.ia.c[d].hi + e};
       S.iw = {S.iw.lo - e, S.iw.hi + e};
       SK.have[at] = true;

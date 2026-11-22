@@ -102,6 +102,9 @@ struct EdgeSamples {
   Status status = Status::unsupported;
   std::vector<double> t;
   std::vector<Vec3> points;
+  /** The spans kept empty for poles' rings (EdgeMesh::cutRings): parameter ranges, low to high; split drops a point
+   * inside one. */
+  std::vector<cadgeom::Range> rings;
 };
 
 /**
@@ -201,6 +204,11 @@ struct FaceBoundary {
    */
   bool againstSense = false;
   /**
+   * Its edge loops, two or more, are all holes, none winding round a period: the first loop is its surface's natural
+   * extent (as a face without edge loops has), their outer loop.
+   */
+  bool holesOnly = false;
+  /**
    * Boundary folds repaired: a point whose (u, v) made a convex corner with its loop's neighbours while its 3D point
    * turns the other way about the surface's normal there (an ear on it would face against the surface: vertices off
    * their surface past its range's edge, their feet clamped), its (u, v) moved onto their (u, v) chord, at its share
@@ -280,29 +288,47 @@ public:
    * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
-   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), or on a span whose
-   * chord is within the refinement floor (criteria.h), is dropped.
+   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), on a span whose
+   * chord is within the refinement floor (criteria.h), or on one with no width in parameter (a billionth of the
+   * edge's range: its end vertex off the curve's end), is dropped.
    */
   Status split(const std::vector<SplitRequest>& requests);
+  /**
+   * Whether split() drops every point in edge e's span `span` for its end: an end span with no point within 0.9 of
+   * the way from the edge's end past the reach that drops a sample near an end (min(tol, d / 10)). PartMesher
+   * freezes it, as one within the refinement floor.
+   */
+  bool endSpanFrozen(int e, int span) const;
 
   /**
    * The faces' spacing given after the edges were sampled (their criteria, made from the boxes these samples give):
    * every edge's spans, a pseudo-edge's too, split until none is longer in 3D (its length, not its chord) than the
    * least of its faces' spacing,
    * through split(), so the samples there are kept and the new ones' uses found as split's are (each p-curve at its
-   * parameter, a use with none continued locally). The edges are sampled once, refined only.
+   * parameter, a use with none continued locally). The edges are sampled once, refined only. Then a loop left with
+   * fewer than three points (two one-chord edges between the same vertices: a lens whose chords coincide) gets a
+   * sample at each of those edges' middles, so it bounds a polygon.
    */
   Status respace(const std::vector<double>& faceSpacing);
 
   /**
    * Each cut applied to its edge, once for every face using it (the samples are the edge's, its coedges redone): a
-   * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
-   * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between
-   * them kept empty from then on: split() drops a request inside it, so the refinement rounds never refill a ring.
-   * Bad cuts (no such edge, parameters not finite or outside the edge's samples, approach equal to crossing) are
-   * ignored: Status::invalidModel if there were any, else Status::ok. Other edges' indices stand.
+   * sample at the approach and one at the crossing (an existing sample within a millionth of a span, or within the
+   * refinement floor of it in 3D, used instead, so a vertex at the pole stays the sample there), the samples strictly
+   * between them removed, and the span between them kept empty from then on: split() drops a request inside it, so the
+   * refinement rounds never refill a ring.
+   * A cut from the approach of a ring already on the edge (within a millionth of the edge's range), its crossing
+   * inside that ring, shrinks it instead: a sample at the new crossing, the span from there to the old one an
+   * ordinary span. Bad cuts (no such edge, parameters not finite or outside
+   * the edge's samples, approach equal to crossing) are ignored: Status::invalidModel if there were any, else
+   * Status::ok. Other edges' indices stand.
    */
   Status cutRings(const std::vector<RingCut>& cuts);
+  /**
+   * Edge e's samples as saved earlier (a copy of edge(e)), its uses placed again: for undoing a change the caller
+   * judged worse (PartMesher's ring shrinks). An index out of range is ignored.
+   */
+  void restore(int e, const EdgeSamples& saved);
 
 private:
   struct Impl;

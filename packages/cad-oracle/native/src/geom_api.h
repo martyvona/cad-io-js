@@ -9,6 +9,7 @@
 
 extern "C" {
 int32_t cg_model_new(uint8_t* buffer, uint32_t size);
+int32_t cg_model_options(int32_t h, int32_t flags);
 void cg_model_free(int32_t h);
 double* cg_scratch();
 int32_t cg_edge_params(int32_t h, int32_t edge, double* out);
@@ -18,5 +19,9 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
   uint8_t* status, double* tolUv);
 int32_t cg_coedge_breaks(int32_t h, int32_t coedge, double lo, double hi);
 int32_t cg_coedge_eval(int32_t h, int32_t coedge, const double* t, int32_t n, int32_t order, double* out,
+  uint8_t* status);
+int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t, int32_t n);
+int32_t cg_surface_info(int32_t h, int32_t row, double* out);
+int32_t cg_face_eval(int32_t h, int32_t face, const double* uv, int32_t n, int32_t order, double* out,
   uint8_t* status);
 }

@@ -8,7 +8,8 @@
 // (Borouchaki, Hecht and Frey, "Mesh gradation control", 1998: M / (1 + beta L)^2 at metric length L), the size
 // growing at most kGrowth per unit of its own length; a query takes the grid's, interpolated, intersected with its
 // own point's. Where the parameterization degenerates (a pole: S_u x S_v vanishing) the point's own is skipped and
-// the grid's used.
+// the grid's used; in a knot span narrower in 3D than the refinement floor, its run of such spans too, the point's own
+// is the nearest wider span's (Local::spans, Local::wide).
 // accept() bounds a triangle's deviation from the surface on planes and cylinders by the second derivative bounds over
 // its (u, v) box (Local::bounds), takes a sphere's exactly, and samples the rest (the centroid and edges' middles:
 // makeCriteria says why). The normals are sampled: the corners' within the angle of one another and of the facet's
@@ -23,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -127,6 +129,14 @@ public:
     s.singularities(sing);
     for (const Singularity& g : sing)
       if (g.kind != Singularity::normalVanishes) poles_.push_back(g.point);
+    {
+      const SurfaceDomain D = s.domain();
+      if (std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi)) {
+        std::vector<double> ku, kv;
+        s.breaks(D.u, D.v, ku, kv);
+        spans(ku, true, D, spansU_), spans(kv, false, D, spansV_);
+      }
+    }
     // The grid's own metrics, then graded: sweeps until no node changes (or a bound on them).
     grid_.resize((kGrid + 1) * (kGrid + 1));
     valid_.assign(grid_.size(), false);
@@ -193,23 +203,29 @@ public:
   }
 
   bool accept(const Vec2 t[3]) const override {
-    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over: nothing is
-    // refined below it for its size or its normals' angles, but a facet against its surface is wrong output however
-    // small. Every check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the
-    // deviation alone there).
+    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over on the
+    // surface's points: nothing is refined below it for its size or its normals' angles, but a facet against its
+    // surface is wrong output however small. Not judged there on the boundary's own points (setBoundaryPoints): a
+    // boundary off its surface turns slivers that refinement, only thinning them, turns further, to the point cap (a
+    // healed fitted p-curve 0.024 off, bug24594_284965 #13); the part's check of its output fails what's left. Every
+    // check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation alone).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
     if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, false);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, p, q));
   }
 
   bool acceptFan(const Vec2 t[3]) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
     if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, true);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnedAsOutput(t, p, q));
   }
 
   int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
@@ -235,11 +251,14 @@ public:
   Refusal refusal(const Vec2 t[3], bool normals, bool fan) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
     if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
     if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
+    if (r == Refusal::none && normals && own && turnedAsOutput(t, p, q)) r = Refusal::normalFacet;
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -298,21 +317,80 @@ private:
   }
 
   /** The triangle's corners on the surface, as at() gives them; whether all three evaluated. */
+  /**
+   * The surface's point and normal at (u, v), each evaluated once (a mesh's vertex is the corner of every triangle
+   * around it, judged again as they change): by (u, v)'s bits, so the same doubles as evaluating again, the meshes
+   * the same bits. Cleared past kEvalMemo entries.
+   */
+  struct Evaluated {
+    Status st;
+    Vec3 v;
+  };
+  static uint64_t bits(double x) {
+    uint64_t b;
+    std::memcpy(&b, &x, 8);
+    return b;
+  }
+  struct PairHash {
+    size_t operator()(const std::pair<uint64_t, uint64_t>& k) const {
+      return std::hash<uint64_t>()(k.first * 0x9e3779b97f4a7c15ull ^ k.second);
+    }
+  };
+  static constexpr size_t kEvalMemo = size_t(1) << 20;
+  mutable std::unordered_map<std::pair<uint64_t, uint64_t>, Evaluated, PairHash> points_, normals_;
+  Evaluated pointAt(double u, double v) const {
+    if (points_.size() > kEvalMemo) points_.clear();
+    auto [it, fresh] = points_.try_emplace({bits(u), bits(v)});
+    if (fresh) {
+      SurfacePoint q;
+      it->second = {s_.eval(u, v, 0, q), q.p};
+    }
+    return it->second;
+  }
+  Status normalAt(double u, double v, Vec3& n) const {
+    if (normals_.size() > kEvalMemo) normals_.clear();
+    auto [it, fresh] = normals_.try_emplace({bits(u), bits(v)});
+    if (fresh) it->second.st = s_.normal(u, v, it->second.v);
+    n = it->second.v;
+    return it->second.st;
+  }
+
+  /** The boundary's own points by (u, v)'s bits (setBoundaryPoints). */
+  std::unordered_map<std::pair<uint64_t, uint64_t>, Vec3, PairHash> boundary_;
+  void setBoundaryPoints(const std::vector<std::pair<Vec2, Vec3>>& points) override {
+    boundary_.clear();
+    for (const auto& [uv, p] : points) boundary_[{bits(uv.x), bits(uv.y)}] = p;
+  }
+  /**
+   * A triangle's corners as the output has them: the boundary's own point at a corner on it, else p's; whether any
+   * corner has one. (Only the output's own turn is judged on these, checkFacing's test: the angle to the normals, on a
+   * thin triangle along a boundary a little off its surface, grows as refinement thins it, and a facet against one
+   * corner's normal but not their mean, a refusal it can't mend either; chasing them turns others.)
+   */
+  bool output(const Vec2 t[3], const Vec3 p[3], Vec3 q[3]) const {
+    bool any = false;
+    for (int i = 0; i < 3; i++) {
+      auto it = boundary_.empty() ? boundary_.end() : boundary_.find({bits(t[i].x), bits(t[i].y)});
+      q[i] = it != boundary_.end() ? (any = true, it->second) : p[i];
+    }
+    return any;
+  }
+
   bool corners(const Vec2 t[3], Vec3 p[3]) const {
     bool ok = true;
     for (int i = 0; i < 3; i++) {
-      SurfacePoint q;
-      ok = s_.eval(t[i].x, t[i].y, 0, q) == Status::ok && ok;
-      p[i] = q.p;
+      const Evaluated e = pointAt(t[i].x, t[i].y);
+      ok = e.st == Status::ok && ok;
+      p[i] = e.v;
     }
     return ok;
   }
 
   /** The surface's point at (u, v), false where it can't be evaluated. */
   bool corner(Vec2 uv, Vec3& out) const {
-    SurfacePoint q;
-    if (s_.eval(uv.x, uv.y, 0, q) != Status::ok || !std::isfinite(q.p.x + q.p.y + q.p.z)) return false;
-    out = q.p;
+    const Evaluated e = pointAt(uv.x, uv.y);
+    if (e.st != Status::ok || !std::isfinite(e.v.x + e.v.y + e.v.z)) return false;
+    out = e.v;
     return true;
   }
 
@@ -378,7 +456,7 @@ private:
    * as the pole's ring was sized for.)
    */
   Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
-    Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
+    Vec3 n[3], g = facet(p);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = cornerNormal(t, i, n[i]) == Status::ok;
     // (A facet with two corners on a pole line has rounding for a normal: no direction to judge.)
@@ -744,14 +822,48 @@ private:
           x = k.at + (side > k.at ? 1 : -1) * 1e-9 * (1 + std::fabs(k.at));
       }
     }
-    return s_.normal(q.x, q.y, n);
+    return normalAt(q.x, q.y, n);
   }
 
+  /**
+   * Turned as the part judges its output (part.cpp's checkFacing): the facet of q, the corners as output, against the
+   * mean of the corners' normals, p the surface's points at the corners; not with a corner within the tolerance of a
+   * pole or apex.
+   */
+  bool turnedAsOutput(const Vec2 t[3], const Vec3 p[3], const Vec3 q[3]) const {
+    for (const Vec3& s : poles_)
+      for (int i = 0; i < 3; i++)
+        if (norm(q[i] - s) <= tolerance_) return false;
+    const Vec3 g = facet(q);
+    Vec3 sum{0, 0, 0};
+    for (int i = 0; i < 3; i++) {
+      Vec3 n;
+      if (cornerNormal(t, i, n) == Status::ok) sum = sum + n;
+    }
+    return facetAgainst(g, sum);
+  }
+  /** The output's origin (setOutputOrigin), and corners as shipped from it. */
+  double origin_[3] = {0, 0, 0};
+  bool shipped_ = false;
+  void setOutputOrigin(const double o[3]) override {
+    shipped_ = std::isfinite(o[0]) && std::isfinite(o[1]) && std::isfinite(o[2]);
+    for (int k = 0; k < 3; k++) origin_[k] = o[k];
+  }
+  /** The facet's normal (unnormalized) of corners p, as shipped where the output's origin is known. */
+  Vec3 facet(const Vec3 p[3]) const {
+    if (!shipped_) return cross(p[1] - p[0], p[2] - p[0]);
+    Vec3 s[3];
+    for (int i = 0; i < 3; i++)
+      s[i] = {static_cast<double>(static_cast<float>(p[i].x - origin_[0])),
+        static_cast<double>(static_cast<float>(p[i].y - origin_[1])),
+        static_cast<double>(static_cast<float>(p[i].z - origin_[2]))};
+    return cross(s[1] - s[0], s[2] - s[0]);
+  }
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
     for (const Vec3& q : poles_)
       for (int i = 0; i < 3; i++)
         if (norm(p[i] - q) <= tolerance_) return false;
-    const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
+    const Vec3 g = facet(p);
     const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     if (!(norm(g) > 1e-9 * longest * longest)) return false;
     for (int i = 0; i < 3; i++) {
@@ -799,6 +911,7 @@ private:
    * given, receives the first fundamental form there.
    */
   bool own(Vec2 p, Metric2& out, Metric2* I = nullptr) const {
+    p = {wide(spansU_, p.x), wide(spansV_, p.y)};
     SurfacePoint q;
     Status st = s_.eval(p.x, p.y, 2, q);
     if (st != Status::ok && st != Status::outOfDomain) return false;
@@ -832,6 +945,55 @@ private:
     out = {i1 * w1.x * w1.x + i2 * w2.x * w2.x, i1 * w1.x * w1.y + i2 * w2.x * w2.y,
       i1 * w1.y * w1.y + i2 * w2.y * w2.y};
     return std::isfinite(out.a) && std::isfinite(out.b) && std::isfinite(out.c);
+  }
+
+  /** A knot span (between consecutive breaks) and whether its 3D width is within the floor (narrow). */
+  struct Span {
+    double lo, hi;
+    bool narrow;
+  };
+  /**
+   * The spans between consecutive breaks k one way (u if inU), each narrow where its width there in 3D is within the
+   * floor and so is that of the run of such spans it's in: knots halving toward a side (LMP1 #172768's face 1060536,
+   * five spans of 0.02 to 0.04 mm under a floor of 0.15, 0.16 together, its curvature all there) keep their own.
+   */
+  void spans(const std::vector<double>& k, bool inU, const SurfaceDomain& D, std::vector<Span>& out) const {
+    std::vector<double> width;
+    for (size_t i = 0; i + 1 < k.size(); i++) {
+      double o[3];
+      const Range r{k[i], k[i + 1]};
+      const bool known =
+        s_.derivBound(inU ? r : D.u, inU ? D.v : r, 1, o) == Status::ok && std::isfinite(o[inU ? 0 : 1]);
+      width.push_back(known ? (r.hi - r.lo) * o[inU ? 0 : 1] : INFINITY);
+      out.push_back({r.lo, r.hi, width.back() <= floor_});
+    }
+    for (size_t i = 0; i < out.size();) {
+      size_t j = i;
+      double run = 0;
+      while (j < out.size() && out[j].narrow) run += width[j++];
+      if (run > floor_)
+        for (size_t l = i; l < j; l++) out[l].narrow = false;
+      i = std::max(j, i + 1);
+    }
+    if (std::all_of(out.begin(), out.end(), [](const Span& x) { return x.narrow; })) out.clear();
+  }
+  /**
+   * x, or where it lies in a narrow span, the nearest point inside a span that isn't (a hair past the knot between,
+   * the evaluation there taking that span's side): a span no mesh resolves, a B-spline's knots a hair apart where it
+   * bends sharply (r0901_ec part #11's face 32955: |S_vv| 2742 over 8.5e-7 of v), mustn't set the curvature's sizes
+   * along a whole boundary.
+   */
+  static double wide(const std::vector<Span>& sp, double x) {
+    size_t i = 0;
+    while (i < sp.size() && !(x <= sp[i].hi)) i++;
+    if (i == sp.size() || !sp[i].narrow || x < sp[i].lo) return x;
+    size_t a = i, b = i;
+    while (a > 0 && sp[a].narrow) a--;
+    while (b + 1 < sp.size() && sp[b].narrow) b++;
+    const bool left = !sp[a].narrow, right = !sp[b].narrow;
+    const double dl = left ? x - sp[a].hi : INFINITY, dr = right ? sp[b].lo - x : INFINITY;
+    if (dl <= dr) return sp[a].hi - 1e-9 * (sp[a].hi - sp[a].lo);
+    return sp[b].lo + 1e-9 * (sp[b].hi - sp[b].lo);
   }
 
   Metric2 interpolated(Vec2 p) const {
@@ -879,6 +1041,8 @@ private:
   double tolerance_;
   /** The refinement floor (belowFloor). */
   double floor_;
+  /** The surface's knot spans each way (spans()), empty where none is narrow or the domain isn't finite. */
+  std::vector<Span> spansU_, spansV_;
   std::vector<Metric2> grid_;
   std::vector<bool> valid_;
 };

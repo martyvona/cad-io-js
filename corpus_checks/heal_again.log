@@ -1,0 +1,20 @@
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 14.9; speed 4965 on 1 thread, 39931 on 18
+517 files, 3258 B-rep parts; 2992 changed by some set, 8 skipped (the defaults' healing over 30 s: gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10, gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787, gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592, gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483, gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858, gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383, gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10, gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10); 60880 healings, 2294 s wall, 6876 s in files
+Sets: defaults {}; allOn {"fixes":{"pcurveMissingOnPlane":true,"pcurveMissingOnElementary":true,"pcurveMissingOnFreeForm":true}}; fineFit {"fixes":{"pcurveMissingOnFreeForm":true},"pcurveFitTolerance":0.0001}; tolerancesOff {"fixes":{"edgeTolerance":false,"vertexTolerance":false,"pcurveEnds":false}}
+12 healings again of parts whose stray poles an earlier healing moved (said kept, their diagnostics compared but for strayPole's)
+  h(h(m, defaults), defaults): 0 of 2992 parts differ
+  h(h(m, defaults), allOn): 0 of 2992 parts differ
+  h(h(m, defaults), fineFit): 0 of 2992 parts differ
+  h(h(m, defaults), tolerancesOff): 0 of 2992 parts differ
+  h(h(m, allOn), defaults): 0 of 2992 parts differ
+  h(h(m, allOn), allOn): 0 of 2992 parts differ
+  h(h(m, allOn), fineFit): 0 of 2992 parts differ
+  h(h(m, allOn), tolerancesOff): 0 of 2992 parts differ
+  h(h(m, fineFit), defaults): 0 of 2992 parts differ
+  h(h(m, fineFit), allOn): 0 of 2992 parts differ
+  h(h(m, fineFit), fineFit): 0 of 2992 parts differ
+  h(h(m, fineFit), tolerancesOff): 0 of 2992 parts differ
+  h(h(m, tolerancesOff), defaults): 0 of 2992 parts differ
+  h(h(m, tolerancesOff), allOn): 0 of 2992 parts differ
+  h(h(m, tolerancesOff), fineFit): 0 of 2992 parts differ
+  h(h(m, tolerancesOff), tolerancesOff): 0 of 2992 parts differ

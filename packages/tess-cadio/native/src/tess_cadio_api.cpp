@@ -48,6 +48,8 @@ double minAngle = PartOptions{}.minAngle;
 bool countInsertions = false;
 // PartOptions::countAngles for the next calls.
 bool countAngles = false;
+// Whether the next calls list each face's poles in the diagnostics ("poles").
+bool listPoles = false;
 // PartOptions::failCapped and failTurnedOver for the next calls.
 bool failCapped = true, failTurnedOver = true;
 // PartOptions::analysis for the next calls: the caller's buffer, kept alive by it until set again.
@@ -103,6 +105,11 @@ void tc_set_count_insertions(int on) { countInsertions = on != 0; }
  * Whether the next calls count each face's triangles under the minimum angle (PartOptions::countAngles; default 0).
  */
 void tc_set_count_angles(int on) { countAngles = on != 0; }
+/**
+ * Whether the next calls list each face's poles and apexes, as its closed surface has them (edges.h's closedSurface,
+ * the one checkFacing exempts corners at), in the diagnostics ("poles"; default 0).
+ */
+void tc_set_list_poles(int on) { listPoles = on != 0; }
 
 /**
  * Whether the next calls fail a face whose refinement reached its point cap (PartOptions::failCapped), and one with
@@ -141,6 +148,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
   opts.countAngles = countAngles;
+  for (int k = 0; k < 3; k++) opts.outputOrigin[k] = o[k];
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
   opts.analysis = analysis, opts.analysisSize = analysisSize;
@@ -149,7 +157,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
   };
   PartMesher pm(m, opts);
-  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
+  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense,
+    holesOnly;
   std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped;
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
@@ -159,6 +168,21 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   // Refused triangles, and those of them in a pole's fan (a corner at a surface singularity's point).
   size_t refusedTriangles = 0, poleSlivers = 0;
   const Tolerances tols(m);
+  // (With tc_set_list_poles: each face's singularities, 5 numbers each, absolute.)
+  std::string poles = "[";
+  if (listPoles)
+    for (int f = 0; f < m.faces(); f++) {
+      Status st;
+      std::vector<Singularity> sing;
+      if (std::unique_ptr<Surface> s = closedSurface(m, tols, f, st)) s->singularities(sing);
+      for (const Singularity& g : sing) {
+        char b[160];
+        std::snprintf(b, sizeof b, "%s%u,%d,%.17g,%.17g,%.17g", poles.size() > 1 ? "," : "", faceId[f], int(g.kind),
+          g.point.x, g.point.y, g.point.z);
+        poles += b;
+      }
+    }
+  poles += "]";
   const double tol = tols.part();
   for (int f = 0; f < m.faces(); f++) {
     const FaceMesh& fm = pm.face(f);
@@ -203,6 +227,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (fm.seamUnsettled) unsettled.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
+      if (fm.holesOnly) holesOnly.push_back(faceId[f]);
       if (fm.foldsRepaired) folded.push_back(faceId[f]), folds += static_cast<uint32_t>(fm.foldsRepaired);
     } else {
       if (fm.capped) capped.push_back(faceId[f]);
@@ -292,15 +317,16 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) + ",\"ringBlocked\":" +
-    ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" + ids(capped) +
+    ",\"againstSense\":" + ids(againstSense) + ",\"holesOnly\":" + ids(holesOnly) + ",\"folded\":" + ids(folded) +
+    ",\"ringBlocked\":" + ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" +
+    ids(capped) +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"thin\":" + ids(thin) +
     ",\"thinArea\":" + thinArea + "]" + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
     std::to_string(tc.local) + "," + std::to_string(tc.global) + "],\"traceFallbacks\":" + fallbacks + ",\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
-    ",\"poleSlivers\":" + std::to_string(poleSlivers) + "}";
+    ",\"poleSlivers\":" + std::to_string(poleSlivers) + (listPoles ? ",\"poles\":" + poles : std::string()) + "}";
   return 0;
 }
 
@@ -328,15 +354,17 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "thin" and "thinArea" (with tc_set_count_angles, per meshed face with triangles under the minimum angle, 11 numbers
  * [face id, count, by angle under 1, 2, 5, 8, 10 degrees and the rest, every corner on the boundary, an edge frozen,
  * within the floor] and its area of them in mm^2: FaceMesh::thin and the rest),
- * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "folded" and "folds"
- * (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
+ * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "holesOnly" (faces whose
+ * edge loops are all holes, meshed as their surface's natural extent less them: FaceBoundary::holesOnly), "folded"
+ * and "folds" (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
  * byInversion]), "traces" (the samples of uses traced sample by sample, [local, global]: EdgeMesh::traces) and
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex), "ringBlocked" and
  * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
  * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces failed for refinement stopped at the
- * point cap: FaceMesh::capped)}.
+ * point cap: FaceMesh::capped), "poles" (with tc_set_list_poles, every face's singularities as its closed surface has
+ * them, 5 numbers each [face id, cad-geom's Singularity::kind, x, y, z], absolute)}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }

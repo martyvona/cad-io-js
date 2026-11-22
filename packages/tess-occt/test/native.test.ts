@@ -932,7 +932,8 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
   }
 });
 
-test('the native route: line p-curves without a coedge range (as healing makes them) bounded, so OCCT finishes', {
+test('the native route: line p-curves without a coedge range (as healing\'s pcurveMissing fixes make them) bounded, '
+  + 'so OCCT finishes', {
   skip: skip || (['trj4_k1_geo-md-203.stp', 'trj4_k1_geo-pe-203.stp'].every((f) =>
     fs.existsSync(corpusPath(`gkv311-opencascade-dataset/step/${f}`))) ? false : 'corpus not fetched') }, async () => {
   // A Geom2d_Line given its own range (+/-2e100) on its face runs OCCT's shape processing or meshing without end:
@@ -943,7 +944,8 @@ test('the native route: line p-curves without a coedge range (as healing makes t
   try {
     await Promise.all([['trj4_k1_geo-md-203.stp', 542], ['trj4_k1_geo-pe-203.stp', 6268]].map(async ([f, id]) => {
       const bytes = fs.readFileSync(corpusPath(`gkv311-opencascade-dataset/step/${f}`));
-      const { scene } = await importStep(new Uint8Array(bytes), { heal: { heal: true } });
+      const heal = { heal: true, fixes: { pcurveMissingOnElementary: true, pcurveMissingOnFreeForm: true } };
+      const { scene } = await importStep(new Uint8Array(bytes), { heal });
       const p = scene.parts.find((q) => q.sources[0]?.id === id)!;
       const d = p.brep!.model;
       let unranged = 0;

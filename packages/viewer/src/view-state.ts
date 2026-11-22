@@ -23,9 +23,11 @@
 import type { ViewName } from './camera.ts';
 import { AXES, type Axis, type PlaneSettings } from './section.ts';
 import type { PickLevel } from './selection.ts';
-import { HEAL_FIXES, type HealFix } from 'cad-heal/options';
+import { fixesNamed, HEAL_FIXES, type HealFix } from 'cad-heal/options';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
-import { BACKEND_NAMES, defaultFixes, usesCadio, type Backend, type TessellationSettings } from './tessellation.ts';
+import type { MeshProfile } from 'cad-scene';
+import { BACKEND_NAMES, defaultFixes, profileSettings, usesCadio, type Backend, type TessellationSettings }
+  from './tessellation.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 
 export type Vec3 = [number, number, number];
@@ -262,30 +264,93 @@ export function backendsFromQuery(params: URLSearchParams, current: Pick<Tessell
   return Object.keys(out).length ? { meshing: out, problems } : { problems };
 }
 
+/** The profiles the address's `profile=` names, as B-Rep Meshing's Profile does. */
+const PROFILES = ['coarse', 'medium', 'fine', 'custom'] as const;
+/** The largest angle (degrees) `angularDeflection=` takes: the control's. */
+const MAX_ANGLE_DEGREES = 90;
+
+/**
+ * The meshing's deflections from the address, for the model it opens (address only, as healing): `profile=` one of
+ * coarse, medium, fine or custom (its deflections then the settings' `current`), `linearDeflection=` millimetres and
+ * `angularDeflection=` degrees, either making it custom (the other then `current`'s); what's malformed is left out,
+ * with a message for each, and a profile other than custom with a deflection is custom, said.
+ */
+export function deflectionFromQuery(params: URLSearchParams, current: Pick<TessellationSettings,
+  'linearDeflection' | 'angularDeflection'>): { meshing?: Pick<TessellationSettings, 'profile' | 'linearDeflection'
+  | 'angularDeflection'>; problems: string[] } {
+  const problems: string[] = [];
+  const profile = params.get('profile');
+  let named: (typeof PROFILES)[number] | undefined;
+  if (profile !== null) {
+    if ((PROFILES as readonly string[]).includes(profile)) named = profile as (typeof PROFILES)[number];
+    else problems.push(`profile: not one of ${PROFILES.join(', ')}: ${profile}`);
+  }
+  const value = (k: string, ok: (v: number) => boolean, what: string) => {
+    const s = params.get(k);
+    if (s === null) return undefined;
+    const v = finite(s);
+    if (v === undefined || !ok(v)) {
+      problems.push(`${k}: not ${what}: ${s}`);
+      return undefined;
+    }
+    return v;
+  };
+  const linear = value('linearDeflection', (v) => v > 0, 'a positive number of millimetres');
+  const angular = value('angularDeflection', (v) => v > 0 && v <= MAX_ANGLE_DEGREES,
+    `a number of degrees above 0, at most ${MAX_ANGLE_DEGREES}`);
+  if (linear !== undefined || angular !== undefined) {
+    if (named && named !== 'custom') problems.push(`profile=${named} with a deflection: custom`);
+    return { meshing: { profile: 'custom', linearDeflection: linear ?? current.linearDeflection,
+      angularDeflection: angular ?? current.angularDeflection }, problems };
+  }
+  if (named === 'custom') return { meshing: { profile: 'custom', linearDeflection: current.linearDeflection,
+    angularDeflection: current.angularDeflection }, problems };
+  if (named) return { meshing: profileSettings(named), problems };
+  return { problems };
+}
+
+/**
+ * The address's parameters for a model meshed with `m` (deflectionFromQuery's, which read them back): its profile,
+ * or its deflections where custom; none where it's `usual`, the device's profile (undefined: always, Copy link's
+ * Include device defaults).
+ */
+export function deflectionQuery(m: Pick<TessellationSettings, 'profile' | 'linearDeflection' | 'angularDeflection'>,
+  usual?: MeshProfile): [string, string][] {
+  if (m.profile === usual) return [];
+  if (m.profile !== 'custom') return [['profile', m.profile]];
+  return [['linearDeflection', String(m.linearDeflection)], ['angularDeflection', String(m.angularDeflection)]];
+}
+
 /**
  * Healing from the address, for the model it opens (address only: a state's meshing carries it otherwise): `heal=1`
- * or `0` (Heal B-reps), `healOn=` and `healOff=` comma-separated fixes on or off from cad-heal's defaults, which turn
- * healing on; what's malformed is left out, with a message for each.
+ * or `0` (Heal B-reps), `healOn=` and `healOff=` comma-separated fixes on or off from cad-heal's defaults, and
+ * `healFit=` the fit tolerance in mm (pcurveFitTolerance), which turn healing on; what's malformed is left out, with a
+ * message for each.
  */
 export function healingFromQuery(params: URLSearchParams): { meshing?: Pick<TessellationSettings, 'heal' |
-  'healFixes'>; problems: string[] } {
+  'healFixes'> & Partial<Pick<TessellationSettings, 'healFit'>>; problems: string[] } {
   const problems: string[] = [];
   const heal = bool(params.get('heal'));
-  const named = (k: string) => new Set((params.get(k) ?? '').split(',').map((x) => x.trim()).filter((f) => {
-    const known = (HEAL_FIXES as readonly string[]).includes(f);
-    if (f && !known) problems.push(`${k}: not one of ${HEAL_FIXES.join(', ')}: ${f}`);
-    return known;
-  }) as HealFix[]);
+  // (An alias, cad-heal's FIX_ALIASES, as its fixes.)
+  const named = (k: string) => new Set((params.get(k) ?? '').split(',').map((x) => x.trim()).flatMap((f) => {
+    const fixes = fixesNamed(f);
+    if (f && !fixes.length) problems.push(`${k}: not one of ${HEAL_FIXES.join(', ')}: ${f}`);
+    return fixes;
+  }));
   const on = named('healOn'), off = named('healOff'), fixes: Partial<Record<HealFix, boolean>> = {};
   for (const f of on) if (off.has(f)) problems.push(`healOn and healOff: ${f} in both, left as it is`);
   for (const [set, v] of [[on, true], [off, false]] as const) for (const f of set) {
     if (!(on.has(f) && off.has(f))) fixes[f] = v;
   }
-  const listed = Object.keys(fixes).length > 0;
+  const fitText = params.get('healFit'), fitValue = fitText === null ? undefined : Number(fitText);
+  const fit = fitValue !== undefined && Number.isFinite(fitValue) && fitValue > 0 ? fitValue : undefined;
+  if (fitText !== null && fit === undefined) problems.push(`healFit: not a positive number of mm: ${fitText}`);
+  const listed = Object.keys(fixes).length > 0 || fit !== undefined;
   if (heal === false && listed) {
-    problems.push('heal=0 with healOn or healOff: the fixes ignored');
+    problems.push('heal=0 with healOn, healOff or healFit: ignored');
     return { meshing: { heal: false, healFixes: defaultFixes() }, problems };
   }
   if (heal === undefined && !listed) return { problems };
-  return { meshing: { heal: heal ?? true, healFixes: { ...defaultFixes(), ...fixes } }, problems };
+  return { meshing: { heal: heal ?? true, healFixes: { ...defaultFixes(), ...fixes },
+    ...(fit === undefined ? {} : { healFit: fit }) }, problems };
 }

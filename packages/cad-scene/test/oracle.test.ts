@@ -52,6 +52,8 @@ test('measures: the oracle\'s where the backend\'s are off by more than ORACLE_D
   const m = part.measures!;
   assert.deepEqual([m.faces.get(22)!.area, m.faces.get(22)!.valid], [1, true]);
   assert.equal(m.faces.get(23)!.area, 1 + ORACLE_DISAGREE * 0.99);
+  // The oracle's area and error beside each face's, whichever is kept (for users).
+  for (const id of [22, 23, 24]) assert.deepEqual(m.faces.get(id)!.oracle, { area: 1, error: 0 });
   assert.deepEqual([m.faces.get(24)!.area, m.faces.get(24)!.valid], [1, true]);
   assert.equal(m.by, 'fake 1, the area oracle\'s for 2 faces');
   assert.deepEqual(diagnostics, [{ severity: 'warning', message: '2 faces\' measured area replaced by the area '

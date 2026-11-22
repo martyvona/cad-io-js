@@ -41,6 +41,32 @@ function near(m: FaceMeasure, expected: number, what: string, whole = 0) {
  * How far a face's perimeter by its edges' curves (the oracle's) may be from one between its vertices
  * (area-oracle.ts's, its lines from vertex to vertex): each edge's curve's ends' distances from its vertices.
  */
+/**
+ * FaceMeasure.boundary's vertex-gap part, independently: per use of an edge with a curve, the larger of its vertices'
+ * distances from the curve at its edgeParams, times its length (the oracle's, with its error).
+ */
+function gapBound(d: BrepData, f: number, o: Oracle): number {
+  let sum = 0;
+  for (const l of decode.face(d, f).loops) {
+    if (l.kind !== 'edge') continue;
+    for (const c of l.coedges) {
+      const e = decode.edge(d, c.edge), ev = e.curve === undefined ? undefined : curveEvaluator(d, e.curve);
+      const r = ev && edgeParams(d, c.edge, ev);
+      if (!ev || !r) continue;
+      let gap = 0;
+      for (const [t, v] of [[r[0], e.start], [r[1], e.end]] as const) {
+        if (v === undefined) continue;
+        const p = ev.point(t);
+        gap = Math.max(gap, Math.hypot(p[0]! - d.vertex.point[3 * v]!, p[1]! - d.vertex.point[3 * v + 1]!,
+          p[2]! - d.vertex.point[3 * v + 2]!));
+      }
+      const len = o.edgeLength(c.edge);
+      sum += gap * (len.value + len.error);
+    }
+  }
+  return sum;
+}
+
 function vertexGaps(d: BrepData, f: number): number {
   let sum = 0;
   for (const l of decode.face(d, f).loops) {
@@ -304,9 +330,16 @@ test('a vertex on the seam\'s other side by rounding', { skip }, async () => {
   near(await measure(halfCylinder(2, 1, 3)), PI * 2 * 3, 'half cylinder');
 });
 
-test('a plane face whose edges\' curves miss their vertices: the polygon of the curves\' ends', { skip }, async () => {
+test('a plane face whose edges\' curves miss their vertices: the polygon of the curves\' ends, its error the gaps times '
+  + 'the edges\' lengths', { skip }, async () => {
   const { d, area } = planeWithGaps();
-  near(await measure(d), area, 'plane with gaps');
+  using o = new Oracle(await init(), d.buffer);
+  const m = o.face(0), bound = gapBound(d, 0, o);
+  assert.ok(m.area.status === 'ok' && Math.abs(m.area.value - area) <= 1e-9 * area, JSON.stringify(m));
+  assert.ok(bound > 0 && Math.abs(m.boundary - bound) <= 1e-9 * bound, `${m.boundary} vs ${bound}`);
+  assert.ok(m.area.error >= m.boundary && m.area.error - m.boundary <= 1e-9 * area, JSON.stringify(m));
+  assert.equal(trusted(m, 1e-3), m.area.error <= 1e-3 * area);
+  assert.ok(!trusted(m, 1e-6));
 });
 
 test('a torus face whose loops wind its minor circle is flagged', { skip }, async () => {
@@ -437,7 +470,9 @@ test('the same areas as today\'s area oracle wherever it trusts a face', { skip 
       const t = modelFaceArea(d, f);
       if (!trustedArea(t)) continue;
       const m = o.face(f);
-      assert.ok(trusted(m), `${name} face ${f}: trusted by area-oracle.ts, not here: ${JSON.stringify(m)}`);
+      // (Not where its edges' curves miss their vertices: those gaps are in our error, not in area-oracle.ts's.)
+      assert.ok(trusted(m) || vertexGaps(d, f) > 0, `${name} face ${f}: trusted by area-oracle.ts, not here: `
+        + JSON.stringify(m));
       assert.ok(Math.abs(m.area.value - t.area) <= t.error + m.area.error + 1e-12 * t.area,
         `${name} face ${f}: ${m.area.value} vs ${t.area} (+/- ${t.error})`);
       assert.ok(Math.abs(m.perimeter.value - t.perimeter) <= 1e-6 * t.perimeter + vertexGaps(d, f),

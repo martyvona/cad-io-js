@@ -41,7 +41,8 @@ const meshPart = (name: string): Part => ({ name, sources: [], properties: {}, o
 function brepPart(name: string): Part {
   const model = cube().finish();
   return { name, sources: [], properties: {}, origin: [0, 0, 0], brep: { model, format: 'step' }, lods: [],
-    measures: { by: 'source', faces: new Map([[21, { area: 1, perimeter: 4, valid: true }]]) } };
+    measures: { by: 'source', faces: new Map([[21, { area: 1, perimeter: 4, valid: true,
+      oracle: { area: 1, error: 1e-9 } }]]) } };
 }
 
 /** Two parts in a component placed twice (plainly and mirrored, scaled and turned), with placements of their own. */
@@ -143,6 +144,9 @@ test('rigid placements: every placement a rotation, every placed part where it w
     if (b.part.measures && a.part.measures) {
       const s2 = Math.abs(det(b.transform)) ** (2 / 3);
       assert.ok(Math.abs(a.part.measures.faces.get(21)!.area - s2) < 1e-9, `${b.path}: area`);
+      // The oracle's area and its error scaled the same.
+      const o = a.part.measures.faces.get(21)!.oracle!;
+      assert.ok(Math.abs(o.area - s2) < 1e-9 && Math.abs(o.error - 1e-9 * s2) < 1e-18, `${b.path}: oracle`);
     }
   });
 });
