@@ -49,7 +49,7 @@
 //                CPU_MS aren't comparable with a run without it; with PLANT=insertions, ours's count by size said a
 //                million more on the planted part, which must show in the tally
 //   ROUNDS=<prefix> ours says each part's split rounds (tess-cadio's countRounds; the same meshes), tallied (at the
-//                cap of 24, 16 to 23, under 16, and parts over CPU_MS by the last round their progress named) and
+//                cap of 48, 16 to 47, under 16, and parts over CPU_MS by the last round their progress named) and
 //                listed from 16 up, and a line per part into <prefix>.<pid>.tsv (one file per process): the part,
 //                its rounds (>=N where over CPU_MS: the last round seen), faces still wanting splits when the rounds
 //                ran out, faces failed, CPU ms, triangles, ours's status
@@ -106,7 +106,7 @@ const analysisOf = (p: { brep?: { analysis?: { buffer: ArrayBufferLike } } }) =>
 const INSERTIONS = process.env.INSERTIONS === '1';
 const ROUNDS = process.env.ROUNDS ?? '';
 /** tess-cadio's most split rounds (part.h's PartOptions::maxSplitRounds), and where a part's are many. */
-const ROUND_CAP = 24, MANY_ROUNDS = 16;
+const ROUND_CAP = 48, MANY_ROUNDS = 16;
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
 const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
