@@ -1,7 +1,9 @@
 // cad-oracle's TypeScript layer: the WebAssembly module (dist/cad_oracle.wasm, build.sh's `module`) loaded by `init`,
 // and an Oracle per B-rep model buffer (cad-brep's format) giving its edges' lengths, its faces' areas and
-// perimeters and their polynomial moments, each with its error estimate, status and flags. What each measure means
-// and how it's computed: native/include/cad_oracle/oracle.h; the module's C API is native/src/cad_oracle_api.cpp.
+// perimeters and their polynomial moments, each with its error estimate, status and flags; and points against its
+// closed shells by rays, its faces' sides of their shells (shell-side.ts's ShellSide), its bodies' shells nested.
+// What each means and how it's computed: native/include/cad_oracle/oracle.h; the module's C API is
+// native/src/cad_oracle_api.cpp.
 
 /** result.h's Status, by code. */
 export const STATUS = ['ok', 'unsupported', 'outOfDomain', 'singular', 'noConvergence', 'invalidModel'] as const;
@@ -15,7 +17,7 @@ export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoop
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
-const API_VERSION = 4;
+const API_VERSION = 5;
 
 /** A computed real with an a posteriori estimate of its error (result.h's Estimate). */
 export interface Estimate {
@@ -136,6 +138,11 @@ export interface OracleOptions {
   /** The quadrature's relative tolerance on each edge's and loop's integral (default oracle.h's, 1e-10). */
   relTol?: number;
   /**
+   * classify and shellSide: a second usable ray must agree with the first, else the point is unknown (oracle.h's
+   * checkSecondRay; for checks: a disagreement is a fault in the line's search or the faces' classification).
+   */
+  checkSecondRay?: boolean;
+  /**
    * The model's analysis (cad-brep's, as healing gives it; its hash the model's: the caller pairs them): the
    * deviations of the p-curves healing made, which FaceMeasure.boundary takes instead of measuring them.
    */
@@ -160,6 +167,45 @@ export interface Moment {
 /** The largest degree faceMoments takes (co_face_moments). */
 export const MAX_MOMENT_DEGREE = 4;
 
+export type Vec3 = [number, number, number];
+
+/** oracle.h's PointClass: a point against a closed shell by parity. */
+export interface PointClass {
+  side: 'inside' | 'outside' | 'on' | 'unknown';
+  /** Why on or unknown ('' otherwise). */
+  why: string;
+  /** The deciding ray (from the point, along direction, for length) and its crossings; absent where none decided. */
+  ray?: { direction: Vec3; length: number; crossings: number };
+  /** Rays tried, and those set aside, by why. */
+  tried: number;
+  rejected: { boundary: number; tangency: number; overlap: number; budget: number; near: number };
+  /** A second usable ray counted and agreeing (OracleOptions.checkSecondRay). */
+  checked: boolean;
+}
+
+/** oracle.h's ShellSide for one face: which side of its closed shell a point just outside the face lies on. */
+export interface FaceSide {
+  side: 'outside' | 'inside' | 'unknown';
+  why: string;
+  /** The point well inside the face, the point moved off it (eps along its normal) and that point's class. */
+  from: Vec3;
+  point: Vec3;
+  eps: number;
+  classified: PointClass;
+}
+
+const SIDE = ['inside', 'outside', 'on', 'unknown'] as const;
+const FACE_SIDE = ['outside', 'inside', 'unknown'] as const;
+function pointClass(o: Float64Array, why: string): PointClass {
+  const tried = o[6]!, crossings = o[5]!;
+  const side = SIDE[o[0]!]!;
+  return { side, why,
+    ...(side === 'inside' || side === 'outside' ? { ray: { direction: [o[1]!, o[2]!, o[3]!] as Vec3, length: o[4]!,
+      crossings } } : {}),
+    tried, rejected: { boundary: o[7]!, tangency: o[8]!, overlap: o[9]!, budget: o[10]!, near: o[11]! },
+    checked: o[12]! !== 0 };
+}
+
 export class Oracle {
   private readonly x: OracleExports;
   private h: number;
@@ -176,7 +222,7 @@ export class Oracle {
     if (a) this.x.HEAPU8.set(a, q);
     // co_model_new owns p from here on, freed even where it isn't a model; the analysis is read, then ours to free.
     this.h = this.x._co_model_new!(p, bytes.length, opts.relTol ?? 0, q, a?.length ?? 0,
-      opts.projectMissing === false ? 1 : 0);
+      (opts.projectMissing === false ? 1 : 0) | (opts.checkSecondRay ? 2 : 0));
     if (q) this.x._free(q);
     if (this.h < 0) throw new Error('cad-oracle: not a B-rep model buffer');
   }
@@ -233,6 +279,52 @@ export class Oracle {
       return exponents.map((exponent, m) => ({ exponent, n: [at(3 * m), at(3 * m + 1), at(3 * m + 2)] }));
     } finally {
       x._free(p);
+    }
+  }
+
+  /** Point `p` against closed shell row `shell` by rays (oracle.h's classify). */
+  classify(shell: number, p: Vec3): PointClass {
+    const x = this.x, o = x._malloc(13 * 8 + 8);
+    try {
+      x._co_classify!(this.live(), shell, p[0], p[1], p[2], o, o + 104);
+      return pointClass(x.HEAPF64.slice(o / 8, o / 8 + 13), x.UTF8ToString(x.HEAP32[(o + 104) / 4]!));
+    } finally {
+      x._free(o);
+    }
+  }
+
+  /**
+   * Which side of closed shell row `shell` a point just outside face row `face` lies on, eps along its normal (its
+   * sense applied; negative: against it; at least 10 x the face's tolerance, less taken as that) from a point well
+   * inside it (oracle.h's shellSide).
+   */
+  shellSide(shell: number, face: number, eps: number): FaceSide {
+    const x = this.x, o = x._malloc(21 * 8 + 8);
+    try {
+      x._co_shell_side!(this.live(), shell, face, eps, o, o + 168);
+      const v = x.HEAPF64.slice(o / 8, o / 8 + 21), why = x.UTF8ToString(x.HEAP32[(o + 168) / 4]!);
+      return { side: FACE_SIDE[v[0]!]!, why, from: [v[1]!, v[2]!, v[3]!], point: [v[4]!, v[5]!, v[6]!], eps: v[7]!,
+        classified: pointClass(v.subarray(8), '') };
+    } finally {
+      x._free(o);
+    }
+  }
+
+  /**
+   * Body row `body`'s shells nested (oracle.h's nesting): per shell of the body, the index among them of the smallest
+   * holding it, -1 for none, -2 where it can't be told (an open shell, a point unknown against another).
+   */
+  nesting(body: number): number[] {
+    const x = this.x;
+    for (let room = 8; ; room *= 4) {
+      const o = x._malloc(4 * room);
+      try {
+        const n = x._co_nesting!(this.live(), body, o, room);
+        if (n < 0) return [];
+        if (n <= room) return Array.from(x.HEAP32.subarray(o / 4, o / 4 + n));
+      } finally {
+        x._free(o);
+      }
     }
   }
 

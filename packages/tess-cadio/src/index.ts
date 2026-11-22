@@ -424,6 +424,12 @@ export class CadioTessellator implements Tessellator {
         + ' (a point convex in (u, v) turning the other way in 3D, its (u, v) moved onto its '
         + 'neighbours\' chord within the face\'s tolerance)' });
     }
+    const holes = list('holesOnly');
+    if (holes.length) {
+      diagnostics.push({ severity: 'info', message: `${holes.length} faces bounded by holes only, meshed as their `
+        + `surface's natural extent less them: faces ${holes.slice(0, 10).join(', ')}`
+        + `${holes.length > 10 ? ', ...' : ''}` });
+    }
     const against = list('againstSense');
     if (against.length) {
       diagnostics.push({ severity: 'warning', message: `${against.length} faces with a loop against the face's sense `

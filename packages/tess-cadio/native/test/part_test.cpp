@@ -2984,6 +2984,56 @@ TEST_CASE("a run of knot spans each narrower than the floor in 3D but not togeth
   CHECK(across > 50 * away);
 }
 
+TEST_CASE("a face whose edge loops are all holes (none winding) is its surface's natural extent less them: "
+  "sphereBelt's belt between two circles meshed, not its caps; facing as its sense says; the even one too") {
+  struct Case {
+    const char* name;
+    double lo, hi;
+    bool outward;
+  };
+  for (Case c : {Case{"sphereBelt", -1, 3, true}, Case{"sphereBeltInward", -1, 3, false},
+         Case{"sphereBeltEven", -2, 3, true}, Case{"sphereBeltEvenInward", -2, 3, false}}) {
+    cadgeom::Model m = load(c.name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.05, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", c.name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.holesOnly);
+    double area = 0;
+    int outside = 0, against = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      const Vec3 g = cadgeom::cross(q - p, r - p), mid = (1.0 / 3) * (p + q + r);
+      area += 0.5 * cadgeom::norm(g);
+      outside += mid.x < c.lo - 0.05 || mid.x > c.hi + 0.05;
+      against += (cadgeom::dot(g, mid) > 0) != c.outward;
+    }
+    const double want = 2 * M_PI * 5 * (c.hi - c.lo);
+    if (outside || against || std::fabs(area - want) > 0.01 * want)
+      std::printf("  %s: area %.3f (the belt's %.3f), %d triangles outside it, %d against its sense\n", c.name, area,
+        want, outside, against);
+    CHECK_EQ(outside, 0);
+    CHECK_EQ(against, 0);
+    CHECK(std::fabs(area - want) <= 0.01 * want);
+  }
+}
+
+TEST_CASE("a face whose edge loops are all holes on a surface with no natural extent (a plane) fails, said so, "
+  "rather than meshing its holes; a face with an outer loop isn't holesOnly") {
+  cadgeom::Model m = load("planeHoleOnly");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.05, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status == cadgeom::Status::unsupported);
+  CHECK(fm.cause.find("edge loops all holes") != std::string::npos);
+  CHECK(fm.triangles.empty());
+  cadgeom::Model band = load("band");
+  REQUIRE(band.ok());
+  PartMesher pb(band, options(0.05, 0.26));
+  for (int f = 0; f < band.faces(); f++) CHECK(!pb.face(f).holesOnly);
+}
+
 TEST_CASE("flipTurned (the default): a triangle turned as shipped flipped with its neighbour across an interior edge, "
   "both new ones within the criteria and facing the surface: cornerFoldTight at 1 meshed, failing without it") {
   // (Its corner's point 0.0085 off its (u, v), past the face's tolerance: the fold not repaired, the ear there

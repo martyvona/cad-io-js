@@ -1156,6 +1156,7 @@ struct PartMesher::Impl {
       out.seamUnsettled = true;
     }
     out.againstSense = fb.againstSense;
+    out.holesOnly = fb.holesOnly;
     out.foldsRepaired = fb.foldsRepaired;
     // A crease's end on the boundary: the loop's sample there put on the crease's line in this face's (u, v) (its 3D
     // point the edge's, shared; moved within the face's tolerance), so no triangle beside the end crosses the line.

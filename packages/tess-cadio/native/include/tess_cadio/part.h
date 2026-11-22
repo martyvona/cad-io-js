@@ -222,6 +222,8 @@ struct FaceMesh {
   bool capped = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
+  /** Its boundary's FaceBoundary::holesOnly: its edge loops all holes, its surface's natural extent their outer. */
+  bool holesOnly = false;
   /** Its boundary's FaceBoundary::foldsRepaired. */
   int foldsRepaired = 0;
 };
