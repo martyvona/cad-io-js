@@ -57,8 +57,14 @@ struct Oracle::Impl {
   FaceMeasure freeForm(int face);
   /** faceIntegral (oracle.h), on the faces closedForm, swept and freeForm measure. */
   std::vector<Estimate> integral(int face, const Integrand& g);
+  /** The face's surface as the face API closes it in fact (at the face's tolerance), made once; null where it can't be. */
+  const Surface* faceSurface(int face);
+  /** rayFace (oracle.h). */
+  RayFace rayFace(int face, Vec3 o, Vec3 d, Range tr);
 
 private:
+  std::vector<std::unique_ptr<Surface>> faceSurfaces_;
+  std::vector<uint8_t> faceSurfaceMade_;
   std::vector<std::unique_ptr<Curve>> curves_;
   std::vector<uint8_t> made_;
   std::vector<Estimate> lengths_;
