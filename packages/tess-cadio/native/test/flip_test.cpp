@@ -191,3 +191,46 @@ TEST_CASE("no collapse where the point is on a fixed segment, its link with the 
     CHECK(!h.run());
   }
 }
+
+TEST_CASE("foldedEdges: an edge at the pole used twice the same way counted (more than twice, once), a manifold "
+  "fan none; edges away from the pole not counted") {
+  // (A fan about pole 0 over ring 1-2-3, and a triangle (4, 1, 2) beyond segment 1-2.)
+  const std::vector<int32_t> weld{0, 1, 2, 3, 4};
+  const std::vector<char> near{1, 0, 0, 0, 0};
+  // Manifold: the fan's (0, 2, 1) runs 2 -> 1, against (4, 1, 2)'s 1 -> 2.
+  CHECK_EQ(foldedEdges({0, 2, 1, 0, 3, 2, 4, 1, 2}, weld, near), 0);
+  // Folded: the fan's (0, 1, 2) on (4, 1, 2)'s side, 1 -> 2 twice (not at the pole: not counted) and 2 -> 0 twice
+  // with the next fan triangle (counted).
+  CHECK_EQ(foldedEdges({0, 1, 2, 0, 3, 2, 4, 1, 2}, weld, near), 1);
+  // Away from the pole: 1 -> 2 twice, no corner at it.
+  CHECK_EQ(foldedEdges({4, 1, 2, 3, 1, 2}, weld, near), 0);
+  // More than twice (so twice the same way): 0 -> 1 twice and 1 -> 0 once, one edge.
+  CHECK_EQ(foldedEdges({0, 1, 2, 1, 0, 3, 0, 1, 4}, weld, near), 1);
+  // Welded: 3 and 1 one point, so (0, 3, 2) and (0, 1, 4) share 0 -> 1 twice.
+  CHECK_EQ(foldedEdges({0, 3, 2, 0, 1, 4}, std::vector<int32_t>{0, 1, 2, 1, 4}, near), 1);
+  // Two triangles each with an edge whose ends weld together (1 and 3, at the pole too): not edges, so nothing.
+  CHECK_EQ(foldedEdges({0, 1, 3, 2, 1, 3}, std::vector<int32_t>{0, 1, 2, 1, 4}, std::vector<char>{1, 1, 0, 1, 0}), 0);
+}
+
+TEST_CASE("sectorKeep: a fan chain's points kept where they turn one way within the sector its ends bound; a step "
+  "back, one past the far end and a needle left out; a sector past half a turn whole; either direction") {
+  const double d = M_PI / 180, minTurn = 1e-3;
+  // Monotone, 0 -> 90 degrees: all kept.
+  CHECK(sectorKeep(0, {20 * d, 45 * d, 70 * d}, 90 * d, minTurn) == (std::vector<size_t>{0, 1, 2}));
+  // A step back (45 then 30): the 30 left out.
+  CHECK(sectorKeep(0, {20 * d, 45 * d, 30 * d, 70 * d}, 90 * d, minTurn) == (std::vector<size_t>{0, 1, 3}));
+  // Past the far end (95 before 90): left out; and one before the first end (-3).
+  CHECK(sectorKeep(0, {-3 * d, 45 * d, 95 * d}, 90 * d, minTurn) == (std::vector<size_t>{1}));
+  // A needle: a point a hundredth of a degree from the first end.
+  CHECK(sectorKeep(0, {0.01 * d, 45 * d}, 90 * d, minTurn) == (std::vector<size_t>{1}));
+  // Past half a turn, 0 -> 300 degrees round: all kept (each against the far end wrapped would drop those past 120).
+  CHECK(sectorKeep(0, {60 * d, 120 * d, 180 * d, 240 * d}, 300 * d, minTurn) ==
+    (std::vector<size_t>{0, 1, 2, 3}));
+  // The other way round, 90 -> 0: a step back (60 then 75) left out.
+  CHECK(sectorKeep(90 * d, {60 * d, 75 * d, 30 * d}, 0, minTurn) == (std::vector<size_t>{0, 2}));
+  // Across +/-180 degrees the negative way, -170 -> -179 -> 179 -> 170: each step wrapped, all kept.
+  CHECK(sectorKeep(-170 * d, {-179 * d, 179 * d}, 170 * d, minTurn) == (std::vector<size_t>{0, 1}));
+  // No points; and no turn at all: all.
+  CHECK(sectorKeep(0, {}, 90 * d, minTurn).empty());
+  CHECK(sectorKeep(0, {0, 0}, 0, minTurn) == (std::vector<size_t>{0, 1}));
+}

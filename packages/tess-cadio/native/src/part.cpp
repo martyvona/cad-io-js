@@ -266,6 +266,56 @@ struct PartMesher::Impl {
   };
 
   static double fixedOf(Vec2 p, bool isoU) { return isoU ? p.x : p.y; }
+
+  /**
+   * The ring's free coordinates qs (at offset side x r from the row of pole S) kept where the chain from the boundary
+   * point pa through them to pb turns one way about the pole, within the sector pa and pb bound: seen from the pole in
+   * the plane across its normal (its limit on the row at the ring's middle; at an apex, which has none, the mean of
+   * the surface's normals at the ring's points, about its axis), each kept point a step from the last in
+   * the chain's direction (that of its whole turn from pa to pb through them) and short of pb. A point that steps back
+   * or past pb, or by under kTurn, is left out, the fan going straight from its predecessor to the next, all of them
+   * perhaps (makeFans keeps them where its loop would be left under three points): where a curve through the pole
+   * bends at once, the ring at its floor crosses it in 3D, and a fan triangle on such a point would land on the
+   * mesher's side of its ring segment, folding the mesh (PartOptions::failFoldedFans). All of qs where neither gives a
+   * direction.
+   */
+  static std::vector<double> inSector(const Surface& s, const Singularity& S, double side, double r, Vec3 pa, Vec3 pb,
+    const std::vector<double>& qs) {
+    if (qs.empty()) return qs;
+    auto ringUv = [&](double q) { return S.isoU ? Vec2{S.at + side * r, q} : Vec2{q, S.at + side * r}; };
+    Vec3 n;
+    const Vec2 mid = S.isoU ? Vec2{S.at, 0.5 * (qs.front() + qs.back())} : Vec2{0.5 * (qs.front() + qs.back()), S.at};
+    const Status ns = s.normal(mid.x, mid.y, n);
+    if ((ns != Status::ok && ns != Status::singular) || !(norm(n) > 0.5)) {
+      n = {0, 0, 0};
+      for (double q : qs) {
+        Vec3 m;
+        const Vec2 uv = ringUv(q);
+        if (s.normal(uv.x, uv.y, m) == Status::ok) n = n + m;
+      }
+      if (!(norm(n) > 1e-9)) return qs;
+      n = (1 / norm(n)) * n;
+    }
+    Vec3 e1 = cross(n, Vec3{1, 0, 0});
+    if (norm(e1) < 0.5) e1 = cross(n, Vec3{0, 1, 0});
+    e1 = (1 / norm(e1)) * e1;
+    const Vec3 e2 = cross(n, e1);
+    auto angle = [&](Vec3 p) { const Vec3 d = p - S.point; return std::atan2(dot(d, e2), dot(d, e1)); };
+    std::vector<double> th;
+    for (double q : qs) {
+      SurfacePoint sp;
+      const Vec2 uv = ringUv(q);
+      s.eval(uv.x, uv.y, 0, sp);
+      th.push_back(angle(sp.p));
+    }
+    // (A step of next to no turn, a ring point on the line from the pole through its neighbour, makes a needle of a
+    // fan triangle, aspect past 1000, whose orientation by its normals is anyone's: one along an edge through an apex
+    // that's an iso-line, a spindle torus's, LMP1 #173466's #1091324. The ring's pieces turn far more, by the angle.)
+    constexpr double kTurn = 1e-3;
+    std::vector<double> kept;
+    for (size_t j : sectorKeep(angle(pa), th, angle(pb), kTurn)) kept.push_back(qs[j]);
+    return kept;
+  }
   static double freeOf(Vec2 p, bool isoU) { return isoU ? p.y : p.x; }
   static Vec2 uvOf(double fixed, double fr, bool isoU) { return isoU ? Vec2{fixed, fr} : Vec2{fr, fixed}; }
 
@@ -359,6 +409,12 @@ struct PartMesher::Impl {
         if (farA) qs.push_back(q0);
         for (int j = 1; j < pieces; j++) qs.push_back(lo + j * piece);
         if (farB) qs.push_back(q1);
+        // (Kept where leaving them out would leave the loop under three points: a face as small as the ring.)
+        // (At a smooth pole only: an apex's fans run round a cone, its ring a whole turn and more of its points
+        // needed for the deflection.)
+        if (fan.smooth)
+          if (std::vector<double> in = inSector(s, S, side, r, a.point, b.point, qs); !in.empty() || n - len >= 3)
+            qs = std::move(in);
         fan.chain.push_back(static_cast<int>(out.size()) - 1);
         for (double qj : qs) {
           BoundaryPoint q;
@@ -1070,6 +1126,51 @@ struct PartMesher::Impl {
     }
   }
 
+  /**
+   * A face whose output, welded at its shipped positions (float32 minus the output's origin, else as computed), has
+   * an edge with a corner within the face's tolerance of a pole or apex used twice the same way (flip.h's
+   * foldedEdges) fails: its pole's fan folds over itself (PartOptions::failFoldedFans). The facing check exempts
+   * triangles there; this keeps the mesh manifold.
+   */
+  void checkFoldedFans() {
+    if (!o.failFoldedFans) return;
+    const cadgeom::Tolerances tols(m);
+    const double* O = o.outputOrigin;
+    const bool shipped = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    for (size_t f = 0; f < faces.size(); f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || !surfaces[f]) continue;
+      std::vector<Singularity> sing;
+      surfaces[f]->singularities(sing);
+      const double near = tols.face(static_cast<int>(f));
+      std::vector<Vec3> poles;
+      for (const Singularity& g : sing)
+        if (g.kind != Singularity::normalVanishes) poles.push_back(g.point);
+      if (poles.empty()) continue;
+      // (Each point's welded index: points equal as shipped are one.)
+      std::map<std::array<float, 3>, int32_t> at;
+      std::vector<int32_t> weld(fm.points.size());
+      std::vector<char> byPole(fm.points.size(), 0);
+      for (size_t i = 0; i < fm.points.size(); i++) {
+        const Vec3 p = fm.points[i];
+        const std::array<float, 3> k = shipped
+          ? std::array<float, 3>{static_cast<float>(p.x - O[0]), static_cast<float>(p.y - O[1]),
+            static_cast<float>(p.z - O[2])}
+          : std::array<float, 3>{static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)};
+        weld[i] = at.emplace(k, static_cast<int32_t>(at.size())).first->second;
+        for (const Vec3& q : poles) byPole[i] = byPole[i] || norm(p - q) <= near;
+      }
+      const int folded = foldedEdges(fm.triangles, weld, byPole);
+      if (!folded) continue;
+      char why[160];
+      std::snprintf(why, sizeof why, "a pole's fan folds over itself: %d %s used twice the same way", folded,
+        folded == 1 ? "edge" : "edges");
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
   void checkFacing() {
     if (!o.failTurnedOver) return;
     // (As shipped, where the output's origin is known: float32 positions minus it, float32 normals.)
@@ -1731,6 +1832,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.failCapped();
   I.checkDeviation();
   I.checkFacing();
+  I.checkFoldedFans();
 }
 
 PartMesher::~PartMesher() { delete impl_; }
