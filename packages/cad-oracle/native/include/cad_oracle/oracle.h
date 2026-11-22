@@ -143,6 +143,37 @@ struct Options {
   size_t analysisSize = 0;
 };
 
+/**
+ * A line's contact with a face (Oracle::rayFace): a crossing of the face (inside its loops, |d . n| at least
+ * cadgeom::kLineMargin), a crossing on its boundary (within the face's tolerance of its loops: an edge or a vertex,
+ * which the neighbouring face may or may not see too), a tangency (the line within tol of the surface there, or too
+ * near to tell, reaching into the face), or an overlap (the line lying in the face's surface over a stretch).
+ */
+struct FaceHit {
+  enum Kind : uint8_t { crossing, boundary, tangency, overlap };
+  Kind kind = crossing;
+  /** The line's parameter, and the t it covers (a crossing's t alone). */
+  double t = 0;
+  cadgeom::Range span;
+  /** Where on the surface (an overlap's: its start's), and d . n there (unit n, the surface's own, not the face's). */
+  cadgeom::Vec2 uv;
+  Vec3 point;
+  double cosine = 0;
+};
+
+/** A line against a face: its hits sorted by t; noConvergence where the search's budget ran out (hits found given). */
+struct RayFace {
+  Status status = Status::unsupported;
+  std::vector<FaceHit> hits;
+  /** Whether a parity count may use it: status ok and every hit a crossing of the face. */
+  bool clean() const {
+    if (status != Status::ok) return false;
+    for (const FaceHit& h : hits)
+      if (h.kind != FaceHit::crossing) return false;
+    return true;
+  }
+};
+
 class Oracle {
 public:
   /**
@@ -167,6 +198,13 @@ public:
    * oracle doesn't measure), by the face's method with the area element's antiderivative numeric.
    */
   std::vector<Estimate> faceIntegral(int face, const Integrand& g);
+  /**
+   * The line o + t d, t in tr (finite), against the face: cad-geom's intersectLine on its surface (as the face API
+   * closes it in fact) at the face API's tolerance for the face, each contact classified against its loops by the face
+   * API (a tangency at that tolerance widened by half its span, so one reaching into the face isn't left out); a
+   * contact outside the face dropped. unsupported where the face has no surface or loops.
+   */
+  RayFace rayFace(int face, Vec3 o, Vec3 d, cadgeom::Range tr);
 
   struct Impl;
 
