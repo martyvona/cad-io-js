@@ -14,7 +14,10 @@
 // points against such faces by OCCT's 2D face classifier (corpus_checks/geom2d_corpus.ts), in OCCT's parameters, and
 // occt_probe_pcurve gives an edge's p-curves on such a face (corpus_checks/pcurve_corpus.ts): the built shape's own
 // where it has one (the model's, or a plane's computed on request), else made by healing's ShapeFix_Edge.
+// occt_probe_classify_solid classifies 3D points against the solid holding a given face by OCCT's solid classifier
+// (corpus_checks/classify_corpus.ts), as a reference for point classification by rays.
 
+#include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepClass_FaceClassifier.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom2d_Curve.hxx>
@@ -45,6 +48,7 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TransferBRep.hxx>
+#include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
 #include <Transfer_TransientProcess.hxx>
 #include <XSControl_TransferReader.hxx>
@@ -78,6 +82,9 @@ struct Probe
   std::string                     diag;
   // occt_probe_pcurve's route per (face id, edge id), from its first call: a p-curve it adds is the shape's after.
   std::map<std::pair<uint32_t, uint32_t>, int> routes;
+  // The built shape (occt_probe_build), and the solid holding each face (by face id), found on first use.
+  TopoDS_Shape                      shape;
+  std::map<uint32_t, TopoDS_Shape> solidOf;
 };
 Probe p;
 
@@ -256,6 +263,7 @@ int occt_probe_build(const uint8_t* buf, int len)
       p.diag = b.error;
       return -1;
     }
+    p.shape = b.shape;
     for (TopExp_Explorer ex(b.shape, TopAbs_FACE); ex.More(); ex.Next())
       if (auto it = b.faceIds.find(ex.Current().TShape().get()); it != b.faceIds.end())
         p.faces.emplace(it->second, TopoDS::Face(ex.Current()));
@@ -336,6 +344,46 @@ void occt_probe_classify(const double* queries, int n, unsigned char* out)
     {
       BRepClass_FaceClassifier c(it->second, gp_Pnt2d(q[1], q[2]), q[3]);
       const TopAbs_State      st = c.State();
+      out[k] = st == TopAbs_IN ? 0 : st == TopAbs_OUT ? 1 : st == TopAbs_ON ? 2 : 3;
+    }
+    catch (const Standard_Failure&)
+    {
+    }
+  }
+}
+
+// Points against the solid holding a face (occt_probe_build's ids): n queries of (face id, x, y, z, tol) into out (0
+// in, 1 out, 2 on, 3 unknown; 255 where the face isn't kept or is in no solid, or the classifier throws).
+void occt_probe_classify_solid(const double* queries, int n, unsigned char* out)
+{
+  for (int k = 0; k < n; ++k)
+  {
+    const double* q = queries + 5 * k;
+    out[k]          = 255;
+    const uint32_t id = (uint32_t)q[0];
+    auto           f  = p.faces.find(id);
+    if (f == p.faces.end())
+      continue;
+    auto s = p.solidOf.find(id);
+    if (s == p.solidOf.end())
+    {
+      TopoDS_Shape found;
+      for (TopExp_Explorer ex(p.shape, TopAbs_SOLID); ex.More() && found.IsNull(); ex.Next())
+        for (TopExp_Explorer fx(ex.Current(), TopAbs_FACE); fx.More(); fx.Next())
+          if (fx.Current().TShape() == f->second.TShape())
+          {
+            found = ex.Current();
+            break;
+          }
+      s = p.solidOf.emplace(id, found).first;
+    }
+    if (s->second.IsNull())
+      continue;
+    try
+    {
+      BRepClass3d_SolidClassifier c(s->second);
+      c.Perform(gp_Pnt(q[1], q[2], q[3]), q[4]);
+      const TopAbs_State st = c.State();
       out[k] = st == TopAbs_IN ? 0 : st == TopAbs_OUT ? 1 : st == TopAbs_ON ? 2 : 3;
     }
     catch (const Standard_Failure&)
