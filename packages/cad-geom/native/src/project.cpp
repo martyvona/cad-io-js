@@ -505,13 +505,14 @@ void checkEnds(const Job& job, Pcurve& out) {
 }
 
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,
-  Form surface) {
+  Form surface, bool withinTolOnly) {
   Pcurve out;
   if (!(r.lo < r.hi) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(tol > 0) || c.dim() != 3) {
     out.status = Status::invalidModel;
     return out;
   }
   Job job{c, r, s, tol, ends, curve, surface, s.domain(), {}, {}};
+  job.withinTolOnly = withinTolOnly;
   s.singularities(job.sing);
   c.breaks(r, job.breaks);
   {
@@ -569,11 +570,11 @@ Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const
 } // namespace project
 
 Pcurve projectCurve(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends,
-  const PcurveSource* source) {
+  const PcurveSource* source, bool withinTolOnly) {
   project::Form cf, sf;
   if (source && source->model) cf = project::curveForm(*source->model, source->curve),
     sf = project::surfaceForm(*source->model, source->surface);
-  return project::projectForms(c, r, s, tol, ends, cf, sf);
+  return project::projectForms(c, r, s, tol, ends, cf, sf, withinTolOnly);
 }
 
 const std::vector<EndFoot>& EndSearchCache::feet(uint64_t key, const Surface& s, Vec3 p, double tol) {

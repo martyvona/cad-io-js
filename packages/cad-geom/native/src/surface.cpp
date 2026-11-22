@@ -5,15 +5,17 @@
 // discarded when its box is farther from p than the best distance found plus tol; it is solved when g = |S - p|^2 / 2
 // is convex on it (its Hessian [S_u.S_u + (S - p).S_uu, S_u.S_v + (S - p).S_uv; ...] positive definite over the
 // rectangle, by interval arithmetic on the partials' boxes), since a convex g has one minimum there, found by Newton
-// projected onto the rectangle; else it is split across its longer side (in 3D). Infinite ranges are first cut to a
-// box holding every point as near as one already found (the kinds' within()); elementary kinds take their feet in
-// closed form (footCandidates). A hint seeds the best distance and breaks ties among equally near feet; it never
-// replaces the search. A rectangle whose box is within tol all over (or as narrow as its coordinates' rounding) is
-// one foot wherever it is in there, and singular iso-lines' points are candidates from the start (no rectangle beside
-// a pole is convex, S_u vanishing there). A convex rectangle's minimum pushed against a side inside the search range
-// is not a foot (the rectangle beyond holds the minimum). Feet within tol of the best are the same foot (a seam's or
-// pole's other parameters: flags) or alternatives (other places, one per cluster). The search is budgeted: where it
-// runs out with a better foot still possible, it says noConvergence.
+// projected onto the rectangle (where that can't be shown to have ended at a minimum, the rectangle is searched as
+// one not convex); else it is split across its longer side (in 3D). Infinite ranges are first cut to a box holding
+// every point as near as one already found (the kinds' within()); elementary kinds take their feet in closed form
+// (footCandidates). A hint seeds the best distance and breaks ties among equally near feet; it never replaces the
+// search. A rectangle whose box is within tol all over (or as narrow as its coordinates' rounding) is one foot
+// wherever it is in there, and singular iso-lines' points are candidates from the start (no rectangle beside a pole
+// is convex, S_u vanishing there). A convex rectangle's minimum pushed against a side inside the search range is not
+// a foot (the rectangle beyond holds the minimum), unless the gradient just beyond that side pushes back (a break
+// where the partials jump: g's kink, its minimum on the side). Feet within tol of the best are the same foot (a
+// seam's or pole's other parameters: flags) or alternatives (other places, one per cluster). The search is budgeted:
+// where it runs out with a better foot still possible, it says noConvergence.
 #include "cad_geom/surface.h"
 
 #include <algorithm>
@@ -178,13 +180,23 @@ struct Candidate {
 /**
  * The minimum of g = |S - p|^2 / 2 over a rectangle where g is convex there: Newton steps projected onto it, a
  * coordinate the gradient pushes out of it held at its bound while the other is minimized alone (convex in it too).
+ * The partials are the rectangle's own: on an upper side they're taken a few ulps inside (as curve.cpp's inside()),
+ * since a side can be a knot or a break, where a piece starts whose partials needn't be these. `minimum`, if given,
+ * says whether it ended at the minimum (the gradient nothing along each free coordinate, outward along each held
+ * one): projected Newton steps can cycle between corners.
  */
-Vec2 convexMinimum(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start, bool* pushedOut = nullptr) {
+Vec2 convexMinimum(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start, bool* pushedOut = nullptr,
+  bool* minimum = nullptr) {
   Vec2 x{std::clamp(start.x, ru.lo, ru.hi), std::clamp(start.y, rv.lo, rv.hi)};
   bool pushU = false, pushV = false;
+  auto inside = [](double t, Range r) {
+    if (t < r.hi) return t;
+    double u = r.hi - 4 * kEps * maxNum(1.0, std::fabs(r.hi));
+    return u > r.lo ? u : t;
+  };
+  Vec3 d[kPartials];
   for (int it = 0; it < 100; it++) {
-    Vec3 d[kPartials];
-    s.derivs(x.x, x.y, 2, d);
+    s.derivs(inside(x.x, ru), inside(x.y, rv), 2, d);
     Vec3 e = d[0] - p, su = d[pidx(1, 0)], sv = d[pidx(0, 1)];
     double gu = dot(e, su), gv = dot(e, sv);
     double huu = dot(su, su) + dot(e, d[pidx(2, 0)]), huv = dot(su, sv) + dot(e, d[pidx(1, 1)]);
@@ -211,6 +223,17 @@ Vec2 convexMinimum(const SurfaceImpl& s, Vec3 p, Range ru, Range rv, Vec2 start,
     double step = std::fabs(n.x - x.x) + std::fabs(n.y - x.y);
     x = n;
     if (step <= 4 * kEps * (1 + std::fabs(x.x) + std::fabs(x.y))) break;
+  }
+  if (minimum) {
+    // The gradient where it ended, along each coordinate as a distance in 3D (e's part along S_u), against e's
+    // rounding (not whether the steps stopped: far from the origin they jitter at that rounding, more than a few ulps
+    // of (u, v)).
+    s.derivs(inside(x.x, ru), inside(x.y, rv), 1, d);
+    Vec3 e = d[0] - p, su = d[pidx(1, 0)], sv = d[pidx(0, 1)];
+    double r = 1024 * kEps * (norm(e) + norm(p)), gu = dot(e, su), gv = dot(e, sv);
+    bool okU = std::fabs(gu) <= r * norm(su) || (x.x <= ru.lo && gu > 0) || (x.x >= ru.hi && gu < 0);
+    bool okV = std::fabs(gv) <= r * norm(sv) || (x.y <= rv.lo && gv > 0) || (x.y >= rv.hi && gv < 0);
+    *minimum = okU && okV;
   }
   if (pushedOut) {
     // Which sides: (u at ru's lo or hi, v at rv's lo or hi), encoded for the caller as pushes on each.
@@ -534,13 +557,31 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
         && wv <= 4 * kEps * maxNum(std::fabs(b.lo), std::fabs(b.hi));
       if (convex) {
         // A minimum pushed against a side inside the search range isn't one of S's: the rectangle beyond holds it.
-        bool push[4];
-        Vec2 x = convexMinimum(s, p, a, b, mid, push);
-        bool inner = (push[0] && a.lo > ru.lo) || (push[1] && a.hi < ru.hi) || (push[2] && b.lo > rv.lo)
-          || (push[3] && b.hi < rv.hi);
-        if (inner) bound(x, at(x));
-        else add(x);
-        continue;
+        // Unless the side is a break where the partials jump and the gradient just beyond it pushes back: g has a
+        // kink there, its minimum on the side, and each rectangle would leave it to the other.
+        bool push[4], minimum = false;
+        Vec2 x = convexMinimum(s, p, a, b, mid, push, &minimum);
+        auto kink = [&](int k) {
+          const bool alongU = k < 2, up = k % 2 == 1;
+          const Range r = alongU ? ru : rv;
+          const double t0 = alongU ? x.x : x.y, h = 4 * kEps * maxNum(1.0, std::fabs(t0));
+          const double t = up ? minNum(t0 + h, r.hi) : maxNum(t0 - h, r.lo);
+          Vec3 d[kPartials];
+          s.derivs(alongU ? t : x.x, alongU ? x.y : t, 1, d);
+          const Vec3 e = d[0] - p, sd = d[alongU ? pidx(1, 0) : pidx(0, 1)];
+          const double g = dot(e, sd), slack = 64 * kEps * (norm(e) + norm(p)) * norm(sd);
+          return up ? g >= -slack : g <= slack;
+        };
+        bool inner = false;
+        const bool innerSide[4] = {a.lo > ru.lo, a.hi < ru.hi, b.lo > rv.lo, b.hi < rv.hi};
+        for (int k = 0; k < 4; k++) inner = inner || (push[k] && innerSide[k] && !kink(k));
+        if (minimum) {
+          if (inner) bound(x, at(x));
+          else add(x);
+          continue;
+        }
+        // Not shown to be the minimum: a point of S for the bound, and the rectangle searched as any other.
+        bound(x, at(x));
       }
       if (tiny || thin) {
         Vec2 best = mid;

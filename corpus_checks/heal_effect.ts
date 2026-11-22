@@ -216,7 +216,8 @@ export const check: FileCheck<undefined, Result> = {
         for (const c of ca.values()) if (c.includes(PAST_REPAIR)) M.pastRepair.after++;
       }
       using ob = new Oracle(module, db.buffer);
-      using oa = new Oracle(module, da.buffer);
+      // (The healed model with its analysis: its p-curves' deviations, healing's, which the oracle's bound takes.)
+      using oa = new Oracle(module, da.buffer, pa.brep?.analysis ? { analysis: pa.brep.analysis } : {});
       for (let f = 0; f < rowCount(db, 'face'); f++) {
         if (trusted(ob.face(f), 1e-6)) R.trusted.before++;
         if (trusted(oa.face(f), 1e-6)) R.trusted.after++;

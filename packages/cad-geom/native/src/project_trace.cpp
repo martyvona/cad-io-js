@@ -711,6 +711,19 @@ void trace(const Job& job, Pcurve& out) {
   std::sort(out.tAmbiguous.begin(), out.tAmbiguous.end());
   out.tAmbiguous.erase(std::unique(out.tAmbiguous.begin(), out.tAmbiguous.end()), out.tAmbiguous.end());
 
+  // A caller wanting a p-curve within tol or none: none where the feet are farther than 2 tol. (Not tol: the traced
+  // feet can stand a little farther from the curve than its nearest points, and a p-curve fitted between them can
+  // still be within tol: 3 of LMP1's 79,670 tight projections were, the feet up to 2 tol off.)
+  if (job.withinTolOnly) {
+    for (const Segment& sg : segs)
+      for (const Node& n : sg.nodes)
+        out.offSurface = std::max(out.offSurface, norm(pointOf(job.s, n.uv) - curveAt(job.c, n.t)));
+    if (out.offSurface > 2 * job.tol) {
+      out.status = Status::invalidModel;
+      out.pieces.clear();
+      return;
+    }
+  }
   // Each segment a line where the feet are affine in t, else fitted.
   bool anyFit = false;
   out.status = Status::ok;

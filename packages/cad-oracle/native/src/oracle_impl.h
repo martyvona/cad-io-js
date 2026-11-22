@@ -30,6 +30,8 @@ struct Oracle::Impl {
   int32_t h = -1;
   /** Faces that are items in no shell (loose), by row. */
   std::vector<bool> loose;
+  /** Per coedge, its p-curve's deviation where healing made it (the analysis's), else NaN (measured when asked). */
+  std::vector<double> healedDeviation;
 
   /** The curve at a row, made once; null where it can't be (status in curveStatus). */
   const Curve* curve(int row);
@@ -39,6 +41,11 @@ struct Oracle::Impl {
   Estimate edgeLength(int edge);
   /** The face's perimeter: its edge loops' coedges' edges' lengths summed. */
   Estimate perimeter(int face);
+  /** FaceMeasure::boundary of a face whose loops come from the face API's (swept and free-form faces). */
+  double boundary(int face);
+  /** A given p-curve's deviation from its edge's curve, by its own parameter along the use (oracle.h's
+   * FaceMeasure::boundary); NaN where it can't be had. */
+  double pcurveDeviation(int face, int coedge);
 
   FaceMeasure closedForm(int face);
   FaceMeasure swept(int face);

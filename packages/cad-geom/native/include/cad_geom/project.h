@@ -198,10 +198,13 @@ struct Pcurve {
  * part's uncertainty or the edge's tolerance). `ends`, where given, are (u, v) the result must start or end at (a
  * period's difference is taken up by the unwrapping; a pole's free parameter is the end's); `source`, where given,
  * lets the exact table read the rows c and s were made from. Periods are unwrapped continuously, so a p-curve
- * crossing a seam leaves the domain by up to a period (geom2d's Periods take that).
+ * crossing a seam leaves the domain by up to a period (geom2d's Periods take that). `withinTolOnly`: the caller
+ * wants a p-curve within tol or none (it will try another tolerance): where the trace's feet are farther than 2 tol
+ * from the curve, invalidModel at once, offSurface as measured that far and no pieces (no p-curve can be within tol
+ * there, and fitting one is most of a failed projection's cost); every other result as without it.
  */
 Pcurve projectCurve(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends = nullptr,
-  const PcurveSource* source = nullptr);
+  const PcurveSource* source = nullptr, bool withinTolOnly = false);
 
 /**
  * For a p-curve on a seam: whether a use of it takes `seamTwin` (the higher copy) rather than `pieces`. The face's

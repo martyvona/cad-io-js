@@ -68,6 +68,18 @@ public:
   }
 
   /**
+   * The segment o + s ud (ud a unit vector), s in [sLo, sHi], against the surface over ru x rv in closed form, where
+   * the kind has one for this segment: true with `out` the whole answer as intersectLine gives it, in lengths s along
+   * ud (a plane always; a cylinder or cone where the segment runs along a generator's direction, lying in the surface
+   * or clear of it all along). False where it hasn't (intersectLine then searches).
+   */
+  virtual bool lineClosedForm(Vec3 o, Vec3 ud, double sLo, double sHi, Range ru, Range rv, double tol,
+    LineIntersection& out) const {
+    (void)o, (void)ud, (void)sLo, (void)sHi, (void)ru, (void)rv, (void)tol, (void)out;
+    return false;
+  }
+
+  /**
    * Where p's feet form a curve in closed form (on an axis of revolution: a circle along u; at a torus's tube centre:
    * the tube's circle along v), its direction: 'u' or 'v'; else 0 (no curve, or none known).
    */

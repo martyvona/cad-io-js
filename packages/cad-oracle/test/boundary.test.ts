@@ -1,0 +1,147 @@
+// FaceMeasure.boundary and trusted(): every use's p-curve (given, healed or projected) counted, its deviation times its
+// edge's length, against the area; projectedBoundary said but not refused.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { openAnalysis } from 'cad-brep';
+import { healPart } from 'cad-heal';
+import { init as initGeom } from 'cad-geom';
+import { init, Oracle, trusted } from '../src/index.ts';
+import { bsplineCylinder, line2 } from '../../cad-heal/test/models.ts';
+
+const module = await init(), geom = await initGeom();
+// A B-spline cylinder of radius 2 and height 5 (area 20 pi): its seam's p-curves given (u = 1 and u = 0), its circles
+// bare (projected by the face API).
+const FACE = 0, AREA = 20 * Math.PI;
+const measure = (d: { buffer: ArrayBuffer }, analysis?: ArrayBuffer) => {
+  using o = new Oracle(module, d.buffer, analysis ? { analysis } : {});
+  return o.face(FACE);
+};
+
+test('projected circles: flagged projectedBoundary, the bound the projections\' errors times the lengths, trusted '
+  + 'within it', () => {
+  const m = measure(bsplineCylinder(line2([1, 0], [0, 1])).finish());
+  assert.ok(Math.abs(m.area.value - AREA) < 1e-6 * AREA, `${m.area.value}`);
+  assert.deepEqual(m.flags, ['projectedBoundary']);
+  // Each circle within the edge's tolerance (1e-6, the part's) times its length 4 pi: at most about 2.5e-5.
+  assert.ok(m.boundary > 0 && m.boundary <= 2 * 1e-6 * 4 * Math.PI * 1.01, `${m.boundary}`);
+  assert.ok(m.area.error >= m.boundary && m.area.error - m.boundary < 1e-9, 'the bound in the error reported');
+  assert.equal(trusted(m, 1e-6), m.area.error <= 1e-6 * m.area.value);
+  assert.ok(trusted(m, 1e-6), 'within 1e-6 of 20 pi');
+  assert.ok(!trusted(m, 1e-9), 'not within 1e-9');
+});
+
+// The cylinder's point at (u, 0) near the seam (its last quarter, u in [0.75, 1]: poles (0, -2), (2, -2), (2, 0),
+// weights 1, 1/sqrt 2, 1): its distance from the seam's line x = 2, y = 0.
+const offSeam = (u: number) => {
+  const s = (u - 0.75) / 0.25, w = [1, Math.SQRT1_2, 1], B = [(1 - s) ** 2, 2 * s * (1 - s), s * s];
+  const P = [[0, -2], [2, -2], [2, 0]], W = B.reduce((a, x, i) => a + x * w[i]!, 0);
+  const [x, y] = [0, 1].map((k) => B.reduce((a, b, i) => a + b * w[i]! * P[i]![k]!, 0) / W);
+  return Math.hypot(x! - 2, y!);
+};
+
+test('a given p-curve off its curve: its distance from the curve measured, the face refused past the bound', () => {
+  // The seam's up use's p-curve moved across the seam to u = 1 - du: S(p(s)) offSeam(1 - du) from the seam's line (all
+  // along it, or at its middle), the bound that times its length 5 (the edges' tolerance 0.01 so the face API takes
+  // the use's ends at the vertices).
+  // Also in the p-curve's own parameter (v = 5 s on [0, 1]), measured against the curve's nearest points; and bent
+  // there, its ends on the seam and its middle at u (degree 1 through (1, 0), (u, 2.5), (1, 5)).
+  const at = (u: number, how: 'same' | 'scaled' | 'bent') => {
+    const b = bsplineCylinder(how === 'same' ? line2([u, 0], [0, 1]) : how === 'scaled' ? line2([u, 0], [0, 5])
+      : { kind: 'bspline', degree: 1, knots: [0, 0.5, 1], multiplicities: [2, 1, 2], poles: [[1, 0], [u, 2.5], [1, 5]],
+        closed: false, selfIntersect: false, form: 'unspecified' }, how === 'same' ? undefined : [0, 1]).finish();
+    b.edge.tolerance.fill(0.01);
+    return measure(b);
+  };
+  for (const how of ['same', 'scaled', 'bent'] as const) {
+    const right = at(1, how);
+    for (const du of [1e-5, 1e-4]) {
+      const off = at(1 - du, how), d = offSeam(1 - du);
+      assert.ok(Math.abs(off.boundary - right.boundary - d * 5) <= 0.02 * d * 5,
+        `${how}, du ${du}: ${off.boundary} - ${right.boundary} against ${d * 5}`);
+      assert.ok(!trusted(off, 1e-6), `${how}, du ${du}: refused`);
+    }
+  }
+});
+
+test('a given p-curve in its own parameter: measured against the curve, not at the edge\'s parameter', () => {
+  const right = measure(bsplineCylinder(line2([1, 0], [0, 1])).finish());
+  // The seam's p-curve shifted along the seam (v = s + dv): the same segment of the line, its ends found at the
+  // vertices, so nothing off.
+  for (const dv of [1e-4, 1e-3]) {
+    const along = measure(bsplineCylinder(line2([1, dv], [0, 1])).finish());
+    assert.ok(Math.abs(along.boundary - right.boundary) <= 1e-9, `dv ${dv}: ${along.boundary} ${right.boundary}`);
+    assert.ok(trusted(along, 1e-6), `dv ${dv}: trusted`);
+  }
+  // On [0, 1] under the seam's [0, 5] (v = 5 s, the use's range [0, 1]): at the edge's parameter t it would be v = 5 t,
+  // off the surface past t = 1; measured by its own parameter, on the seam.
+  const scaled = measure(bsplineCylinder(line2([1, 0], [0, 5]), [0, 1]).finish());
+  assert.ok(Math.abs(scaled.boundary - right.boundary) <= 1e-9, `${scaled.boundary} ${right.boundary}`);
+  assert.ok(trusted(scaled, 1e-6));
+  // The bottom circle's use given u = s, v = 0 on [0, 1] under the circle's [0, 2 pi]: the surface's u is rational, not
+  // the angle, so S(p(s)) differs from C(2 pi s) along the arc by up to about 0.1, but every point is on the circle.
+  const arc = measure(bsplineCylinder(line2([1, 0], [0, 1]), undefined, 2,
+    { pcurve: line2([0, 0], [1, 0]), range: [0, 1] }).finish());
+  assert.ok(Math.abs(arc.area.value - AREA) < 1e-6 * AREA, `${arc.area.value}`);
+  assert.ok(arc.boundary <= right.boundary + 1e-6, `${arc.boundary} ${right.boundary}`);
+  assert.ok(trusted(arc, 1e-6), `${arc.boundary}`);
+});
+
+test('a given p-curve short of its edge, or doubling back along it: refused', () => {
+  // The use's range [0, 4] of v = s under the seam's 5: its end 1 from the edge's, counted (or the face refused).
+  const short = measure(bsplineCylinder(line2([1, 0], [0, 1]), [0, 4]).finish());
+  assert.ok(!trusted(short, 1e-3), `${short.boundary} ${short.why}`);
+  // v = (5 - g) s on [0, 1] (the edges' tolerance 0.01, so the face API takes it): every point on the seam, its end g
+  // short of the edge's, which the bound counts.
+  const loose = (b: ReturnType<typeof bsplineCylinder>) => {
+    const d = b.finish();
+    d.edge.tolerance.fill(0.01);
+    return measure(d);
+  };
+  const g = 0.005, right = loose(bsplineCylinder(line2([1, 0], [0, 5]), [0, 1]));
+  const gm = loose(bsplineCylinder(line2([1, 0], [0, 5 - g]), [0, 1]));
+  assert.ok(Math.abs(gm.boundary - right.boundary - g * 5) <= 0.02 * g * 5, `${gm.boundary} ${right.boundary}`);
+  // v up to 4, back to 1, then up to 5, every point on the seam: the feet go back along the curve, so the curve the use
+  // follows isn't known (the area happens to be right; refused all the same).
+  const back = measure(bsplineCylinder({ kind: 'bspline', degree: 1, knots: [0, 1, 2, 3], multiplicities: [2, 1, 1, 2],
+    poles: [[1, 0], [1, 4], [1, 1], [1, 5]], closed: false, selfIntersect: false, form: 'unspecified' }, [0, 3])
+    .finish());
+  assert.ok(Number.isNaN(back.boundary) && !trusted(back, 1e-3), `${back.boundary}`);
+});
+
+test('healed p-curves: the analysis\'s deviations taken instead of measured; without it, measured', async () => {
+  const d = bsplineCylinder(line2([1, 0], [0, 1])).finish();
+  d.edge.tolerance.fill(0.01);
+  const h = await healPart(d, { fixes: { pcurveMissingOnFreeForm: true }, pcurveFitTolerance: 1e-4 }, geom);
+  const a = h.analysis!;
+  const with_ = measure(h.model, a.buffer), without = measure(h.model);
+  assert.deepEqual(with_.flags, [], 'p-curves stored: nothing projected');
+  // The healed circles' deviations recorded (within the fit, 1e-4) times their lengths: about the same either way.
+  assert.ok(Math.abs(with_.boundary - without.boundary) <= 2 * 1e-4 * 4 * Math.PI,
+    `${with_.boundary} ${without.boundary}`);
+  // The analysis's deviation planted large: taken as it is, so the face refused.
+  const planted = openAnalysis(new Uint8Array(a.buffer.slice(0)));
+  for (const c of [0, 2]) planted.coedge.deviation[c] = 0.5;
+  const big = measure(h.model, planted.buffer);
+  assert.ok(big.boundary >= 2 * 0.5 * 4 * Math.PI && !trusted(big, 1e-6), `${big.boundary}`);
+  // An analysis of other rows (none of its coedges') is ignored: measured.
+  assert.equal(measure(h.model, openAnalysis(new Uint8Array(a.buffer.slice(0))).buffer).boundary, with_.boundary);
+});
+
+test('closed forms: the boundary 0 (integrated along the edges\' curves)', async () => {
+  const { cylinderSide } = await import('../../cad-heal/test/models.ts');
+  const m = measure(cylinderSide({ bottom: {} }).finish());
+  assert.equal(m.boundary, 0);
+});
+
+test('trusted(): the boundary\'s error unknown (NaN) refuses the face, whatever the quadrature\'s; projectedBoundary '
+  + 'alone doesn\'t; other flags do', () => {
+  const m = (boundary: number, flags: string[] = []) => ({ area: { value: 1, error: 1e-12, status: 'ok' as const },
+    perimeter: { value: 4, error: 0, status: 'ok' as const }, method: 'freeForm' as const, flags: flags as never,
+    offSurface: NaN, boundary, why: '' });
+  assert.equal(trusted(m(0)), true);
+  assert.equal(trusted(m(NaN)), false);
+  assert.equal(trusted(m(0, ['projectedBoundary'])), true);
+  for (const f of ['orientation', 'sphereSide', 'loose', 'winds', 'noLoops', 'offSurface', 'cells']) {
+    assert.equal(trusted(m(0, [f, 'projectedBoundary'])), false, f);
+  }
+});
