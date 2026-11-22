@@ -8,8 +8,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD, VERSION }
-  from '../src/index.ts';
+import { CadioTessellator, EXPECTED_HEAD, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD,
+  VERSION } from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses } from '../src/causes.ts';
 import { ANALYSES, MODELS as TESS_MODELS, affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap,
   cuspPocket_, fold, halfCap, knotAtEnd,
@@ -568,3 +568,25 @@ test('init({countInsertions}): the points inserted by what queued them, said; th
     assert.ok(sp.get('deviation in closed form')! > 0);
     assert.equal(sp.get('deviation sampled'), 0), assert.equal(sp.get('deviation bounded'), 0);
   });
+
+test('init({countExpected}): each meshed face\'s triangles as its size metric expects them beside its mesh\'s, 3 '
+  + 'numbers a face; the same mesh; nothing without it', { skip }, async () => {
+  const run = async (countExpected: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ countExpected });
+    const r = await t.tessellate(req('spheres'));
+    const said = r.diagnostics.filter((x) => x.message.startsWith(EXPECTED_HEAD));
+    return { r, said };
+  };
+  const on = await run(true), off = await run(false);
+  assert.equal(off.said.length, 0);
+  assert.equal(on.said.length, 1);
+  const rows = JSON.parse(on.said[0]!.message.slice(EXPECTED_HEAD.length)) as number[];
+  assert.equal(rows.length, 3 * on.r.faces.length);
+  // (In the faces' order; the fixture's faces have no ids.)
+  for (let k = 0; k < rows.length; k += 3) {
+    assert.ok(rows[k + 1]! > 0);
+    assert.equal(rows[k + 2], on.r.faces[k / 3]!.count / 3);
+  }
+  assert.deepEqual([...on.r.indices], [...off.r.indices]);
+});

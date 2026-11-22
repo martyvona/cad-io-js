@@ -31,6 +31,13 @@ export const ROUNDS_HEAD = 'split rounds: ';
  * Singularity kind, x, y, z (the part's coordinates, not minus the origin).
  */
 export const POLES_HEAD = 'poles (face id, kind, x, y, z): ';
+/**
+ * With countExpected, an info diagnostic of this head then a JSON array of each meshed face's triangles as its own
+ * size metric expects them (part.h's FaceMesh::expectedTriangles: the integral of sqrt(det M) of the criteria's
+ * graded grid over its mesh in (u, v), over sqrt(3) / 4) beside its mesh's, 3 numbers each: face id, expected,
+ * meshed (its mesher's and its pole fans' triangles).
+ */
+export const EXPECTED_HEAD = 'expected triangles (face id, expected, meshed): ';
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -92,6 +99,7 @@ interface CadioExports {
   _tc_set_count_insertions: Fn;
   _tc_set_count_angles: Fn;
   _tc_set_list_poles: Fn;
+  _tc_set_count_expected: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
   _tc_set_analysis: Fn;
@@ -155,6 +163,8 @@ export interface CadioInitOptions {
   countRounds?: boolean;
   /** List every face's poles in an info diagnostic (POLES_HEAD); the same mesh; default false. */
   listPoles?: boolean;
+  /** Give each meshed face's expected triangles in an info diagnostic (EXPECTED_HEAD); the same mesh; default false. */
+  countExpected?: boolean;
   /**
    * Fail a face whose refinement reached its point cap (part.h's PartOptions::failCapped), and one with a triangle
    * turned against its surface (failTurnedOver); default true each. False keeps them as meshed, for measuring.
@@ -196,6 +206,7 @@ export class CadioTessellator implements Tessellator {
   private countAngles = false;
   private countRounds = false;
   private listPoles = false;
+  private countExpected = false;
   private failCapped = true;
   private failTurnedOver = true;
   private maxPoints = 0;
@@ -214,6 +225,7 @@ export class CadioTessellator implements Tessellator {
     this.countAngles = opts.countAngles ?? false;
     this.countRounds = opts.countRounds ?? false;
     this.listPoles = opts.listPoles ?? false;
+    this.countExpected = opts.countExpected ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
@@ -272,6 +284,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
     m._tc_set_count_angles(this.countAngles ? 1 : 0);
     m._tc_set_list_poles(this.listPoles ? 1 : 0);
+    m._tc_set_count_expected(this.countExpected ? 1 : 0);
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_max_points(this.maxPoints);
@@ -368,6 +381,9 @@ export class CadioTessellator implements Tessellator {
     }
     if (this.listPoles && Array.isArray(diag.poles)) {
       diagnostics.push({ severity: 'info', message: `${POLES_HEAD}${JSON.stringify(diag.poles)}` });
+    }
+    if (this.countExpected && Array.isArray(diag.expected)) {
+      diagnostics.push({ severity: 'info', message: `${EXPECTED_HEAD}${JSON.stringify(diag.expected)}` });
     }
     // (Faces whose refinement asked for a pole ring's segment to be split, which a ring's never is: their triangles
     // there refused for good. With the rounds it asked in.)

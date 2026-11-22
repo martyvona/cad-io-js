@@ -1355,6 +1355,32 @@ export function kinkAtEnd(w = 1e-6, bend = 2e-10): BrepBuilder {
 }
 
 /**
+ * A flat parallelogram as a bilinear B-spline, u along (10, 0, 0) and v along (5, 8.66, 0) (60 degrees apart, so its
+ * metric in (u, v) has a cross term), bounded by its four sides (lines, p-curves on the domain's sides).
+ */
+export function skewPatch(): BrepBuilder {
+  const b = new BrepBuilder();
+  const U = [10, 0, 0], V = [5, 10 * Math.sin(Math.PI / 3), 0];
+  const P = (u: number, v: number) => [u * U[0]! + v * V[0]!, u * U[1]! + v * V[1]!, 0];
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [0, 1].map((u) => [0, 1].map((v) => P(u, v))),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const vs = uv.map(([u, v]) => b.addVertex({ point: P(u!, v!) }));
+  const coedges = [0, 1, 2, 3].map((k) => {
+    const a = uv[k]!, c = uv[(k + 1) % 4]!, p = P(a[0]!, a[1]!), q = P(c[0]!, c[1]!);
+    const d = [q[0]! - p[0]!, q[1]! - p[1]!, 0], l = Math.hypot(d[0]!, d[1]!);
+    const line = b.addCurve({ kind: 'line', point: p, direction: d.map((x) => x / l), magnitude: 1 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, l] });
+    const pcurve = b.addCurve({ kind: 'line', point: a, direction: [(c[0]! - a[0]!) / l, (c[1]! - a[1]!) / l],
+      magnitude: 1 });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
  * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
  * along the arc at radius 5 + `off` (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
  * 0.01; the top the circle's arc at z = 10, the sides lines down to the bottom's ends. No p-curves. coarseProjection:
@@ -2184,7 +2210,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
   fineProjection, knotAtEnd, kinkAtEnd: () => kinkAtEnd(), kinkAtEndPlain: () => kinkAtEnd(0), cornerFold,
-  cornerFoldTightAgainst,
+  cornerFoldTightAgainst, skewPatch,
   roof: () => roof(), roofJunction: () => roof(0, 1, true),
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
