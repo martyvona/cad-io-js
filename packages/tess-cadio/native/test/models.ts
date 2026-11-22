@@ -1309,6 +1309,46 @@ export function knotAtEnd(): BrepBuilder {
   return b;
 }
 
+/** The plane z = 0 bounded by two circles (radius 1, about x = -2 and 2) as holes: clockwise, no outer loop. */
+export function planeHoleOnly(): BrepBuilder {
+  const b = new BrepBuilder();
+  const hole = (x: number) => {
+    const curve = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [x, 0, 0] }, radius: 1 });
+    const v = b.addVertex({ point: [x + 1, 0, 0] });
+    const edge = b.addEdge({ curve, start: v, end: v, sameSense: true, range: [0, 2 * Math.PI] });
+    return { kind: 'edge' as const, bound: 'unknown' as const, sense: true,
+      coedges: [{ edge, orientation: 'reversed' as const }] };
+  };
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [hole(-2), hole(2)] }));
+  return b;
+}
+
+/**
+ * The sphere of radius 5 about the origin (axis z) between the planes x = a and x = -c: a belt bounded by two circles
+ * about x, each a loop of one edge, holes in (u, v) that don't wind round its period (VW #2446's pocket walls). No
+ * p-curves. With `sense` false the face's normal inward and its coedges reversed (the same belt).
+ * sphereBelt: a = 3, c = 1 (the belt 2 pi 5 x 4, its caps' 2 pi 5 x 6); sphereBeltEven: c = 2, belt and caps both
+ * 2 pi 5 x 5, an area check blind to the difference.
+ */
+function sphereBelt(a: number, c: number, sense: boolean): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 5;
+  // (Each circle about x from its point on +y: the belt left of travel about the outward normal, reversed at x = a.)
+  const loop = (x: number, forward: boolean) => {
+    const r = Math.sqrt(R * R - x * x);
+    const curve = b.addCurve({ kind: 'circle', position: { origin: [x, 0, 0], axis: [1, 0, 0], xDir: [0, 1, 0] },
+      radius: r });
+    const v = b.addVertex({ point: [x, r, 0] });
+    const edge = b.addEdge({ curve, start: v, end: v, sameSense: true, range: [0, 2 * Math.PI] });
+    const orientation = forward === sense ? 'forward' as const : 'reversed' as const;
+    return { kind: 'edge' as const, bound: 'unknown' as const, sense: true, coedges: [{ edge, orientation }] };
+  };
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: R }), sameSense: sense,
+    loops: [loop(a, false), loop(-c, true)] }));
+  return b;
+}
+
 /**
  * A patch of the cylinder of radius 5 about z (u from 0 to 1, z from 0 to 10) whose bottom edge is a cubic B-spline
  * along the arc at radius 5 + `off` (the Bezier arc's poles), z wiggling by +/-0.5 at its inner poles, its tolerance
@@ -2135,7 +2175,10 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
-  fineProjection, knotAtEnd, cornerFold, roof: () => roof(), roofJunction: () => roof(0, 1, true),
+  fineProjection, knotAtEnd, cornerFold,
+  sphereBelt: () => sphereBelt(3, 1, true), sphereBeltInward: () => sphereBelt(3, 1, false),
+  sphereBeltEven: () => sphereBelt(3, 2, true), sphereBeltEvenInward: () => sphereBelt(3, 2, false),
+  planeHoleOnly, roof: () => roof(), roofJunction: () => roof(0, 1, true),
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
