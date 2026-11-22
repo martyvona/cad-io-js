@@ -57,8 +57,30 @@ struct Oracle::Impl {
   FaceMeasure freeForm(int face);
   /** faceIntegral (oracle.h), on the faces closedForm, swept and freeForm measure. */
   std::vector<Estimate> integral(int face, const Integrand& g);
+  /** The face's surface as the face API closes it in fact (at its tolerance), made once; null where it can't be. */
+  const Surface* faceSurface(int face);
+  /** rayFace (oracle.h). */
+  RayFace rayFace(int face, Vec3 o, Vec3 d, Range tr);
+  /** classify, shellSide, nesting (oracle.h). */
+  PointClass classify(int shell, Vec3 p);
+  ShellSide shellSide(int shell, int face, double eps);
+  std::vector<int> nesting(int body);
+  /** A shell's faces (its face uses' faces), and a box holding them (vertices, edges' curves, finite surfaces). */
+  std::vector<int> shellFaces(int shell) const;
+  bool shellBox(int shell, Vec3& lo, Vec3& hi);
+  /**
+   * A point well inside the face: of a grid over its loops' (u, v) box (its surface's domain where it has none), the
+   * one nearest the box's middle that the face API classifies in at 100 times the face's tolerance, else at 10 times;
+   * false where none is.
+   */
+  bool interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n);
+  /** interiorPoint's grid over a (u, v) box. */
+  bool gridPoint(int face, const Surface& surface, double ulo, double uhi, double vlo, double vhi, cadgeom::Vec2& uv,
+    Vec3& p, Vec3& n);
 
 private:
+  std::vector<std::unique_ptr<Surface>> faceSurfaces_;
+  std::vector<uint8_t> faceSurfaceMade_;
   std::vector<std::unique_ptr<Curve>> curves_;
   std::vector<uint8_t> made_;
   std::vector<Estimate> lengths_;

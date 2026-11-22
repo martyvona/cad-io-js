@@ -2573,16 +2573,15 @@ TEST_CASE("a loop of two one-chord edges (a lens whose chords coincide) gets a s
   CHECK(area < 0.06);
 }
 
-TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
-          "the rounds short of the cap") {
-  // (Meshing it again on the same edges would ask the same, every round to the cap.)
-  cadgeom::Model m = load("kinkStrip");
-  PartOptions o = options(0.5, 0.26);
-  o.maxDeviationFactor = 0;
+TEST_CASE("the rounds end once no split changes an edge: clampedCorner's face still asks a split EdgeMesh::split "
+          "drops, the rounds short of the cap") {
+  // (Its loop reversing in (u, v), the crossing segments' spans asked split within the floor. Meshing it again on the
+  // same edges would ask the same, every round to the cap.)
+  cadgeom::Model m = load("clampedCorner");
+  PartOptions o = options(0.1, 0.26);
   PartMesher pm(m, o);
   int wanting = 0;
-  for (int f = 0; f < m.faces(); f++)
-    wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
+  for (int f = 0; f < m.faces(); f++) wanting += pm.face(f).splitsWanted > 0;
   CHECK(wanting > 0);
   CHECK(pm.rounds() < o.maxSplitRounds);
 }
@@ -2911,4 +2910,96 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(std::fabs(area(fm) - want) <= 0.01);
   }
+}
+
+TEST_CASE("a B-spline's knot span narrower than the floor in 3D, sharply bent, doesn't set the curvature's sizes: "
+  "kinkAtEnd meshed about as its patch without the span, its area the patch's") {
+  struct Mesh {
+    size_t triangles;
+    double area;
+  };
+  auto mesh = [](const char* name) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.1, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    double area = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return Mesh{fm.triangles.size() / 3, area};
+  };
+  const Mesh kinked = mesh("kinkAtEnd"), plain = mesh("kinkAtEndPlain");
+  CHECK(kinked.triangles <= 2 * plain.triangles);
+  CHECK(std::fabs(kinked.area - plain.area) < 0.01 * plain.area);
+  if (!(kinked.triangles <= 2 * plain.triangles))
+    std::printf("  kinkAtEnd: %zu triangles (area %.4f), its plain patch %zu (%.4f)\n", kinked.triangles, kinked.area,
+      plain.triangles, plain.area);
+}
+
+TEST_CASE("a run of knot spans each narrower than the floor in 3D but not together keeps its curvature's sizes: "
+  "kinkStripRun's crease, four spans of 0.04 mm under a floor of 0.05, sized as curved") {
+  cadgeom::Model m = load("kinkStripRun");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, {{0, 1}, {0, 1}}, Deflections{0.5, 0.26}, st);
+  REQUIRE(c);
+  // (Across the crease, u: its slope turning by 0.1 over 0.16 mm, a size about 0.26 / 0.6 = 0.4 mm there, E / h^2
+  // about 600; flat away from it, the face's extent.)
+  const double across = c->metric({0.5, 0.5}).a, away = c->metric({0.1, 0.5}).a;
+  if (!(across > 50 * away)) std::printf("  kinkStripRun: metric across %.4g, away %.4g\n", across, away);
+  CHECK(across > 50 * away);
+}
+
+TEST_CASE("a face whose edge loops are all holes (none winding) is its surface's natural extent less them: "
+  "sphereBelt's belt between two circles meshed, not its caps; facing as its sense says; the even one too") {
+  struct Case {
+    const char* name;
+    double lo, hi;
+    bool outward;
+  };
+  for (Case c : {Case{"sphereBelt", -1, 3, true}, Case{"sphereBeltInward", -1, 3, false},
+         Case{"sphereBeltEven", -2, 3, true}, Case{"sphereBeltEvenInward", -2, 3, false}}) {
+    cadgeom::Model m = load(c.name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.05, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", c.name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.holesOnly);
+    double area = 0;
+    int outside = 0, against = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      const Vec3 g = cadgeom::cross(q - p, r - p), mid = (1.0 / 3) * (p + q + r);
+      area += 0.5 * cadgeom::norm(g);
+      outside += mid.x < c.lo - 0.05 || mid.x > c.hi + 0.05;
+      against += (cadgeom::dot(g, mid) > 0) != c.outward;
+    }
+    const double want = 2 * M_PI * 5 * (c.hi - c.lo);
+    if (outside || against || std::fabs(area - want) > 0.01 * want)
+      std::printf("  %s: area %.3f (the belt's %.3f), %d triangles outside it, %d against its sense\n", c.name, area,
+        want, outside, against);
+    CHECK_EQ(outside, 0);
+    CHECK_EQ(against, 0);
+    CHECK(std::fabs(area - want) <= 0.01 * want);
+  }
+}
+
+TEST_CASE("a face whose edge loops are all holes on a surface with no natural extent (a plane) fails, said so, "
+  "rather than meshing its holes; a face with an outer loop isn't holesOnly") {
+  cadgeom::Model m = load("planeHoleOnly");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.05, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status == cadgeom::Status::unsupported);
+  CHECK(fm.cause.find("edge loops all holes") != std::string::npos);
+  CHECK(fm.triangles.empty());
+  cadgeom::Model band = load("band");
+  REQUIRE(band.ok());
+  PartMesher pb(band, options(0.05, 0.26));
+  for (int f = 0; f < band.faces(); f++) CHECK(!pb.face(f).holesOnly);
 }

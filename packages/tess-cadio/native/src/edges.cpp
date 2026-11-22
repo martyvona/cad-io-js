@@ -409,6 +409,9 @@ struct EdgeMesh::Impl {
     // the periodic direction's cut (sphere-like: from pole to pole) and, periodic both ways, along the other's too;
     // the cuts' values; the poles at the low and high ends of the other direction (sphere-like).
     enum class Natural { none, sphere, torus, rect } natural = Natural::none;
+    // Its edge loops all holes (none winding, each against the face's sense in (u, v)): the natural extent is their
+    // outer loop (face()).
+    bool holesOnly = false;
     int natDir = 0, natPseudo[2] = {-1, -1}, natPole[2] = {-1, -1};
     double natAt[2] = {0, 0};
     // A B-spline's whole knot rectangle (Natural::rect), counterclockwise from (u0, v0): its sides bottom (v = v0),
@@ -1603,23 +1606,52 @@ struct EdgeMesh::Impl {
     return cs;
   }
 
+  /**
+   * The middle of the widest gap between the spans (each narrower than the period P), taken round the period from
+   * lo: where a cut crosses none of them. lo where there are none.
+   */
+  static double gapMiddle(const std::vector<Range>& spans, double P, double lo) {
+    std::vector<std::pair<double, double>> s;
+    for (const Range& r : spans) {
+      double a = lo + std::fmod(std::fmod(r.lo - lo, P) + P, P);
+      s.push_back({a, a + (r.hi - r.lo)});
+    }
+    if (s.empty()) return lo;
+    std::sort(s.begin(), s.end());
+    // (Merged runs: the gap from a run's end to the next run's start, the last's round to the first's.)
+    double best = -1, at = lo, end = s[0].second;
+    for (size_t i = 1; i <= s.size(); i++) {
+      const double next = i < s.size() ? s[i].first : s[0].first + P;
+      if (next > end) {
+        if (next - end > best) best = next - end, at = 0.5 * (end + next);
+        if (i < s.size()) end = s[i].second;
+      } else if (i < s.size()) {
+        end = std::max(end, s[i].second);
+      }
+    }
+    return lo + std::fmod(std::fmod(at - lo, P) + P, P);
+  }
+
   /** Face f's cut, if its loops wind: made once, its crossings inserted into their edges, its pseudo-edge sampled. */
   /**
    * A face with no edge loops (none, or vertex loops only) on a surface closed in fact: its natural extent, by cuts.
    * Periodic in one direction with poles at both ends of the other (a sphere, a closed B-spline collapsed at both
    * ends): one pseudo-edge from pole to pole along the cut. Periodic both ways with no singularity (a torus): one
    * closed pseudo-edge along each direction's cut, meeting at one corner. The cuts half a period from the faces'
-   * vertex loops' points (none on a cut). Otherwise nothing (face() says unsupported).
+   * vertex loops' points (none on a cut), or given `holes` (a face whose edge loops are all holes: their parameter
+   * spans, u's then v's), in the middle of the widest gap between them, so no cut crosses a hole. Otherwise nothing
+   * (face() says unsupported).
    */
-  void makeNatural(int f) {
+  void makeNatural(int f, const std::vector<Range>* holes = nullptr) {
     Face& F = faces[f];
     std::vector<Vec2> at;
-    for (int i = 0; i < m.faceLoopCount(f); i++) {
+    for (int i = 0; i < m.faceLoopCount(f) && !holes; i++) {
       int l = m.faceFirstLoop(f) + i;
       Vec3 p = m.vertexPoint(m.loopFirst(l));
       if (poleAt(f, p) < 0) at.push_back(invert(f, p, nullptr).uv);
     }
     auto cutAt = [&](int d) {
+      if (holes && F.period[d] > 0) return gapMiddle(holes[d], F.period[d], F.lo[d]);
       return at.empty() ? F.lo[d] : (d ? at[0].y : at[0].x) + 0.5 * F.period[d];
     };
     auto pseudo = [&](int free, double fixed, double t0, double t1, bool closed, Vec3 a, Vec3 b) {
@@ -1809,7 +1841,36 @@ struct EdgeMesh::Impl {
       for (const Chain& c : chains) any = any || c.winding[k] != 0;
       if (any) windDirs++, d = k;
     }
-    if (windDirs == 0) return;
+    if (windDirs == 0) {
+      // Two loops or more, every one a hole (clockwise about the face's normal in (u, v): counterclockwise as given
+      // where the face's sense is against its surface's), none winding: a face is connected, so they're holes and the
+      // face is its surface's natural extent less them, where it has one (a sphere's pocket wall between two caps,
+      // VW #2446's ten); else it can't be meshed as bounded. One such loop alone is either a hole (a sphere less a
+      // cap) or a loop against a face turned in the source, as a seam use's side can say (againstSense): meshed as
+      // the loop has it, the face's sense, healing's to settle.
+      bool holes = chains.size() >= 2;
+      std::vector<Range> spans[2];
+      for (const Chain& c : chains) {
+        double A = 0;
+        Range r[2] = {{kInf, -kInf}, {kInf, -kInf}};
+        for (size_t k = 0; k < c.pts.size(); k++) {
+          const Vec2 p = c.pts[k].uv, q = c.pts[(k + 1) % c.pts.size()].uv;
+          A += 0.5 * (p.x * q.y - q.x * p.y);
+          r[0] = {std::min(r[0].lo, p.x), std::max(r[0].hi, p.x)};
+          r[1] = {std::min(r[1].lo, p.y), std::max(r[1].hi, p.y)};
+        }
+        holes = holes && A * (m.faceSameSense(f) ? 1 : -1) < 0;
+        spans[0].push_back(r[0]), spans[1].push_back(r[1]);
+      }
+      if (!holes) return;
+      F.holesOnly = true;
+      makeNatural(f, spans);
+      if (F.natural == Face::Natural::none) {
+        F.status = Status::unsupported;
+        F.why = "its edge loops all holes, and its surface has no natural extent to bound them";
+      }
+      return;
+    }
     // A seam use no neighbour placed winds its loop wrongly: its own status (singular), not the cut's.
     for (const Chain& c : chains)
       if (c.status == Status::singular) {
@@ -2142,6 +2203,7 @@ struct EdgeMesh::Impl {
     }
     out.status = F.status;
     out.againstSense = F.againstSense;
+    out.holesOnly = F.holesOnly && F.natural != Face::Natural::none;
     because(F.why);
     if (F.status != Status::ok && F.cutDir < 0 && F.status != Status::singular) return out;
     std::vector<std::vector<BoundaryPoint>> loops;
@@ -2257,6 +2319,8 @@ struct EdgeMesh::Impl {
       for (int i = n - 2; i >= 1; i--) loop.push_back(pseudoPoint(i, atStart));
       loops.insert(loops.begin(), std::move(loop));
     }
+    // A face of holes only: its natural extent their outer loop (makeCut), first.
+    if (F.holesOnly && F.natural != Face::Natural::none) loops.insert(loops.begin(), naturalLoop(f));
     // Along a period, each loop's own unwrapping puts it anywhere a period apart: every loop but the widest (the cut's
     // joined one where there is one) shifted by whole periods to its middle within the widest's span (a hole in a
     // band is inside the band's period, not one beyond).
