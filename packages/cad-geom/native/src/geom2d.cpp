@@ -28,9 +28,10 @@
 // non-periodic direction to beyond the boundary, or one period along a periodic one. One meeting nothing decides
 // nothing (a band's loops run along a period, a polar cap's region is unbounded toward its pole), nor does one whose
 // first hit is tangent, overlapping, or at a corner (p on different sides of the pieces meeting there): another at a
-// different angle is cast; p is out only if none meets anything. In periodic directions the pieces are copied by
-// multiples of the periods to cover the ray. Loop pieces that don't meet are closed by a straight segment where the
-// jump lies along a pole line (Periods), or are a band closing around its period (a whole period apart, no segment).
+// different angle is cast; p is out only if none meets anything. A point beyond a pole line the boundary lies all on
+// one side of (a cone's other nappe) is out. In periodic directions the pieces are copied by multiples of the periods
+// to cover the ray. Loop pieces that don't meet are closed by a straight segment where the jump lies along a pole
+// line (Periods), or are a band closing around its period (a whole period apart, no segment).
 #include "cad_geom/geom2d.h"
 
 #include <algorithm>
@@ -904,6 +905,22 @@ Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<
       if (classifyBoundary(bd, q, periods, tol, s2) != Side::out) return Side::on;
     }
     return Side::out;
+  }
+  // Beyond a pole line its boundary lies all on one side of: out. (A cone's apex, inside its domain: past it in (u, v)
+  // is the other nappe, which a face bounded on one side never reaches, but a ray from there would meet the boundary
+  // as from inside a polar cap, its region unbounded toward the pole.) Not across a period.
+  if (!bd.boxes.empty()) {
+    Bbox all;
+    for (const Bbox& b : bd.boxes) all.add({b.x0, b.y0}), all.add({b.x1, b.y1});
+    auto beyond = [&](double x, double lo, double hi, double c) {
+      return (hi <= c + tol && x > c + tol) || (lo >= c - tol && x < c - tol);
+    };
+    if (!(periods.u > 0))
+      for (double c : periods.poleU)
+        if (beyond(p.x, all.x0, all.x1, c)) return Side::out;
+    if (!(periods.v > 0))
+      for (double c : periods.poleV)
+        if (beyond(p.y, all.y0, all.y1, c)) return Side::out;
   }
   Side s = classifyBoundary(bd, p, periods, tol, status);
   return s;

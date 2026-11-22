@@ -276,7 +276,8 @@ ShellSide Oracle::Impl::shellSide(int shell, int face, double eps) {
   // beyond meets the face alone, once, at x.
   // (eps's sign the side: negative, against the normal.)
   const double sign = eps < 0 ? -1 : 1;
-  for (double a = std::fabs(eps), tries = 0; tries < 5 && a >= 10 * tol; tries++, a *= 0.5) {
+  // (Not below 10 x the tolerance: an offset less than that is taken as that, its own test the clear one below.)
+  for (double a = std::fmax(std::fabs(eps), 10 * tol), tries = 0; tries < 5 && a >= 10 * tol; tries++, a *= 0.5) {
     const Vec3 q = x + (sign * a) * n, d = -(sign * (a + 2 * tol)) * n;
     bool clear = true;
     for (int f : faces) {

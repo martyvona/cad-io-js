@@ -295,7 +295,8 @@ export class Oracle {
 
   /**
    * Which side of closed shell row `shell` a point just outside face row `face` lies on, eps along its normal (its
-   * sense applied; negative: against it) from a point well inside it (oracle.h's shellSide).
+   * sense applied; negative: against it; at least 10 x the face's tolerance, less taken as that) from a point well
+   * inside it (oracle.h's shellSide).
    */
   shellSide(shell: number, face: number, eps: number): FaceSide {
     const x = this.x, o = x._malloc(21 * 8 + 8);

@@ -265,9 +265,9 @@ public:
   /** A point against a closed shell (row of the shell table), by parity (PointClass). */
   PointClass classify(int shell, Vec3 p);
   /**
-   * ShellSide for a closed shell's face (rows of the shell and face tables), eps the offset along its normal (where
-   * that offset meets another face, halved up to four times, not below 10 times the face's tolerance; negative,
-   * against the normal).
+   * ShellSide for a closed shell's face (rows of the shell and face tables), eps the offset along its normal (at least
+   * 10 times the face's tolerance, less taken as that; where that offset meets another face, halved up to four times,
+   * not below it; negative, against the normal).
    */
   ShellSide shellSide(int shell, int face, double eps);
   /**
