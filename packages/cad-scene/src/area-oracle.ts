@@ -356,14 +356,48 @@ export const ORACLE_RELATIVE = 1e-4;
  */
 export const ORACLE_DISAGREE = 0.01;
 
-/** A face's area and perimeter, in the model's units. */
-export type FaceArea = { area: number; perimeter: number };
+/** A face's area and perimeter, in the model's units; `error` the area's error estimate, where the oracle gives one. */
+export type FaceArea = { area: number; perimeter: number; error?: number };
 
 /**
- * The model's faces' areas by the area oracle (area-oracle.ts), by face id, where it trusts them (`trustedArea`): faces
- * on planes, cylinders, cones, spheres and tori, independent of any backend. Faces sharing an id are left out.
+ * Where judging and measures get faces' exact areas (oracleAreas): this file's oracle by default (planes and the four
+ * quadrics), or one set by `setAreaOracle`, as tess-workers' worker sets cad-oracle's (B-splines and swept faces too).
+ * `areas` gives the model's faces it trusts for judging, by face id, faces sharing an id left out; `name` says whose
+ * they are (in measures' `by`).
  */
-export function oracleAreas(model: BrepData): Map<number, FaceArea> {
+export interface AreaOracle {
+  readonly name: string;
+  /** `analysis` the model's analysis bytes where it was healed (an oracle may use its p-curves' deviations). */
+  areas(model: BrepData, analysis?: Uint8Array): Map<number, FaceArea>;
+}
+
+/** This file's oracle as an AreaOracle: trusted within ORACLE_RELATIVE at ORACLE_DENSITY. */
+export const TS_AREA_ORACLE: AreaOracle = { name: 'cad-scene', areas: tsOracleAreas };
+let current: AreaOracle = TS_AREA_ORACLE;
+
+/** Sets the area oracle this thread's oracleAreas and oracleMeasures use; none: back to TS_AREA_ORACLE. */
+export function setAreaOracle(o: AreaOracle | undefined): void {
+  current = o ?? TS_AREA_ORACLE;
+}
+
+/** The area oracle this thread uses. */
+export function areaOracle(): AreaOracle {
+  return current;
+}
+
+/**
+ * The model's faces' areas by this thread's area oracle (setAreaOracle; by default this file's, on planes, cylinders,
+ * cones, spheres and tori), by face id, where it trusts them, independent of any backend.
+ */
+export function oracleAreas(model: BrepData, analysis?: Uint8Array): Map<number, FaceArea> {
+  return current.areas(model, analysis);
+}
+
+/**
+ * This file's oracle's areas, by face id, where it trusts them (`trustedArea` within ORACLE_RELATIVE): faces on planes,
+ * cylinders, cones, spheres and tori. Faces sharing an id are left out.
+ */
+function tsOracleAreas(model: BrepData): Map<number, FaceArea> {
   const out = new Map<number, FaceArea>(), seen = new Set<number>();
   const opts = { curves: new Map<number, CurveEvaluator | undefined>(), params: new Map(), density: ORACLE_DENSITY };
   for (let row = 0; row < model.face.surface.length; row++) {
@@ -372,16 +406,17 @@ export function oracleAreas(model: BrepData): Map<number, FaceArea> {
     if (seen.has(id)) { out.delete(id); continue; }
     seen.add(id);
     const o = modelFaceArea(model, row, opts);
-    if (trustedArea(o, ORACLE_RELATIVE)) out.set(id, { area: o.area, perimeter: o.perimeter });
+    if (trustedArea(o, ORACLE_RELATIVE)) out.set(id, { area: o.area, perimeter: o.perimeter, error: o.error });
   }
   return out;
 }
 
 /**
  * oracleAreas as a result's `oracle` (a backend's adapter adds it to a result with measures): from the model or its
- * buffer's bytes.
+ * buffer's bytes, and the request's analysis where it has one.
  */
-export function oracleMeasures(model: BrepData | Uint8Array): NonNullable<TessellationResult['oracle']> {
-  return [...oracleAreas(model instanceof Uint8Array ? openBrep(model) : model)].map(([entityId, a]) =>
+export function oracleMeasures(model: BrepData | Uint8Array, analysis?: Uint8Array):
+  NonNullable<TessellationResult['oracle']> {
+  return [...oracleAreas(model instanceof Uint8Array ? openBrep(model) : model, analysis)].map(([entityId, a]) =>
     ({ entityId, ...a }));
 }

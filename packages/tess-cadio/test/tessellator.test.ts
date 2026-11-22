@@ -58,6 +58,16 @@ test('info: the workspace version and the module\'s hash, AGPL-3.0-only, cad-bre
   await assert.rejects(t.tessellate({ ...req('cube'), format: 'step' }), /isn't taken/);
 });
 
+test('measures: the area oracle\'s areas (this thread\'s oracleMeasures), none of its own; none unasked', { skip },
+  async () => {
+  const t = await tessellator();
+  const r = await t.tessellate({ ...req('cube'), measures: true });
+  assert.deepEqual(r.oracle, oracleMeasures(new Uint8Array(req('cube').data)));
+  assert.equal(r.oracle!.length, 6);
+  assert.equal(r.measures, undefined);
+  assert.equal((await t.tessellate(req('cube'))).oracle, undefined);
+});
+
 test('closed models: every face meshed to its area, no open edge, every edge shared at its dihedral', { skip },
   async () => {
   const t = await tessellator();

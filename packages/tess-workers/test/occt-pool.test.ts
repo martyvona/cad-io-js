@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { AREA_ORACLE_ID } from 'cad-oracle';
 import { tessellateScene } from 'cad-scene';
 import { StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
@@ -29,7 +30,8 @@ test('an assembly tessellated by OCCT in two workers, a fresh one per part, equa
     maxPartsPerWorker: 1 });
   await pool.init();
   try {
-    assert.deepEqual(pool.info, direct.info);
+    // (Its version names the workers' area oracle, cad-oracle's, whose areas its results with measures carry.)
+    assert.deepEqual(pool.info, { ...direct.info, version: `${direct.info.version}, area oracle ${AREA_ORACLE_ID}` });
     const done: number[] = [];
     const got = await tessellateScene(scene, new StepTessellator(pool), { ...opts, concurrency: 2,
       onPart: (i) => done.push(i) });

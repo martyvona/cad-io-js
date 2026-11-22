@@ -3,8 +3,21 @@
 // unless the worker's entry imported it already and passes it in `modules`: a bundler (the viewer's Vite build) can
 // only bundle modules imported statically.
 
-import { TessellationError, type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { setAreaOracle, TessellationError, type TessellationResult, type Tessellator, type TessellatorInfo }
+  from 'cad-scene';
+import { AREA_ORACLE_ID, areaOracle, init as initOracle } from 'cad-oracle';
 import type { WorkerPort } from './protocol.ts';
+
+/**
+ * cad-oracle as this thread's area oracle (cad-scene's setAreaOracle), so every backend's adapter gives its areas in
+ * results with measures: loaded on the first request asking for measures (about 1 MB of WebAssembly). Where it fails
+ * to load, cad-scene's own stays, said in the result.
+ */
+let oracle: Promise<string | undefined> | undefined;
+const oracleLoaded = () => oracle ??= initOracle().then((m) => {
+  setAreaOracle(areaOracle(m));
+  return undefined;
+}, (e: unknown) => `the area oracle (cad-oracle) failed to load, cad-scene's used: ${message(e)}`);
 
 /** A pool without a backend's info: it only runs jobs. */
 export const NO_BACKEND: TessellatorInfo = { name: 'none', version: '', license: '', formats: [],
@@ -68,7 +81,9 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
         if (typeof C !== 'function') throw new Error(`${msg.backend.module} has no export '${msg.backend.export}'`);
         tess = new C();
         await tess.init(msg.backend.options);
-        port.post({ type: 'ready', info: tess.info }, []);
+        // (Its results' areas are cad-oracle's, so a cache keyed on the version misses when those change.)
+        const info = { ...tess.info, version: `${tess.info.version}, area oracle ${AREA_ORACLE_ID}` };
+        port.post({ type: 'ready', info }, []);
       } catch (e) {
         port.post({ type: 'initError', message: message(e) }, []);
       }
@@ -93,8 +108,10 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
       const id = msg.id;
       const t0 = threadCpu?.();
       const cpu = () => (t0 === undefined ? {} : { cpuMs: threadCpu!() - t0 });
+      const failed = msg.req.measures ? await oracleLoaded() : undefined;
       const result = await tess.tessellate(msg.req, (progress) => port.post({ type: 'progress', id, progress,
         ...cpu() }, []));
+      if (failed) result.diagnostics.push({ severity: 'warning', message: failed });
       const memory = tess.memoryBytes?.();
       port.post({ type: 'result', id: msg.id, result, ...(memory === undefined ? {} : { memory }), ...cpu() },
         buffers(result));
