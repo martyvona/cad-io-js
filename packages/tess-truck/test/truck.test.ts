@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { decode, openBrep, rowCount, SURFACE_KIND } from 'cad-brep';
+import { AREA_ORACLE_ID } from 'cad-oracle';
 import type { TessellationRequest, TessellationResult } from 'cad-scene';
 import { importStep } from 'step-import';
 import { TruckTessellator, WBINDGEN_IMPORTS } from '../src/index.ts';
@@ -588,7 +589,8 @@ test('in the worker pool, results equal the direct ones', { skip }, async () => 
     { backend: { module: import.meta.resolve('tess-truck'), export: 'TruckTessellator' }, workers: 2 });
   await pool.init();
   try {
-    assert.deepEqual(pool.info, direct.info);
+    // (Its version names the workers' area oracle.)
+    assert.deepEqual(pool.info, { ...direct.info, version: `${direct.info.version}, area oracle ${AREA_ORACLE_ID}` });
     const reqs = await requests(fs.existsSync(asm) ? asm : cube);
     const got = await Promise.all(reqs.map((r) => pool.tessellate(r)));
     for (const [i, r] of reqs.entries()) assert.deepEqual(got[i], await direct.tessellate(r));
@@ -622,7 +624,7 @@ test("a host's module: bytes or a URL with a version, or compiled with one; in t
     options: { wasm: module, version: 'host truck r3' } }, workers: 1 });
   await pool.init();
   try {
-    assert.equal(pool.info.version, 'host truck r3, adapter 1');
+    assert.equal(pool.info.version, `host truck r3, adapter 1, area oracle ${AREA_ORACLE_ID}`);
     assert.deepEqual(await pool.tessellate(req!), expected);
   } finally {
     pool.dispose();

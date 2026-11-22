@@ -75,7 +75,10 @@ export function details(model: NodeModel, ids: readonly number[], causes?: Reado
         'partly'] as const).flatMap((k) => (kinds.get(k) ? [`${num(kinds.get(k)!)} ${said[k]}`] : [])).join(', ') +
         ' (outlined in red)');
     }
-    if (report?.area !== undefined) out.push(`Area on the exact geometry: ${mm(report.area)} mm^2`);
+    // (The oracle's with its error estimate where it measured the face, else the backend's.)
+    if (report?.oracle) out.push(`Area on the exact geometry: ${mm(report.oracle.area)} mm^2 +/- `
+      + `${report.oracle.error.toPrecision(2)} mm^2`);
+    else if (report?.area !== undefined) out.push(`Area on the exact geometry: ${mm(report.area)} mm^2`);
     // Its appearance: its own override, or inherited from a node above (model.ts).
     const own = model.ownOverride(n.id), look = model.look(n.id);
     if (look.hidden) out.push(own?.hidden ? 'Hidden' : 'Hidden (by a node above)');

@@ -41,8 +41,13 @@ struct Oracle::Impl {
   Estimate edgeLength(int edge);
   /** The face's perimeter: its edge loops' coedges' edges' lengths summed. */
   Estimate perimeter(int face);
-  /** FaceMeasure::boundary of a face whose loops come from the face API's (swept and free-form faces). */
-  double boundary(int face);
+  /**
+   * FaceMeasure::boundary of a face: its uses' p-curves' deviations (the face API's loops: swept and free-form
+   * faces) and its edges' vertex gaps; with `closedForm`, the gaps alone (integrated along the 3D curves).
+   */
+  double boundary(int face, bool closedForm = false);
+  /** The larger distance of an edge's vertices from its curve's ends (its edgeParams' points); NaN where unknown. */
+  double vertexGap(int edge);
   /** A given p-curve's deviation from its edge's curve, by its own parameter along the use (oracle.h's
    * FaceMeasure::boundary); NaN where it can't be had. */
   double pcurveDeviation(int face, int coedge);

@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cube } from '../../cad-brep/test/models.ts';
 import { quads, withPoint } from './meshes.ts';
-import { FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures, tessellateScene, type Scene,
-  type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
+import { areaOracle, FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures, setAreaOracle,
+  tessellateScene, TS_AREA_ORACLE, type Scene, type TessellationRequest, type TessellationResult, type Tessellator }
+  from '../src/index.ts';
 
 /** The whole-part rules alone (the per-face fallback off). */
 const whole = { perFace: false };
@@ -69,7 +70,21 @@ test('judge: a sound result passes; each problem is counted, ranked and said', (
   assert.ok(judgeResult(measured(0.5, false), model, 0.01, none).ok);
   // The oracle's areas (the cube's planes: 1 each) where it has them, over the measures: those wrong measures then
   // don't count, ...
-  assert.deepEqual(oracleAreas(model), new Map(FACES.map((id) => [id, { area: 1, perimeter: 4 }])));
+  assert.deepEqual(oracleAreas(model), new Map(FACES.map((id) => [id, { area: 1, perimeter: 4, error: 0 }])));
+  // Another area oracle set on this thread is what oracleAreas and oracleMeasures use (given the analysis), until
+  // reset.
+  const seen: (Uint8Array | undefined)[] = [];
+  setAreaOracle({ name: 'other', areas: (_m, a) => (seen.push(a),
+    new Map([[21, { area: 2, perimeter: 5, error: 0.1 }]])) });
+  try {
+    assert.equal(areaOracle().name, 'other');
+    assert.deepEqual(oracleMeasures(model, new Uint8Array([7])), [{ entityId: 21, area: 2, perimeter: 5, error: 0.1 }]);
+    assert.deepEqual(seen, [new Uint8Array([7])]);
+  } finally {
+    setAreaOracle(undefined);
+  }
+  assert.equal(areaOracle(), TS_AREA_ORACLE);
+  assert.equal(oracleAreas(model).size, FACES.length);
   assert.ok(judgeResult(measured(2), model, 0.01).ok);
   // ... and a face meshed wrongly and measured as wrongly is told: face 24's first corner pulled out along the
   // diagonal to twice its distance from the opposite one makes its mesh's area 2, which its measure says too.

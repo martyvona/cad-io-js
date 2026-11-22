@@ -200,6 +200,11 @@ export interface FaceMeasures {
    * is meshed once in each, under its one id, so its triangles are judged against `area` times this.
    */
   uses?: number;
+  /**
+   * The area oracle's area and its error estimate (mm^2), where it trusts the face (TessellationResult's `oracle`):
+   * what a user is shown beside `area`, which is the oracle's too where the backend's was off or unsound.
+   */
+  oracle?: { area: number; error: number };
 }
 
 /** The formats a part's exact geometry can come from, grown as importers are added. */
