@@ -121,6 +121,22 @@ struct PartOptions {
    * alone, but deterministic.
    */
   bool keepSteiner = true;
+  /**
+   * A triangle turned against its corners' normals as shipped (failTurnedOver's test) flipped with its neighbour
+   * across an edge that isn't the boundary's, a constraint's or a ring's, where both new triangles keep their
+   * orientation in (u, v), pass the criteria and face as shipped (FaceMesh::turnedFlips): a sliver within the
+   * refinement floor at a boundary point off its surface turns there, which refinement neither judges nor splits.
+   */
+  bool flipTurned = true;
+  /**
+   * After every face is meshed, a triangle still turned as shipped (failTurnedOver's test) that no flip mended, its
+   * apex C one of the mesher's own points and its longest edge AB a boundary span where a split at the edge's point
+   * nearest C's projection would leave AP or PB under the refinement floor: C collapsed onto the nearer end of AB,
+   * its triangles taking that point (FaceMesh::collapsed). Every triangle at that point rechecked for facing as
+   * shipped and for its deviation (maxDeviationFactor x max(d, the face's tolerance)), the collapse undone where any
+   * fails. Faces at their point cap that failCapped fails aren't tried.
+   */
+  bool collapseTurned = true;
 };
 
 /** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */
@@ -175,6 +191,10 @@ struct FaceMesh {
   double thinArea = 0;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
+  /** Its triangles turned as shipped flipped with a neighbour (PartOptions::flipTurned). */
+  int turnedFlips = 0;
+  /** Its triangles turned as shipped mended by PartOptions::collapseTurned. */
+  int collapsed = 0;
   /**
    * The meshings (the first and each split round's) in which refinement asked for a pole ring's segment to be split,
    * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.

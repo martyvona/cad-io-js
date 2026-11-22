@@ -24,6 +24,13 @@ const CASES: Case[] = [
   // A refused sliver at a boundary (u near 0) whose quadrilaterals across its interior edges are both non-convex in
   // (u, v), so no flip mends it: the apex snapped onto its long edge.
   { file: 'models/onshape/LMP1.step', part: 172440, faces: [1041915], why: 'a sliver no flip mends' },
+  // Slivers turned as shipped that refinement neither judges nor splits (within the floor), mended after meshing
+  // (part.h's flipTurned, collapseTurned): flipped across an interior edge (LMP1 #173233's above); their apex
+  // collapsed onto the nearer end of their long edge, a boundary span a split of which would fall under the floor.
+  { file: 'third_party/gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp', part: 10, faces: [6770],
+    why: 'a turned sliver\'s apex collapsed' },
+  { file: 'models/onshape/LMP1.step', part: 172440, faces: [1041915], why: 'a turned sliver\'s apex collapsed' },
+  { file: 'models/onshape/LMP1.step', part: 172482, faces: [1046237, 1046289], why: 'a flip and a collapse' },
   // The same face meshed only if no more is judged on those points than the output's own turn: the angle on them
   // (a thin triangle's tilt, steeper as refinement thins it) took it to the point cap, the turn against any one
   // corner's normal left one turned.

@@ -2983,3 +2983,43 @@ TEST_CASE("a run of knot spans each narrower than the floor in 3D but not togeth
   if (!(across > 50 * away)) std::printf("  kinkStripRun: metric across %.4g, away %.4g\n", across, away);
   CHECK(across > 50 * away);
 }
+
+TEST_CASE("flipTurned (the default): a triangle turned as shipped flipped with its neighbour across an interior edge, "
+  "both new ones within the criteria and facing the surface: cornerFoldTight at 1 meshed, failing without it") {
+  // (Its corner's point 0.0085 off its (u, v), past the face's tolerance: the fold not repaired, the ear there
+  // turned in 3D though accepted in (u, v); a flip across its interior edge leaves two triangles facing the plane.)
+  for (const char* name : {"cornerFoldTight", "cornerFoldTightAgainst"}) {
+    const bool against = name[15] == 'A';
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions on = options(1, 0.26), off = on;
+    off.flipTurned = false;
+    PartMesher a(m, on), b(m, off);
+    const FaceMesh& fm = a.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.turnedFlips >= 1);
+    int facing = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      facing += (cadgeom::cross(q - p, r - p).z <= 0) != against;
+    }
+    CHECK_EQ(facing, 0);
+    // Its boundary's segments all still in the mesh: none flipped away.
+    const FaceBoundary fb = a.edges().face(0);
+    std::set<std::pair<Vec3, Vec3>, bool (*)(const std::pair<Vec3, Vec3>&, const std::pair<Vec3, Vec3>&)> edges(
+      [](const std::pair<Vec3, Vec3>& x, const std::pair<Vec3, Vec3>& y) {
+        return std::tie(x.first.x, x.first.y, x.first.z, x.second.x, x.second.y, x.second.z) <
+          std::tie(y.first.x, y.first.y, y.first.z, y.second.x, y.second.y, y.second.z);
+      });
+    auto both = [&](Vec3 p, Vec3 q) { edges.insert({p, q}), edges.insert({q, p}); };
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      for (int k = 0; k < 3; k++) both(fm.points[fm.triangles[t + k]], fm.points[fm.triangles[t + (k + 1) % 3]]);
+    int missing = 0;
+    for (const auto& loop : fb.loops)
+      for (size_t k = 0; k < loop.size(); k++)
+        missing += !edges.count({loop[k].point, loop[(k + 1) % loop.size()].point});
+    CHECK_EQ(missing, 0);
+    CHECK(b.face(0).status == cadgeom::Status::noConvergence);
+    CHECK_EQ(b.face(0).turnedFlips, 0);
+  }
+}

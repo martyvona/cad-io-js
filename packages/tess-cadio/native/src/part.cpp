@@ -19,6 +19,7 @@
 #include "cad_geom/creases.h"
 #include "cad_geom/surface.h"
 #include "mesh2d_impl.h"
+#include "flip.h"
 #include "poles.h"
 
 namespace tesscadio {
@@ -170,6 +171,19 @@ struct PartMesher::Impl {
     int32_t v[3];
   };
   std::vector<std::vector<Refused>> refused;
+  /**
+   * Per face, what the collapse (collapseTurned) needs of its mesh: each of its mesher's points' (u, v); each point's
+   * edge and sample, {-2, -1} for a boundary point not an edge's sample (a vertex loop's point inside the face),
+   * {-1, -1} the mesher's own; and the segments a collapse mustn't move (the boundary's, the constraints', the
+   * rings'), as output indices (low first). Usable where the face meshed without crease copies.
+   */
+  struct CollapseInfo {
+    std::vector<Vec2> uv;
+    std::vector<std::pair<int32_t, int32_t>> sample;
+    std::set<std::pair<int32_t, int32_t>> fixed;
+    bool usable = false;
+  };
+  std::vector<CollapseInfo> collapseInfo;
   /**
    * Per face, its last mesh as PartOptions::keepSteiner reuses it: its domain's points and segments in (u, v), the
    * mesher's points past them (empty where that meshing failed), and how many times the face has been meshed.
@@ -812,6 +826,250 @@ struct PartMesher::Impl {
     return again;
   }
 
+  /**
+   * PartOptions::flipTurned over the face's mesh in (u, v) (flip.h), its points' 3D positions and normals given (as
+   * the output has them, before crease copies): turned as checkFacing judges it (as shipped where the output's origin
+   * is known), a corner within the face's tolerance of a pole or apex aside; accepted by the face's criteria; fixed
+   * the boundary's, the constraints' (a crease's among them) and the rings' segments; barred a triangle with a point
+   * on a crease or two corners at one point (a pole line). Returns the flips made.
+   */
+  int flipTurnedFace(int f, Mesh2& mesh, const std::vector<Vec3>& P, const std::vector<Vec3>& N,
+    const std::vector<std::pair<int32_t, int32_t>>& segs, const std::set<std::pair<int32_t, int32_t>>& ringSegments,
+    const std::map<int32_t, std::vector<std::pair<bool, double>>>& onCrease, bool forward) {
+    if (!criteria[f] || !surfaces[f]) return 0;
+    const double* O = o.outputOrigin;
+    const bool shipped = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    auto asFloat = [](Vec3 p) {
+      return Vec3{static_cast<double>(static_cast<float>(p.x)), static_cast<double>(static_cast<float>(p.y)),
+        static_cast<double>(static_cast<float>(p.z))};
+    };
+    std::vector<Singularity> sing;
+    surfaces[f]->singularities(sing);
+    const double near = cadgeom::Tolerances(m).face(f);
+    auto atSingular = [&](int32_t v) {
+      for (const Singularity& g : sing)
+        if (g.kind != Singularity::normalVanishes && norm(P[v] - g.point) <= near) return true;
+      return false;
+    };
+    // (Counterclockwise in (u, v) is output as (a, b, c) where the face's sense is the surface's, else (a, c, b).)
+    auto turned = [&](int32_t a, int32_t b, int32_t c) {
+      if (atSingular(a) || atSingular(b) || atSingular(c)) return false;
+      if (!forward) std::swap(b, c);
+      if (shipped) {
+        Vec3 q[3], n{0, 0, 0};
+        const int32_t v[3] = {a, b, c};
+        for (int k = 0; k < 3; k++)
+          q[k] = asFloat(Vec3{P[v[k]].x - O[0], P[v[k]].y - O[1], P[v[k]].z - O[2]}), n = n + asFloat(N[v[k]]);
+        return facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
+      }
+      return facetAgainst(cross(P[b] - P[a], P[c] - P[a]), N[a] + N[b] + N[c]);
+    };
+    auto accepted = [&](int32_t a, int32_t b, int32_t c) {
+      const Vec2 uv[3] = {mesh.points[a], mesh.points[b], mesh.points[c]};
+      return criteria[f]->accept(uv);
+    };
+    auto samePoint = [&](int32_t a, int32_t b) { return P[a].x == P[b].x && P[a].y == P[b].y && P[a].z == P[b].z; };
+    auto barred = [&](int32_t a, int32_t b, int32_t c) {
+      return onCrease.count(a) || onCrease.count(b) || onCrease.count(c) || samePoint(a, b) || samePoint(b, c) ||
+        samePoint(c, a);
+    };
+    std::set<std::pair<int32_t, int32_t>> fixed(ringSegments.begin(), ringSegments.end());
+    for (auto [a, b] : segs) fixed.insert({std::min(a, b), std::max(a, b)});
+    return flipTurned(mesh.points, mesh.triangles, mesh.rejected, fixed, turned, accepted, barred);
+  }
+
+  /** Whether the output triangle (a, b, c) of face f is turned as checkFacing judges it (a pole's corner aside). */
+  bool turnedAsShipped(int f, int32_t a, int32_t b, int32_t c, const std::vector<Singularity>& sing,
+    double near) const {
+    const FaceMesh& fm = faces[f];
+    const int32_t v[3] = {a, b, c};
+    for (int32_t x : v)
+      for (const Singularity& g : sing)
+        if (g.kind != Singularity::normalVanishes && norm(fm.points[x] - g.point) <= near) return false;
+    const double* O = o.outputOrigin;
+    if (std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2])) {
+      auto asFloat = [](Vec3 p) {
+        return Vec3{static_cast<double>(static_cast<float>(p.x)), static_cast<double>(static_cast<float>(p.y)),
+          static_cast<double>(static_cast<float>(p.z))};
+      };
+      Vec3 q[3], n{0, 0, 0};
+      for (int k = 0; k < 3; k++)
+        q[k] = asFloat(Vec3{fm.points[v[k]].x - O[0], fm.points[v[k]].y - O[1], fm.points[v[k]].z - O[2]}),
+        n = n + asFloat(fm.normals[v[k]]);
+      return facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
+    }
+    return facetAgainst(cross(fm.points[b] - fm.points[a], fm.points[c] - fm.points[a]),
+      fm.normals[a] + fm.normals[b] + fm.normals[c]);
+  }
+
+  /**
+   * Whether the flat triangle p (its corners' (u, v) uv) of face f is within maxDeviationFactor x max(d, the face's
+   * tolerance) of its surface at its barycentric lattice of order 4: each point's surface point at its lattice (u, v)
+   * first (an upper bound on its distance), inverted only where that isn't within. True where the factor is 0.
+   */
+  bool deviationWithin(int f, const Vec3 p[3], const Vec2 uv[3]) const {
+    if (!(o.maxDeviationFactor > 0)) return true;
+    const Surface& s = *surfaces[f];
+    const SurfaceDomain D = s.domain();
+    const double limit = o.maxDeviationFactor * std::fmax(o.d.linear, cadgeom::Tolerances(m).face(f));
+    for (int i = 0; i <= 4; i++)
+      for (int j = 0; i + j <= 4; j++) {
+        const double wa = i / 4.0, wb = j / 4.0, wc = (4 - i - j) / 4.0;
+        const Vec3 x = wa * p[0] + wb * p[1] + wc * p[2];
+        Vec2 q = wa * uv[0] + wb * uv[1] + wc * uv[2];
+        SurfacePoint sp;
+        if (s.eval(q.x, q.y, 0, sp) == Status::ok && norm(x - sp.p) <= limit) continue;
+        const SurfaceInversion inv = invertSurface(s, x, D.u, D.v, o.d.linear, &q, nullptr, true);
+        if (inv.status != Status::ok || inv.distance > limit) return false;
+      }
+    return true;
+  }
+
+  /** Face f's triangle t removed: the last mesher triangle moved into its place, the fans after it shifted down. */
+  void eraseTriangle(int f, size_t t) {
+    FaceMesh& fm = faces[f];
+    const size_t last = mesherTriangles[f] - 1;
+    std::vector<int32_t> rej;
+    std::vector<Refused> ref;
+    const bool haveRef = refused[f].size() == fm.rejected.size();
+    for (size_t k = 0; k < fm.rejected.size(); k++) {
+      size_t r = static_cast<size_t>(fm.rejected[k]);
+      if (r == t) continue;
+      if (r == last) r = t;
+      else if (r > last) r--;
+      rej.push_back(static_cast<int32_t>(r));
+      if (haveRef) ref.push_back(refused[f][k]);
+    }
+    std::copy(fm.triangles.begin() + 3 * last, fm.triangles.begin() + 3 * last + 3, fm.triangles.begin() + 3 * t);
+    fm.triangles.erase(fm.triangles.begin() + 3 * last, fm.triangles.begin() + 3 * last + 3);
+    fm.rejected = std::move(rej);
+    if (haveRef) refused[f] = std::move(ref);
+    mesherTriangles[f]--;
+  }
+
+  /** The output triangles of face f with vertex v (among its mesher's and the fans'). */
+  std::vector<size_t> trianglesAt(int f, int32_t v) const {
+    std::vector<size_t> out;
+    const FaceMesh& fm = faces[f];
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      if (fm.triangles[t] == v || fm.triangles[t + 1] == v || fm.triangles[t + 2] == v) out.push_back(t / 3);
+    return out;
+  }
+
+  /** The (u, v) of output point v of face f where collapseInfo has it (a fan's pole doesn't: false). */
+  bool uvOfPoint(int f, int32_t v, Vec2& out) const {
+    const CollapseInfo& si = collapseInfo[f];
+    if (v < 0 || static_cast<size_t>(v) >= si.uv.size()) return false;
+    out = si.uv[v];
+    return true;
+  }
+
+  /** Whether face f's triangles at vertex v and those listed all face their surface and lie within the deviation. */
+  bool collapseHolds(int f, const std::vector<size_t>& tris, const std::vector<Singularity>& sing, double near) const {
+    const FaceMesh& fm = faces[f];
+    for (size_t t : tris) {
+      const int32_t* v = &fm.triangles[3 * t];
+      if (turnedAsShipped(f, v[0], v[1], v[2], sing, near)) return false;
+      Vec3 p[3];
+      Vec2 uv[3];
+      bool known = true;
+      for (int k = 0; k < 3; k++) p[k] = fm.points[v[k]], known = known && uvOfPoint(f, v[k], uv[k]);
+      if (known && !deviationWithin(f, p, uv)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Face f's interior point C collapsed onto its neighbour E (flip.h's collapseVertex), the two triangles it leaves
+   * erased; kept only where collapseHolds holds of every triangle at E, and neither was a fan's. Else nothing changes.
+   * Returns whether it collapsed.
+   */
+  bool collapseOnto(int f, int32_t C, int32_t E, const std::vector<Singularity>& sing, double near) {
+    FaceMesh& fm = faces[f];
+    const FaceMesh savedMesh = fm;
+    const std::vector<Refused> savedRefused = refused[f];
+    const size_t savedCount = mesherTriangles[f];
+    std::vector<size_t> gone;
+    auto uv = [&](int32_t v, Vec2& out) { return uvOfPoint(f, v, out); };
+    if (!collapseVertex(uv, fm.triangles, C, E, collapseInfo[f].fixed, gone)) return false;
+    // (Erased highest first, each erase moving the last mesher triangle into its place.)
+    bool fans = false;
+    for (size_t t : gone) fans = fans || t >= mesherTriangles[f];
+    if (!fans)
+      for (size_t t : gone) eraseTriangle(f, t);
+    if (fans || !collapseHolds(f, trianglesAt(f, E), sing, near)) {
+      faces[f] = savedMesh, refused[f] = savedRefused, mesherTriangles[f] = savedCount;
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * PartOptions::collapseTurned over every face (in order, its turned triangles in index order): collapseOnto, each
+   * collapse undone there where a triangle it touches fails collapseHolds.
+   */
+  void collapseTurned() {
+    const cadgeom::Tolerances tols(m);
+    const int nf = static_cast<int>(faces.size());
+    std::vector<std::vector<Singularity>> sings(nf);
+    for (int f = 0; f < nf; f++)
+      if (surfaces[f]) surfaces[f]->singularities(sings[f]);
+    auto key = [](int32_t a, int32_t b) { return std::pair<int32_t, int32_t>{std::min(a, b), std::max(a, b)}; };
+    for (int f = 0; f < nf; f++) {
+      // (Not a face failCapped will fail: its many refused triangles cost as many tries.)
+      if (faces[f].status != Status::ok || !collapseInfo[f].usable || !surfaces[f] || (o.failCapped && faces[f].capped))
+        continue;
+      const double near = tols.face(f);
+      for (size_t t = 0; t < mesherTriangles[f]; t++) {
+        FaceMesh& fm = faces[f];
+        int32_t v[3] = {fm.triangles[3 * t], fm.triangles[3 * t + 1], fm.triangles[3 * t + 2]};
+        if (!turnedAsShipped(f, v[0], v[1], v[2], sings[f], near)) continue;
+        // (A, B) its longest edge in 3D, C opposite: (A, B, C) in its own order.
+        int k = 0;
+        double best = -1;
+        for (int i = 0; i < 3; i++) {
+          const double l = norm(fm.points[v[(i + 1) % 3]] - fm.points[v[i]]);
+          if (l > best) best = l, k = i;
+        }
+        const int32_t A = v[k], B = v[(k + 1) % 3], C = v[(k + 2) % 3];
+        CollapseInfo& si = collapseInfo[f];
+        // (Only the mesher's own points move: not the boundary's, nor a vertex loop's point inside the face.)
+        if (static_cast<size_t>(C) >= si.sample.size() || si.sample[C].first != -1) continue;
+        const Vec3 pa = fm.points[A], pb = fm.points[B], pc = fm.points[C];
+        const double sAB = dot(pc - pa, pb - pa) / dot(pb - pa, pb - pa);
+        if (!(sAB > 0 && sAB < 1)) continue;
+        // (An interior long edge: snapping C onto it is in the README's backlog, never needed on the corpus.)
+        if (!si.fixed.count(key(A, B))) continue;
+        // A boundary span of a model edge: its curve's point nearest C's projection. A split there would fall under
+        // the floor: C, interior, collapsed onto the nearer end of AB. (Splitting a longer span there, every face's
+        // triangle on it split too, is in the README's backlog.)
+        const auto sa = si.sample[A], sb = si.sample[B];
+        if (sa.first < 0 || sa.first != sb.first || std::abs(sa.second - sb.second) != 1 || em->isPseudo(sa.first))
+          continue;
+        const int e = sa.first, span = std::min(sa.second, sb.second);
+        const EdgeSamples before = em->edge(e);
+        const double t0 = before.t[span], t1 = before.t[span + 1];
+        const Vec3 Q = pa + sAB * (pb - pa);
+        // (The curve's nearest point to Q over the span: golden section, the span short.)
+        double lo = t0, hi = t1;
+        const double g = 0.5 * (std::sqrt(5.0) - 1);
+        for (int it = 0; it < 60; it++) {
+          const double x1 = hi - g * (hi - lo), x2 = lo + g * (hi - lo);
+          if (norm(em->point(e, x1) - Q) < norm(em->point(e, x2) - Q)) hi = x2;
+          else lo = x1;
+        }
+        const double tP = 0.5 * (lo + hi);
+        const Vec3 P = em->point(e, tP);
+        const Vec3 p0 = before.points[span], p1 = before.points[span + 1];
+        if (norm(P - p0) >= floor && norm(P - p1) >= floor) continue;
+        if (collapseOnto(f, C, norm(pc - pa) <= norm(pc - pb) ? A : B, sings[f], near)) {
+          faces[f].collapsed++;
+          t--;  // (the triangle at t erased, the last mesher triangle moved into its place: t again next)
+        }
+      }
+    }
+  }
+
   void checkFacing() {
     if (!o.failTurnedOver) return;
     // (As shipped, where the output's origin is known: float32 positions minus it, float32 normals.)
@@ -874,6 +1132,7 @@ struct PartMesher::Impl {
     FaceMesh& out = faces[f];
     out = {};
     refused[f].clear();
+    collapseInfo[f] = {};
     wanted[f].clear();
     if (f < static_cast<int>(creaseSplits.size())) creaseSplits[f].clear();
     edgesOf[f].clear();
@@ -1185,6 +1444,10 @@ struct PartMesher::Impl {
       }
     }
     auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
+    // (Not where refinement stopped at its point cap and the face fails for that: a capped face's many refused
+    // triangles cost as many tries.)
+    if (o.flipTurned && o.failTurnedOver && !(mesh.status == Status::noConvergence && o.failCapped))
+      out.turnedFlips = flipTurnedFace(f, mesh, out.points, out.normals, segs, ringSegments, onCrease, sense > 0);
     // The thin triangles (PartOptions::countAngles), but those with two corners on a pole line (no triangle in 3D).
     if (o.countAngles)
       for (size_t k = 0; k < detail.thin.size(); k++) {
@@ -1255,6 +1518,17 @@ struct PartMesher::Impl {
       else out.triangles.insert(out.triangles.end(), {a, c, b});
     }
     mesherTriangles[f] = out.triangles.size() / 3;
+    if (onCrease.empty()) {
+      CollapseInfo& si = collapseInfo[f];
+      si.uv.assign(mesh.points.begin(), mesh.points.end());
+      si.sample.assign(n, {-1, -1});
+      for (size_t i = 0; i < bp.size() && i < n; i++)
+        si.sample[i] = bp[i].kind == BoundaryPoint::edgeSample
+          ? std::pair<int32_t, int32_t>{bp[i].edgeIndex, bp[i].sample} : std::pair<int32_t, int32_t>{-2, -1};
+      for (auto [a, b] : segs) si.fixed.insert({std::min(a, b), std::max(a, b)});
+      si.fixed.insert(ringSegments.begin(), ringSegments.end());
+      si.usable = true;
+    }
     // The fans: each ring's chain to its pole, a point of its own (the run's edge sample there, else the surface's).
     for (size_t k = 0; k < fans.size(); k++) {
       const Fan& fan = fans[k];
@@ -1323,6 +1597,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.wanted.resize(nf);
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
+  I.collapseInfo.assign(nf, {});
   I.ringBlocked.assign(nf, 0);
   I.refused.resize(nf);
   I.last.resize(nf);
@@ -1441,6 +1716,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     I.ringFacesRemeshed += static_cast<int>(undone.size());
   }
   I.memos.clear();
+  if (I.o.collapseTurned) I.collapseTurned();
   I.failCapped();
   I.checkDeviation();
   I.checkFacing();
