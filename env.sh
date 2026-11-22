@@ -6,10 +6,10 @@
 #
 # Usage: source env.sh    (bash or zsh; running it as a script only checks, since it can't change your shell)
 #
-# Minimum versions are known requirements (Node 24 from package.json, CMake 3.10 from OCCT). The toolchains that make
-# the WebAssembly modules are exact, so every host builds the same bytes: Rust as rust-toolchain.toml pins it (rustup
-# installs it), Emscripten (with the wasm-opt truck's build uses) the project's own, third_party/emsdk, as
-# scripts/fetch-emsdk.sh pins it.
+# Minimum versions are known requirements (Node 24.6 from package.json, for Worker.cpuUsage; CMake 3.10 from OCCT).
+# The toolchains that make the WebAssembly modules are exact, so every host builds the same bytes: Rust as
+# rust-toolchain.toml pins it (rustup installs it), Emscripten (with the wasm-opt truck's build uses) the project's own,
+# third_party/emsdk, as scripts/fetch-emsdk.sh pins it.
 
 script_dir="$(cd -P "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
@@ -132,7 +132,7 @@ esac
 echo "cad-io-js environment ($_sj_os):"
 
 # Core: needed for the packages, their tests and the fetch scripts.
-_sj_report error node "$(_sj_have node --version)" 24.0.0 "runs the TypeScript sources and tests" || {
+_sj_report error node "$(_sj_have node --version)" 24.6.0 "runs the TypeScript sources and tests" || {
   case $_sj_os in
     macos) _sj_fix "brew install node    # or: brew upgrade node" ;;
     *) _sj_fix "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"\

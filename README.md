@@ -46,7 +46,7 @@ In more detail:
 - **exporters** to three.js JSON, glTF/GLB and 3MF, and **importers** of STEP, glTF/GLB, three.js JSON and 3MF: our own files with extras come back as the scene they were written from, other files as their own tree of parts and assemblies;
 - **two command-line tools**, `step2json` (STEP to JSON, lossless or semantic) and `stepconv` (STEP to three.js, glTF or 3MF).
 
-Version 0.3.0, not yet published to npm: the packages run as TypeScript sources under Node 24 (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) shows models in three.js, and more input formats are on the [roadmap](#roadmap).
+Version 0.3.0, not yet published to npm: the packages run as TypeScript sources under Node 24.6 or later (see [Building From Source](#building-from-source)). A browser-based [viewer](#viewer) shows models in three.js, and more input formats are on the [roadmap](#roadmap).
 
 ```sh
 stepconv bracket.step -o bracket.glb          # STEP to GLB, OCCT, 0.1 mm, all cores
@@ -96,7 +96,7 @@ None of these comes with the repository. `source env.sh` (below) checks every on
 | python3 with `venv` | 3.8+, optional | extracting the JT, QIF and IGES specifications' text; the `VBernstein` patch's tests |
 | Typst | 0.15.1, fetched | `scripts/md2pdf.sh` (PDFs of the Markdown documents); not installed on the system: `scripts/fetch-typst.sh` fetches the official binary and the Typst packages it uses, pinned and checksummed, into `third_party/typst/` (`md2pdf.sh` does so itself on first use) |
 
-The toolchains that make the WebAssembly modules are pinned exactly, so every host builds the same bytes from the same sources, except truck's, which is the same on every host of one platform (`docs/backends.md`). The project was built and tested with Node 24.5 on an M-series Mac, and with Node 24.22 on Debian 13 (x86-64). On Linux without root, Node and CMake run from their official tarballs unpacked anywhere on `PATH`, and Debian's python3 lacks `ensurepip` (package `python3-venv`), so the optional PDF text step is skipped.
+The toolchains that make the WebAssembly modules are pinned exactly, so every host builds the same bytes from the same sources, except truck's, which is the same on every host of one platform (`docs/backends.md`). It needs Node 24.6 or later (`tess-workers` reads a worker's CPU time with `Worker.cpuUsage`). The project was built and tested with Node 26.13 on an M-series Mac, and with Node 24.22 on Debian 13 (x86-64). On Linux without root, Node and CMake run from their official tarballs unpacked anywhere on `PATH`, and Debian's python3 lacks `ensurepip` (package `python3-venv`), so the optional PDF text step is skipped.
 
 ### Steps
 
