@@ -1213,7 +1213,107 @@ await check('tree menu hide and show', async () => {
     JSON.stringify(a.overrides), `replayed: ${JSON.stringify(replayed.after)} ${j}`);
   return undefined;
 });
-// Dialogs dragged by their title: Override Appearance... moved by a mouse drag of its title, as far as the drag, a
+// The view's context menu and the tree's focus: a right-click on a part (the mouse unmoved) opens the tree's menu for
+// it, the selection unchanged, the tree's focus (outlined) on its row, revealed in a folded tree; its Hide hides that
+// part alone; on nothing, no menu and no focus; a right-drag (a pan) no menu; a long press with a finger the menu,
+// its lift no pick; a left click moves the focus to what it picks, or clears it on nothing; at the detail level, a
+// face's.
+await check('view context menu', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const send = (type, x, y, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: x, clientY: y, ...o }));
+    const rightClick = (x, y) => { send('pointerdown', x, y, { button: 2, buttons: 2 });
+      send('pointerup', x, y, { button: 2, buttons: 0 }); };
+    const leftClick = (x, y) => { send('pointerdown', x, y, { button: 0, buttons: 1 });
+      send('pointerup', x, y, { button: 0, buttons: 0 }); };
+    const look = async () => {
+      await frame();
+      const menu = [...document.querySelectorAll('.cv-menu button')].map((b) => b.textContent);
+      const f = document.querySelector('#tree .tree-row.focused');
+      return { menu, focused: f ? +f.dataset.id : null, selected: [...ui.selected()] };
+    };
+    const escape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // A point over a part (as a click picks it), and one over nothing.
+    let spot;
+    for (let i = 1; i < 10 && !spot; i++) for (let j = 1; j < 10 && !spot; j++) {
+      const path = cadViewer.pickAt(i / 10, j / 10)?.path;
+      if (path) spot = { x: rect.left + i / 10 * rect.width, y: rect.top + j / 10 * rect.height, id: m.find(path) };
+    }
+    if (!spot) return { spot: null };
+    const empty = { x: rect.left + 2, y: rect.top + 2 };
+    const part = spot.id, other = m.nodes.find((n) => n.kind === 'part' && n.id !== part).id;
+    const out = { part, other };
+    ui.select([other]);
+    ui.panel().collapseAll();
+    await frame();
+    rightClick(spot.x, spot.y);
+    out.right = await look();
+    [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === 'Hide').click();
+    await frame();
+    out.hid = { part: !!m.ownOverride(part)?.hidden, other: !!m.ownOverride(other)?.hidden };
+    ui.setOverride(part, {});
+    await cadViewer.idle();
+    rightClick(empty.x, empty.y);
+    out.rightEmpty = await look();
+    // A long press: the menu while the finger is down, no pick when it lifts, even at once (within a tap's time).
+    send('pointerdown', spot.x, spot.y, { pointerType: 'touch', pointerId: 2, button: 0, buttons: 1 });
+    const t0 = performance.now();
+    while (!document.querySelector('.cv-menu') && performance.now() - t0 < 2000) {
+      await new Promise((res) => setTimeout(res, 2));
+    }
+    send('pointerup', spot.x, spot.y, { pointerType: 'touch', pointerId: 2, button: 0, buttons: 0 });
+    out.liftedAfter = Math.round(performance.now() - t0);
+    out.press = await look();
+    out.lifted = await look();
+    escape();
+    leftClick(spot.x, spot.y);
+    out.left = await look();
+    leftClick(empty.x, empty.y);
+    out.leftEmpty = await look();
+    // The detail level: a face's menu and focus.
+    ui.setPickLevel('detail');
+    rightClick(spot.x, spot.y);
+    out.detail = await look();
+    out.detailKind = out.detail.focused === null ? null : m.nodes[out.detail.focused].kind;
+    escape();
+    // Last, as they move the view, each just past its threshold (so what's under the point stays the part): a finger
+    // that moves 12 px (turning the view), no menu; a right-drag of 8 px (a pan), no menu.
+    send('pointerdown', spot.x, spot.y, { pointerType: 'touch', pointerId: 3, button: 0, buttons: 1 });
+    send('pointermove', spot.x + 12, spot.y, { pointerType: 'touch', pointerId: 3, button: -1, buttons: 1 });
+    await new Promise((res) => setTimeout(res, 700));
+    out.turned = await look();
+    send('pointerup', spot.x + 12, spot.y, { pointerType: 'touch', pointerId: 3, button: 0, buttons: 0 });
+    escape();
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointermove', spot.x + 8, spot.y, { button: -1, buttons: 2 });
+    send('pointerup', spot.x + 8, spot.y, { button: 2, buttons: 0 });
+    out.drag = await look();
+    escape();
+    return out;
+  })()`) as { after: Record<string, unknown> & Record<'right' | 'rightEmpty' | 'drag' | 'press' | 'lifted' | 'turned' |
+    'left' | 'leftEmpty' | 'detail', { menu: string[]; focused: number | null; selected: number[] }> };
+  const a = r.after, j = JSON.stringify(a);
+  const other = JSON.stringify([a.other]);
+  expect(a.right?.menu[0] === 'Hide' && a.right.menu.includes('Select children') && a.right.focused === a.part &&
+    JSON.stringify(a.right.selected) === other, `a right-click on a part: ${j}`);
+  expect(JSON.stringify(a.hid) === '{"part":true,"other":false}', `its Hide: ${j}`);
+  expect(a.rightEmpty.menu.length === 0 && a.rightEmpty.focused === null, `a right-click on nothing: ${j}`);
+  expect(a.drag.menu.length === 0, `a right-drag: ${j}`);
+  expect(a.press.menu[0] === 'Hide' && a.press.focused === a.part && JSON.stringify(a.lifted.selected) === other &&
+    (a.liftedAfter as number) < 600,
+    `a long press: ${j}`);
+  expect(a.turned.menu.length === 0, `a finger that moves: ${j}`);
+  expect(a.left.focused === a.part && JSON.stringify(a.left.selected) === JSON.stringify([a.part]) &&
+    a.leftEmpty.focused === null && a.leftEmpty.selected.length === 0, `left clicks: ${j}`);
+  expect(a.detail.menu[0] === 'Hide' && ['face', 'edges', 'curves', 'points'].includes(a.detailKind as string) &&
+    a.detail.selected.length === 0, `at the detail level: ${j}`);
+  return undefined;
+});
+// Dialogs dragged by their title:Override Appearance... moved by a mouse drag of its title, as far as the drag, a
 // second from where it was left; dragged far off, its title kept in the window; a modal one (About) too.
 await check('dialog drag', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,

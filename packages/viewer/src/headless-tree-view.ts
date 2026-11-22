@@ -67,6 +67,8 @@ export class HeadlessTreeView implements TreeView {
   private readonly spacer = document.createElement('div');
   private readonly rows: HTMLElement[] = [];
   private selected: readonly string[] = [];
+  /** The focus cleared (focus(undefined)): the library, focused on nothing, would outline the first row. */
+  private unfocused = false;
   private scheduled = false;
   /** The widest row drawn so far (pixels). */
   private width = 0;
@@ -166,7 +168,8 @@ export class HeadlessTreeView implements TreeView {
       el.style.paddingLeft = `${item.getItemMeta().level * INDENT}px`;
       applyProps(el, item.getProps());
       el.classList.toggle('selected', item.isSelected());
-      el.classList.toggle('focused', item.isFocused());
+      el.classList.toggle('focused', item.isFocused() && !(this.unfocused &&
+        this.tree.getState().focusedItem === null));
       el.dataset.id = item.getId();
       const exp = el.firstElementChild as HTMLElement;
       exp.className = `tree-expander${item.isFolder() ? (item.isExpanded() ? ' open' : ' closed') : ''}`;
@@ -193,9 +196,10 @@ export class HeadlessTreeView implements TreeView {
     this.schedule();
   }
 
-  focus(id: string): void {
-    // (Through setState, which draws again.)
-    this.tree.applySubStateUpdate('focusedItem', id);
+  focus(id: string | undefined): void {
+    // (Through setState, which draws again. Clicks and keys focus a row again, so the flag needs no reset.)
+    this.unfocused = id === undefined;
+    this.tree.applySubStateUpdate('focusedItem', id ?? null);
   }
 
   setSelection(ids: readonly string[]): void {

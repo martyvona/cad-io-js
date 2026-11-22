@@ -9,6 +9,9 @@ export interface MenuItem {
   action: () => void;
 }
 
+/** How long a finger stays down, unmoved, to open a context menu (a tree row's, the view's), in ms. */
+export const LONG_PRESS_MS = 550;
+
 let open: { close(): void } | undefined;
 
 /** Shows a menu at a point (client pixels), kept inside the window; closes any other first. */
