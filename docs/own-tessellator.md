@@ -365,6 +365,8 @@ The user's models (`test_corpus/models.txt`, 31 files, 205,297 faces) at own-tes
 
 - Faces ours counts as meshed far past their deflection (coverage run 6's survey, own-tessellator 8b488fc): `LMP1.step` (`test_corpus/models/`) #173586's B-spline #1098369 and #173479's #1091901, both 2,337 x d by the sampled deviation (about 234 mm), where SMLib is within (0.46 x) and OCCT 39 and 43 x: the measure's fault, not the mesh's. The face is closed in u, its worst triangle across the seam, and cad-geom's global invertSurface returns the domain's corner (1, 0), 233.7 mm off, for a point a seeded inversion finds 1.3e-5 from the surface.
 
+- Meshed faces with triangles turned in the output that the facing check passed (coverage run 6, by checkFacing's own test on the output's normals): 38 faces, 94 triangles, among them the user's `cnc-box` cones (6 faces, 1 triangle each) and `VW.step` (8 faces, #298974 among them), `bug29979_firetherm_12.step` #174483's B-splines (up to 46 a face) and `trj4_pm2-ec-214.stp` #22120; list in the coverage lane's workdir, 2026-11-21_turned_meshed.txt.
+
 ### Parts ours is slow on
 
 Faces whose refinement converges slowly or not at all (own-tessellator 1adc689 and later; the split rounds' cap 24 then), worth a look at their curvature and parameterization:
