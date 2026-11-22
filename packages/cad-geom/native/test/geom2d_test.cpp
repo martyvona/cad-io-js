@@ -686,6 +686,25 @@ TEST_CASE("classify2: a polar cap whose pole isn't in its loop: on at the pole i
   CHECK(classify2(cap, {1, -1}, per, 1e-9, st) == Side::out);
 }
 
+TEST_CASE("classify2: on a cone, past its apex's pole line, the other nappe, out") {
+  // A cone's (u, v), the apex at v = 0 inside the domain: a face from the apex to v = 3 over u in [0, pi], its loop
+  // up u = pi, back along v = 3 to u = 0, down from u = 2 pi (the same line a period on) to the apex, closed along
+  // the pole line (nist_ctc_04's face #3633). A point at v < 0 is on the other nappe: out, whatever its u, though a ray
+  // from it meets the loop as from inside a polar cap.
+  std::vector<Loop2> face{Loop2{{{line({pi, 0}, {pi, 3}), {0, 1}, false}, {line({pi, 3}, {0, 3}), {0, 1}, false},
+    {line({2 * pi, 3}, {2 * pi, 0}), {0, 1}, false}}}};
+  Periods per{2 * pi, 0, {}, {0}};
+  Status st;
+  CHECK(classify2(face, {2, 1.5}, per, 1e-9, st) == Side::in);
+  CHECK(classify2(face, {4, 1.5}, per, 1e-9, st) == Side::out);
+  for (double v : {-1e-6, -1.0, -143.0}) {
+    CHECK(classify2(face, {2, v}, per, 1e-9, st) == Side::out);
+    CHECK(classify2(face, {4, v}, per, 1e-9, st) == Side::out);
+  }
+  // At the apex: on (the face reaches it).
+  CHECK(classify2(face, {2, 0}, per, 1e-9, st) == Side::on);
+}
+
 TEST_CASE("classify2: a point no ray meets anything from is out") {
   // A unit square 1000 away subtends a milliradian: none of the rays' directions meets it.
   std::vector<Loop2> far{polygon({{1000, 1000}, {1001, 1000}, {1001, 1001}, {1000, 1001}})};
