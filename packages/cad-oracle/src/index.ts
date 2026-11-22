@@ -36,8 +36,9 @@ export interface FaceMeasure {
   offSurface: number;
   /**
    * How far the area can be off for its loops' p-curves not being their edges' curves (oracle.h's
-   * FaceMeasure::boundary): the sum over the uses of the p-curve's deviation (given: measured; healed: the analysis's;
-   * projected: the projection's error) times the edge's length; 0 on closed forms; NaN where it couldn't be had.
+   * FaceMeasure::boundary): the sum over the uses of the p-curve's deviation from the curve (given: measured by the
+   * p-curve's own parameter; healed: the analysis's; projected: the projection's error) times the edge's length; 0 on
+   * closed forms; NaN where it couldn't be had.
    * Included in area.error where it's known (where it's NaN, area.error is the quadrature's alone and trusted()
    * refuses the face).
    */
