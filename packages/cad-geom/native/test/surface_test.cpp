@@ -1784,3 +1784,37 @@ TEST_CASE("inversion beside a C0 knot: a convex rectangle's minimum from its own
           }
     }
 }
+
+TEST_CASE("rational B-spline boxes about the rectangle: a narrow strip far from its poles' centroid, tight") {
+  // A strip 0.125 mm across (a rational cubic arc in u, its weights varying) and 200 mm long in v: about the
+  // surface's centroid every term of the quotient rule carries |S - c|, up to 100 mm, against S_u's 0.16; about the
+  // rectangle's own origin a small rectangle's partials are bounded within a few times their sampled maxima.
+  const Vec3 arc[4] = {{0, -0.0625, 0.0454}, {0.0262, -0.0284, 0}, {0.0262, 0.0284, 0}, {0, 0.0625, 0.0454}};
+  const double wu[4] = {0.866025, 0.635085, 0.635085, 0.866025};
+  std::vector<std::vector<Vec3>> P(4);
+  std::vector<std::vector<double>> W(4);
+  for (int i = 0; i < 4; i++)
+    for (int j = 0; j < 6; j++) P[i].push_back(arc[i] + Vec3{40.0 * j, 0, 0.5 * j * j}), W[i].push_back(wu[i]);
+  auto S = rawSpline(3, 2, {0, 1}, {4, 4}, {0, 0.25, 0.5, 0.75, 1}, {3, 1, 1, 1, 3}, P, W);
+  const SurfaceImpl* s = impl(S.get());
+  REQUIRE(s != nullptr);
+  for (Range rv : {Range{0.02, 0.02 + 1.0 / 64}, Range{0.95, 0.95 + 1.0 / 64}}) {
+    const Range ru{0.5 - 1.0 / 32, 0.5 + 1.0 / 32};
+    double most[2] = {0, 0};
+    for (int a = 0; a <= 32; a++)
+      for (int b = 0; b <= 32; b++) {
+        Vec3 d[kPartials];
+        s->derivs(ru.lo + (ru.hi - ru.lo) * a / 32, rv.lo + (rv.hi - rv.lo) * b / 32, 2, d);
+        most[0] = std::fmax(most[0], norm(d[pidx(1, 0)])), most[1] = std::fmax(most[1], norm(d[pidx(2, 0)]));
+      }
+    Box3 bu, buu;
+    REQUIRE(s->derivBox(ru, rv, 1, 0, bu) == Status::ok);
+    REQUIRE(s->derivBox(ru, rv, 2, 0, buu) == Status::ok);
+    auto far = [](const Box3& b) {
+      auto m = [](Interval i) { return std::fmax(std::fabs(i.lo), std::fabs(i.hi)); };
+      return std::hypot(m(b.x), std::hypot(m(b.y), m(b.z)));
+    };
+    CHECK(far(bu) <= 6 * most[0]);
+    CHECK(far(buu) <= 3 * most[1]);
+  }
+}
