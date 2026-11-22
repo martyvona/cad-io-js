@@ -1,5 +1,6 @@
 // The oracle's C API for the WebAssembly module (src/index.ts): a model by handle, its edges' lengths, its faces'
-// measures and their polynomial moments in flat arrays of doubles. Status, method and flag codes are oracle.h's and
+// measures and their polynomial moments, points against its closed shells, faces' sides of them and its bodies'
+// shells nested, in flat arrays of doubles. Status, method, flag, side and rejection codes are oracle.h's and
 // result.h's.
 
 #include <array>
@@ -31,17 +32,25 @@ void put(double* o, const Estimate& e) {
   o[0] = e.value, o[1] = e.error, o[2] = static_cast<double>(e.status);
 }
 
+/** A PointClass into o[0..12]: side, dir (3), length, crossings, tried, rejected (rejectedKinds: 5), checked. */
+void putClass(double* o, const PointClass& c) {
+  o[0] = c.side, o[1] = c.dir.x, o[2] = c.dir.y, o[3] = c.dir.z, o[4] = c.length, o[5] = c.crossings, o[6] = c.tried;
+  for (int k = 0; k < rejectedKinds; k++) o[7 + k] = c.rejected[k];
+  o[12] = c.checked;
+}
+
 } // namespace
 
 extern "C" {
 
 /** The format's version of this API, for the TypeScript layer to check. */
-int32_t co_api_version() { return 4; }
+int32_t co_api_version() { return 5; }
 
 /**
  * The oracle of `size` bytes at `buffer` (from malloc; owned from now on, freed by co_model_free or here if it isn't
  * a model), with its analysis's `analysisSize` bytes at `analysis` (Options::analysis; none: 0; read here, not kept,
- * the caller's to free), `flags` bit 1 for no projections (Options::projectMissing false): its handle, or -1.
+ * the caller's to free), `flags` bit 1 for no projections (Options::projectMissing false), bit 2
+ * Options::checkSecondRay: its handle, or -1.
  */
 int32_t co_model_new(uint8_t* buffer, uint32_t size, double relTol, const uint8_t* analysis, uint32_t analysisSize,
   int32_t flags) {
@@ -49,6 +58,7 @@ int32_t co_model_new(uint8_t* buffer, uint32_t size, double relTol, const uint8_
   e->buffer = buffer;
   Options o;
   if (relTol > 0) o.relTol = relTol;
+  o.checkSecondRay = (flags & 2) != 0;
   if (analysis && analysisSize) o.analysis = analysis, o.analysisSize = analysisSize;
   o.projectMissing = (flags & 1) == 0;
   e->oracle = std::make_unique<Oracle>(buffer, size, o);
@@ -118,6 +128,43 @@ int32_t co_face_moments(int32_t h, int32_t face, double cx, double cy, double cz
   const std::vector<Estimate> v = e->oracle->faceIntegral(face, g);
   for (int k = 0; k < 3 * n; k++) put(out + 3 * k, v[k]);
   return 0;
+}
+
+/** Point (px, py, pz) against closed shell `shell` (oracle.h's classify) into out[0..12] (putClass), its why. */
+int32_t co_classify(int32_t h, int32_t shell, double px, double py, double pz, double* out, const char** why) {
+  Entry* e = entry(h);
+  if (!e) return -1;
+  const PointClass c = e->oracle->classify(shell, {px, py, pz});
+  putClass(out, c);
+  *why = c.why;
+  return 0;
+}
+
+/**
+ * Face `face`'s side of closed shell `shell` (oracle.h's shellSide) into out[0..20]: side, from (3), point (3), eps,
+ * then the point's classification (putClass) from out[8]; its why. 0, or -1 for a bad handle.
+ */
+int32_t co_shell_side(int32_t h, int32_t shell, int32_t face, double eps, double* out, const char** why) {
+  Entry* e = entry(h);
+  if (!e) return -1;
+  const ShellSide s = e->oracle->shellSide(shell, face, eps);
+  out[0] = s.side, out[1] = s.from.x, out[2] = s.from.y, out[3] = s.from.z, out[4] = s.point.x, out[5] = s.point.y;
+  out[6] = s.point.z, out[7] = s.eps;
+  putClass(out + 8, s.classified);
+  *why = s.why;
+  return 0;
+}
+
+/**
+ * Body `body`'s shells nested (oracle.h's nesting) into out, at most `max` of them: their count (more than `max`:
+ * call again with room), or -1 for a bad handle.
+ */
+int32_t co_nesting(int32_t h, int32_t body, int32_t* out, int32_t max) {
+  Entry* e = entry(h);
+  if (!e) return -1;
+  const std::vector<int> n = e->oracle->nesting(body);
+  for (int32_t i = 0; i < static_cast<int32_t>(n.size()) && i < max; i++) out[i] = n[i];
+  return static_cast<int32_t>(n.size());
 }
 
 } // extern "C"

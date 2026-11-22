@@ -2553,6 +2553,36 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
+TEST_CASE("keepSteiner (the default): a face meshed again from its fourth meshing on starts from its last mesh's points, "
+  "so its rounds' asks settle: bumpPatch at 0.005 in fewer rounds than from its boundary alone, both within d; the "
+  "same bytes run to run") {
+  // (Meshed from scratch each round, the face's leftover refusals land somewhere new each time; kept, they settle.)
+  cadgeom::Model m = load("bumpPatch");
+  REQUIRE(m.ok());
+  PartOptions on = options(0.005, 0.26), off = on;
+  off.keepSteiner = false;
+  CHECK(PartOptions{}.keepSteiner);
+  PartMesher a(m, on), b(m, off), c(m, on);
+  for (int f = 0; f < m.faces(); f++) {
+    CHECK(a.face(f).status == cadgeom::Status::ok);
+    CHECK(b.face(f).status == cadgeom::Status::ok);
+    CHECK(a.face(f).triangles == c.face(f).triangles);
+    CHECK(a.face(f).points.size() == c.face(f).points.size());
+    for (size_t i = 0; i < a.face(f).points.size() && i < c.face(f).points.size(); i++)
+      CHECK(std::memcmp(&a.face(f).points[i], &c.face(f).points[i], sizeof(Vec3)) == 0);
+  }
+  CHECK(a.rounds() < b.rounds());
+  CHECK(b.rounds() >= 4);
+  // A seeded mesh that leaves a refused triangle is meshed again from its boundary alone: a kept point can stand in
+  // the way of a refused triangle that asks no split (pcurveOnlyWest at 0.001: 20 rounds without that, 6 with it).
+  cadgeom::Model w = load("pcurveOnlyWest");
+  REQUIRE(w.ok());
+  PartOptions onW = options(0.001, 0.26), offW = onW;
+  offW.keepSteiner = false;
+  PartMesher wa(w, onW), wb(w, offW);
+  CHECK(wa.rounds() <= wb.rounds());
+}
+
 TEST_CASE("a loop of two one-chord edges (a lens whose chords coincide) gets a sample at each edge's middle: meshed, "
   "its area the lens's within the chords' sag") {
   cadgeom::Model m = load("lensPlane");
@@ -2573,16 +2603,15 @@ TEST_CASE("a loop of two one-chord edges (a lens whose chords coincide) gets a s
   CHECK(area < 0.06);
 }
 
-TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
-          "the rounds short of the cap") {
-  // (Meshing it again on the same edges would ask the same, every round to the cap.)
-  cadgeom::Model m = load("kinkStrip");
-  PartOptions o = options(0.5, 0.26);
-  o.maxDeviationFactor = 0;
+TEST_CASE("the rounds end once no split changes an edge: clampedCorner's face still asks a split EdgeMesh::split "
+          "drops, the rounds short of the cap") {
+  // (Its loop reversing in (u, v), the crossing segments' spans asked split within the floor. Meshing it again on the
+  // same edges would ask the same, every round to the cap.)
+  cadgeom::Model m = load("clampedCorner");
+  PartOptions o = options(0.1, 0.26);
   PartMesher pm(m, o);
   int wanting = 0;
-  for (int f = 0; f < m.faces(); f++)
-    wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
+  for (int f = 0; f < m.faces(); f++) wanting += pm.face(f).splitsWanted > 0;
   CHECK(wanting > 0);
   CHECK(pm.rounds() < o.maxSplitRounds);
 }
@@ -2910,5 +2939,137 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
     if (fm.status != cadgeom::Status::ok) std::printf("    %s\n", fm.cause.c_str());
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(std::fabs(area(fm) - want) <= 0.01);
+  }
+}
+
+TEST_CASE("a B-spline's knot span narrower than the floor in 3D, sharply bent, doesn't set the curvature's sizes: "
+  "kinkAtEnd meshed about as its patch without the span, its area the patch's") {
+  struct Mesh {
+    size_t triangles;
+    double area;
+  };
+  auto mesh = [](const char* name) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.1, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    double area = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return Mesh{fm.triangles.size() / 3, area};
+  };
+  const Mesh kinked = mesh("kinkAtEnd"), plain = mesh("kinkAtEndPlain");
+  CHECK(kinked.triangles <= 2 * plain.triangles);
+  CHECK(std::fabs(kinked.area - plain.area) < 0.01 * plain.area);
+  if (!(kinked.triangles <= 2 * plain.triangles))
+    std::printf("  kinkAtEnd: %zu triangles (area %.4f), its plain patch %zu (%.4f)\n", kinked.triangles, kinked.area,
+      plain.triangles, plain.area);
+}
+
+TEST_CASE("a run of knot spans each narrower than the floor in 3D but not together keeps its curvature's sizes: "
+  "kinkStripRun's crease, four spans of 0.04 mm under a floor of 0.05, sized as curved") {
+  cadgeom::Model m = load("kinkStripRun");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, {{0, 1}, {0, 1}}, Deflections{0.5, 0.26}, st);
+  REQUIRE(c);
+  // (Across the crease, u: its slope turning by 0.1 over 0.16 mm, a size about 0.26 / 0.6 = 0.4 mm there, E / h^2
+  // about 600; flat away from it, the face's extent.)
+  const double across = c->metric({0.5, 0.5}).a, away = c->metric({0.1, 0.5}).a;
+  if (!(across > 50 * away)) std::printf("  kinkStripRun: metric across %.4g, away %.4g\n", across, away);
+  CHECK(across > 50 * away);
+}
+
+TEST_CASE("a face whose edge loops are all holes (none winding) is its surface's natural extent less them: "
+  "sphereBelt's belt between two circles meshed, not its caps; facing as its sense says; the even one too") {
+  struct Case {
+    const char* name;
+    double lo, hi;
+    bool outward;
+  };
+  for (Case c : {Case{"sphereBelt", -1, 3, true}, Case{"sphereBeltInward", -1, 3, false},
+         Case{"sphereBeltEven", -2, 3, true}, Case{"sphereBeltEvenInward", -2, 3, false}}) {
+    cadgeom::Model m = load(c.name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.05, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", c.name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.holesOnly);
+    double area = 0;
+    int outside = 0, against = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      const Vec3 g = cadgeom::cross(q - p, r - p), mid = (1.0 / 3) * (p + q + r);
+      area += 0.5 * cadgeom::norm(g);
+      outside += mid.x < c.lo - 0.05 || mid.x > c.hi + 0.05;
+      against += (cadgeom::dot(g, mid) > 0) != c.outward;
+    }
+    const double want = 2 * M_PI * 5 * (c.hi - c.lo);
+    if (outside || against || std::fabs(area - want) > 0.01 * want)
+      std::printf("  %s: area %.3f (the belt's %.3f), %d triangles outside it, %d against its sense\n", c.name, area,
+        want, outside, against);
+    CHECK_EQ(outside, 0);
+    CHECK_EQ(against, 0);
+    CHECK(std::fabs(area - want) <= 0.01 * want);
+  }
+}
+
+TEST_CASE("a face whose edge loops are all holes on a surface with no natural extent (a plane) fails, said so, "
+  "rather than meshing its holes; a face with an outer loop isn't holesOnly") {
+  cadgeom::Model m = load("planeHoleOnly");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.05, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status == cadgeom::Status::unsupported);
+  CHECK(fm.cause.find("edge loops all holes") != std::string::npos);
+  CHECK(fm.triangles.empty());
+  cadgeom::Model band = load("band");
+  REQUIRE(band.ok());
+  PartMesher pb(band, options(0.05, 0.26));
+  for (int f = 0; f < band.faces(); f++) CHECK(!pb.face(f).holesOnly);
+}
+
+TEST_CASE("flipTurned (the default): a triangle turned as shipped flipped with its neighbour across an interior edge, "
+  "both new ones within the criteria and facing the surface: cornerFoldTight at 1 meshed, failing without it") {
+  // (Its corner's point 0.0085 off its (u, v), past the face's tolerance: the fold not repaired, the ear there
+  // turned in 3D though accepted in (u, v); a flip across its interior edge leaves two triangles facing the plane.)
+  for (const char* name : {"cornerFoldTight", "cornerFoldTightAgainst"}) {
+    const bool against = name[15] == 'A';
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions on = options(1, 0.26), off = on;
+    off.flipTurned = false;
+    PartMesher a(m, on), b(m, off);
+    const FaceMesh& fm = a.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.turnedFlips >= 1);
+    int facing = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      facing += (cadgeom::cross(q - p, r - p).z <= 0) != against;
+    }
+    CHECK_EQ(facing, 0);
+    // Its boundary's segments all still in the mesh: none flipped away.
+    const FaceBoundary fb = a.edges().face(0);
+    std::set<std::pair<Vec3, Vec3>, bool (*)(const std::pair<Vec3, Vec3>&, const std::pair<Vec3, Vec3>&)> edges(
+      [](const std::pair<Vec3, Vec3>& x, const std::pair<Vec3, Vec3>& y) {
+        return std::tie(x.first.x, x.first.y, x.first.z, x.second.x, x.second.y, x.second.z) <
+          std::tie(y.first.x, y.first.y, y.first.z, y.second.x, y.second.y, y.second.z);
+      });
+    auto both = [&](Vec3 p, Vec3 q) { edges.insert({p, q}), edges.insert({q, p}); };
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      for (int k = 0; k < 3; k++) both(fm.points[fm.triangles[t + k]], fm.points[fm.triangles[t + (k + 1) % 3]]);
+    int missing = 0;
+    for (const auto& loop : fb.loops)
+      for (size_t k = 0; k < loop.size(); k++)
+        missing += !edges.count({loop[k].point, loop[(k + 1) % loop.size()].point});
+    CHECK_EQ(missing, 0);
+    CHECK(b.face(0).status == cadgeom::Status::noConvergence);
+    CHECK_EQ(b.face(0).turnedFlips, 0);
   }
 }
