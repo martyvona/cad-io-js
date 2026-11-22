@@ -2553,6 +2553,36 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
+TEST_CASE("keepSteiner (the default): a face meshed again from its fourth meshing on starts from its last mesh's points, "
+  "so its rounds' asks settle: bumpPatch at 0.005 in fewer rounds than from its boundary alone, both within d; the "
+  "same bytes run to run") {
+  // (Meshed from scratch each round, the face's leftover refusals land somewhere new each time; kept, they settle.)
+  cadgeom::Model m = load("bumpPatch");
+  REQUIRE(m.ok());
+  PartOptions on = options(0.005, 0.26), off = on;
+  off.keepSteiner = false;
+  CHECK(PartOptions{}.keepSteiner);
+  PartMesher a(m, on), b(m, off), c(m, on);
+  for (int f = 0; f < m.faces(); f++) {
+    CHECK(a.face(f).status == cadgeom::Status::ok);
+    CHECK(b.face(f).status == cadgeom::Status::ok);
+    CHECK(a.face(f).triangles == c.face(f).triangles);
+    CHECK(a.face(f).points.size() == c.face(f).points.size());
+    for (size_t i = 0; i < a.face(f).points.size() && i < c.face(f).points.size(); i++)
+      CHECK(std::memcmp(&a.face(f).points[i], &c.face(f).points[i], sizeof(Vec3)) == 0);
+  }
+  CHECK(a.rounds() < b.rounds());
+  CHECK(b.rounds() >= 4);
+  // A seeded mesh that leaves a refused triangle is meshed again from its boundary alone: a kept point can stand in
+  // the way of a refused triangle that asks no split (pcurveOnlyWest at 0.001: 20 rounds without that, 6 with it).
+  cadgeom::Model w = load("pcurveOnlyWest");
+  REQUIRE(w.ok());
+  PartOptions onW = options(0.001, 0.26), offW = onW;
+  offW.keepSteiner = false;
+  PartMesher wa(w, onW), wb(w, offW);
+  CHECK(wa.rounds() <= wb.rounds());
+}
+
 TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
           "the rounds short of the cap") {
   // (Meshing it again on the same edges would ask the same, every round to the cap.)

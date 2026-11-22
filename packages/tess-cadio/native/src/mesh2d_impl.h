@@ -21,9 +21,10 @@ struct Mesh2Detail {
   int brokenWorst = 0;
   /**
    * Points inserted, by what queued the triangle they broke: [0] its size in the metric, [1] its thinness alone,
-   * [2 + k] refused by the caller's criteria, k its SizeField::refusalKind (0 to 7, others counted at 7).
+   * [2 + k] refused by the caller's criteria, k its SizeField::refusalKind (0 to 7, others counted at 7); [10] none,
+   * kept from the last mesh (Domain2::seeds).
    */
-  int inserted[10] = {};
+  int inserted[11] = {};
   /**
    * Triangles queued again after surviving the point inserted for them; those left past kRequeues; and at the end, the
    * triangles refinement would still queue (bad) that were neither made final nor left so: dropped, none if every

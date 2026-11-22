@@ -80,6 +80,12 @@ struct Domain2 {
    * only such segments is inserted, and none is wanted split. Empty, or shorter than the segments: the rest not.
    */
   std::vector<uint8_t> frozen;
+  /**
+   * Points to start refinement from (a mesh's Steiner points from before), inserted in order as refinement inserts
+   * its own (cavities Delaunay in each point's metric) once the boundary is in: Steiner points in the result, counted
+   * toward maxPoints. One outside the domain or on a vertex is skipped.
+   */
+  std::vector<Vec2> seeds;
 };
 
 /**

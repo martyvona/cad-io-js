@@ -18,7 +18,8 @@ const API_VERSION = 9;
  */
 export const INSERTED_HEAD = 'points inserted, by what queued their triangle: ';
 export const INSERTED_KINDS = ['size', 'thinness', 'refused (no kind)', 'deviation in closed form', 'deviation sampled',
-  'deviation bounded', 'deviation near a pole', 'a normal against the facet', 'normals apart', 'refused (other kind)'];
+  'deviation bounded', 'deviation near a pole', 'a normal against the facet', 'normals apart', 'refused (other kind)',
+  'kept from the last mesh'];
 /**
  * With countRounds, an info diagnostic of this head then the part's rounds of splitting edges and meshing their faces
  * again (part.h's PartMesher::rounds; PartOptions::maxSplitRounds the most).

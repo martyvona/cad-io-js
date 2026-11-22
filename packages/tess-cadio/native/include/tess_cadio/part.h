@@ -114,13 +114,20 @@ struct PartOptions {
    * The mesh is the same bits whatever the budget.
    */
   size_t verdictBudget = size_t{256} << 20;
+  /**
+   * A face meshed again after a split round, from its fourth meshing on, starts from its last mesh's points (but those
+   * beside the segments split), so refinement only works near the splits and the rounds' asks settle; meshed from its
+   * boundary alone again if that fails or leaves a refused triangle. Not the same mesh as meshing from the boundary
+   * alone, but deterministic.
+   */
+  bool keepSteiner = true;
 };
 
 /** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */
 constexpr int kThinBins = 6;
 
-/** FaceMesh::inserted's kinds: size, thinness, and mesh2d's refusal kinds 0 to 7. */
-constexpr int kInsertionKinds = 10;
+/** FaceMesh::inserted's kinds: size, thinness, mesh2d's refusal kinds 0 to 7, and kept from the last mesh. */
+constexpr int kInsertionKinds = 11;
 
 struct FaceMesh {
   /**

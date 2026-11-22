@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <tuple>
@@ -24,6 +25,8 @@ namespace tesscadio {
 
 /** The deviation check's progress: a report as each face's starts, and again every this many triangles measured. */
 constexpr int kDeviationReport = 64;
+/** PartOptions::keepSteiner: a face meshed this many times already is seeded with its last mesh's points. */
+constexpr int kKeepSteinerFrom = 3;
 
 using namespace cadgeom;
 
@@ -167,6 +170,16 @@ struct PartMesher::Impl {
     int32_t v[3];
   };
   std::vector<std::vector<Refused>> refused;
+  /**
+   * Per face, its last mesh as PartOptions::keepSteiner reuses it: its domain's points and segments in (u, v), the
+   * mesher's points past them (empty where that meshing failed), and how many times the face has been meshed.
+   */
+  struct LastMesh {
+    std::vector<Vec2> boundary, steiner;
+    std::vector<std::pair<Vec2, Vec2>> segments;
+    int meshings = 0;
+  };
+  std::vector<LastMesh> last;
   /**
    * Per face, its creases (cad_geom/creases.h) as constraints: each piece's line (u = at where isoU, else v = at), its
    * samples along it (ascending), and at each end on the boundary the edge sample there (edge, parameter; -1 none).
@@ -1008,7 +1021,79 @@ struct PartMesher::Impl {
     }
     const bool detailed = o.countInsertions || o.countAngles;
     mo.refusalKinds = o.countInsertions;
+    // Meshed kKeepSteinerFrom times already (PartOptions::keepSteiner): its last mesh's points kept as seeds, but those
+    // in a removed segment's diametral disc in (u, v), which holds the boundary's change there (the new point and the
+    // two segments to it), and those near a new segment in the metric (within 1.5 x its diametral ellipse's radius:
+    // a fixed point encroaching a fixed segment makes refinement beside it run away); none where a point of the last
+    // boundary is gone. Meshed from scratch each round, a face's leftover refusals land somewhere new each time, so
+    // its asks wander and a chain of rounds doesn't end; kept, they settle (Kuka #4099: 48 rounds to 30).
+    const size_t nb = d.points.size();
+    auto uvKey = [](Vec2 p) { return std::pair<double, double>{p.x, p.y}; };
+    std::vector<std::pair<Vec2, Vec2>> segsUv;
+    for (const auto& l : d.loops)
+      for (size_t k = 0; k < l.size(); k++) segsUv.push_back({d.points[l[k]], d.points[l[(k + 1) % l.size()]]});
+    for (size_t k = 0; k + 1 < d.segments.size(); k += 2)
+      segsUv.push_back({d.points[d.segments[k]], d.points[d.segments[k + 1]]});
+    if (o.keepSteiner && last[f].meshings >= kKeepSteinerFrom && !last[f].steiner.empty()) {
+      std::set<std::pair<double, double>> now;
+      for (Vec2 p : d.points) now.insert(uvKey(p));
+      bool kept = true;
+      for (Vec2 p : last[f].boundary) kept = kept && now.count(uvKey(p));
+      if (kept) {
+        std::set<std::tuple<double, double, double, double>> segNow, segThen;
+        for (auto [a, b] : segsUv) segNow.insert({a.x, a.y, b.x, b.y}), segNow.insert({b.x, b.y, a.x, a.y});
+        for (auto [a, b] : last[f].segments) segThen.insert({a.x, a.y, b.x, b.y}), segThen.insert({b.x, b.y, a.x, a.y});
+        std::vector<std::pair<Vec2, double>> discs;
+        for (auto [a, b] : last[f].segments)
+          if (!segNow.count({a.x, a.y, b.x, b.y})) {
+            const Vec2 mm{0.5 * (a.x + b.x), 0.5 * (a.y + b.y)};
+            const double r2 = 0.25 * ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
+            discs.push_back({mm, r2 * (1 + 1e-9)});
+          }
+        struct Ellipse {
+          Vec2 m, e;
+          Metric2 M;
+        };
+        std::vector<Ellipse> fresh;
+        for (auto [a, b] : segsUv)
+          if (!segThen.count({a.x, a.y, b.x, b.y})) {
+            const Metric2 Ma = criteria[f]->metric(a), Mb = criteria[f]->metric(b);
+            fresh.push_back({{0.5 * (a.x + b.x), 0.5 * (a.y + b.y)}, {0.5 * (b.x - a.x), 0.5 * (b.y - a.y)},
+              {0.5 * (Ma.a + Mb.a), 0.5 * (Ma.b + Mb.b), 0.5 * (Ma.c + Mb.c)}});
+          }
+        auto mdot = [](const Metric2& M, Vec2 u) { return M.a * u.x * u.x + 2 * M.b * u.x * u.y + M.c * u.y * u.y; };
+        for (Vec2 q : last[f].steiner) {
+          bool in = now.count(uvKey(q)) > 0;
+          for (size_t k = 0; k < discs.size() && !in; k++) {
+            const Vec2 mm = discs[k].first;
+            in = (q.x - mm.x) * (q.x - mm.x) + (q.y - mm.y) * (q.y - mm.y) <= discs[k].second;
+          }
+          for (size_t k = 0; k < fresh.size() && !in; k++) {
+            const Ellipse& E = fresh[k];
+            in = mdot(E.M, {q.x - E.m.x, q.y - E.m.y}) <= 2.25 * mdot(E.M, E.e);
+          }
+          if (!in) d.seeds.push_back(q), now.insert(uvKey(q));
+        }
+      }
+    }
     Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    // (Meshing from the seeds failed, or left a triangle its criteria refuse, which a kept point can stand in the way
+    // of without the triangle asking a split: from the boundary alone, as the first time.)
+    if (!d.seeds.empty() && ((mesh.status != Status::ok && mesh.status != Status::noConvergence) ||
+      !mesh.rejected.empty())) {
+      d.seeds.clear();
+      mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    }
+    {
+      const int meshings = last[f].meshings + 1;
+      last[f] = {};
+      last[f].meshings = meshings;
+    }
+    if (o.keepSteiner && (mesh.status == Status::ok || mesh.status == Status::noConvergence)) {
+      last[f].boundary.assign(d.points.begin(), d.points.begin() + nb);
+      last[f].steiner.assign(mesh.points.begin() + nb, mesh.points.end());
+      last[f].segments = std::move(segsUv);
+    }
     if (o.countInsertions) std::copy(detail.inserted, detail.inserted + kInsertionKinds, out.inserted);
     if (mesh.status != Status::ok && mesh.status != Status::noConvergence) {
       // (A boundary whose seam side wasn't settled fails for that.)
@@ -1240,6 +1325,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.mesherTriangles.assign(nf, 0);
   I.ringBlocked.assign(nf, 0);
   I.refused.resize(nf);
+  I.last.resize(nf);
   I.creases.assign(nf, {}), I.creaseSplits.assign(nf, {});
   const cadgeom::Tolerances tols(m);
   I.floor = refinementFloor(tols.part(), I.o.d.linear);
