@@ -89,13 +89,15 @@ struct FaceMeasure {
   double offSurface = 0;
   /**
    * How far the area can be off for its loops' p-curves not being their edges' curves (mm^2): the sum over the edge
-   * loops' uses of the deviation of the use's p-curve as the face API takes it, max |S(p(t)) - C(t)| over the edge's
-   * range (a given p-curve's measured as the face API measures a projection's; a healed one's the analysis's; a
-   * projected one's the projection's error), times its edge's length: the boundary on the surface moves at most that
-   * far. 0 where the area is integrated along the edges' 3D curves (closed forms) or an edge has none (its p-curve is
-   * the boundary); NaN where a deviation couldn't be had (a projection not made). Included in area.error (the error
-   * reported with the area: the quadrature's plus this) where it's known; where it's NaN, area.error is the
-   * quadrature's alone and trusted() refuses the face.
+   * loops' uses of the deviation of the use's p-curve as the face API takes it from its edge's curve, times the edge's
+   * length: the boundary on the surface moves at most that far. A given p-curve's is measured in its own parameter
+   * along the use (a p-curve needn't share its edge's parameter): each S(p(s)) against its nearest point on the curve
+   * within the edge's range, the feet going one way and the use's ends against the edge's (where the use runs over the
+   * edge's own range, |S(p(t)) - C(t)| at the same t, which bounds that); a healed one's the analysis's; a projected
+   * one's the projection's error. 0 where the area is integrated along the edges' 3D curves (closed forms) or an edge
+   * has none (its p-curve is the boundary); NaN where a deviation couldn't be had (a projection not made, a use's feet
+   * going back along its curve). Included in area.error (the error reported with the area: the quadrature's plus this)
+   * where it's known; where it's NaN, area.error is the quadrature's alone and trusted() refuses the face.
    */
   double boundary = 0;
   /** Where the area is unsupported or failed: why, a short phrase (static storage). */

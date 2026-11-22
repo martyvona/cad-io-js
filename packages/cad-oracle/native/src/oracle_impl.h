@@ -43,8 +43,8 @@ struct Oracle::Impl {
   Estimate perimeter(int face);
   /** FaceMeasure::boundary of a face whose loops come from the face API's (swept and free-form faces). */
   double boundary(int face);
-  /** A given p-curve's deviation from its edge's curve, measured as the face API measures a projection's; NaN where
-   * it can't be. */
+  /** A given p-curve's deviation from its edge's curve, by its own parameter along the use (oracle.h's
+   * FaceMeasure::boundary); NaN where it can't be had. */
   double pcurveDeviation(int face, int coedge);
 
   FaceMeasure closedForm(int face);
