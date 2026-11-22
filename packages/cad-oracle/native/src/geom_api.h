@@ -19,4 +19,8 @@ int32_t cg_face_classify(int32_t h, int32_t face, const double* uv, int32_t n, d
 int32_t cg_coedge_breaks(int32_t h, int32_t coedge, double lo, double hi);
 int32_t cg_coedge_eval(int32_t h, int32_t coedge, const double* t, int32_t n, int32_t order, double* out,
   uint8_t* status);
+int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t, int32_t n);
+int32_t cg_surface_info(int32_t h, int32_t row, double* out);
+int32_t cg_face_eval(int32_t h, int32_t face, const double* uv, int32_t n, int32_t order, double* out,
+  uint8_t* status);
 }

@@ -4,10 +4,12 @@
 
 #include "cad_oracle/oracle.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
+#include "cad_analysis.h"
 #include "geom_api.h"
 #include "oracle_impl.h"
 
@@ -36,6 +38,17 @@ Oracle::Impl::Impl(const uint8_t* buf, size_t size, Options o) : model(buf, size
   for (int i = 0; i < uses; i++) {
     const int f = model.i32(CBR_FACE_USE_FACE)[i];
     if (f >= 0 && f < model.faces()) loose[f] = false;
+  }
+  // The analysis's deviations of the p-curves healing made (an analysis of other rows ignored).
+  healedDeviation.assign(model.coedges(), NAN);
+  if (cba_view v[CBA_COLUMN_COUNT]; o.analysis && cba_open(o.analysis, o.analysisSize, v) == 0
+      && static_cast<int>(v[CBA_COEDGE_PCURVE_FROM].count) == model.coedges()
+      && static_cast<int>(v[CBA_COEDGE_DEVIATION].count) == model.coedges()) {
+    for (int c = 0; c < model.coedges(); c++) {
+      if (CBA_U8(v[CBA_COEDGE_PCURVE_FROM])[c] == CBA_PROVENANCE_HEALED) {
+        healedDeviation[c] = CBA_F64(v[CBA_COEDGE_DEVIATION])[c];
+      }
+    }
   }
 }
 
@@ -85,6 +98,81 @@ Estimate Oracle::Impl::perimeter(int f) {
   return sum;
 }
 
+/** Checks per span between breaks where a given p-curve's deviation is sampled, before a search around the worst. */
+constexpr int kDeviationChecks = 17;
+
+double Oracle::Impl::pcurveDeviation(int f, int c) {
+  const int e = model.coedgeEdge(c);
+  const Curve* C = curve(model.edgeCurve(e));
+  double t0, t1;
+  if (!C || !edgeParams(e, t0, t1)) return NAN;
+  const double lo = std::fmin(t0, t1), hi = std::fmax(t0, t1);
+  const int32_t n = cg_coedge_breaks(h, c, lo, hi);
+  if (n < 2) return NAN;
+  const std::vector<double> br(cg_scratch(), cg_scratch() + n);
+  // The surface's domain: a p-curve's point past a side evaluated on it, as consumers evaluate it (clamped).
+  double dom[6];
+  if (cg_surface_info(h, model.faceSurface(f), dom) != 0) return NAN;
+  bool bad = false;
+  // |S(p(t)) - C(t)| at t: the use's p-curve as the face API takes it, on the face's surface, against the curve.
+  const auto err = [&](double t) {
+    double p[3], S[3];
+    uint8_t st = 0;
+    if (cg_coedge_eval(h, c, &t, 1, 0, p, &st) != 0 || st != 0) return bad = true, 0.0;
+    const double uv[2] = {std::clamp(p[0], dom[0], dom[1]), std::clamp(p[1], dom[2], dom[3])};
+    if (cg_face_eval(h, f, uv, 1, 0, S, &st) != 0 || st != 0) return bad = true, 0.0;
+    cadgeom::CurvePoint q;
+    if (C->eval(t, 0, q) != Status::ok) return bad = true, 0.0;
+    return std::hypot(S[0] - q.p.x, S[1] - q.p.y, S[2] - q.p.z);
+  };
+  // As the face API's fits are measured (numerics_fit.cpp's spanError): checks along each span, then a golden-section
+  // search around the worst until its two inner errors agree.
+  double worst = 0;
+  for (int32_t s = 0; s + 1 < n; s++) {
+    const double a = br[s], b = br[s + 1], step = (b - a) / (kDeviationChecks - 1);
+    if (!(b > a)) continue;
+    int best = 0;
+    double w = -1;
+    for (int k = 0; k < kDeviationChecks; k++) {
+      const double x = err(k + 1 == kDeviationChecks ? b : a + k * step);
+      if (x > w) w = x, best = k;
+    }
+    double l = std::fmax(a, a + (best - 1) * step), r = std::fmin(b, a + (best + 1) * step);
+    const double g = 0.5 * (std::sqrt(5.0) - 1);
+    double x1 = r - g * (r - l), x2 = l + g * (r - l), e1 = err(x1), e2 = err(x2);
+    for (int it = 0; it < 30 && !(std::fabs(e1 - e2) <= 1e-8 * std::fmax(e1, e2)); it++) {
+      if (e1 > e2) r = x2, x2 = x1, e2 = e1, x1 = r - g * (r - l), e1 = err(x1);
+      else l = x1, x1 = x2, e1 = e2, x2 = l + g * (r - l), e2 = err(x2);
+      w = std::fmax(w, std::fmax(e1, e2));
+    }
+    worst = std::fmax(worst, w);
+  }
+  return bad ? NAN : worst;
+}
+
+double Oracle::Impl::boundary(int f) {
+  double sum = 0;
+  for (int l = model.faceFirstLoop(f); l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++) {
+    if (model.loopKind(l) != CBR_LOOP_EDGE) continue;
+    for (int c = model.loopFirst(l); c < model.loopFirst(l) + model.loopCount(l); c++) {
+      const int e = model.coedgeEdge(c);
+      // An edge without a 3D curve: its p-curve is the boundary.
+      if (model.edgeCurve(e) < 0) continue;
+      double dev = NAN;
+      if (model.coedgePcurve(c) < 0) {
+        // The face API's projection (made when the face was first asked): its error, scratch[6] (putProjection).
+        if (cg_coedge_project(h, c, NAN, nullptr, 0) == 0) dev = cg_scratch()[6];
+      } else {
+        dev = std::isfinite(healedDeviation[c]) ? healedDeviation[c] : pcurveDeviation(f, c);
+      }
+      const Estimate len = edgeLength(e);
+      if (!std::isfinite(dev) || len.status != Status::ok) return NAN;
+      sum += dev * (len.value + len.error);
+    }
+  }
+  return sum;
+}
+
 const char* faceStatusWhy(int32_t code) {
   switch (code) {
     case 100: return "a coedge without a p-curve";
@@ -121,16 +209,20 @@ FaceMeasure Oracle::face(int f) {
     case CBR_SURFACE_SPHERE:
     case CBR_SURFACE_TORUS: m = I.closedForm(f); break;
     case CBR_SURFACE_EXTRUSION:
-    case CBR_SURFACE_REVOLUTION: m = I.swept(f); break;
+    case CBR_SURFACE_REVOLUTION: m = I.swept(f), m.boundary = m.area.status == Status::ok ? I.boundary(f) : NAN;
+      break;
     case CBR_SURFACE_BSPLINE:
     case CBR_SURFACE_OFFSET:
-    case CBR_SURFACE_RECTANGULAR_TRIMMED: m = I.freeForm(f); break;
+    case CBR_SURFACE_RECTANGULAR_TRIMMED: m = I.freeForm(f), m.boundary = m.area.status == Status::ok ? I.boundary(f) : NAN;
+      break;
     default:
       m.area = {NAN, INFINITY, Status::unsupported};
       m.why = "a surface kind not supported";
   }
   m.perimeter = I.perimeter(f);
   if (I.loose[f]) m.flags |= flagLoose;
+  // The boundary's error reported with the area's (FaceMeasure::boundary).
+  if (std::isfinite(m.boundary)) m.area.error += m.boundary;
   return m;
 }
 

@@ -36,17 +36,19 @@ void put(double* o, const Estimate& e) {
 extern "C" {
 
 /** The format's version of this API, for the TypeScript layer to check. */
-int32_t co_api_version() { return 2; }
+int32_t co_api_version() { return 3; }
 
 /**
  * The oracle of `size` bytes at `buffer` (from malloc; owned from now on, freed by co_model_free or here if it isn't
- * a model): its handle, or -1.
+ * a model), with its analysis's `analysisSize` bytes at `analysis` (Options::analysis; none: 0; read here, not kept,
+ * the caller's to free): its handle, or -1.
  */
-int32_t co_model_new(uint8_t* buffer, uint32_t size, double relTol) {
+int32_t co_model_new(uint8_t* buffer, uint32_t size, double relTol, const uint8_t* analysis, uint32_t analysisSize) {
   auto e = std::make_unique<Entry>();
   e->buffer = buffer;
   Options o;
   if (relTol > 0) o.relTol = relTol;
+  if (analysis && analysisSize) o.analysis = analysis, o.analysisSize = analysisSize;
   e->oracle = std::make_unique<Oracle>(buffer, size, o);
   if (!e->oracle->ok()) return -1;
   for (size_t i = 0; i < models.size(); i++)
@@ -71,7 +73,8 @@ int32_t co_edge_length(int32_t h, int32_t edge, double* out) {
 }
 
 /**
- * Face `face`'s measure into out[0..8]: area (value, error, status), perimeter (the same), method, flags, offSurface;
+ * Face `face`'s measure into out[0..9]: area (value, error, status), perimeter (the same), method, flags, offSurface,
+ * boundary;
  * its `why` (a static string) into *why. 0, or -1 for a bad handle.
  */
 int32_t co_face(int32_t h, int32_t face, double* out, const char** why) {
@@ -80,6 +83,7 @@ int32_t co_face(int32_t h, int32_t face, double* out, const char** why) {
   FaceMeasure m = e->oracle->face(face);
   put(out, m.area), put(out + 3, m.perimeter);
   out[6] = static_cast<double>(m.method), out[7] = static_cast<double>(m.flags), out[8] = m.offSurface;
+  out[9] = m.boundary;
   *why = m.why;
   return 0;
 }
