@@ -56,6 +56,8 @@ export type RecordedEvent = { t: number } & (
   /** A node's appearance override set exactly (the tree's Override Appearance...). */
   | { type: 'appearance'; path: string; override: AppearanceOverride }
   | { type: 'control'; path: string; value?: unknown }
+  /** Older recordings' answer to a question Mesh again no longer asks (it heals again in place): ignored. */
+  | { type: 'reload'; confirmed: boolean }
   | { type: 'camera'; camera: CameraState }
   | { type: 'api'; method: string; args: unknown[] }
   | { type: 'load'; url?: string; size?: number; sha256?: string; files?: { name: string; size: number;
@@ -199,15 +201,10 @@ export class Recorder {
       window: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
       view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(), events: [] };
     // The model already open, as a load, so replay opens it first.
+    // (Its size and SHA-256 as it loaded: the page keeps no copy of the file.)
     const src = this.ui.source();
-    if (src?.url) {
-      this.push({ type: 'load', url: src.url });
-      this.hashInto(this.rec.events.at(-1) as { size?: number; sha256?: string }, src.bytes);
-    } else if (src) {
-      const file: { name: string; size: number; sha256?: string } = { name: src.name, size: src.bytes.byteLength };
-      this.push({ type: 'load', files: [file] });
-      this.hashInto(file, src.bytes);
-    }
+    if (src?.url) this.push({ type: 'load', url: src.url, size: src.size, sha256: src.sha256 });
+    else if (src) this.push({ type: 'load', files: [{ name: src.name, size: src.size, sha256: src.sha256 }] });
     this.push({ type: 'state', state: this.session.state(), link: this.session.link() });
   }
 
@@ -230,12 +227,6 @@ export class Recorder {
     return this.rec && structuredClone(this.rec);
   }
 
-  /** A model's size at once, and its SHA-256 when hashed (the event is already in its place). */
-  private hashInto(into: { size?: number; sha256?: string }, bytes: ArrayBuffer): void {
-    into.size = bytes.byteLength;
-    void sha256(new Uint8Array(bytes)).then((h) => { into.sha256 = hex(h); });
-  }
-
   private push(e: Untimed<RecordedEvent>): void {
     if (!this.rec) return;
     this.rec.events.push({ t: Math.round((performance.now() - this.t0) * 10) / 10, ...e } as RecordedEvent);
@@ -254,11 +245,11 @@ export class Recorder {
         files![k]!.sha256 = hex(h);
       }));
     } else if (e.type === 'loaded') {
-      // A model loaded by URL: its bytes' size and hash, now that they're here, into its load event.
+      // A model loaded by URL: its size and hash as it loaded, now that it has, into its load event.
       const load = this.rec.events.findLast((x) => x.type === 'load');
       const src = this.ui.source();
       if (load?.type === 'load' && load.url && load.size === undefined && src?.url && !e.report.error) {
-        this.hashInto(load, src.bytes);
+        Object.assign(load, { size: src.size, sha256: src.sha256 });
       }
       this.push({ type: 'loaded', report: e.report });
     }

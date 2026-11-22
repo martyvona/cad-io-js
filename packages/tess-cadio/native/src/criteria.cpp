@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -90,13 +91,37 @@ Metric2 intersect(Metric2 A, Metric2 B) {
     l21 * l21 * D.a + 2 * l21 * l22 * D.b + l22 * l22 * D.c};
 }
 
+/** A (u, v) metric's smaller eigenvalue at least this times its larger: positive definite (sizes 1e7 apart at most). */
+constexpr double kUvFloor = 1e-14;
+
+/**
+ * m with its smaller eigenvalue at least `ratio` times its larger in 3D, through the surface's first fundamental form
+ * I = L L^T (Cholesky): m's form on 3D tangent vectors, L^-1 m L^-T, floored and taken back. In (u, v) the ratio would
+ * be the 3D one times the parameterization's distortion (a cylinder of radius r: |S_u| = r, |S_v| = 1), so it would
+ * cap a large one's size along its axis at a few times its size across. Then floored in (u, v) at kUvFloor, for
+ * positive definiteness whatever rounding did. I degenerate (a pole): floored in (u, v) alone.
+ */
+Metric2 flooredIn3d(Metric2 m, Metric2 I, double ratio) {
+  // (Degenerate as own() judges it, at a pole: L's tiny entry would turn rounding into the metric.)
+  const double det = I.a * I.c - I.b * I.b;
+  if (!(I.a > 0) || !(det > 1e-12 * (I.a + I.c) * (I.a + I.c)) || !std::isfinite(det)) return floored(m, ratio);
+  double l11 = std::sqrt(I.a), l21 = I.b / l11, l22 = std::sqrt(I.c - l21 * l21);
+  double i11 = 1 / l11, i21 = -l21 / (l11 * l22), i22 = 1 / l22;
+  double r1a = i11 * m.a, r1b = i11 * m.b;
+  double r2a = i21 * m.a + i22 * m.b, r2b = i21 * m.b + i22 * m.c;
+  const Metric2 D = floored({r1a * i11, r1a * i21 + r1b * i22, r2a * i21 + r2b * i22}, ratio);
+  return floored({l11 * l11 * D.a, l11 * (l21 * D.a + l22 * D.b),
+    l21 * l21 * D.a + 2 * l21 * l22 * D.b + l22 * l22 * D.c}, kUvFloor);
+}
+
 class Local : public SurfaceCriteria {
 public:
   /** The kinds whose deviation has a closed form: their frame (origin, axis), and radius and a second parameter. */
   enum class Kind { none, sphere, cone, torus };
   Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, Kind kind, Vec3 centre,
-    Vec3 axis, double radius, double second, double tolerance)
-    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), kind_(kind),
+    Vec3 axis, double radius, double second, double tolerance, bool elementary)
+    : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), elementary_(elementary),
+      kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second),
       floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance) {
     std::vector<Singularity> sing;
@@ -124,7 +149,8 @@ public:
         }
       if (!missing) break;
     }
-    for (Metric2& m : grid_) m = floored(m, kFloor);
+    for (int i = 0; i <= kGrid; i++)
+      for (int j = 0; j <= kGrid; j++) grid_[at(i, j)] = floorOf(grid_[at(i, j)], node(i, j));
     for (int sweep = 0; sweep < 4 * kGrid; sweep++) {
       bool changed = false;
       for (int i = 0; i <= kGrid; i++)
@@ -158,8 +184,13 @@ public:
   bool bounded() const override { return (bounded_ || kind_ != Kind::none) && !sampledAny_; }
 
   Metric2 metric(Vec2 p) const override {
-    Metric2 g = interpolated(p), m;
-    return own(p, m) ? floored(intersect(g, m), kFloor) : g;
+    // (On an elementary surface each floored in 3D where its first fundamental form is its own: the grid's at its
+    // nodes, the point's own here. Not their intersection: near a pole the grid's, interpolated in (u, v) between
+    // nodes whose |S_u| differ many times, is far finer across u in 3D than the point's own, and a 3D floor of the two
+    // would pull the size along v down with it.)
+    Metric2 g = interpolated(p), m, I;
+    if (!own(p, m, &I)) return g;
+    return elementary_ ? floored(intersect(g, flooredIn3d(m, I, kFloor)), kUvFloor) : floored(intersect(g, m), kFloor);
   }
 
   bool accept(const Vec2 t[3]) const override {
@@ -169,29 +200,55 @@ public:
     // deviation alone there).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p) && !(own && turnedAsOutput(t, q));
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, false);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, q));
   }
 
   bool acceptFan(const Vec2 t[3]) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    Vec3 q[3];
+    const bool own = output(t, p, q);
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p) && !(own && turnedAsOutput(t, q));
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, true);
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnedAsOutput(t, q));
   }
 
   int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
+  bool worstPoint(const Vec2 t[3], Vec2& out) const override {
+    // (Elementary surfaces only: on free-form ones the point, off where the curvature metric expects points, turns
+    // triangles against the surface. Inside the triangle: the centroid, near each edge's middle and toward each
+    // corner; an edge's own middle would be on the edge, a constrained one's maybe.)
+    if (!elementary_) return false;
+    static const double w[7][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.45, 0.45, 0.1}, {0.1, 0.45, 0.45}, {0.45, 0.1, 0.45},
+      {0.6, 0.2, 0.2}, {0.2, 0.6, 0.2}, {0.2, 0.2, 0.6}};
+    Vec3 p[3];
+    if (!corners(t, p)) return false;
+    double worst = d_.linear;
+    bool found = false;
+    for (const auto& b : w) {
+      Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
+      const double dev = norm(at(uv) - (b[0] * p[0] + b[1] * p[1] + b[2] * p[2]));
+      if (dev > worst) worst = dev, out = uv, found = true;
+    }
+    return found;
+  }
 
   Refusal refusal(const Vec2 t[3], bool normals, bool fan) const override {
     Vec3 p[3];
     const bool evaluated = corners(t, p);
-    if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
+    Vec3 q[3];
+    const bool own = output(t, p, q);
+    if (belowFloor(t, p, evaluated))
+      return normals && (turnedOver(t, p) || (own && turnedAsOutput(t, q))) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
     if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
+    if (r == Refusal::none && normals && own && turnedAsOutput(t, q)) r = Refusal::normalFacet;
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -215,7 +272,9 @@ public:
     if (kind_ != Kind::none && distanceBound(p, out)) return true;
     Bounds b;
     if (!bounded_ || !bounds(t, b, pieces)) return false;
-    out = b.deviation;
+    // (The least of the bounds the verdict takes: the sub-cells' too, cellDeviation.)
+    double cd;
+    out = cellDeviation(t, cd) ? std::fmin(b.deviation, cd) : b.deviation;
     return std::isfinite(out);
   }
 
@@ -248,21 +307,80 @@ private:
   }
 
   /** The triangle's corners on the surface, as at() gives them; whether all three evaluated. */
+  /**
+   * The surface's point and normal at (u, v), each evaluated once (a mesh's vertex is the corner of every triangle
+   * around it, judged again as they change): by (u, v)'s bits, so the same doubles as evaluating again, the meshes
+   * the same bits. Cleared past kEvalMemo entries.
+   */
+  struct Evaluated {
+    Status st;
+    Vec3 v;
+  };
+  static uint64_t bits(double x) {
+    uint64_t b;
+    std::memcpy(&b, &x, 8);
+    return b;
+  }
+  struct PairHash {
+    size_t operator()(const std::pair<uint64_t, uint64_t>& k) const {
+      return std::hash<uint64_t>()(k.first * 0x9e3779b97f4a7c15ull ^ k.second);
+    }
+  };
+  static constexpr size_t kEvalMemo = size_t(1) << 20;
+  mutable std::unordered_map<std::pair<uint64_t, uint64_t>, Evaluated, PairHash> points_, normals_;
+  Evaluated pointAt(double u, double v) const {
+    if (points_.size() > kEvalMemo) points_.clear();
+    auto [it, fresh] = points_.try_emplace({bits(u), bits(v)});
+    if (fresh) {
+      SurfacePoint q;
+      it->second = {s_.eval(u, v, 0, q), q.p};
+    }
+    return it->second;
+  }
+  Status normalAt(double u, double v, Vec3& n) const {
+    if (normals_.size() > kEvalMemo) normals_.clear();
+    auto [it, fresh] = normals_.try_emplace({bits(u), bits(v)});
+    if (fresh) it->second.st = s_.normal(u, v, it->second.v);
+    n = it->second.v;
+    return it->second.st;
+  }
+
+  /** The boundary's own points by (u, v)'s bits (setBoundaryPoints). */
+  std::unordered_map<std::pair<uint64_t, uint64_t>, Vec3, PairHash> boundary_;
+  void setBoundaryPoints(const std::vector<std::pair<Vec2, Vec3>>& points) override {
+    boundary_.clear();
+    for (const auto& [uv, p] : points) boundary_[{bits(uv.x), bits(uv.y)}] = p;
+  }
+  /**
+   * A triangle's corners as the output has them: the boundary's own point at a corner on it, else p's; whether any
+   * corner has one. (Only the output's own turn is judged on these, checkFacing's test: the angle to the normals, on a
+   * thin triangle along a boundary a little off its surface, grows as refinement thins it, and a facet against one
+   * corner's normal but not their mean, a refusal it can't mend either; chasing them turns others.)
+   */
+  bool output(const Vec2 t[3], const Vec3 p[3], Vec3 q[3]) const {
+    bool any = false;
+    for (int i = 0; i < 3; i++) {
+      auto it = boundary_.empty() ? boundary_.end() : boundary_.find({bits(t[i].x), bits(t[i].y)});
+      q[i] = it != boundary_.end() ? (any = true, it->second) : p[i];
+    }
+    return any;
+  }
+
   bool corners(const Vec2 t[3], Vec3 p[3]) const {
     bool ok = true;
     for (int i = 0; i < 3; i++) {
-      SurfacePoint q;
-      ok = s_.eval(t[i].x, t[i].y, 0, q) == Status::ok && ok;
-      p[i] = q.p;
+      const Evaluated e = pointAt(t[i].x, t[i].y);
+      ok = e.st == Status::ok && ok;
+      p[i] = e.v;
     }
     return ok;
   }
 
   /** The surface's point at (u, v), false where it can't be evaluated. */
   bool corner(Vec2 uv, Vec3& out) const {
-    SurfacePoint q;
-    if (s_.eval(uv.x, uv.y, 0, q) != Status::ok || !std::isfinite(q.p.x + q.p.y + q.p.z)) return false;
-    out = q.p;
+    const Evaluated e = pointAt(uv.x, uv.y);
+    if (e.st != Status::ok || !std::isfinite(e.v.x + e.v.y + e.v.z)) return false;
+    out = e.v;
     return true;
   }
 
@@ -298,8 +416,8 @@ private:
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
       // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
       if (!sampledDeviation(t, p)) return Refusal::deviationSampled;
-      // A fast accept by the bound over the knot cell holding the triangle's box (cellDeviation), cached: where
-      // that doesn't clear it, the triangle's own bounds decide as always.
+      // The deviation bounded by the least of the sub-cells' (cellDeviation, cached: tried first, cheap), the
+      // box's and its pieces' bounds.
       double cd;
       if (cellDeviation(t, cd) && cd <= d_.linear) return Refusal::none;
       if (!bounds(t, b, false)) {
@@ -421,33 +539,48 @@ private:
   }
 
   /**
-   * The deviation bound over the triangle (as bounds() has it) from the second partials' bounds over the surface's
-   * knot cell (between consecutive breaks, both ways) holding its (u, v) box, each cell's bounded once and kept:
-   * false where the box isn't within one cell, the domain isn't finite, or the cell has no bound. A bound over the
-   * cell holds over the box inside it, so the deviation is bounded too, if more loosely than the box's own bound.
+   * The deviation bound over the triangle (as bounds() has it) from the second partials' bounds over the sub-cells
+   * its (u, v) box covers: each knot cell (between consecutive breaks, both ways) cut kCellSplit x kCellSplit, each
+   * sub-cell bounded once and kept, the largest over at most kCellsCovered of them. False where the box covers more,
+   * leaves the cells, the domain isn't finite, or a sub-cell has no bound. A bound over sub-cells holds over the box
+   * they cover; one of the bounds the triangle's deviation is the least of (deviationWithin, deviationBound).
    */
   bool cellDeviation(const Vec2 t[3], double& out) const {
     if (!cellsReady_) {
       cellsReady_ = true;
       const SurfaceDomain D = s_.domain();
+      std::vector<double> ku, kv;
       if (std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi))
-        s_.breaks(D.u, D.v, cellU_, cellV_);
+        s_.breaks(D.u, D.v, ku, kv);
+      auto cut = [](const std::vector<double>& k, std::vector<double>& c) {
+        for (size_t a = 0; a + 1 < k.size(); a++)
+          for (int g = 0; g < kCellSplit; g++) c.push_back(k[a] + (k[a + 1] - k[a]) * g / kCellSplit);
+        if (!k.empty()) c.push_back(k.back());
+      };
+      cut(ku, cellU_), cut(kv, cellV_);
     }
     if (cellU_.size() < 2 || cellV_.size() < 2) return false;
     const Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     const Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
-    auto cell = [](const std::vector<double>& c, Range r) -> long {
-      auto it = std::upper_bound(c.begin(), c.end(), r.lo);
-      if (it == c.begin() || it == c.end()) return -1;
-      const long i = static_cast<long>(it - c.begin()) - 1;
-      return r.hi <= c[i + 1] ? i : -1;
+    // The sub-cells [a, b] a range covers (false outside them).
+    auto span = [](const std::vector<double>& c, Range r, long& a, long& b) {
+      auto lo = std::upper_bound(c.begin(), c.end(), r.lo);
+      if (lo == c.begin() || r.hi > c.back()) return false;
+      a = static_cast<long>(lo - c.begin()) - 1;
+      b = std::max(a, static_cast<long>(std::lower_bound(c.begin(), c.end(), r.hi) - c.begin()) - 1);
+      return a + 1 < static_cast<long>(c.size());
     };
-    const long i = cell(cellU_, ru), j = cell(cellV_, rv);
-    if (i < 0 || j < 0) return false;
-    auto [it, added] = cellBounds_.try_emplace(static_cast<uint64_t>(i) << 32 | static_cast<uint64_t>(j));
-    if (added) it->second.ok = wholeBounds({cellU_[i], cellU_[i + 1]}, {cellV_[j], cellV_[j + 1]}, it->second.d2);
-    if (!it->second.ok) return false;
-    const double* d2 = it->second.d2;
+    long i0, i1, j0, j1;
+    if (!span(cellU_, ru, i0, i1) || !span(cellV_, rv, j0, j1)) return false;
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) > kCellsCovered) return false;
+    double d2[3] = {0, 0, 0};
+    for (long i = i0; i <= i1; i++)
+      for (long j = j0; j <= j1; j++) {
+        auto [it, added] = cellBounds_.try_emplace(static_cast<uint64_t>(i) << 32 | static_cast<uint64_t>(j));
+        if (added) it->second.ok = wholeBounds({cellU_[i], cellU_[i + 1]}, {cellV_[j], cellV_[j + 1]}, it->second.d2);
+        if (!it->second.ok) return false;
+        for (int k = 0; k < 3; k++) d2[k] = std::fmax(d2[k], it->second.d2[k]);
+      }
     const double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo, e = Du > 0 && Dv > 0 ? Dv / Du : 1;
     const double au = d2[0] + d2[1] * e, av = d2[2] + d2[1] / e;
     Vec2 q[3];
@@ -639,7 +772,13 @@ private:
     return true;
   }
 
-  /** The metric's smaller eigenvalue at least this times its larger (a size ratio of 1000 at most). */
+  /**
+   * The metric's smaller eigenvalue at least this times its larger (a size ratio of 1000 at most): in 3D on an
+   * elementary surface, in (u, v) on the others. The curvature metric holds along a free-form surface's principal
+   * directions at a point but not how fast they turn (its twist): long triangles laid along them leave the surface
+   * where it twists (turned against it, or refined again and again), and the (u, v) floor, its ratio the 3D one times
+   * the parameterization's distortion, stands in for that.
+   */
   static constexpr double kFloor = 1e-6;
   /** A piece between breaks narrower than this of the triangle's extent there is a strip (stripBounds). */
   static constexpr double kStrip = 0.125;
@@ -673,9 +812,25 @@ private:
           x = k.at + (side > k.at ? 1 : -1) * 1e-9 * (1 + std::fabs(k.at));
       }
     }
-    return s_.normal(q.x, q.y, n);
+    return normalAt(q.x, q.y, n);
   }
 
+  /**
+   * Turned as the part judges its output (part.cpp's checkFacing): the facet of q, the corners as output, against the
+   * mean of the corners' normals; not with a corner within the tolerance of a pole or apex.
+   */
+  bool turnedAsOutput(const Vec2 t[3], const Vec3 q[3]) const {
+    for (const Vec3& s : poles_)
+      for (int i = 0; i < 3; i++)
+        if (norm(q[i] - s) <= tolerance_) return false;
+    const Vec3 g = cross(q[1] - q[0], q[2] - q[0]);
+    Vec3 sum{0, 0, 0};
+    for (int i = 0; i < 3; i++) {
+      Vec3 n;
+      if (cornerNormal(t, i, n) == Status::ok) sum = sum + n;
+    }
+    return facetAgainst(g, sum);
+  }
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
     for (const Vec3& q : poles_)
       for (int i = 0; i < 3; i++)
@@ -712,12 +867,27 @@ private:
     return lo > 0 && len > 0 ? len / std::sqrt(lo) : hmax_;
   }
 
-  /** The metric of the point's own curvature, in (u, v); false where the parameterization degenerates there. */
-  bool own(Vec2 p, Metric2& out) const {
+  /** A grid node's metric floored as kFloor says. */
+  Metric2 floorOf(Metric2 m, Vec2 p) const {
+    return elementary_ ? flooredIn3d(m, first(p), kFloor) : floored(m, kFloor);
+  }
+  /** The surface's first fundamental form at p (zero where it can't be evaluated). */
+  Metric2 first(Vec2 p) const {
+    SurfacePoint q;
+    Status st = s_.eval(p.x, p.y, 1, q);
+    if (st != Status::ok && st != Status::outOfDomain) return {0, 0, 0};
+    return {dot(q.du, q.du), dot(q.du, q.dv), dot(q.dv, q.dv)};
+  }
+  /**
+   * The metric of the point's own curvature, in (u, v); false where the parameterization degenerates there. `I`, if
+   * given, receives the first fundamental form there.
+   */
+  bool own(Vec2 p, Metric2& out, Metric2* I = nullptr) const {
     SurfacePoint q;
     Status st = s_.eval(p.x, p.y, 2, q);
     if (st != Status::ok && st != Status::outOfDomain) return false;
     double E = dot(q.du, q.du), F = dot(q.du, q.dv), G = dot(q.dv, q.dv), det = E * G - F * F;
+    if (I) *I = {E, F, G};
     Vec3 nn = cross(q.du, q.dv);
     double nl = norm(nn);
     if (!(det > 1e-12 * (E + G) * (E + G)) || !(nl > 0) || !std::isfinite(det)) return false;
@@ -768,9 +938,13 @@ private:
   double hmax_, hmin_;
   /** Whether accept() bounds the deviation (Local::bounds), by a closed form (kind_), or samples it. */
   bool bounded_;
+  /** A plane, cylinder, cone, sphere or torus: the metric floored in 3D (kFloor). */
+  bool elementary_;
   /** Whether any triangle's deviation was sampled so far (a bound unavailable there: bounded() then false). */
   mutable bool sampledAny_ = false;
-  /** The surface's knot cells (cellDeviation): their edges each way, and each cell's bounds once made. */
+  /** Each knot cell cut so many times each way into sub-cells (cellDeviation), and the most a box may cover. */
+  static constexpr int kCellSplit = 4, kCellsCovered = 16;
+  /** The surface's sub-cells (cellDeviation): their edges each way, and each one's bounds once made. */
   struct CellBound {
     double d2[3] = {0, 0, 0};
     bool ok = false;
@@ -830,8 +1004,9 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   Vec3 centre = closed != Local::Kind::none ? Vec3{r[0], r[1], r[2]} : Vec3{};
   Vec3 axis = closed != Local::Kind::none ? Vec3{r[3], r[4], r[5]} : Vec3{};
   double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
+  const bool elementary = kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS;
   return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
-    second, Tolerances(m).part());
+    second, Tolerances(m).part(), elementary);
 }
 
 } // namespace tesscadio

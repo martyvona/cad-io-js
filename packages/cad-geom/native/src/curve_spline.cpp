@@ -111,6 +111,16 @@ public:
       if (k > r.lo && k < r.hi && k != out.back()) out.push_back(k);
     out.push_back(r.hi);
   }
+  void joints(Range r, int c, std::vector<double>& out) const override {
+    out.clear();
+    const int need = std::max(1, c_.degree - c);
+    for (size_t i = 0; i < c_.knots.size();) {
+      size_t j = i;
+      while (j < c_.knots.size() && c_.knots[j] == c_.knots[i]) j++;
+      if (c_.knots[i] > r.lo && c_.knots[i] < r.hi && static_cast<int>(j - i) >= need) out.push_back(c_.knots[i]);
+      i = j;
+    }
+  }
   Status derivBox(Range r, int order, Box3& out) const override {
     if (!clip(r)) return Status::outOfDomain;
     if (c_.rational && order > 0) {

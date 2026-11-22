@@ -82,6 +82,14 @@ void shareRings(const std::vector<const cadgeom::Surface*>& surfaces, std::vecto
   double tol);
 
 /**
+ * Every face's ring at `pole` (within `tol` of it) whose reach is more than `reach` shrunk to it, its radius again
+ * for its face, as shareRings sets them: for a split another face asks inside the rings (PartMesher's rounds), the
+ * rings then cut again (ringCuts, EdgeMesh::cutRings). The faces whose rings changed.
+ */
+std::vector<int> shrinkRings(const std::vector<const cadgeom::Surface*>& surfaces,
+  std::vector<std::vector<PoleRing>>& rings, double tol, cadgeom::Vec3 pole, double reach);
+
+/**
  * The ring's cuts (EdgeMesh::cutRings) into its incident edges: from each approach, each way along the edge but past
  * its ends, to where the edge first reaches the ring's reach from the pole (the edge's end where it never does). The
  * same edge, approach and reach give the same cut for every face, so faces sharing the edge agree.

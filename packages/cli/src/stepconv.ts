@@ -19,8 +19,10 @@ import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, MESH_PROFILE_NAM
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
-import { HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix, type HealSceneOptions, poolHealer } from 'cad-heal';
+import { fixesNamed, HEAL_BY_DEFAULT, HEAL_FIXES, type HealFix, type HealSceneOptions, PCURVE_FIT_TOLERANCE,
+  poolHealer } from 'cad-heal';
 import { healImported, importStep } from 'step-import';
+import { KEEP_FAILING, MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { readStep } from 'step-parser';
 import { CachedTessellator, FileStore, DEFAULT_FILE_BYTES } from 'tess-cache';
 import { DEFAULT_TIMEOUT_MS, WorkerTessellator } from 'tess-workers';
@@ -131,7 +133,22 @@ const BACKENDS: Record<string, { module: string; export: string }> = {
   occt: { module: 'tess-occt', export: 'OcctTessellator' },
   truck: { module: 'tess-truck', export: 'TruckTessellator' },
   smlib: { module: 'tess-smlib', export: 'SmlibTessellator' },
+  cadio: { module: 'tess-cadio', export: 'CadioTessellator' },
 };
+
+/** A backend made here (--workers 0) given its init options, as a pool's workers give them. */
+class WithOptions implements Tessellator {
+  private readonly inner: Tessellator;
+  private readonly options: Record<string, unknown>;
+  constructor(inner: Tessellator, options: Record<string, unknown>) {
+    this.inner = inner;
+    this.options = options;
+  }
+  get info() { return this.inner.info; }
+  init() { return this.inner.init(this.options); }
+  tessellate(...a: Parameters<Tessellator['tessellate']>) { return this.inner.tessellate(...a); }
+  dispose() { this.inner.dispose(); }
+}
 
 
 const defaultWorkers = () => Math.max(1, os.availableParallelism() - 1);
@@ -155,10 +172,15 @@ ${FORMAT_LINES}
 Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
-  -b, --backend <name>     occt (default), truck or smlib
+  -b, --backend <name>     occt (default), truck, smlib or cadio (our own tessellator, tess-cadio)
       --fallback <name>    the backend for parts the first fails (faces without triangles or wrong by their
-                           measures, open edges, errors): occt, truck, smlib or none (default smlib, occt for
-                           smlib); the part keeps the better mesh (a face missing worst)
+                           measures, open edges, errors): occt, truck, smlib, cadio or none (default smlib, occt
+                           for smlib); the part keeps the better mesh (a face missing worst)
+      --min-angle <deg>    cadio: the smallest angle its refinement aims for in the triangles, in degrees, 0 to
+                           ${MAX_MIN_ANGLE_DEGREES} (default its own, 10; 0 none)
+      --keep-failing       cadio, for debugging: keep the faces it would fail for their mesh (past the deflection,
+                           at the point cap, triangles turned against the surface) as meshed, so they're seen and no
+                           fallback meshes them; not with --cache
       --coarse, --medium, --fine
                            the meshing profile (default ${DEFAULT_MESH_PROFILE}), with its deflections:
 ${PROFILE_LINES}
@@ -202,9 +224,13 @@ ${PROFILE_LINES}
                            exactly as imported (default: ${HEAL_BY_DEFAULT ? 'healed' : 'as imported'}); what healing changed is
                            in the warnings, a tolerance grown past its limit an error
       --heal-on <fixes>, --heal-off <fixes>
-                           these fixes on or off (comma-separated), healing on: strayPole, pcurveMissing,
-                           pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance (all on by
-                           default but pcurveMissing)
+                           these fixes on or off (comma-separated), healing on: strayPole, pcurveMissingOnPlane,
+                           pcurveMissingOnElementary, pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace,
+                           pcurveEnds, edgeTolerance, vertexTolerance (all on by default but the pcurveMissing
+                           ones, which make a p-curve for every bare use on planes, on cylinders, cones, spheres
+                           and tori, and on other surfaces; pcurveMissing: the last two)
+      --heal-fit <mm>      the tolerance a p-curve healing makes for a bare use is fitted within, where tighter
+                           than its edge's (default ${PCURVE_FIT_TOLERANCE}: as fine as the fine profile meshes)
   -j, --workers <n>        parts tessellated (and healed) at once, each in a worker (default ${defaultWorkers()}); 0: one at a time
                            on the main thread, without a timeout
       --timeout <s>        per part, in a worker (default ${DEFAULT_TIMEOUT_MS / 1000}); 0: none
@@ -228,14 +254,14 @@ async function importScene(source: Parameters<typeof readStep>[0]): Promise<Scen
   return (await importStep(await readStep(source), { heal: { heal: false } })).scene;
 }
 
-/** --heal-on's or --heal-off's fixes, or the usage error. */
+/** --heal-on's or --heal-off's fixes (an alias, cad-heal's FIX_ALIASES, as its fixes), or the usage error. */
 function fixList(flag: string, text: string | undefined): HealFix[] | string {
   if (text === undefined) return [];
   const names = text.split(',').map((s) => s.trim()).filter(Boolean);
-  const bad = names.find((n) => !(HEAL_FIXES as readonly string[]).includes(n));
+  const bad = names.find((n) => !fixesNamed(n).length);
   if (bad !== undefined || !names.length) return `--${flag} takes fixes from ${HEAL_FIXES.join(', ')}, not `
     + `'${bad ?? text}'`;
-  return names as HealFix[];
+  return [...new Set(names.flatMap((n) => fixesNamed(n)))];
 }
 
 export async function stepconv(argv: string[], io: Io): Promise<number> {
@@ -249,6 +275,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         format: { type: 'string', short: 'f' },
         backend: { type: 'string', short: 'b', default: 'occt' },
         fallback: { type: 'string' },
+        'min-angle': { type: 'string' },
+        'keep-failing': { type: 'boolean', default: false },
         coarse: { type: 'boolean', default: false },
         medium: { type: 'boolean', default: false },
         fine: { type: 'boolean', default: false },
@@ -274,6 +302,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         'no-heal': { type: 'boolean', default: false },
         'heal-on': { type: 'string' },
         'heal-off': { type: 'string' },
+        'heal-fit': { type: 'string' },
         unit: { type: 'string' },
         workers: { type: 'string', short: 'j' },
         timeout: { type: 'string' },
@@ -366,21 +395,34 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   const angular = angularText === undefined ? profile.angularDeflection : (angularDegrees * Math.PI) / 180;
   const deflections = { linearDeflection: deflection, angularDeflection: angular };
   const workers = number('workers', o.workers, defaultWorkers(), false);
+  const minAngleText = o['min-angle'];
+  const minAngleDegrees = number('min-angle', minAngleText, 0, false);
+  if (minAngleDegrees > MAX_MIN_ANGLE_DEGREES) bad ??= `--min-angle must be at most ${MAX_MIN_ANGLE_DEGREES} degrees`;
+  const minAngle = minAngleText === undefined ? undefined : (minAngleDegrees * Math.PI) / 180;
   const timeout = number('timeout', o.timeout, DEFAULT_TIMEOUT_MS / 1000, false);
   const cacheMb = number('cache-size', o['cache-size'], DEFAULT_FILE_BYTES / 2 ** 20, false);
+  const healFit = number('heal-fit', o['heal-fit'], PCURVE_FIT_TOLERANCE, true);
   if (bad) return usage(bad);
   if (!Number.isInteger(workers)) return usage('--workers must be a whole number');
   if (o['cache-size'] !== undefined && o.cache === undefined) return usage('--cache-size needs --cache');
+  const cadio = o.backend === 'cadio' || fallbackName === 'cadio';
+  for (const f of ['min-angle', 'keep-failing'] as const) {
+    if (o[f] !== undefined && o[f] !== false && !cadio) return usage(`--${f} applies to the cadio backend (-b or `
+      + '--fallback)');
+  }
+  if (o['keep-failing'] && o.cache !== undefined) return usage('--keep-failing with --cache: its meshes aren\'t '
+    + 'to be cached as normal ones');
   if (o.verbose && o.quiet) return usage('--verbose and --quiet together');
   if (o.heal && o['no-heal']) return usage('--heal and --no-heal together');
   const healOn = fixList('heal-on', o['heal-on']), healOff = fixList('heal-off', o['heal-off']);
   if (typeof healOn === 'string') return usage(healOn);
   if (typeof healOff === 'string') return usage(healOff);
-  if (o['no-heal'] && (healOn.length || healOff.length)) return usage(
-    `--no-heal and --heal-${healOn.length ? 'on' : 'off'} together`);
+  if (o['no-heal'] && (healOn.length || healOff.length || o['heal-fit'] !== undefined)) return usage(
+    `--no-heal and --heal-${healOn.length ? 'on' : healOff.length ? 'off' : 'fit'} together`);
   const both = healOn.find((f) => healOff.includes(f));
   if (both) return usage(`${both} both in --heal-on and --heal-off`);
-  const healing = !o['no-heal'] && (o.heal || healOn.length > 0 || healOff.length > 0 || HEAL_BY_DEFAULT);
+  const healing = !o['no-heal'] && (o.heal || healOn.length > 0 || healOff.length > 0 || o['heal-fit'] !== undefined
+    || HEAL_BY_DEFAULT);
   const fixes = Object.fromEntries([...healOn.map((f) => [f, true]), ...healOff.map((f) => [f, false])]);
 
   const input = args.positionals[0]!;
@@ -430,14 +472,16 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     const store = o.cache === undefined ? undefined : new FileStore({ dir: o.cache, maxBytes: cacheMb * 2 ** 20 });
     const make = async (name: string, b: { module: string; export: string }): Promise<Tessellator> => {
       let t: Tessellator;
+      const options = name === 'cadio' && o['keep-failing'] ? { ...KEEP_FAILING } : undefined;
       if (workers > 0) {
         t = new WorkerTessellator(
-          { backend: { module: import.meta.resolve(b.module), export: b.export }, workers,
-          ...(o.timeout === undefined ? {} : { timeoutMs: timeout * 1000 }) });  // else the pool's default
+          { backend: { module: import.meta.resolve(b.module), export: b.export, ...(options ? { options } : {}) },
+            workers, ...(o.timeout === undefined ? {} : { timeoutMs: timeout * 1000 }) });  // else the pool's default
         pool ??= t as WorkerTessellator;
       } else {
         const mod = (await import(b.module)) as Record<string, new () => Tessellator>;
         t = new mod[b.export]!();
+        if (options) t = new WithOptions(t, options);
       }
       // (Every backend here takes models, which StepTessellator passes through, adding the open-edge error and the
       // oracle's areas; OCCT's STEP route would get them written as STEP. After the cache, which keys on the model.)
@@ -467,8 +511,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     const healer = pool ?? own;
     try {
       await own?.init();
-      const heal: HealSceneOptions = { heal: true, fixes, ...(healer ? { concurrency: workers,
-        healer: poolHealer(healer, import.meta.resolve('cad-heal')) } : {}) };
+      const heal: HealSceneOptions = { heal: true, fixes, pcurveFitTolerance: healFit,
+        ...(healer ? { concurrency: workers, healer: poolHealer(healer, import.meta.resolve('cad-heal')) } : {}) };
       await healImported(scene, { heal, onProgress: progress ? (p) => io.stderr.write(
         `\rhealing ${p.done}/${p.total}`) : undefined });
       if (progress) io.stderr.write('\r\x1b[K');
@@ -487,7 +531,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   let meshes = new Map<number, unknown>();
   if (tess) try {
     const r = await tessellateScene(scene, tess, {
-      ...deflections, edges: o['with-edges'],
+      ...deflections, ...(minAngle !== undefined ? { minAngle } : {}), edges: o['with-edges'],
       concurrency: Math.max(1, workers),
       onPart: progress ? (_p, _m, done, total) => io.stderr.write(`\rtessellating ${done}/${total}`) : undefined,
     });
@@ -500,7 +544,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   lap('tessellate');
 
   // Each part's level made at these deflections (the scene holds them, its parts' levels).
-  const view = exportView(scene, { ...deflections, edges: o['with-edges'], curves: o['with-curves'] });
+  const view = exportView(scene, { ...deflections, ...(minAngle !== undefined ? { minAngle } : {}),
+    edges: o['with-edges'], curves: o['with-curves'] });
   let written = 0;
   try {
     const w = await format.write(scene, view, {
@@ -532,7 +577,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 
   if (!o.quiet) {
     io.stderr.write(summary(scene, meshing ? meshes.size : undefined, view, diagnostics, times, written, cached,
-      deflections, o.verbose, healing));
+      deflections, o.verbose, healing, o['keep-failing']));
   }
   const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
@@ -541,7 +586,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
 /** The run's summary; `meshed` undefined when nothing was (STEP output). */
 function summary(scene: Scene, meshed: number | undefined, view: ExportView, diagnostics: readonly Diagnostic[],
   times: Record<string, number>, written: number, cached: ReadonlyMap<string, CachedTessellator>,
-  deflections: Deflections, verbose: boolean, healed: boolean): string {
+  deflections: Deflections, verbose: boolean, healed: boolean, keptFailing = false): string {
   const brep = scene.parts.filter((p) => p.brep).length;
   let placed = 0, triangles = 0;
   const walk = (n: ExportView['roots'][number]) => {
@@ -570,6 +615,7 @@ function summary(scene: Scene, meshed: number | undefined, view: ExportView, dia
     text += `cache${cached.size > 1 ? ` (${name})` : ''}: ${c.hits} hits (${c.failureHits} failures), ${c.misses} `
       + `misses${c.errors ? `, ${c.errors} errors` : ''}\n`;
   }
+  if (keptFailing) text += 'debugging (--keep-failing): cadio kept the faces it would fail for their mesh\n';
   const count = (sev: Diagnostic['severity']) => diagnostics.filter((d) => d.severity === sev).length;
   text += `${count('error')} errors, ${count('warning')} warnings, ${count('info')} notes\n`;
   return text + listed(diagnostics, verbose);

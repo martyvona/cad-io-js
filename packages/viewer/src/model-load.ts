@@ -7,7 +7,7 @@
 // phase; then each placed brep part's mesh as tessellation delivers it (the buffers transferable); then the end, with
 // healing's and the tessellation's diagnostics and what meshed it.
 
-import { chooseLod, meshDeflections, partInstances, tessellateScene, type Brep, type Diagnostic, type LodWanted,
+import { chooseLod, partInstances, tessellateScene, type Brep, type Diagnostic, type LodWanted,
   type Measures, type Mesh, type Scene, type SceneBounds } from 'cad-scene';
 import { healScene, poolHealer } from 'cad-heal';
 import type { PoolTessellator } from 'tess-workers/browser';
@@ -18,7 +18,8 @@ import { importThreejs } from 'threejs-import';
 import type { Format } from './formats.ts';
 import { EDGE_ANGLE, EDGE_GRID_MM, findEdges } from './edges.ts';
 import type { CacheStats } from 'tess-cache/browser';
-import { deflectionsOf, healingOf, type Tessellation, type TessellationSettings } from './tessellation.ts';
+import { deflectionsOf, healingOf, minAngleOf, wantedOf, type Tessellation, type TessellationSettings }
+  from './tessellation.ts';
 
 /**
  * What meshed a model: the backend's name and version, the workers, the cache's counts (if it was on), and how many
@@ -162,7 +163,7 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
   // scene goes (edges.ts: off the page's thread, and not holding up meshing); those levels' buffers are copied to the
   // page rather than transferred, as they're needed here meanwhile.
-  const jobs = edgeJobs(scene, meshDeflections(deflectionsOf(settings)));
+  const jobs = edgeJobs(scene, wantedOf(settings));
   const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
   // (The file's other levels transferred: only B-rep models are used here from now on.)
   emit({ type: 'scene', scene: postable(scene), edgeParts: jobs.length },
@@ -197,8 +198,9 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
   const healed = await healIn(scene, settings, pool, n, emit, cancelled);
   if (cancelled()) return;
   // Faces that fail to mesh, and parts that do (errors, timeouts), outlined from the file (cad-scene's `outlines`).
-  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings), edges: true, outlines: true,
-    concurrency: n, parts: brep,
+  const min = minAngleOf(settings);
+  const { diagnostics } = await tessellateScene(scene, tess, { ...deflectionsOf(settings),
+    ...(min !== undefined ? { minAngle: min } : {}), edges: true, outlines: true, concurrency: n, parts: brep,
     onPart: (part, mesh) => {
       if (cancelled()) return;
       const measures = scene.parts[part]!.measures;
@@ -218,18 +220,27 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
 export const HEAL_MODULE = 'cad-heal';
 
 /**
- * What healIn did to a scene, to undo for other healing (Mesh again with other settings): its key (healingOf), its
- * diagnostics, and the models and outlines as imported of the parts it changed.
+ * What healIn did to a scene: the healing it was healed with (healingOf; PART_HEALED where a healing was cancelled
+ * partway, its models part healed) and healing's diagnostics. The models as imported aren't kept (they'd cost as much
+ * memory as the scene's own): other healing heals each part again from its source's values, which its analysis keeps
+ * (cad-heal's healPart).
  */
-interface Healing { key: string; diagnostics: Diagnostic[]; imported: Map<number, Pick<Brep, 'model' | 'outline'>> }
+interface Healing { key: string; diagnostics: Diagnostic[] }
 const healings = new WeakMap<Scene, Healing>();
 /** The healing of a scene still going, which the next waits for (a cancelled one ends as its pool's workers stop). */
 const healingNow = new WeakMap<Scene, Promise<unknown>>();
+/**
+ * A healing key no settings make: the scene's models part healed, by a healing cancelled before it ended (healing it
+ * again heals each part as asked, from whatever healing it had).
+ */
+const PART_HEALED = '\0part healed';
 
 /**
  * The scene's models healed as the settings ask, in `pool`'s workers, `workers` at once (none asked: as imported),
- * with healing's diagnostics; the import's healing phase emitted as it goes. Healed already as asked: kept. Healed
- * otherwise: undone first. Cancelled: undone.
+ * with healing's diagnostics; the import's healing phase emitted as it goes. Healed already as asked (or as imported,
+ * none asked): kept. Healed otherwise (or a healing of it cancelled partway): healed again in place, each part from
+ * its source's values (its analysis's), or put back as its source with healing off; a pole strayPole moved stays
+ * moved, said.
  */
 export async function healIn(scene: Scene, settings: Partial<TessellationSettings>,
   pool: Pick<PoolTessellator, 'run'>, workers: number, emit: (e: ModelEvent) => void, cancelled: () => boolean):
@@ -239,13 +250,12 @@ export async function healIn(scene: Scene, settings: Partial<TessellationSetting
     await prior?.catch(() => {});
     const key = healingOf(settings), was = healings.get(scene);
     if ((was?.key ?? '') === key) return was?.diagnostics ?? [];
-    undo(scene);
-    if (!key) return [];
-    const imported = new Map(scene.parts.flatMap((p, i) => (p.brep ? [[i, { model: p.brep.model,
-      outline: p.brep.outline }] as const] : [])));
     const before = scene.diagnostics.length;
     let told = -Infinity;
-    await healScene(scene, { heal: true, fixes: settings.healFixes, concurrency: workers,
+    // (Marked before the first part changes: a cancel or a throw leaves its models part healed.)
+    healings.set(scene, { key: PART_HEALED, diagnostics: [] });
+    await healScene(scene, { heal: !!key, fixes: settings.healFixes, ...(settings.healFit === undefined ? {}
+      : { pcurveFitTolerance: settings.healFit }), concurrency: workers,
       healer: poolHealer(pool, HEAL_MODULE),
       onPart: (done, total) => {
         const t = performance.now();
@@ -253,25 +263,12 @@ export async function healIn(scene: Scene, settings: Partial<TessellationSetting
         told = t;
         emit({ type: 'importing', progress: { phase: 'healing', done, total } });
       } });
-    // (Kept apart from the scene's own, to undo.)
+    // (Kept apart from the scene's own, as healing's.)
     const diagnostics = scene.diagnostics.splice(before);
-    for (const [i, m] of imported) if (scene.parts[i]!.brep!.model === m.model) imported.delete(i);
-    healings.set(scene, { key, diagnostics, imported });
-    if (cancelled()) {
-      undo(scene);
-      return [];
-    }
+    if (cancelled()) return [];
+    healings.set(scene, { key, diagnostics });
     return diagnostics;
   })();
   healingNow.set(scene, now);
   return now;
-}
-
-/** The scene's models back as imported, from whatever healIn did. */
-function undo(scene: Scene): void {
-  const was = healings.get(scene);
-  if (!was) return;
-  for (const p of scene.parts) if (p.brep) delete p.brep.analysis;
-  for (const [i, m] of was.imported) Object.assign(scene.parts[i]!.brep!, m);
-  healings.delete(scene);
 }

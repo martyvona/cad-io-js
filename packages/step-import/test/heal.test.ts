@@ -42,7 +42,7 @@ test('the default is HEAL_BY_DEFAULT\'s', async () => {
 test('per fix: one off leaves what it would do undone, the others done; one off by default turned on', async () => {
   const off = await imported({ heal: { heal: true, fixes: { strayPole: false } } });
   assert.ok(!off.said.includes('strayPole') && off.said.includes('tolerances grown'), off.said.join());
-  const on = await imported({ heal: { heal: true, fixes: { pcurveMissing: true } } });
-  assert.ok(on.said.includes('pcurveMissing'), on.said.join());
-  assert.ok(!(await imported({ heal: { heal: true } })).said.includes('pcurveMissing'));
+  const on = await imported({ heal: { heal: true, fixes: { pcurveMissingOnElementary: true } } });
+  assert.ok(on.said.includes('pcurveMissingOnElementary'), on.said.join());
+  assert.ok(!(await imported({ heal: { heal: true } })).said.includes('pcurveMissingOnElementary'));
 });

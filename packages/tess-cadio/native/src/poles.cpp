@@ -1,8 +1,11 @@
 // poles.h: a face's poles by case and the ring each gets.
 #include "poles.h"
 
+#include "cad_geom/curve.h"
+
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <set>
 
 namespace tesscadio {
@@ -254,6 +257,38 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
       for (const BoundaryPoint& p : L) consider(p);
     for (const auto& c : fb.interior)
       for (const BoundaryPoint& p : c) consider(p);
+    // And each model edge's nearest approach to the pole on its curve (global inversion, branch and bound), its foot on
+    // the surface judged as a boundary point: the edges are sampled to their own rules here, and the rounds' splits
+    // can later put samples where a span's chord passed outside the ring (LMP1 #1072177's arc, its two ends outside,
+    // its curve 26% nearer the pole than the ring), segments the ring's, never split, would then cross. Not the
+    // incident curves (within tol of the pole: through it, cut into the ring). The face's edges from the model's
+    // loops, not the boundary points' labels: a one-span edge between two vertices has neither end labelled with it
+    // (each junction carries the edge before it), #1072177's arc among them.
+    std::set<int> faceEdges;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) == CBR_LOOP_EDGE)
+        for (int k = 0; k < m.loopCount(l); k++) faceEdges.insert(m.coedgeEdge(m.loopFirst(l) + k));
+    }
+    for (int e : faceEdges) {
+      if (em.isPseudo(e) || e >= m.edges() || m.edgeCurve(e) < 0) continue;
+      const EdgeSamples& es = em.edge(e);
+      if (es.t.size() < 2) continue;
+      Status st;
+      const std::unique_ptr<Curve> c = makeCurve(m, m.edgeCurve(e), st);
+      if (!c) continue;
+      const Range r{std::min(es.t.front(), es.t.back()), std::max(es.t.front(), es.t.back())};
+      const CurveInversion ci = invertCurve(*c, S.point, r, tol);
+      if (ci.status != Status::ok) continue;
+      CurvePoint q;
+      if (c->eval(ci.t, 0, q) != Status::ok || !(norm(q.p - S.point) > tol)) continue;
+      const SurfaceDomain D = s.domain();
+      const SurfaceInversion si = invertSurface(s, q.p, D.u, D.v, tol);
+      if (si.status != Status::ok) continue;
+      BoundaryPoint near;
+      near.kind = BoundaryPoint::vertexPoint, near.uv = si.uv, near.point = q.p;
+      consider(near);
+    }
     const double half = 0.5 * std::min(clear, offsetRange(s, ring));
     ring.clearance = std::isfinite(half) ? ringReach(s, ring, half) : kInf;
     // The through edges' straight length: how far from each nearest approach (both ways along the edge, but past
@@ -381,6 +416,22 @@ void shareRings(const std::vector<const Surface*>& surfaces, std::vector<std::ve
       r.reach = ringReach(*surfaces[f], r, r.radius);
     }
   }
+}
+
+std::vector<int> shrinkRings(const std::vector<const Surface*>& surfaces, std::vector<std::vector<PoleRing>>& rings,
+  double tol, Vec3 pole, double reach) {
+  std::vector<int> changed;
+  for (int f = 0; f < static_cast<int>(rings.size()); f++) {
+    bool any = false;
+    for (PoleRing& r : rings[f]) {
+      if (r.kase == PoleRing::Case::outside || norm(r.pole - pole) > tol || !(r.reach > reach)) continue;
+      r.radius = ringRadius(*surfaces[f], r, reach);
+      r.reach = reach;
+      any = true;
+    }
+    if (any) changed.push_back(f);
+  }
+  return changed;
 }
 
 } // namespace tesscadio

@@ -37,7 +37,8 @@ import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
 import type { ImportProgress } from 'step-import';
-import { clearCache, defaultSettings, deflectionsOf, workerCount, type TessellationSettings } from './tessellation.ts';
+import { clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
+  from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
 
@@ -88,13 +89,18 @@ export interface MeshedWith {
   /** Whether the models were healed, and with which fixes. */
   heal: boolean;
   healFixes: TessellationSettings['healFixes'];
+  healFit: number;
+  /** tess-cadio's smallest angle (degrees) and its debugging switch (each read only where tess-cadio meshed). */
+  minAngle: number;
+  keepFailing: boolean;
 }
 
 /** The settings' MeshedWith (copies). */
 export function meshedWithOf(s: TessellationSettings): MeshedWith {
-  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes } = s;
+  const { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal, healFixes, healFit,
+    minAngle, keepFailing } = s;
   return { backend, fallback, profile, linearDeflection, angularDeflection, timeout, heal,
-    healFixes: { ...healFixes } };
+    healFixes: { ...healFixes }, healFit, minAngle, keepFailing };
 }
 
 /** How long zoom all, zoom selected and the views take to get there, in milliseconds. */
@@ -944,15 +950,16 @@ export class Viewer {
   }
 
   private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
-    const mb = src.bytes.byteLength / 1e6;
+    const mb = src.size / 1e6;
     const importing = `${src.name}: importing${mb >= 1 ? ` ${Math.round(mb)} MB` : ''}`;
     this.onStatus?.(`${importing}...`);
     // Let the page show that first.
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     if (gen !== this.generation) return;
-    // A copy goes (transferred) to the worker, a .gltf's buffers with it; the source keeps its bytes, to be meshed
-    // again.
+    // The bytes go (transferred) to the worker, a .gltf's buffers with it; the source keeps none (read again when
+    // needed: sources.ts's readAgain).
     const input = await modelInput(src, format);
+    delete src.bytes;
     if (gen !== this.generation) return;
     // What it's meshed with: the settings now, which the import worker is given.
     const meshedWith = meshedWithOf(this.settings);
@@ -1008,7 +1015,7 @@ export class Viewer {
           // Parts with a level from the file (every part of a glTF or three.js file, STEP's tessellated geometry)
           // shown at once, the level for these settings (chooseLod); a B-rep part's until ours comes.
           edges.total = ev.edgeParts;
-          const wanted = meshDeflections(deflectionsOf(this.settings));
+          const wanted = wantedOf(this.settings);
           // In slices of about 30 ms, the page drawing and answering in between (LMP1's 1,251 parts in one task took a
           // second), the status line counting.
           const parts = [...graph.placements.keys()];
@@ -1082,7 +1089,8 @@ export class Viewer {
    * import): each part keeps its mesh until its new one comes; one that fails is then shown as a load shows it (the
    * file's own level, else its faces' outlines, else nothing). The view stays. Resolves true once every part is meshed
    * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole):
-   * load it again instead. Rejects if the worker can't (it lost the model): load it again.
+   * load it again instead. Other healing heals the worker's models again in place (model-load.ts's healIn). Rejects if
+   * the worker can't (it lost the model): load it again.
    */
   async meshAgain(): Promise<boolean> {
     const graph = this.graph, model = this.model;
@@ -1095,7 +1103,7 @@ export class Viewer {
       this.abortLoad?.();
     }
     model.meshedWith = meshedWithOf(this.settings);
-    const wanted = meshDeflections(deflectionsOf(this.settings));
+    const wanted = wantedOf(this.settings);
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
     model.diagnostics = [...graph.scene.diagnostics];

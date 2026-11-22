@@ -14,18 +14,21 @@ import { applyCustomBackground, applyTheme, customBackground, hexColour, onSyste
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
-import { showProblems } from './problems.ts';
+import { faceCausesOf, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
 import { HEAL_FIXES } from 'cad-heal/options';
-import { defaultSettings, profileSettings, type TessellationSettings } from './tessellation.ts';
+import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSettings }
+  from './tessellation.ts';
+import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
-import { contentUrl, fromFiles, fromUrl, pickFiles, saveFile, saveTarget, typedUrl, type Source } from './sources.ts';
+import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
+  type Source } from './sources.ts';
 import { askExport, rememberedExport } from './export-dialog.ts';
 import { EXPORT_FORMATS } from './export-formats.ts';
 import { shownEdits } from './export-shown.ts';
@@ -80,15 +83,15 @@ export interface Ui {
   /** Opens a model by URL; resolves with what the browser check's report has (`error` if it failed). */
   /** Loads a model by URL; `fetched`: its bytes already fetched (from `fromUrl`), not fetched again. */
   openUrl(url: string, fetched?: Source): Promise<Record<string, unknown>>;
-  /** Opens a model from local files (with a .gltf's .bin), as picked or dropped. */
-  openFiles(files: File[]): Promise<Record<string, unknown>>;
+  /** Opens a model from local files (with a .gltf's .bin), as picked or dropped; `read`: already read (fromFiles). */
+  openFiles(files: File[], read?: Source): Promise<Record<string, unknown>>;
   /** The current model's URL, if it came from one. */
   currentUrl(): string | undefined;
   /** Settles once the tree, the highlight and the restored state have caught up with the meshes that arrived. */
   refreshed(): Promise<void>;
   /** Settles once the last model opened, by any means, has loaded or failed. */
   opened(): Promise<unknown>;
-  /** The current model's source: its name, bytes and URL (if any). */
+  /** The current model's source: its name, size, SHA-256, and its File or URL. */
   source(): Source | undefined;
   /** These settings take effect through the controls (which follow). */
   setSections(s: SectionSettings): void;
@@ -110,6 +113,11 @@ export interface Ui {
   empty(): void;
   /** Says something in the status line. */
   say(text: string, error?: boolean): void;
+  /**
+   * Whether Copy link to this view spells out the settings whose defaults depend on the device (its Include device
+   * defaults: the meshing profile and the edge style), even where they're this device's.
+   */
+  linkDeviceDefaults(): boolean;
   /** The view's address, for "Copy link to this view" (set by the automation layer). */
   link?: () => string;
   /** The controls (for the recorder, recorder.ts, and replay). */
@@ -146,6 +154,16 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 }
 
 const GNOMON_KEY = 'cad-viewer.gnomon';
+/** Copy link's Include device defaults, as remembered in this browser ('1' on; else off). */
+const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
+/** The remembered choice (off where storage can't be read). */
+function linkDefaultsRemembered(): boolean {
+  try {
+    return localStorage.getItem(LINK_DEFAULTS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 /** What this browser remembers of View's Axes, if anything. */
 function gnomonRemembered(): string | null {
@@ -219,7 +237,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
-
   // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
   // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
   // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
@@ -245,11 +262,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let screenshotControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   /**
-   * The model meshed again, the view kept (Mesh again): from the import worker's models in place, or by loading the
-   * file again where the worker hasn't them; `as` the settings to mesh with instead of the controls' (a model lost
-   * with the import worker, made again as it was: the controls back after).
+   * The model meshed again, the view kept (Mesh again): from the import worker's models in place (healed again there
+   * where the healing changed), or by loading the file again where the worker hasn't them; `as` the settings to mesh
+   * with instead of the controls' (a model lost with the import worker, made again as it was: the controls back
+   * after).
    */
-  const meshAgain = (as?: Partial<TessellationSettings>) => {
+  const meshAgain = async (as?: Partial<TessellationSettings>) => {
     if (!last) return;
     const nodes = viewer.nodes;
     const top = panel?.topRow();
@@ -425,6 +443,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
           gen = viewer.nextLoad();
         }
       }
+      // (A file loaded again has no bytes kept: read again, checked against what it was when it loaded.)
+      let changed = '';
+      if (!inPlace && !src.bytes) {
+        const again = await readAgain(src);
+        if (!again.same) {
+          changed = '; the file had changed since it was loaded: meshed as it is now';
+          Object.assign(src, { size: again.bytes.byteLength, sha256: await hashOf(again.bytes) });
+        }
+        src.bytes = again.bytes;
+      }
       if (!inPlace) await viewer.load(src, { keep });
       if (!viewer.latest(gen)) return { superseded: true };
       restoreNodes();
@@ -447,7 +475,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
       const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
-        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored);
+        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored + changed, !!changed);
       if (problems) console.warn(m.diagnostics);
       if (problems && problemsDialog) void showProblems(src.name, m.diagnostics ?? []);
       if (notRestored) console.warn('meshed again, not found again:', lost);
@@ -467,8 +495,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       return { error: (e as Error).message };
     }
   };
-  const openFiles = (files: File[]) => files.length ? (hooks.onEvent?.({ type: 'load', files }), open(async () => {
-    const src = await fromFiles(files);
+  const openFiles = (files: File[], read?: Source) => files.length ? (hooks.onEvent?.({ type: 'load', files }),
+    open(async () => {
+    const src = read ?? await fromFiles(files);
     if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json, .3mf)');
     return src;
   }, files.map((f) => f.name).join(', '))) : undefined;
@@ -509,13 +538,30 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (url) await openUrl(url);
     else failed(typed, 'not a URL, nor a path within the content root');
   } }, 'load').name('Load URL...');
-  // The open model's file as it was read (its bytes, not an export), where the user chooses, its name suggested
-  // (the file's, or the URL's last segment); a .gltf's .bin and images aren't saved with it.
+  // The open model's file (not an export), read again from its File or URL, where the user chooses, its name
+  // suggested (the file's, or the URL's last segment); a .gltf's .bin and images aren't saved with it.
   saveControl = file.add({ save: async () => {
     const src = saving;
     if (!src) return;
     try {
-      const how = await saveFile(src.name, src.bytes);
+      // Read again (no copy is kept), and saved as it is now only if it's what was loaded, or once confirmed.
+      let again;
+      try {
+        again = await readAgain(src);
+      } catch (e) {
+        say(`saving ${src.name}: ${(e as Error).message}`, true);
+        void showDialog({ title: `Could not read ${src.name}`, error: true, body: [(e as Error).message],
+          buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+        return;
+      }
+      if (!again.same) {
+        const r = await showDialog({ title: `${src.name} has changed`, error: true, body: [`${src.name} isn't what ` +
+          `was loaded: ${src.file ? 'the file has changed on disk' : 'the server now gives another file'} since ` +
+          '(another size or SHA-256). The model shown is the one loaded; saving writes the file as it is now.'],
+          buttons: [{ label: 'Save anyway', value: 'save' }, { label: 'Cancel', value: 'cancel', primary: true }] });
+        if (r.button !== 'save') return say(`${src.name}: not saved (it has changed since it was loaded)`);
+      }
+      const how = await saveFile(src.name, again.bytes);
       if (how === 'cancelled') return;
       const others = formatOf(src.name) === 'gltf' ? ' (only the .gltf: not its .bin or images)' : '';
       say(`${how === 'saved' ? 'saved' : 'downloaded'} ${src.name}${others}`);
@@ -537,6 +583,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Enabled while something is selected.
   const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
   view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
+  // Its option, off by default, remembered in this browser: the device's defaults spelled out in the link (the
+  // profile, the edge style), so it shows the same on a phone as on a desktop.
+  const linkDefaults = { on: linkDefaultsRemembered() };
+  view.add(linkDefaults, 'on').name('Include device defaults').onChange((on: boolean) => {
+    try {
+      localStorage.setItem(LINK_DEFAULTS_KEY, on ? '1' : '0');
+    } catch {
+      // Not remembered; it still applies now.
+    }
+  });
   // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
   const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
   viewer.showGnomon = axes.on;
@@ -687,9 +743,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     Object.assign(settings, profileSettings(DEVICE_PROFILES[viewer.device]));
     shown();
   });
-  step.add(settings, 'backend', ['occt', 'truck', 'smlib']).name('Backend');
+  step.add(settings, 'backend', [...BACKEND_NAMES]).name('Backend');
   // (For the parts the backend fails; the backend itself counts as none.)
-  step.add(settings, 'fallback', ['none', 'occt', 'truck', 'smlib']).name('Fallback');
+  step.add(settings, 'fallback', ['none', ...BACKEND_NAMES]).name('Fallback');
   step.add(settings, 'profile', { Coarse: 'coarse', Medium: 'medium', Fine: 'fine', Custom: 'custom' })
     .name('Profile').onChange((p: typeof settings.profile) => {
       if (p !== 'custom') Object.assign(settings, profileSettings(p));
@@ -708,6 +764,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   step.add(settings, 'heal').name('Heal B-reps');
   const fixes = step.addFolder('Healing fixes').close();
   for (const f of HEAL_FIXES) fixes.add(settings.healFixes, f);
+  fixes.add(settings, 'healFit').name('Fit (mm)');
+  // tess-cadio's own settings (read only where it's the backend or the fallback), under a disclosure, closed; its
+  // debugging switch in a folder of its own, named so.
+  const cadio = step.addFolder('tess-cadio').close();
+  cadio.add(settings, 'minAngle', 0, MAX_MIN_ANGLE_DEGREES, 0.5).name('Min angle (degrees)');
+  cadio.addFolder('Debugging').close().add(settings, 'keepFailing').name('Keep faces that would fail');
   step.add({ reload: () => meshAgain() }, 'reload').name('Mesh again');
   step.add({ defaults: () => assign(defaultSettings(DEVICE_PROFILES[viewer.device])) }, 'defaults').name('Defaults');
   step.add({ clear: () => viewer.clearCache().then(() => say('cache cleared'),
@@ -747,13 +809,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.triangleEdges.select(pieces);
     viewer.redraw();
   };
+  // The failed faces' causes (problems.ts), read again only when the model's diagnostics change (a new list, or more
+  // pushed onto it as meshing ends).
+  let causesFor: { of: unknown; n: number; map: Map<number, string> } | undefined;
+  const causes = () => {
+    const d = viewer.model?.diagnostics ?? [];
+    if (causesFor?.of !== d || causesFor.n !== d.length) causesFor = { of: d, n: d.length, map: faceCausesOf(d) };
+    return causesFor.map;
+  };
   // The details stay while they describe a selection, and fade as the status line does while there's none.
   const detailsShown = autoHide(detailsElement);
   const describe = () => {
     const was = detailsElement.hidden;
     detailsElement.hidden = !selection.details;
     if (!selection.details || !viewer.nodes) return;
-    const text = details(viewer.nodes, selected).join('\n');
+    const text = details(viewer.nodes, selected, causes()).join('\n');
     if (text !== detailsElement.textContent || was) detailsShown(selected.length > 0);
     detailsElement.textContent = text;
   };
@@ -1002,13 +1072,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       !!(missing.length || bad.length) && !found.length);
       return { selected: found.length, found: [...hit], missing, bad };
     },
-    details: () => (viewer.nodes ? details(viewer.nodes, selected) : []),
+    details: () => (viewer.nodes ? details(viewer.nodes, selected, causes()) : []),
     openUrl,
-    openFiles: async (files) => (await openFiles(files)) ?? { error: 'no files' },
+    openFiles: async (files, read) => (await openFiles(files, read)) ?? { error: 'no files' },
     currentUrl: () => last?.url,
     refreshed: () => refreshed,
     opened: () => opening,
     source: () => last,
+    linkDeviceDefaults: () => linkDefaults.on,
     setSections: (s) => {
       for (const a of AXES) Object.assign(cut[a], s[a]);
       cut.caps = s.caps;

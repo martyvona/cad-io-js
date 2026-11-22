@@ -7,9 +7,10 @@
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
   from 'cad-scene';
 import { sha256 } from 'cad-scene';
+import { CAUSES_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 8;
+const API_VERSION = 9;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -18,6 +19,11 @@ const API_VERSION = 8;
 export const INSERTED_HEAD = 'points inserted, by what queued their triangle: ';
 export const INSERTED_KINDS = ['size', 'thinness', 'refused (no kind)', 'deviation in closed form', 'deviation sampled',
   'deviation bounded', 'deviation near a pole', 'a normal against the facet', 'normals apart', 'refused (other kind)'];
+/**
+ * With countRounds, an info diagnostic of this head then the part's rounds of splitting edges and meshing their faces
+ * again (part.h's PartMesher::rounds; PartOptions::maxSplitRounds the most).
+ */
+export const ROUNDS_HEAD = 'split rounds: ';
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -80,6 +86,7 @@ interface CadioExports {
   _tc_set_count_angles: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
+  _tc_set_analysis: Fn;
   _tc_set_max_points: Fn;
   _tc_set_min_angle: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
@@ -136,6 +143,8 @@ export interface CadioInitOptions {
    * (tc_diag's "thin"); the same mesh; default false.
    */
   countAngles?: boolean;
+  /** Say the part's split rounds in an info diagnostic (ROUNDS_HEAD); the same mesh; default false. */
+  countRounds?: boolean;
   /**
    * Fail a face whose refinement reached its point cap (part.h's PartOptions::failCapped), and one with a triangle
    * turned against its surface (failTurnedOver); default true each. False keeps them as meshed, for measuring.
@@ -175,13 +184,14 @@ export class CadioTessellator implements Tessellator {
   private deviationFactor = 1;
   private countInsertions = false;
   private countAngles = false;
+  private countRounds = false;
   private failCapped = true;
   private failTurnedOver = true;
   private maxPoints = 0;
   private minAngle = -1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
-    supportsEdges: true, supportsCurves: false,
+    supportsEdges: true, supportsCurves: false, readsAnalysis: true,
   };
   private m: CadioExports | undefined;
 
@@ -191,6 +201,7 @@ export class CadioTessellator implements Tessellator {
     this.deviationFactor = opts.maxDeviationFactor ?? 1;
     this.countInsertions = opts.countInsertions ?? false;
     this.countAngles = opts.countAngles ?? false;
+    this.countRounds = opts.countRounds ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
@@ -237,6 +248,11 @@ export class CadioTessellator implements Tessellator {
     // (Pointers come back as signed 32-bit numbers: unsigned, as the module's memory may pass 2 GB.)
     const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
+    // (The part's analysis where healing gave one: its healed p-curves placed as projected, faces through edges or
+    // vertices past repair failed. malloc's blocks are 8-byte aligned, as the analysis's columns need.)
+    const an = req.analysis?.length ? m._malloc(req.analysis.length) >>> 0 : 0;
+    if (an) m.HEAPU8.set(req.analysis!, an);
+    m._tc_set_analysis(an, an ? req.analysis!.length : 0);
     let rc: number;
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
@@ -253,6 +269,8 @@ export class CadioTessellator implements Tessellator {
         origin[2], req.edges ? 1 : 0);
     } finally {
       m._free(ptr);
+      if (an) m._free(an);
+      m._tc_set_analysis(0, 0);
       m.tcProgress = undefined;
     }
     const diag = JSON.parse(m.UTF8ToString(m._tc_diag() >>> 0)) as Record<string, unknown>;
@@ -296,7 +314,7 @@ export class CadioTessellator implements Tessellator {
         const k = `${STATUS[st[i] ?? -1] ?? 'unknown'}: ${causes[i] ?? 'cause not given'}`;
         by.set(k, [...(by.get(k) ?? []), id]);
       });
-      diagnostics.push({ severity: 'info', message: 'faces failed to mesh, by cause: ' + [...by].map(([k, ids]) =>
+      diagnostics.push({ severity: 'info', message: CAUSES_HEAD + [...by].map(([k, ids]) =>
         `${k} ${ids.length} (${ids.map((i) => `#${i}`).join(', ')})`)
         .join('; ') });
     }
@@ -330,6 +348,9 @@ export class CadioTessellator implements Tessellator {
         + `every corner on the boundary ${sum(8)}, an edge frozen ${sum(9)}, within the floor ${sum(10)}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
+    if (this.countRounds && typeof diag.rounds === 'number') {
+      diagnostics.push({ severity: 'info', message: `${ROUNDS_HEAD}${diag.rounds}` });
+    }
     // (Faces whose refinement asked for a pole ring's segment to be split, which a ring's never is: their triangles
     // there refused for good. With the rounds it asked in.)
     const blocked = list('ringBlocked'), blockedRounds = list('ringBlockedRounds');

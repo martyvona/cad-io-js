@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA3';
+export const ANALYSIS_MAGIC = 'CBA5';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -26,26 +26,34 @@ export const ANALYSIS_TABLES = {
    * `measured` the largest distance from the vertex to the ends of its edges' curves and to its faces' surfaces
    * (NaN: not measured); `edges` the edges ending there, `count` row indices in `pool.int` from `first`;
    * `toleranceFrom` PROVENANCE of the model's tolerance (healed: grown by healing, the model then a healed one),
-   * `givenTolerance` the source's (NaN: it gave none), so the source's claim stays visible beside the grown value.
+   * `givenTolerance` the source's (NaN: it gave none), so the source's claim stays visible beside the grown value;
+   * `toleranceError` 1 where healing grew the tolerance past its error limit (cad-heal's growth.ts: past 5 x the
+   * tolerance it started from, the larger of `givenTolerance` and `analysis.uncertainty`, and past 0.01 x the part's
+   * size), else 0: input beyond repair, every face with a loop through the vertex failed by the mesher at once.
    */
   vertex: [['measured', 'f64', 1], ['first', 'i32', 1], ['count', 'i32', 1], ['toleranceFrom', 'u8', 1],
-    ['givenTolerance', 'f64', 1]],
+    ['givenTolerance', 'f64', 1], ['toleranceError', 'u8', 1]],
   /**
    * `range` the edge's curve parameters at start and end: the model's where given, else derived (by inversion of
    * its vertices, closed curves resolved), `rangeFrom` PROVENANCE; `measured` the largest deviation of its coedges'
    * p-curves (through their surfaces) from its 3D curve over the range; its coedges `count` row indices in
-   * `pool.int` from `first`; `toleranceFrom` and `givenTolerance` as the vertex's.
+   * `pool.int` from `first`; `toleranceFrom`, `givenTolerance` and `toleranceError` as the vertex's (every face with a
+   * loop using the edge failed); `givenRange` the source's range (NaN where it gave none), as `givenTolerance` is.
    */
   edge: [['range', 'f64', 2], ['rangeFrom', 'u8', 1], ['measured', 'f64', 1], ['first', 'i32', 1],
-    ['count', 'i32', 1], ['toleranceFrom', 'u8', 1], ['givenTolerance', 'f64', 1]],
+    ['count', 'i32', 1], ['toleranceFrom', 'u8', 1], ['givenTolerance', 'f64', 1], ['toleranceError', 'u8', 1],
+    ['givenRange', 'f64', 2]],
   /**
    * `range` the p-curve's parameters at the coedge's start and end (as the edge's, in the loop's direction),
    * `rangeFrom` PROVENANCE; `deviation` its p-curve's largest distance, mapped through the surface, from the 3D
    * curve (NaN without either); `face` and `loop` the rows that use it; `pcurveFrom` PROVENANCE of the model's
-   * p-curve (none: it has none; given: the source's; healed: made, replaced or reparameterized by healing).
+   * p-curve (none: it has none; given: the source's; healed: made, replaced or reparameterized by healing);
+   * `givenPcurve` and `givenRange` the source's p-curve (a curve row of the model, which healing keeps however it
+   * changes the use: -1 where the source gave none) and range (NaN where it gave none), so healing again with other
+   * options starts from the source's.
    */
   coedge: [['range', 'f64', 2], ['rangeFrom', 'u8', 1], ['deviation', 'f64', 1], ['face', 'i32', 1],
-    ['loop', 'i32', 1], ['pcurveFrom', 'u8', 1]],
+    ['loop', 'i32', 1], ['pcurveFrom', 'u8', 1], ['givenPcurve', 'i32', 1], ['givenRange', 'f64', 2]],
   /**
    * The coedges healing traced (their edge's curve onto their face's surface, where it couldn't bound the curve
    * within the tolerance otherwise), one row each in coedge order, only those: `coedge` its row, `status`
@@ -84,6 +92,15 @@ export const ANALYSIS_TABLES = {
    * `facingFrom` how it was found.
    */
   shell: [['volume', 'f64', 2], ['facing', 'u8', 1], ['facingFrom', 'u8', 1]],
+  /**
+   * One row where the model is a healed one (none otherwise): how it was healed, so healing it again knows what it
+   * holds. `fixes` the fixes that ran, a bit per fix in cad-heal's HEAL_FIXES order (bit 0 the first);
+   * `pcurveFitTolerance` the tolerance (mm) its p-curves for bare uses were fitted at; `version` cad-heal's
+   * HEAL_VERSION; `sourceCurves` how many of the model's curve rows are the source's (the rest healing's, appended);
+   * `strayPoles` how many poles strayPole moved, in this healing or an earlier one (their old places aren't kept).
+   */
+  healing: [['fixes', 'u32', 1], ['pcurveFitTolerance', 'f64', 1], ['version', 'u32', 1], ['sourceCurves', 'u32', 1],
+    ['strayPoles', 'u32', 1]],
 } as const satisfies Record<string, readonly (readonly [string, ColumnType, number])[]>;
 
 export type AnalysisTableName = keyof typeof ANALYSIS_TABLES;

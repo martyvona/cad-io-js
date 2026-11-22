@@ -12,8 +12,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBA_MAGIC "CBA3"
-#define CBA_HEADER_BYTES 392
+#define CBA_MAGIC "CBA5"
+#define CBA_HEADER_BYTES 472
 
 /* The columns in buffer order: table, column, element type and values per row. */
 enum cba_column {
@@ -26,6 +26,7 @@ enum cba_column {
   CBA_VERTEX_COUNT, /* int32_t x 1 */
   CBA_VERTEX_TOLERANCE_FROM, /* uint8_t x 1 */
   CBA_VERTEX_GIVEN_TOLERANCE, /* double x 1 */
+  CBA_VERTEX_TOLERANCE_ERROR, /* uint8_t x 1 */
   CBA_EDGE_RANGE, /* double x 2 */
   CBA_EDGE_RANGE_FROM, /* uint8_t x 1 */
   CBA_EDGE_MEASURED, /* double x 1 */
@@ -33,12 +34,16 @@ enum cba_column {
   CBA_EDGE_COUNT, /* int32_t x 1 */
   CBA_EDGE_TOLERANCE_FROM, /* uint8_t x 1 */
   CBA_EDGE_GIVEN_TOLERANCE, /* double x 1 */
+  CBA_EDGE_TOLERANCE_ERROR, /* uint8_t x 1 */
+  CBA_EDGE_GIVEN_RANGE, /* double x 2 */
   CBA_COEDGE_RANGE, /* double x 2 */
   CBA_COEDGE_RANGE_FROM, /* uint8_t x 1 */
   CBA_COEDGE_DEVIATION, /* double x 1 */
   CBA_COEDGE_FACE, /* int32_t x 1 */
   CBA_COEDGE_LOOP, /* int32_t x 1 */
   CBA_COEDGE_PCURVE_FROM, /* uint8_t x 1 */
+  CBA_COEDGE_GIVEN_PCURVE, /* int32_t x 1 */
+  CBA_COEDGE_GIVEN_RANGE, /* double x 2 */
   CBA_TRACE_COEDGE, /* int32_t x 1 */
   CBA_TRACE_STATUS, /* uint8_t x 1 */
   CBA_TRACE_TOL, /* double x 1 */
@@ -65,6 +70,11 @@ enum cba_column {
   CBA_SHELL_VOLUME, /* double x 2 */
   CBA_SHELL_FACING, /* uint8_t x 1 */
   CBA_SHELL_FACING_FROM, /* uint8_t x 1 */
+  CBA_HEALING_FIXES, /* uint32_t x 1 */
+  CBA_HEALING_PCURVE_FIT_TOLERANCE, /* double x 1 */
+  CBA_HEALING_VERSION, /* uint32_t x 1 */
+  CBA_HEALING_SOURCE_CURVES, /* uint32_t x 1 */
+  CBA_HEALING_STRAY_POLES, /* uint32_t x 1 */
   CBA_COLUMN_COUNT
 };
 
@@ -122,8 +132,8 @@ typedef struct {
 /* The columns of a buffer of `size` bytes into `views` (CBA_COLUMN_COUNT of them): 0, or -1 if it isn't one. */
 static inline int cba_open(const uint8_t* buf, size_t size, cba_view* views) {
   static const uint8_t bytes[CBA_COLUMN_COUNT] = {
-    4, 8, 8, 4, 8, 4, 4, 1, 8, 8, 1, 8, 4, 4, 1, 8, 8, 1, 8, 4, 4, 1, 4, 1, 8, 8, 8, 1, 4, 1, 8, 8, 1, 1, 1, 8, 8, 4, 4,
-    4, 4, 4, 1, 8, 8, 8, 1, 1,
+    4, 8, 8, 4, 8, 4, 4, 1, 8, 1, 8, 1, 8, 4, 4, 1, 8, 1, 8, 8, 1, 8, 4, 4, 1, 4, 8, 4, 1, 8, 8, 8, 1, 4, 1, 8, 8, 1, 1,
+    1, 8, 8, 4, 4, 4, 4, 4, 1, 8, 8, 8, 1, 1, 4, 8, 4, 4, 4,
   };
   uint32_t n, k;
   if (((uintptr_t)buf & 7) != 0 || size < CBA_HEADER_BYTES || memcmp(buf, CBA_MAGIC, 4) != 0) return -1;

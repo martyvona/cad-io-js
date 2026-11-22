@@ -17,11 +17,19 @@ struct Mesh2Detail {
   int halvingsSkipped = 0;
   /** Refused triangles broken at their centroid instead, only much shorter segments in the way (kShortSegment). */
   int brokenInside = 0;
+  /** Refused triangles broken at their worst point instead (SizeField::worstPoint), every other candidate failing. */
+  int brokenWorst = 0;
   /**
    * Points inserted, by what queued the triangle they broke: [0] its size in the metric, [1] its thinness alone,
    * [2 + k] refused by the caller's criteria, k its SizeField::refusalKind (0 to 7, others counted at 7).
    */
   int inserted[10] = {};
+  /**
+   * Triangles queued again after surviving the point inserted for them; those left past kRequeues; and at the end, the
+   * triangles refinement would still queue (bad) that were neither made final nor left so: dropped, none if every
+   * bad triangle is judged.
+   */
+  int requeued = 0, requeuesSpent = 0, leftUnjudged = 0;
   /**
    * The final triangles whose smallest angle in the metric is under MeshOptions::minAngle (clamped), by index into
    * Mesh2::triangles; that angle (radians: the arcsine of the least corner sine, for counts only); and each one's

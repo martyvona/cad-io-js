@@ -15,6 +15,7 @@
 //   the face (flagCells).
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -55,7 +56,10 @@ enum Flag : uint32_t {
    * p-curve or projection not reaching them).
    */
   flagOffSurface = 1u << 5,
-  /** The loops in (u, v) come from the face API's projection, not from given or healed p-curves. */
+  /**
+   * The loops in (u, v) come (in part) from the face API's projection, not from given or healed p-curves: said, not
+   * refused (trusted() counts the projection's error in FaceMeasure::boundary as it counts a p-curve's).
+   */
   flagProjectedBoundary = 1u << 6,
   /**
    * A free-form face's integral taken in bands of its inner direction: the surface wasn't sound across the face's
@@ -83,16 +87,30 @@ struct FaceMeasure {
    * a coedge's ends on the surface from its edge's vertices); else NaN.
    */
   double offSurface = 0;
+  /**
+   * How far the area can be off for its loops' p-curves not being their edges' curves (mm^2): the sum over the edge
+   * loops' uses of the deviation of the use's p-curve as the face API takes it, max |S(p(t)) - C(t)| over the edge's
+   * range (a given p-curve's measured as the face API measures a projection's; a healed one's the analysis's; a
+   * projected one's the projection's error), times its edge's length: the boundary on the surface moves at most that
+   * far. 0 where the area is integrated along the edges' 3D curves (closed forms) or an edge has none (its p-curve is
+   * the boundary); NaN where a deviation couldn't be had (a projection not made). Included in area.error (the error
+   * reported with the area: the quadrature's plus this) where it's known; where it's NaN, area.error is the
+   * quadrature's alone and trusted() refuses the face.
+   */
+  double boundary = 0;
   /** Where the area is unsupported or failed: why, a short phrase (static storage). */
   const char* why = "";
 };
 
 /**
- * A measure to rely on: computed (status ok), no flags, and its error within `relative` of its value. The type says
- * only that much: an untrusted measure is still a value or not, which false doesn't tell.
+ * A measure to rely on: computed (status ok), no flags but projectedBoundary, its boundary's error known, and its error
+ * (the boundary's included) within `relative` of its value. The type says only that much: an untrusted measure is
+ * still a value or not, which false doesn't tell; what users see is the value and its error, the flags no estimate
+ * covers (sphereSide, loose, orientation, winds, noLoops) said beside them.
  */
 inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
-  return m.area.status == Status::ok && m.flags == 0 && m.area.error <= relative * m.area.value;
+  return m.area.status == Status::ok && (m.flags & ~flagProjectedBoundary) == 0 && std::isfinite(m.boundary)
+    && m.area.error <= relative * m.area.value;
 }
 
 /**
@@ -116,6 +134,13 @@ struct Integrand {
 struct Options {
   /** The quadrature's relative tolerance on each edge's and loop's integral. */
   double relTol = 1e-10;
+  /**
+   * The model's analysis buffer (cad-brep's analysis-layout.ts; viewed, not copied, as the model: it must outlive the
+   * oracle), or none: its coedges' deviations where healing made their p-curves (pcurveFrom healed), which
+   * FaceMeasure::boundary takes instead of measuring them. The caller pairs it with its model (its hash).
+   */
+  const uint8_t* analysis = nullptr;
+  size_t analysisSize = 0;
 };
 
 class Oracle {

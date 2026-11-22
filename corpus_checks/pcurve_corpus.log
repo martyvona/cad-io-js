@@ -1,56 +1,68 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 22.4; speed 5047 on 1 thread, 46417 on 18
-516 files, 3232 B-rep parts, 74501 faces, 352374 coedges, with OCCT; 601 s
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 9.3; speed 5346 on 1 thread, 55067 on 18
+517 files, 3258 B-rep parts, 86142 faces, 411860 coedges, with OCCT; 285 s
 
 ## Projections made, by status, method and surface
-  155111  ok: planeAffine (plane)
-  83500  ok: isoLine (cylinder)
-  27404  ok: affineFeet (bspline)
-  18363  ok: traced (bspline)
-  12878  ok: traced (cylinder)
-  12384  ok: isoLine (cone)
-  10812  ok: isoLine (torus)
-  5436  ok: affineFeet (cylinder)
-  4972  ok: affineFeet (extrusion)
-  3755  ok: traced (cone)
-  3153  ok: isoLine (sphere)
-  2961  ok: affineFeet (cone)
-  1769  invalidModel: traced (bspline)
+  171933  ok: planeAffine (plane)
+  91903  ok: isoLine (cylinder)
+  36534  ok: affineFeet (bspline)
+  24516  ok: traced (bspline)
+  14688  ok: traced (cylinder)
+  12992  ok: isoLine (cone)
+  12424  ok: isoLine (torus)
+  9752  invalidModel: traced (bspline)
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5564 coedge 34: error 0.0000259, off the surface 0.0000259, tol 0.00001
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5635 coedge 38: error 0.0000259, off the surface 0.0000259, tol 0.00001
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5664 coedge 42: error 0.0000259, off the surface 0.0000259, tol 0.00001
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5735 coedge 46: error 0.0000259, off the surface 0.0000259, tol 0.00001
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5764 coedge 50: error 0.0000259, off the surface 0.0000259, tol 0.00001
-  1634  ok: traced (sphere)
-  1570  ok: traced (torus)
-  1146  invalidModel: traced (cylinder)
+  5549  ok: affineFeet (cylinder)
+  4972  ok: affineFeet (extrusion)
+  4211  invalidModel: traced (cylinder)
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 face #3497 coedge 7: error 0.00185, off the surface 0.00185, tol 0.0000254
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 face #3497 coedge 11: error 0.00185, off the surface 0.00185, tol 0.0000254
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 face #3683 coedge 29: error 0.00147, off the surface 0.00147, tol 0.0000254
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 face #3697 coedge 37: error 0.000845, off the surface 0.000845, tol 0.0000254
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #4119 face #3697 coedge 38: error 0.000896, off the surface 0.000896, tol 0.0000254
+  3924  ok: isoLine (sphere)
+  3895  ok: traced (cone)
+  2972  ok: affineFeet (cone)
+  2037  ok: traced (sphere)
+  1615  ok: traced (torus)
+  1543  invalidModel: affineFeet (bspline)
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #24027 coedge 221: error 0.0000134, off the surface 0.0000134, tol 0.00001
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #96369 coedge 243: error 0.0000134, off the surface 0.0000134, tol 0.00001
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #102021 coedge 252: error 0.0000134, off the surface 0.0000134, tol 0.00001
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #3751 coedge 324: error 0.0000141, off the surface 0.0000141, tol 0.00001
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #125217 coedge 327: error 0.0000141, off the surface 0.0000141, tol 0.00001
   1130  ok: affineFeet (revolution)
+  863  ok: affineFeet (sphere)
   859  ok: traced (revolution)
-  846  ok: affineFeet (torus)
-  832  ok: affineFeet (sphere)
-  479  ok: traced (extrusion)
-  324  invalidModel: traced (cone)
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8376 coedge 236: error 0.00000312, off the surface 0.00000305, tol 0.0000020000000000000003
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #16362 coedge 497: error 0.00000900, off the surface 0.00000883, tol 0.0000020000000000000003
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #19323 coedge 627: error 0.00000311, off the surface 0.00000304, tol 0.0000020000000000000003
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #28583 coedge 1067: error 0.0000123, off the surface 0.0000119, tol 0.0000020000000000000003
-      gkv311-opencascade-dataset/step/bug30014.stp #24315 face #52041 coedge 3: error 0.0000331, off the surface 0.0000331, tol 0.00001
-  236  invalidModel: traced (torus)
+  848  ok: affineFeet (torus)
+  565  invalidModel: affineFeet (cylinder)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #35447 coedge 1482: error 0.000146, off the surface 0.000146, tol 0.0000020000000000000003
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #107362 coedge 269: error 0.000179, off the surface 0.000179, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #107362 coedge 271: error 0.000179, off the surface 0.000179, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #229316 coedge 279: error 0.00748, off the surface 0.00748, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #174824 coedge 285: error 0.000179, off the surface 0.000179, tol 0.00001
+  483  ok: traced (extrusion)
+  460  invalidModel: traced (torus)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #17192 coedge 535: error 0.00000842, off the surface 0.00000842, tol 0.0000020000000000000003
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #28918 coedge 1085: error 0.00000279, off the surface 0.00000279, tol 0.0000020000000000000003
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #40192 coedge 2113: error 0.00000261, off the surface 0.00000261, tol 0.0000020000000000000003
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #8988 coedge 0: error 0.000273, off the surface 0.000267, tol 0.00001
       gkv311-opencascade-dataset/step/bug30014.stp #18469 face #23009 coedge 42: error 0.000715, off the surface 0.000711, tol 0.00001
-  191  invalidModel: affineFeet (cylinder)
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #35447 coedge 1482: error 0.000146, off the surface 0.000146, tol 0.0000020000000000000003
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 face #20715 coedge 4: error 0.00500, off the surface 0.00500, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16640 face #20715 coedge 8: error 0.00500, off the surface 0.00500, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16515 face #20665 coedge 4: error 0.0000470, off the surface 0.0000470, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16425 face #20629 coedge 0: error 0.00175, off the surface 0.00175, tol 0.0000010000000000000002
+  405  invalidModel: traced (cone)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8376 coedge 236: error 0.00000312, off the surface 0.00000305, tol 0.0000020000000000000003
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #16362 coedge 497: error 0.00000900, off the surface 0.00000883, tol 0.0000020000000000000003
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #19323 coedge 627: error 0.00000311, off the surface 0.00000304, tol 0.0000020000000000000003
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #28583 coedge 1067: error 0.0000123, off the surface 0.0000119, tol 0.0000020000000000000003
+      gkv311-opencascade-dataset/step/bug30014.stp #24315 face #52041 coedge 3: error 0.0000331, off the surface 0.0000331, tol 0.00001
+  307  invalidModel: planeAffine (plane)
+      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 199: error 0.0000265, off the surface 0.0000265, tol 0.00001
+      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 200: error 0.0000265, off the surface 0.0000265, tol 0.00001
+      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 202: error 0.0000235, off the surface 0.0000235, tol 0.00001
+      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 203: error 0.0000235, off the surface 0.0000235, tol 0.00001
+      gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #3737 coedge 199: error 0.0000265, off the surface 0.0000265, tol 0.00001
   147  invalidModel: traced (revolution)
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #482 coedge 3: error 0.0000113, off the surface 0.0000113, tol 0.00001
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #482 coedge 4: error 0.00176, off the surface 0.00175, tol 0.00001
@@ -63,24 +75,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1218 coedge 59: error 0.0000806, off the surface 0.0000806, tol 0.00001
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1218 coedge 61: error 0.0000806, off the surface 0.0000806, tol 0.00001
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3391 coedge 195: error 0.000102, off the surface 0.000102, tol 0.00001
-  73  invalidModel: planeAffine (plane)
-      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 199: error 0.0000265, off the surface 0.0000265, tol 0.00001
-      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 200: error 0.0000265, off the surface 0.0000265, tol 0.00001
-      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 202: error 0.0000235, off the surface 0.0000235, tol 0.00001
-      gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3687 coedge 203: error 0.0000235, off the surface 0.0000235, tol 0.00001
-      gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #3737 coedge 199: error 0.0000265, off the surface 0.0000265, tol 0.00001
-  61  invalidModel: affineFeet (bspline)
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #24027 coedge 221: error 0.0000134, off the surface 0.0000134, tol 0.00001
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #96369 coedge 243: error 0.0000134, off the surface 0.0000134, tol 0.00001
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #102021 coedge 252: error 0.0000134, off the surface 0.0000134, tol 0.00001
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #3751 coedge 324: error 0.0000141, off the surface 0.0000141, tol 0.00001
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #125217 coedge 327: error 0.0000141, off the surface 0.0000141, tol 0.00001
-  48  singular: traced (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 609: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 610: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 694: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 695: error 0.00, off the surface 0.00, tol 1
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737 coedge 745: error 0.00, off the surface 0.00, tol 1
   48  not made: no 3D curve
   48  not made: noPcurveRange (cylinder)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197 coedge 7
@@ -88,18 +82,24 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197 coedge 9
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197 coedge 10
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #262 coedge 11
+  43  invalidModel: affineFeet (torus)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #254732 coedge 19094: error 0.000247, off the surface 0.000247, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #268702 coedge 19368: error 0.000221, off the surface 0.000221, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #218501 coedge 19484: error 0.000247, off the surface 0.000247, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #244028 coedge 19761: error 0.000221, off the surface 0.000221, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #344765 coedge 20459: error 0.000247, off the surface 0.000247, tol 0.00001
+  20  invalidModel: affineFeet (cone)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #432067 coedge 150: error 0.000390, off the surface 0.000390, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #284605 coedge 155: error 0.000575, off the surface 0.000560, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #130239 coedge 442: error 0.000390, off the surface 0.000389, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #373321 coedge 449: error 0.00685, off the surface 0.00685, tol 0.00001
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13930 face #19631 coedge 3: error 0.000236, off the surface 0.000235, tol 0.0000010000000000000002
   18  invalidModel: traced (sphere)
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 81: error 0.00283, off the surface 0.00275, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 83: error 0.00695, off the surface 0.00695, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 85: error 0.00283, off the surface 0.00275, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 87: error 0.00695, off the surface 0.00695, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868 coedge 134: error 0.00374, off the surface 0.00374, tol 0.0000021474836475
-  16  invalidModel: affineFeet (cone)
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13930 face #19631 coedge 3: error 0.000236, off the surface 0.000235, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12745 face #19157 coedge 1: error 0.000236, off the surface 0.000235, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12000 face #18859 coedge 1: error 0.000236, off the surface 0.000235, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11260 face #18563 coedge 3: error 0.000236, off the surface 0.000235, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2763 face #20343 coedge 237: error 0.00160, off the surface 0.00160, tol 0.001
   14  not made: noPcurveRange (bspline)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413 coedge 18
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413 coedge 19
@@ -112,41 +112,24 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865 coedge 40
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865 coedge 41
       gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92586 coedge 206
+  10  singular: traced (bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8550 coedge 825: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8550 coedge 826: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8543 coedge 823: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #8543 coedge 824: error 0.00, off the surface 0.00, tol 1
+      gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #52 coedge 427: error 0.00, off the surface 0.00, tol 1.0000000149011599
   9  not made: noPcurveRange (plane)
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #65 coedge 0
       gkv311-opencascade-dataset/step/bug31292.stp #62 face #423 coedge 7
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68 coedge 0
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68 coedge 1
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68 coedge 2
-  8  invalidModel: affineFeet (torus)
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16410 face #20623 coedge 3: error 0.000981, off the surface 0.000979, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14845 face #19997 coedge 4: error 0.00126, off the surface 0.00126, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13720 face #19547 coedge 4: error 0.00126, off the surface 0.00126, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12130 face #18911 coedge 1: error 0.000980, off the surface 0.000978, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1405 coedge 105: error 0.000802, off the surface 0.000802, tol 0.0000021474836475
-  7  noConvergence: traced (bspline)
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #5440 coedge 32: error 0.124, off the surface 0.000172, tol 0.001
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #9747 coedge 55: error 0.0794, off the surface 1.12e-14, tol 0.001
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #10403 coedge 58: error 0.0408, off the surface 0.000201, tol 0.001
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #12740 coedge 67: error 0.124, off the surface 0.000184, tol 0.001
-      gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #13170 coedge 69: error 0.0836, off the surface 1.07e-14, tol 0.001
-  6  noConvergence: traced (cylinder)
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040 coedge 9: error 0.0000151, off the surface 3.36e-7, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #29690 coedge 236: error 0.0000151, off the surface 3.36e-7, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/2.stp #342 face #3172 coedge 1: error 0.00467, off the surface 6.58e-14, tol 0.001
-      gkv311-opencascade-dataset/step/2.stp #342 face #3172 coedge 3: error 0.00450, off the surface 5.49e-14, tol 0.001
-      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 face #7040 coedge 9: error 0.0000151, off the surface 3.36e-7, tol 0.0000010000000000000002
-  5  invalidModel: affineFeet (sphere)
+  6  invalidModel: affineFeet (sphere)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755 coedge 2409: error 179, off the surface 179, tol 0.00001
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 80: error 0.000278, off the surface 0.000278, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1087 coedge 82: error 0.000278, off the surface 0.000278, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 84: error 0.000278, off the surface 0.000278, tol 0.0000021474836475
       gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1160 coedge 86: error 0.000278, off the surface 0.000278, tol 0.0000021474836475
-      gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1868 coedge 137: error 0.00119, off the surface 0.00116, tol 0.0000021474836475
-  4  noConvergence: traced (extrusion)
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #5480 coedge 0: error 0.0000151, off the surface 4.08e-7, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #29110 coedge 219: error 0.0000151, off the surface 4.08e-7, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 face #5480 coedge 0: error 0.0000151, off the surface 4.08e-7, tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj6_k1-sd-214.stp #30730 face #29110 coedge 219: error 0.0000151, off the surface 4.08e-7, tol 0.0000010000000000000002
   3  invalidModel: affineFeet (revolution)
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #5695 coedge 292: error 0.0000160, off the surface 0.0000150, tol 0.00001
       gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #5745 coedge 292: error 0.0000160, off the surface 0.0000150, tol 0.00001
@@ -155,44 +138,44 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug25912_GDT_exc.stp #6338 face #4118 coedge 536: error 0.00503, off the surface 0.00485, tol 0.005
 
 ## The error of those ok, against the tolerance
-  154747  under 0.01 x tol (planeAffine)
-  109245  under 0.01 x tol (isoLine)
-  33370  under 0.01 x tol (affineFeet)
-  28284  0.1-1 x tol (traced)
-  5837  0.01-0.1 x tol (affineFeet)
-  5665  under 0.01 x tol (traced)
-  5589  0.01-0.1 x tol (traced)
-  4374  0.1-1 x tol (affineFeet)
-  366  0.01-0.1 x tol (isoLine)
-  276  0.01-0.1 x tol (planeAffine)
-  238  0.1-1 x tol (isoLine)
-  88  0.1-1 x tol (planeAffine)
+  171239  under 0.01 x tol (planeAffine)
+  120609  under 0.01 x tol (isoLine)
+  41111  under 0.01 x tol (affineFeet)
+  35240  0.1-1 x tol (traced)
+  6700  0.01-0.1 x tol (traced)
+  6364  0.01-0.1 x tol (affineFeet)
+  6153  under 0.01 x tol (traced)
+  5393  0.1-1 x tol (affineFeet)
+  474  0.01-0.1 x tol (planeAffine)
+  386  0.01-0.1 x tol (isoLine)
+  248  0.1-1 x tol (isoLine)
+  220  0.1-1 x tol (planeAffine)
 
 ## Ambiguous feet
+  797  traced (bspline)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14 coedge 1
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2106 coedge 50
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2544 coedge 111
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2612 coedge 117
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891 face #2996 coedge 1
   580  affineFeet (cone)
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243 coedge 19
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243 coedge 20
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 44
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 45
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61566 coedge 26
-  402  affineFeet (bspline)
+  532  affineFeet (bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 coedge 610
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6299 coedge 617
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6529 coedge 637
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6529 coedge 638
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6799 coedge 662
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 coedge 696
-  350  affineFeet (sphere)
+  363  affineFeet (sphere)
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #697 coedge 10
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #699 coedge 13
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #74 face #704 coedge 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #74 face #707 coedge 5
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #2590 face #2421 coedge 8
-  276  traced (bspline)
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14 coedge 1
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2106 coedge 50
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2544 coedge 111
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2612 coedge 117
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891 face #2996 coedge 1
   44  traced (revolution)
       gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5241 coedge 1
       gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5241 coedge 2
@@ -212,32 +195,42 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj6_k1-ec-214.stp #6446 face #5808 coedge 115
 
 ## Traces stopped short, by why and surface
-  1  noConvergence (bspline)
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #5924 coedge 750: at 39.1% of its range, its last foot 0.682 off the curve, tol 0.00001
-  1  poleLine (bspline)
+  5  poleLine (bspline)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #206982 coedge 1473: at 0.0% of its range, its last foot 0.0000726 off the curve, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #206982 coedge 1474: at 0.0% of its range, its last foot 0.0000726 off the curve, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #93023 coedge 1580: at 100.0% of its range, its last foot 0.0000726 off the curve, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #93023 coedge 1581: at 100.0% of its range, its last foot 0.0000726 off the curve, tol 0.00001
       gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11796 coedge 10136: at 0.0% of its range, its last foot 1.97e+7 off the curve, tol 0.050800000000000005
+  3  noConvergence (bspline)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928 coedge 2139: at 0.8% of its range, its last foot 179 off the curve, tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #334072 coedge 2300: at 0.4% of its range, its last foot 136 off the curve, tol 0.00001
+      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #5924 coedge 750: at 39.1% of its range, its last foot 0.682 off the curve, tol 0.00001
+  1  fold (bspline)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #128930 coedge 2287: at 55.9% of its range, its last foot 159 off the curve, tol 0.00001
+  1  degenerate (bspline)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #279826 coedge 3252: at 50.0% of its range, its last foot 197 off the curve, tol 0.00001
 
 ## Traced ends against their vertices' feet (the end search), by surface
-  89720  same (bspline)
-  35053  same (cylinder)
-  13655  same (cone)
+  138899  same (bspline)
+  45231  same (cylinder)
+  14116  same (cone)
   10917  same (extrusion)
-  4855  same (torus)
+  5446  same (torus)
+  5289  same (sphere)
   4561  seamOther (bspline)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1589 face #3295 coedge 3: its end (ok)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 coedge 0: its end (ok)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 coedge 1: its end (ok)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 coedge 2: its end (ok)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 coedge 3: its start (ok)
-  4443  same (sphere)
   3422  same (revolution)
-  2592  periods (cylinder)
+  2808  periods (cylinder)
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #78 face #667 coedge 10: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61605 coedge 210: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61620 coedge 310: its end (ok)
       gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6373 coedge 406: its end (ok)
       gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6374 coedge 408: its end (ok)
-  1537  seamOther (cylinder)
+  1855  seamOther (cylinder)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581 coedge 37: its end (ok)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581 coedge 39: its end (ok)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723 coedge 48: its end (ok)
@@ -255,60 +248,66 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4521 coedge 52: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5421 coedge 82: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5421 coedge 84: its end (ok)
+  374  vertexOff (bspline)
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #21628 coedge 719: its start (ok), 1 feet there
+      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #40184 coedge 2108: its start (ok), 1 feet there
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #101678 coedge 189: its start (ok), 1 feet there
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #24027 coedge 219: its end (ok), 1 feet there
+      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #96369 coedge 241: its end (ok), 1 feet there
   337  periods (revolution)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #26 coedge 3: its end (ok)
       gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5285 coedge 10: its end (ok)
       gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5285 coedge 12: its end (ok)
       gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5301 coedge 16: its end (ok)
       gkv311-opencascade-dataset/step/bug30790.step #2448 face #3501 coedge 2: its end (ok)
-  307  seamOther (sphere)
+  311  seamOther (sphere)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1437 coedge 202: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #1457 coedge 202: its end (ok)
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #2286 face #2194 coedge 1: its end (ok)
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #2065 face #1937 coedge 13: its end (ok)
       gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #2065 face #1953 coedge 15: its end (ok)
-  288  periods (cone)
+  294  periods (cone)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999 coedge 84: its end (ok)
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2825 coedge 288: its end (ok)
       gkv311-opencascade-dataset/step/PRO10363.stp #169 face #468 coedge 48: its end (ok)
       gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #38006 coedge 1180: its end (ok)
       gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #1544 face #2076 coedge 50: its end (ok)
-  226  periods (sphere)
+  246  periods (sphere)
       gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1475 coedge 168: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #509 coedge 31: its end (ok)
       gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #301 coedge 16: its end (ok)
       gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #372 coedge 39: its end (ok)
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16450 face #20639 coedge 0: its end (ok)
-  220  periods (torus)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 face #477155 coedge 420: its end (ok)
+  237  periods (torus)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61603 coedge 195: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61607 coedge 222: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61612 coedge 261: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61616 coedge 288: its end (ok)
       gkv311-opencascade-dataset/step/PRO10363.stp #169 face #263 coedge 24: its start (ok)
-  207  vertexOff (bspline)
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #21628 coedge 719: its start (ok), 1 feet there
-      gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #40184 coedge 2108: its start (ok), 1 feet there
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #101678 coedge 189: its start (ok), 1 feet there
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #24027 coedge 219: its end (ok), 1 feet there
-      gkv311-opencascade-dataset/step/bug30014.stp #61091 face #96369 coedge 241: its end (ok), 1 feet there
-  194  seamOther (torus)
+  198  seamOther (torus)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61603 coedge 191: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61608 coedge 227: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61612 coedge 257: its end (ok)
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61617 coedge 293: its end (ok)
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #8766 coedge 846: its end (ok)
+  153  seamOther (cone)
+      gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999 coedge 86: its start (ok)
+      gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012 coedge 88: its start (ok)
+      gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012 coedge 90: its start (ok)
+      gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 43: its start (ok)
+      gkv311-opencascade-dataset/step/PRO10363.stp #169 face #468 coedge 47: its start (ok)
   149  seamOther (extrusion)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #120 coedge 1: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #120 coedge 3: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1619 coedge 224: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1619 coedge 226: its end (ok)
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #14450 coedge 65: its start (ok)
-  148  seamOther (cone)
-      gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999 coedge 86: its start (ok)
-      gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012 coedge 88: its start (ok)
-      gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012 coedge 90: its start (ok)
-      gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 43: its start (ok)
-      gkv311-opencascade-dataset/step/PRO10363.stp #169 face #468 coedge 47: its start (ok)
+  135  different (bspline)
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #822 coedge 323: its end (invalidModel), 1 feet there
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #829 coedge 353: its end (invalidModel), 1 feet there
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #845 coedge 420: its end (invalidModel), 1 feet there
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #185678 coedge 2954: its end (invalidModel), 1 feet there
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #185678 coedge 2965: its end (invalidModel), 1 feet there
   134  vertexOff (cylinder)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679 coedge 240: its start (invalidModel), 1 feet there
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #8679 coedge 241: its end (ok), 1 feet there
@@ -333,12 +332,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 face #2362 coedge 307: its start (invalidModel), 1 feet there
       gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 face #2381 coedge 309: its end (invalidModel), 1 feet there
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14490 face #19855 coedge 6: its end (invalidModel), 1 feet there
-  15  different (bspline)
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #822 coedge 323: its end (invalidModel), 1 feet there
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #829 coedge 353: its end (invalidModel), 1 feet there
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #845 coedge 420: its end (invalidModel), 1 feet there
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16440 face #20635 coedge 2: its end (invalidModel), 1 feet there
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16440 face #20635 coedge 3: its end (invalidModel), 1 feet there
   11  vertexOff (extrusion)
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 face #2275 coedge 239: its start (ok), 1 feet there
       gkv311-opencascade-dataset/step/bug27934_TEST_Machine_Part-brep-pmi.stp #4963 face #2275 coedge 239: its end (ok), 1 feet there
@@ -356,33 +349,33 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157 coedge 3: its end (ok), 1 feet there
 
 ## Ok traced results densely (257 parameters on the face's own surface) against the error they report
-  43581  within the error reported (affineFeet)
-  39538  within the error reported (traced)
+  52868  within the error reported (affineFeet)
+  48093  within the error reported (traced)
 
 ## invalidModel: the gap off the surface against 1e-9 x the part's size (its vertices' box), its uncertainty and the face's tolerance
-  33 uses, 10 parts, 7 files  1e-9 x the part's size: 1-10 x
-  154 uses, 30 parts, 12 files  1e-9 x the part's size: 10-100 x
-  1100 uses, 106 parts, 33 files  1e-9 x the part's size: 100-1000 x
-  2811 uses, 539 parts, 78 files  1e-9 x the part's size: over 1000 x
-  4098 uses, 607 parts, 84 files  cleared by: none
-  4098 uses, 607 parts, 84 files  the face's tolerance: none
-  1542 uses, 162 parts, 55 files  the part's uncertainty: 1-10 x
-  1219 uses, 171 parts, 31 files  the part's uncertainty: 10-100 x
-  559 uses, 247 parts, 23 files  the part's uncertainty: 100-1000 x
+  37 uses, 11 parts, 8 files  1e-9 x the part's size: 1-10 x
+  5156 uses, 40 parts, 13 files  1e-9 x the part's size: 10-100 x
+  8292 uses, 118 parts, 34 files  1e-9 x the part's size: 100-1000 x
+  4096 uses, 549 parts, 79 files  1e-9 x the part's size: over 1000 x
+  17581 uses, 622 parts, 85 files  cleared by: none
+  17581 uses, 622 parts, 85 files  the face's tolerance: none
+  6859 uses, 176 parts, 56 files  the part's uncertainty: 1-10 x
+  8302 uses, 185 parts, 32 files  the part's uncertainty: 10-100 x
+  1605 uses, 250 parts, 24 files  the part's uncertainty: 100-1000 x
   265 uses, 6 parts, 6 files  the part's uncertainty: none
-  513 uses, 223 parts, 11 files  the part's uncertainty: over 1000 x
+  550 uses, 227 parts, 12 files  the part's uncertainty: over 1000 x
 
 ## Against the model's p-curves, at the curve's parameters
   8244  the same (plane)
   3890  the same (cylinder)
-  2876  the same (bspline)
+  2879  the same (bspline)
   1963  the model's p-curve off its curve at the curve's parameters (over 100 x tol): not at its parameter, or off (plane)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 4: 37.9 off its curve, 37.9 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 5: 7.69 off its curve, 7.69 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 6: 1.52 off its curve, 1.52 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 7: 7.69 off its curve, 7.69 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141 coedge 8: 1.17 off its curve, 1.17 from ours
-  1175  within 10 x tol in 3D, not a whole number of periods apart in (u, v) (bspline)
+  1180  within 10 x tol in 3D, not a whole number of periods apart in (u, v) (bspline)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 4: 0.0000192 off its curve, 0.000351 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 6: 0.0000121 off its curve, 0.000331 from ours
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 7: 0.00000292 off its curve, 0.000253 from ours
@@ -409,7 +402,7 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #3344 coedge 144: 0.739 off its curve, 0.739 from ours
   551  the same (torus)
   399  the same, a whole number of periods apart (torus)
-  298  ours not ok (above) (bspline)
+  290  ours not ok (above) (bspline)
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5564 coedge 34: 0.0000225 off its curve, 9.29e-7 from ours
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5635 coedge 38: 0.0000225 off its curve, 9.29e-7 from ours
       gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5664 coedge 42: 0.0000225 off its curve, 9.30e-7 from ours
@@ -610,14 +603,14 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1640 coedge 28
 
 ## OCCT: the route its p-curve took
-  155158  computed on request (a plane's) (plane)
-  97168  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
-  42502  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
-  19140  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
-  12146  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
+  172214  computed on request (a plane's) (plane)
+  110927  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+  67197  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  19984  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
+  14064  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
+  6599  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
   5990  the shape's own (the model's: OCCT echoing it) (cylinder)
   5428  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (extrusion)
-  5393  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
   5136  the shape's own (the model's: OCCT echoing it) (bspline)
   2095  ShapeFix_Edge::FixAddPCurve (OCCT projecting) (revolution)
   1326  the shape's own (the model's: OCCT echoing it) (torus)
@@ -634,64 +627,70 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug31292.stp #62
 
 ## OCCT: its 3D error at its parameters against the tolerance, and ours
-  178135  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours ok
-  155085  computed on request (a plane's): OCCT within tol, ours ok
-  12172  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours ok
-  3259  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT over tol, ours not ok
-  1982  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT over tol, ours ok
+  206454  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours ok
+  171883  computed on request (a plane's): OCCT within tol, ours ok
+  15850  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT over tol, ours not ok
+  12180  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours ok
+  2891  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT over tol, ours ok
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #5480 coedge 0: OCCT 0.00000384 (1-10 x tol)
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040 coedge 2: OCCT 0.00000270 (1-10 x tol)
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040 coedge 6: OCCT 0.00000260 (1-10 x tol)
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #7040 coedge 9: OCCT 0.00000384 (1-10 x tol)
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #8130 coedge 13: OCCT 0.00000213 (1-10 x tol)
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #10380 coedge 30: OCCT 0.00000214 (1-10 x tol)
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #11750 coedge 32: OCCT 0.00000214 (1-10 x tol)
+  1099  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours not ok
   673  the shape's own (the model's: OCCT echoing it): OCCT over tol, ours ok
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825 coedge 72: OCCT 0.0372 (1-10 x tol)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #855 coedge 26: OCCT 0.00000256 (1-10 x tol)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #11476 coedge 335: OCCT 0.00000553 (1-10 x tol)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #32132 coedge 1318: OCCT 0.00000205 (1-10 x tol)
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #32132 coedge 1321: OCCT 0.00000253 (1-10 x tol)
-  496  ShapeFix_Edge::FixAddPCurve (OCCT projecting): OCCT within tol, ours not ok
   311  the shape's own (the model's: OCCT echoing it): OCCT over tol, ours not ok
-  53  computed on request (a plane's): OCCT over tol, ours not ok
-  20  computed on request (a plane's): OCCT within tol, ours not ok
-  17  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours not ok
+  263  computed on request (a plane's): OCCT over tol, ours not ok
+  44  computed on request (a plane's): OCCT within tol, ours not ok
+  24  computed on request (a plane's): OCCT over tol, ours ok
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #50774 coedge 1209: OCCT 0.0000142 (1-10 x tol)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #45387 coedge 1247: OCCT 0.0000142 (1-10 x tol)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #282728 coedge 1277: OCCT 0.0000142 (1-10 x tol)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #144161 coedge 1648: OCCT 0.000708 (10-100 x tol)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #473895 coedge 2595: OCCT 0.0000159 (1-10 x tol)
+  9  the shape's own (the model's: OCCT echoing it): OCCT within tol, ours not ok
 
 ## OCCT: its (u, v) against ours at the same 3D points
-  155085  the same: computed on request (a plane's) (plane)
-  79554  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
-  24088  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
-  14850  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
-  9501  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
-  8138  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  171903  the same: computed on request (a plane's) (plane)
+  88894  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+  36727  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  17576  ours not ok: not compared
+  15527  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
+  10988  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
+  10149  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #974 coedge 20: ours (0.008230975836659854, -0.000572158903125934), OCCT (0.008230284657970148, -0.0005719392879694047), tol 0.0001
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #1871 coedge 26: ours (0.008813094227287516, 0.7796553356246264), OCCT (0.008815776076995869, 0.7796572333166085), tol 0.0001
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4440 coedge 48: ours (0.00822909070812431, -0.0005718319147344528), OCCT (0.008228382069062063, -0.0005715990970348731), tol 0.0001
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4636 coedge 56: ours (0.008817155267139762, 0.7796556629743141), OCCT (0.008819838823117201, 0.7796575617464332), tol 0.0001
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1589 face #3295 coedge 3: ours (0.20784531673229067, 5.3003864380889444e-17), OCCT (0.20782536808265445, 0), tol 0.01
-  7869  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+  8079  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1502 coedge 216: ours (0.07888927276958774, 21.23322534861355), OCCT (0.07912627509837428, 21.23324419964645), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1528 coedge 220: ours (0.07888927124562939, 37.52074892045125), OCCT (0.07912627386192236, 37.52073006941637), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840 coedge 263: ours (5.999938826974491, -44.19346548893779), OCCT (5.999936802422971, -44.193355768656104), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840 coedge 264: ours (4.522022144366341, -31.691869959732248), OCCT (4.5220307304434035, -31.691827332282656), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840 coedge 265: ours (3.902802262666624, -41.9688712568363), OCCT (3.9027938952362065, -41.96891047786466), tol 0.001
-  6340  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  6483  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1900 face #2795 coedge 25: ours (0.7334898172288868, 0.3480206569407036), OCCT (0.7342828453309207, 0.34807839841463906), tol 0.01
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891 face #3211 coedge 13: ours (3.9999999999999996, 0.10542660343356047), OCCT (4, 0.10542607843763303), tol 0.01
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #38 coedge 1: ours (1.2197271313260316, 2.6858888365294087), OCCT (1.2197443354106174, 2.6858920864550173), tol 0.01
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #38 coedge 3: ours (1.219718094911073, 3.597296442031726), OCCT (1.2197352963933077, 3.5972931925988783), tol 0.01
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #39 coedge 5: ours (2.686201318864238, 1.1148016315609084), OCCT (2.686203512507401, 1.1148132375277189), tol 0.01
-  5615  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+  6342  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581 coedge 36: ours (6.283185307179586, 0.42857142857142794), OCCT (0, 0.4285714285714284), tol 0.1
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723 coedge 51: ours (6.283185307179586, 7.071428571428571), OCCT (0, 7.07142857142857), tol 0.1
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #778 coedge 52: ours (0.22439947525629736, 30), OCCT (6.5075847824358855, 30), tol 0.1
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #816 coedge 59: ours (6.283185307179586, 23.49999999999286), OCCT (0, 23.499999999992855), tol 0.1
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #938 coedge 72: ours (6.283185307179586, 0.14285714285714168), OCCT (0, 0.1428571428571428), tol 0.1
-  5451  not compared: OCCT's (u, v) differs on extrusion
+  5455  not compared: OCCT's (u, v) differs on extrusion
   4196  the same: the shape's own (the model's: OCCT echoing it) (cylinder)
-  4156  ours not ok: not compared
-  3295  the same: the shape's own (the model's: OCCT echoing it) (bspline)
-  3107  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
-  2505  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
+  3911  the same: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
+  3298  the same: the shape's own (the model's: OCCT echoing it) (bspline)
+  2516  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243 coedge 21: ours (5.074463861253108, 4.974099229977579), OCCT (5.074714509474865, 4.975715351327294), tol 0.005
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243 coedge 23: ours (3.1995923590171405, 3.0012907530644535), OCCT (3.199752276622516, 2.9982598142796246), tol 0.005
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 coedge 43: ours (0.05799953983156575, 3.0012897131629948), OCCT (0.058159554767706304, 2.9982595102299916), tol 0.005
@@ -704,36 +703,36 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1474 coedge 50: ours (1.2182690969620644, 2.1903450723285482), OCCT (1.2182682664581008, 2.190923621470162), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1515 coedge 60: ours (4.359731520198044, 2.1903854508669913), OCCT (4.359699073670202, 2.1909644876622085), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #2100 coedge 256: ours (0.08357713834744773, 17.68053034964794), OCCT (0.08357839795080922, 17.68068281507371), tol 0.013647142049885342
-  1350  not a whole number of periods apart, under 0.01 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4759 coedge 39: ours (0.5315045952628401, 0.3554830721127975), OCCT (0.5315064530854319, 0.3554838632925046), tol 0.01
-      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #41 coedge 19: ours (-1.192528631763642, 3.4722958821180905), OCCT (-1.1925487982054754, 3.472295492919536), tol 0.01
-      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #46 coedge 70: ours (8.471563220836726, 0.9999739736110694), OCCT (8.471563122366137, 0.9999784653363808), tol 0.01
-      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #47 coedge 72: ours (3.9192757176614696, 3.5643880746163713e-7), OCCT (3.919280081752221, -9.305344678027038e-7), tol 0.01
-      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #47 coedge 73: ours (13.5489703316824, 0.07143322754643644), OCCT (13.549026518859055, 0.07143320513325281), tol 0.01
-  1236  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
+  1405  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #218 coedge 13: ours (-3.8546943414985425e-13, 5.404825990123523), OCCT (6.283185307179586, 5.4048259901233), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #327 coedge 21: ours (6.283185307180755, 5.426202579150886), OCCT (0, 5.426202579150388), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1459 coedge 206: ours (0.1783031661747465, 4.71238898038469), OCCT (6.461488473360221, 4.712388980384454), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1459 coedge 207: ours (-5.842659689392349e-12, 3.635915176857629), OCCT (6.283185307179586, 3.635915176849858), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #14910 coedge 72: ours (6.283185307179586, 1.147725699364233), OCCT (0, 1.1477256993642329), tol 0.0000010000000000000002
-  1015  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
+  1397  not a whole number of periods apart, under 0.01 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4759 coedge 39: ours (0.5315045952628401, 0.3554830721127975), OCCT (0.5315064530854319, 0.3554838632925046), tol 0.01
+      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #41 coedge 19: ours (-1.192528631763642, 3.4722958821180905), OCCT (-1.1925487982054754, 3.472295492919536), tol 0.01
+      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #46 coedge 70: ours (8.471563220836726, 0.9999739736110694), OCCT (8.471563122366137, 0.9999784653363808), tol 0.01
+      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #47 coedge 72: ours (3.9192757176614696, 3.5643880746163713e-7), OCCT (3.919280081752221, -9.305344678027038e-7), tol 0.01
+      gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #47 coedge 73: ours (13.5489703316824, 0.07143322754643644), OCCT (13.549026518859055, 0.07143320513325281), tol 0.01
+  1120  not a whole number of periods apart, 0.1-1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1417 coedge 199: ours (0.08636665321142223, -0.762797521559028), OCCT (0.08635319107353302, -0.7628041043972356), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1437 coedge 202: ours (6.195235388382051, -0.042244213229047034), OCCT (6.195093820167039, -0.04229182247095181), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1767 coedge 248: ours (3.128029438173398, -0.5433969306166313), OCCT (3.127863927158475, -0.5434609296908988), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1803 coedge 251: ours (5.363319046796465, -0.19407448660870386), OCCT (5.363319937659785, -0.19407420252974789), tol 0.001
       gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1079 coedge 2: ours (4.372064093674097, 1.1322715962138148), OCCT (4.374365623212044, 1.1329402670873563), tol 0.013647142049885342
-  981  not a whole number of periods apart, 0.1-1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 4: ours (0.03337895232688853, 0.6809835313380196), OCCT (0.03338361314567785, 0.6809806365100183), tol 0.001
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 6: ours (0.0001451216649754495, 0.48598974056066296), OCCT (0.00015005534016892776, 0.4859922671065771), tol 0.001
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 7: ours (0.04278789854160647, 0.296292874524704), OCCT (0.0427911885105953, 0.29629552756994426), tol 0.001
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 8: ours (0.15475256958263814, 0.13737378487334553), OCCT (0.15475524873841207, 0.13737694788710414), tol 0.001
-      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 9: ours (0.31901646866366035, 0.03337895232859643), OCCT (0.31901936348998183, 0.033383613145753555), tol 0.001
-  956  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
+  1021  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999 coedge 87: ours (6.283185307179586, -0.10102327857481155), OCCT (0, -0.10102327857480796), tol 0.1
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012 coedge 91: ours (6.283185406460225, -0.10102293317491116), OCCT (9.927199476513076e-8, -0.10102293317491005), tol 0.1
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #425 coedge 38: ours (0.22439947525602832, 0), OCCT (6.507584782436, 3.972054645197177e-16), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #425 coedge 39: ours (-1.0132127607821028e-12, 0.20284330938848524), OCCT (6.283185307179586, 0.20284330938720396), tol 0.001
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #15900 coedge 82: ours (6.283185307179586, -2.6369630220372478), OCCT (0, -2.6369630220372438), tol 0.0000010000000000000002
+  984  not a whole number of periods apart, 0.1-1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 4: ours (0.03337895232688853, 0.6809835313380196), OCCT (0.03338361314567785, 0.6809806365100183), tol 0.001
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 6: ours (0.0001451216649754495, 0.48598974056066296), OCCT (0.00015005534016892776, 0.4859922671065771), tol 0.001
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 7: ours (0.04278789854160647, 0.296292874524704), OCCT (0.0427911885105953, 0.29629552756994426), tol 0.001
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 8: ours (0.15475256958263814, 0.13737378487334553), OCCT (0.15475524873841207, 0.13737694788710414), tol 0.001
+      gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264 coedge 9: ours (0.31901646866366035, 0.03337895232859643), OCCT (0.31901936348998183, 0.033383613145753555), tol 0.001
   921  the same, a whole number of periods apart: the shape's own (the model's: OCCT echoing it) (cylinder)
       gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941 coedge 1: ours (6.731984257692409, 200), OCCT (0.44879895051282764, 200), tol 0.00001
       gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938 face #392941 coedge 3: ours (6.731984257692409, 0), OCCT (0.44879895051282764, 0), tol 0.00001
@@ -759,7 +758,19 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #401 coedge 51: ours (1.3903118834668304, -4.527815309292882), OCCT (1.3903166415291504, -4.527815309292881), tol 0.005
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #401 coedge 53: ours (0.03502849819758476, -1.5208313247811458), OCCT (0.03502366661385085, -1.5208313247811471), tol 0.005
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61625 coedge 349: ours (3.663205095323664, 76.86889431925387), OCCT (3.6632109555018424, 76.86894974529977), tol 0.0735144909614523
-  436  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+  502  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1052 face #3392 coedge 6: ours (0.31887404322399043, 0.0831023904750876), OCCT (0.3187948767068568, 0.08318499018556433), tol 0.01
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1052 face #3392 coedge 7: ours (0.6781071908297425, 0.09005068396716925), OCCT (0.6781850379049239, 0.09013190701580462), tol 0.01
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4315 coedge 5: ours (0.9169093019610961, 0.6810857886892916), OCCT (0.9168150098144354, 0.6812051232931432), tol 0.01
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4621 coedge 26: ours (0.9169093019610968, 0.3189142113107091), OCCT (0.9168150098144356, 0.3187948767068569), tol 0.01
+      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #5022 coedge 80: ours (0.3540594887792181, 0.07011721036022511), OCCT (0.3540866294503048, 0.07020399848881252), tol 0.01
+  480  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #697 coedge 10: ours (1.5707963267948948, 1.121997376282069), OCCT (7.853982480928133, 1.1219977124571474), tol 0.00002
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #699 coedge 13: ours (1.570796326794895, 1.121997376282069), OCCT (7.8539828485981165, 1.1219977124571474), tol 0.00002
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #74 face #704 coedge 0: ours (1.5707963267948966, 1.121997376282069), OCCT (1.570794267715183, 1.1219977124571474), tol 0.00002
+      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #74 face #707 coedge 5: ours (1.570796326794897, 1.121997376282069), OCCT (1.5707942140059374, 1.1219977124571474), tol 0.00002
+      gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #2590 face #2421 coedge 8: ours (3.141592653589794, -1.1219973762820632), OCCT (3.141587982492397, -1.1219977124571474), tol 0.0000254
+  449  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1589 face #3295 coedge 1: ours (-0.207845316732292, 1.0000000000000002), OCCT (3.7921746319173453, 1), tol 0.01
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #891 face #1735 coedge 2: ours (-0.20784531673229178, 1.0000000000000002), OCCT (3.792174631917345, 1), tol 0.01
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1900 face #2866 coedge 27: ours (-0.06031636617198244, 1.3373123351466152e-17), OCCT (2.606350118378325, -1.6407641400333464e-17), tol 0.01
@@ -777,6 +788,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3546 coedge 31: ours (6.283185307179586, 332.1805956034286), OCCT (0, 332.18059560342857), tol 0.0005
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3546 coedge 33: ours (0, 332.1805956034286), OCCT (6.283185307179586, 332.18059560342857), tol 0.0005
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3643 coedge 40: ours (12.56637061434851, 40.6676608002317), OCCT (6.283185307179586, 40.667660800231566), tol 0.0005
+  385  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
+      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #954 coedge 119: ours (6.283185307179586, 0.1121997376282069), OCCT (0, 0.1121997376282069), tol 0.001
+      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1437 coedge 204: ours (6.283185307179586, -0.5421712014852584), OCCT (0, -0.5421712014852584), tol 0.001
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440 face #31200 coedge 5: ours (6.283185307179586, 1.4585965891666897), OCCT (0, 1.4585965891666897), tol 0.0000010000000000000002
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8639 coedge 1150: ours (6.283185307179586, 0.11219973762820712), OCCT (0, 0.1121997376282069), tol 0.005
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8849 coedge 1192: ours (6.283185307179586, 0.11219973762820712), OCCT (0, 0.1121997376282069), tol 0.005
   378  not a whole number of periods apart, over 100 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #1037 coedge 20: ours (0.9935194440386226, 0.7198923141129445), OCCT (0.9932922219728967, 0.7198847873673437), tol 0.0000010000000000000002
       gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #1037 coedge 22: ours (0.07781290304702321, 0.7177763243345926), OCCT (0.07802712982361912, 0.7177706744915542), tol 0.0000010000000000000002
@@ -789,18 +806,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61607 coedge 222: ours (4.530559432720043, -0.12150554753180232), OCCT (4.530536319051411, 6.162799583967419), tol 0.0735144909614523
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61608 coedge 227: ours (0.40904366759517924, 4.814088567846917), OCCT (0.40905723988845866, 4.814851269844975), tol 0.0735144909614523
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61612 coedge 257: ours (0.8990009938453981, 4.814088567929632), OCCT (0.899014566138689, 4.814851269927316), tol 0.0735144909614523
-  357  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
-      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #697 coedge 10: ours (1.5707963267948948, 1.121997376282069), OCCT (7.853982480928133, 1.1219977124571474), tol 0.00002
-      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #699 coedge 13: ours (1.570796326794895, 1.121997376282069), OCCT (7.8539828485981165, 1.1219977124571474), tol 0.00002
-      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #74 face #704 coedge 0: ours (1.5707963267948966, 1.121997376282069), OCCT (1.570794267715183, 1.1219977124571474), tol 0.00002
-      gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #74 face #707 coedge 5: ours (1.570796326794897, 1.121997376282069), OCCT (1.5707942140059374, 1.1219977124571474), tol 0.00002
-      gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #2590 face #2421 coedge 8: ours (3.141592653589794, -1.1219973762820632), OCCT (3.141587982492397, -1.1219977124571474), tol 0.0000254
-  355  the same, a whole number of periods apart: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
-      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #954 coedge 119: ours (6.283185307179586, 0.1121997376282069), OCCT (0, 0.1121997376282069), tol 0.001
-      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1437 coedge 204: ours (6.283185307179586, -0.5421712014852584), OCCT (0, -0.5421712014852584), tol 0.001
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440 face #31200 coedge 5: ours (6.283185307179586, 1.4585965891666897), OCCT (0, 1.4585965891666897), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8639 coedge 1150: ours (6.283185307179586, 0.11219973762820712), OCCT (0, 0.1121997376282069), tol 0.005
-      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8849 coedge 1192: ours (6.283185307179586, 0.11219973762820712), OCCT (0, 0.1121997376282069), tol 0.005
   282  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
       gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #495 coedge 536: ours (1.1436544912677453, -12.934227910614068), OCCT (1.1435881246820543, -12.935282897490218), tol 0.050800000000000005
       gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #495 coedge 540: ours (2.024258949415494, -13.458845774721166), OCCT (2.0242799547896935, -13.460856409685494), tol 0.050800000000000005
@@ -819,12 +824,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #68136 coedge 2475: ours (0.7064706295725856, 0.9191063577683263), OCCT (0.7062793841275725, 0.9189522670544428), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #68339 coedge 2499: ours (5.41063759150274, 0.10049285794637297), OCCT (5.410669647474637, 0.10034750376574592), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #68339 coedge 2500: ours (5.60629354344856, 0.9925765496662733), OCCT (5.606292517652168, 0.9925650901785242), tol 0.005
-  189  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1052 face #3392 coedge 6: ours (0.31887404322399043, 0.0831023904750876), OCCT (0.3187948767068568, 0.08318499018556433), tol 0.01
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1052 face #3392 coedge 7: ours (0.6781071908297425, 0.09005068396716925), OCCT (0.6781850379049239, 0.09013190701580462), tol 0.01
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4315 coedge 5: ours (0.9169093019610961, 0.6810857886892916), OCCT (0.9168150098144354, 0.6812051232931432), tol 0.01
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #4621 coedge 26: ours (0.9169093019610968, 0.3189142113107091), OCCT (0.9168150098144356, 0.3187948767068569), tol 0.01
-      gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #569 face #5022 coedge 80: ours (0.3540594887792181, 0.07011721036022511), OCCT (0.3540866294503048, 0.07020399848881252), tol 0.01
+  181  not a whole number of periods apart, 10-100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #13260 coedge 55: ours (4.963516014274934, -1.1451021269069646), OCCT (4.963476736121022, -1.1450937831419181), tol 0.0000010000000000000002
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #13260 coedge 57: ours (3.5554269270242536, -0.10279809269737672), OCCT (3.555426396635785, -0.10279812173183261), tol 0.0000010000000000000002
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #14570 coedge 66: ours (1.3196692929046536, -1.145102126906964), OCCT (1.3197085710585648, -1.1450937831419181), tol 0.0000010000000000000002
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #14570 coedge 67: ours (2.7277583801553362, -0.10279809269737683), OCCT (2.727758910543801, -0.10279812173183261), tol 0.0000010000000000000002
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #477097 face #477155 coedge 419: ours (2.574898259850511, -1.5043370099241278), OCCT (2.5771407848162617, -1.5045614988702671), tol 0.00001
   165  a seam's use a whole number of periods apart (below): ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 coedge 0: ours (1, 0.014285714072840591), OCCT (0, 0.014285714072840723), tol 0.01
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 coedge 2: ours (7.462807759682016e-17, 0.014285714072840591), OCCT (1, 0.014285714072840723), tol 0.01
@@ -832,12 +837,18 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1989 coedge 6: ours (9.831084045577441e-17, 0.014285714072840518), OCCT (1, 0.01428571407284058), tol 0.01
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #2058 coedge 8: ours (1, 0.014285714072840525), OCCT (0, 0.01428571407284058), tol 0.01
   159  the same: the shape's own (the model's: OCCT echoing it) (cone)
-  139  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
+  154  not a whole number of periods apart, 10-100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
+      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #517 coedge 628: ours (0.999394395916068, -0.05245231594032024), OCCT (0.9994961435592418, 0.9474471136478981), tol 0.050800000000000005
+      gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #285 coedge 134: ours (0.05818549902095575, 0.9308014709036829), OCCT (0.058019622371797266, -0.06945374386610834), tol 0.050800000000000005
+      gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #287 coedge 145: ours (0.05818549902109991, 0.9308014709020638), OCCT (0.058019622371796954, -0.06945374386610817), tol 0.050800000000000005
+      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #118 coedge 60: ours (0.3052237361504209, 0.08018346962929469), OCCT (0.30522355710178206, 1.0801842037624005), tol 0.050800000000000005
+      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #122 coedge 76: ours (0.30522373615094023, 0.08018346962928409), OCCT (0.3052235571017864, 1.0801842037624003), tol 0.050800000000000005
+  141  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 20: ours (0, 0.9220634377482367), OCCT (0, 0.9285714285714286), tol 0.006
+      gkv311-opencascade-dataset/step/t4mec.stp #9 face #472 coedge 22: ours (1, -0.1938260919961764), OCCT (1, 0.07142857142857142), tol 0.006
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #618 coedge 26: ours (0.0994786271359271, 0.9637102756464889), OCCT (0.09947707475218656, 0.9637104276603499), tol 0.006
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825 coedge 65: ours (0.5055851179315192, 0.018181151383670838), OCCT (0.505583338739067, 0.018181075827351546), tol 0.006
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #13691 coedge 322: ours (4.981510094513194, 4.821173621910664), OCCT (4.981508827618035, 4.821173620763848), tol 0.01
-      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #13691 coedge 326: ours (4.984028963797438, 4.631762691271558), OCCT (4.984027582210633, 4.631762690339688), tol 0.01
-      gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #13691 coedge 330: ours (4.917690435629142, 4.799072992668461), OCCT (4.91769040119461, 4.799072992609224), tol 0.01
   139  not a whole number of periods apart, under 0.01 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #6225 coedge 547: ours (1.2967476870662873, -0.6195959600803095), OCCT (1.2967476074560558, -0.6196156480357025), tol 0.01
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #6631 coedge 576: ours (6.051463918684496, -7.798576156934732), OCCT (6.051463922726692, -7.798588008541402), tol 0.01
@@ -863,18 +874,18 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #2453 coedge 106: ours (6.277950049886562, 0.18326622434667594), OCCT (-0.0052352572934082076, 0.1832662243547065), tol 0.01
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #3022 coedge 129: ours (0.005235257293024701, -0.18326622434667594), OCCT (6.2884205644723075, -0.18326622439586313), tol 0.01
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #3022 coedge 130: ours (0.006325343384198924, -0.38528003060491506), OCCT (6.289510650563999, -0.3852800306129952), tol 0.01
+  89  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #509 coedge 31: ours (4.71238898038469, -0.5771282004571185), OCCT (4.712386635993635, -0.5771280764051124), tol 0.020000000000000007
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #510 coedge 33: ours (1.5707963267948966, 0.577128200457119), OCCT (1.5707986711859512, 0.577128076405113), tol 0.020000000000000007
+      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #518 coedge 53: ours (1.5707963267948966, -1.121997376282069), OCCT (1.5707986711859512, -1.1219977124571472), tol 0.020000000000000007
+      gkv311-opencascade-dataset/step/bug30014.stp #82431 face #73053 coedge 8: ours (5.753031345281375, 0.19442489176242544), OCCT (5.753039774375497, 0.19442606219984954), tol 0.00001
+      gkv311-opencascade-dataset/step/bug30014.stp #82431 face #48206 coedge 24: ours (3.6717466154880087, -0.19442489176242544), OCCT (3.671738186393882, -0.19442606219984962), tol 0.00001
   83  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (cylinder)
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2221 coedge 139: ours (0.486144350250151, -0.5714285320457293), OCCT (0.4861443505542762, -0.5711266034865533), tol 0.015000000000000001
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2221 coedge 143: ours (0.5103430185769087, -72.57142729524753), OCCT (0.5103430182719182, -72.57166897901595), tol 0.015000000000000001
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #13240 coedge 284: ours (2.1102833254079245, -42.11347076872527), OCCT (2.110288421003069, -42.11306286608509), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #32951 coedge 998: ours (1.264188053837116, 10.090808745089365), OCCT (1.2641770197322142, 10.090457409175126), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #38564 coedge 1213: ours (2.10650937009386, 271.5130642867198), OCCT (2.106511194628009, 271.513090930196), tol 0.005
-  80  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
-      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #509 coedge 31: ours (4.71238898038469, -0.5771282004571185), OCCT (4.712386635993635, -0.5771280764051124), tol 0.020000000000000007
-      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #510 coedge 33: ours (1.5707963267948966, 0.577128200457119), OCCT (1.5707986711859512, 0.577128076405113), tol 0.020000000000000007
-      gkv311-opencascade-dataset/step/trj7_k1-ug-214.stp #11 face #518 coedge 53: ours (1.5707963267948966, -1.121997376282069), OCCT (1.5707986711859512, -1.1219977124571472), tol 0.020000000000000007
-      gkv311-opencascade-dataset/step/bug30014.stp #82431 face #73053 coedge 8: ours (5.753031345281375, 0.19442489176242544), OCCT (5.753039774375497, 0.19442606219984954), tol 0.00001
-      gkv311-opencascade-dataset/step/bug30014.stp #82431 face #48206 coedge 24: ours (3.6717466154880087, -0.19442489176242544), OCCT (3.671738186393882, -0.19442606219984962), tol 0.00001
   72  not a whole number of periods apart, 0.1-1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (sphere)
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #38569 coedge 1215: ours (2.501716338331238, 1.1382784629490472), OCCT (2.502315568856038, 1.138419154917144), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #38569 coedge 1216: ours (1.8245139405043929, 0.09057779227634721), OCCT (1.8245392777143663, 0.090566891002144), tol 0.005
@@ -887,6 +898,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627 coedge 0: ours (12.566370613694303, 14.285714285714278), OCCT (6.28318530718, 14.28571428571428), tol 0.0001
       gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392627 coedge 2: ours (6.283185306514717, 14.285714285714278), OCCT (0, 14.28571428571428), tol 0.0001
       gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392624 face #392865 coedge 16: ours (12.566370613361523, 14.285714285714292), OCCT (6.28318530718, 14.28571428571428), tol 0.0001
+  64  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #12740 coedge 50: ours (0.4948845700940829, -8.59411298850811), OCCT (0.4948862723010702, -8.594113136558773), tol 0.0000010000000000000002
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35919 coedge 1054: ours (0.31097320344677376, 5.128462512487021), OCCT (0.31046475429833886, 5.130011696554554), tol 0.002
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35919 coedge 1078: ours (5.542120332928977, 5.128519987295336), OCCT (5.54212034441224, 5.128519840093993), tol 0.002
+      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #23071 coedge 0: ours (3.2951367297351286, 6.7052611978285235), OCCT (3.2951371911967104, 6.705275709669721), tol 0.00001
+      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #23071 coedge 2: ours (-0.15354407614533283, 4.309676784323793), OCCT (6.12964076957267, 4.309662272482595), tol 0.00001
   62  a seam's use a whole number of periods apart (below): ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #9366 coedge 936: ours (6.283185307179586, 2.9201455219290335), OCCT (0, 2.9201455219287498), tol 0.01
       gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #9366 coedge 938: ours (0, 2.9201455219290335), OCCT (6.283185307179586, 2.9201455219287498), tol 0.01
@@ -905,24 +922,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #8865 coedge 1221: ours (3.8147885734229225, 4.712390462223344), OCCT (3.814791085722998, 4.712388980384686), tol 0.005
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #9026 coedge 1245: ours (3.8147885734229416, 4.712390462223343), OCCT (3.8147910857229963, 4.712388980384691), tol 0.005
       gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #9250 coedge 1279: ours (3.8147885734229448, 4.712390462223344), OCCT (3.8147910857229963, 4.712388980384691), tol 0.005
-  48  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #12740 coedge 50: ours (0.4948845700940829, -8.59411298850811), OCCT (0.4948862723010702, -8.594113136558773), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35919 coedge 1054: ours (0.31097320344677376, 5.128462512487021), OCCT (0.31046475429833886, 5.130011696554554), tol 0.002
-      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35919 coedge 1078: ours (5.542120332928977, 5.128519987295336), OCCT (5.54212034441224, 5.128519840093993), tol 0.002
-      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #23071 coedge 0: ours (3.2951367297351286, 6.7052611978285235), OCCT (3.2951371911967104, 6.705275709669721), tol 0.00001
-      gkv311-opencascade-dataset/step/bug30014.stp #8211 face #23071 coedge 2: ours (-0.15354407614533283, 4.309676784323793), OCCT (6.12964076957267, 4.309662272482595), tol 0.00001
-  47  not a whole number of periods apart, 10-100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (sphere)
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #13260 coedge 55: ours (4.963516014274934, -1.1451021269069646), OCCT (4.963476736121022, -1.1450937831419181), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #13260 coedge 57: ours (3.5554269270242536, -0.10279809269737672), OCCT (3.555426396635785, -0.10279812173183261), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #14570 coedge 66: ours (1.3196692929046536, -1.145102126906964), OCCT (1.3197085710585648, -1.1450937831419181), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #14570 coedge 67: ours (2.7277583801553362, -0.10279809269737683), OCCT (2.727758910543801, -0.10279812173183261), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157 coedge 2: ours (2.637246257513272, 0.12236280515991238), OCCT (2.6372462574985076, 0.12236280516040308), tol 0.001
-  45  not a whole number of periods apart, 10-100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (bspline)
-      gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #517 coedge 628: ours (0.999394395916068, -0.05245231594032024), OCCT (0.9994961435592418, 0.9474471136478981), tol 0.050800000000000005
-      gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #285 coedge 134: ours (0.05818549902095575, 0.9308014709036829), OCCT (0.058019622371797266, -0.06945374386610834), tol 0.050800000000000005
-      gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #287 coedge 145: ours (0.05818549902109991, 0.9308014709020638), OCCT (0.058019622371796954, -0.06945374386610817), tol 0.050800000000000005
-      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #118 coedge 60: ours (0.3052237361504209, 0.08018346962929469), OCCT (0.30522355710178206, 1.0801842037624005), tol 0.050800000000000005
-      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #122 coedge 76: ours (0.30522373615094023, 0.08018346962928409), OCCT (0.3052235571017864, 1.0801842037624003), tol 0.050800000000000005
+  46  not a whole number of periods apart, 10-100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #419928 coedge 6768: ours (0.9941220013393199, 29.737925964682393), OCCT (0.9941350314105577, 29.73792593752888), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #257730 coedge 429: ours (5.449310353739361, 39.0784359542564), OCCT (5.449310353741179, 39.078435954256406), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #105724 coedge 447: ours (5.224901359982918, 24.31490838358678), OCCT (5.224901359981052, 24.31490838358204), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #4736 coedge 474: ours (5.995993840118929, 21.21460981766114), OCCT (5.995995993163669, 21.214494712743015), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #38625 coedge 16130: ours (4.671628633357932, 36.97569355041394), OCCT (4.6716286363468225, 36.975693550413695), tol 0.00001
   44  not a whole number of periods apart, 10-100 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
       gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #2238 coedge 6: ours (0.00003560806772208224, 0.05667428346398168), OCCT (1.3314930080771424e-9, 0.07946957089499039), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #2238 coedge 7: ours (0.07466701984293689, 0.008040999466419), OCCT (0.08280580754940411, 0.008040999479985595), tol 0.013647142049885342
@@ -947,6 +952,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 face #833 coedge 28: ours (-2.449293598295e-16, 1.5414384354813429), OCCT (12.566370614359172, 1.541438435481343), tol 0.001
       gkv311-opencascade-dataset/step/trj5_k1-ec-214.stp #10 face #1450 coedge 54: ours (-2.449293598295e-16, -1.5685380274630853), OCCT (12.566370614359172, -1.5685380274630842), tol 0.001
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #1545 face #1626 coedge 11: ours (6.283185307179586, 0.11219973762820686), OCCT (0, 0.11219973762820715), tol 5.000000000000001e-7
+  20  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #290 coedge 10: ours (2.9313942681617107, 7.4586358929), OCCT (2.931390661706014, 7.4586358928999985), tol 1.364734406395618e-7
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #313 coedge 20: ours (2.931394268183917, 0.00007763000000071686), OCCT (2.9313906617281815, 0.00007763000000091827), tol 1.364734406395618e-7
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #325 coedge 21: ours (0.2101983853679863, 7.4586358928999985), OCCT (0.2102019918236773, 7.4586358929), tol 1.364734406395618e-7
+      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #349 coedge 32: ours (0.2101983853440823, 0.00007763000000071687), OCCT (0.21020199179981994, 0.00007763000000092618), tol 1.364734406395618e-7
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #461041 coedge 16701: ours (5.321276394500556, 2.948434498833161), OCCT (5.321276312925123, 2.9484339353348945), tol 0.00001
   19  the same, a whole number of periods apart: the shape's own (the model's: OCCT echoing it) (bspline)
       gkv311-opencascade-dataset/step/xr1-db-214_5.stp #1316 face #1151 coedge 59: ours (0.24999999999999997, -0.07142857142813575), OCCT (0.25, 1.9285714285714284), tol 0.1
       gkv311-opencascade-dataset/step/xr1-db-214_5.stp #1316 face #1197 coedge 67: ours (0.33333333333333337, -0.07142857142813575), OCCT (0.333333333333333, 1.9285714285714284), tol 0.1
@@ -959,24 +970,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #29830 coedge 1330: ours (5.972519307382037, -104.02182554551247), OCCT (-0.3106658664725901, -104.02131710978318), tol 0.001
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #29830 coedge 1336: ours (5.41970490346862, -172.75230950677093), OCCT (5.419704898101332, -172.75228113130422), tol 0.001
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #29830 coedge 1341: ours (5.367074246943831, -32.17713464448232), OCCT (-0.91611304119365, -32.17735237183726), tol 0.001
-  18  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #290 coedge 10: ours (2.9313942681617107, 7.4586358929), OCCT (2.931390661706014, 7.4586358928999985), tol 1.364734406395618e-7
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #313 coedge 20: ours (2.931394268183917, 0.00007763000000071686), OCCT (2.9313906617281815, 0.00007763000000091827), tol 1.364734406395618e-7
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #325 coedge 21: ours (0.2101983853679863, 7.4586358928999985), OCCT (0.2102019918236773, 7.4586358929), tol 1.364734406395618e-7
-      gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #395 face #349 coedge 32: ours (0.2101983853440823, 0.00007763000000071687), OCCT (0.21020199179981994, 0.00007763000000092618), tol 1.364734406395618e-7
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16865 face #20805 coedge 0: ours (6.213352566039767, -21.65572687761393), OCCT (-0.06983274113982205, -21.65545240451631), tol 0.0000010000000000000002
   16  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (torus)
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #111371 coedge 5247: ours (2.4413650371205193, 0.14757047160022652), OCCT (2.441355328866275, 0.14758457654112742), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #111397 coedge 5249: ours (0.7002276164685325, 0.14757047160060932), OCCT (0.7002373247236828, 0.14758457654175386), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #111471 coedge 5265: ours (0.010187842907482245, 0.655817788503361), OCCT (0.010198938422816413, 0.6557944210272855), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #111497 coedge 5269: ours (1.3602576522550398, 0.5776823010801475), OCCT (1.3602515332718652, 0.5776795335194392), tol 0.005
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #111957 coedge 5310: ours (0.11911621876129308, 0.8484284021263149), OCCT (0.11911602540420886, 0.8484513299749956), tol 0.005
-  15  not a whole number of periods apart, 10-100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cylinder)
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15060 face #20083 coedge 2: ours (1.3463968515384, 7.777010816153602), OCCT (1.346396851538401, 7.776997563592237), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #622 coedge 34: ours (-0.33029822985995416, 19.390295483999992), OCCT (5.9528568884268775, 19.390295483999992), tol 0.00001
-      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #722 coedge 39: ours (0.3302982298602286, 43.17999999999999), OCCT (0.3303284187527078, 43.179999999999986), tol 0.00001
-      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #722 coedge 40: ours (2.8112944237295623, 9.905999999999995), OCCT (2.811264234837085, 9.906000000000002), tol 0.00001
-      gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #830 coedge 45: ours (2.8112944237298367, 7.619999999999983), OCCT (2.811264234837085, 7.61999999999999), tol 0.00001
   13  not a whole number of periods apart, 1-10 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (bspline)
       gkv311-opencascade-dataset/step/t4mec.stp #9 face #1825 coedge 72: ours (-9.153718862967266e-12, 0.9441442472629542), OCCT (-2.3039669288770465e-10, 0.9441652688397815), tol 0.006
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #855 coedge 26: ours (0.1628276038487233, 22.261072568373855), OCCT (0.16282755619372194, 22.261072543306177), tol 0.0000020000000000000003
@@ -989,13 +988,19 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #15770 coedge 369: ours (1.668471478545261, 1.8697314127284979), OCCT (1.668471534059337, 1.869715154591019), tol 0.01
       gkv311-opencascade-dataset/step/ec_soapbox-A.stp #11 face #15770 coedge 371: ours (1.446277885200781, 1.8698713386927794), OCCT (1.4462778276754116, 1.869856299558411), tol 0.01
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #29183 coedge 957: ours (1.9423092732804916, 20.64777161531038), OCCT (1.94230814235752, 20.647797471094535), tol 0.005
+  12  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #501415 coedge 120: ours (1.6575690528034983, -2.9451283520023606), OCCT (1.6575690528045264, -2.9451283525156127), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #373321 coedge 448: ours (0.11022080427079761, -0.04140006815180657), OCCT (0.11022112250648788, -0.04140127058765446), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #106722 coedge 1107: ours (1.4732809346667903, -5.879493999638325), OCCT (1.4732809778971645, -5.879522716041282), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #223558 coedge 1162: ours (1.8126207441781785, -0.19891208060038582), OCCT (1.812621763731522, -0.19892205996401136), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #501349 coedge 1293: ours (1.4834028442387583, -3.0037283576219664), OCCT (1.4834028436070357, -3.003728572842026), tol 0.00001
   10  a seam's use a whole number of periods apart (below): the shape's own (the model's: OCCT echoing it) (cone)
       gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #86 coedge 3: ours (0, -2.626396615834571), OCCT (-6.28318530718, -2.626396615834747), tol 0.0000020000000000000003
       gkv311-opencascade-dataset/step/trj2_io1-ec-214.stp #9 face #86 coedge 5: ours (6.283185307179586, -2.626396615834571), OCCT (0, -2.626396615834747), tol 0.0000020000000000000003
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2777 coedge 188: ours (2.898169440909275e-11, -4.545686318390148), OCCT (-6.28318530718, -4.5456863183860055), tol 0.015000000000000001
       gkv311-opencascade-dataset/step/bm2_ec_leverrod-A.stp #9 face #2777 coedge 190: ours (6.2831853072085675, -4.545686318390148), OCCT (-8.881784197001e-16, -4.5456863183860055), tol 0.015000000000000001
       gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #36721 coedge 1569: ours (6.283185307179586, -6.152376162464727), OCCT (0, -6.152376162464626), tol 0.0000020000000000000003
-  8  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
+  9  not a whole number of periods apart, over 100 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
       gkv311-opencascade-dataset/step/bug30014.stp #41105 face #17208 coedge 79: ours (1.4000571263964923, 4.712418706559253), OCCT (1.4000572256395971, 4.712418428016358), tol 0.00001
       gkv311-opencascade-dataset/step/bug30014.stp #41105 face #72486 coedge 138: ours (3.2347171753687207, 4.712374075768649), OCCT (3.2347171753666246, 4.712374074814245), tol 0.00001
       gkv311-opencascade-dataset/step/bug30014.stp #41105 face #72486 coedge 140: ours (4.792905876068627, 4.712378933836741), OCCT (4.792905876068075, 4.712378933199368), tol 0.00001
@@ -1019,12 +1024,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316 face #3945 coedge 161: ours (0.14369416655187386, 0.09307855022355105), OCCT (0.1436948746257652, 0.09307885325930865), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316 face #4174 coedge 185: ours (0.056305833448116537, 0.09307855022355105), OCCT (0.056305125374223344, 0.09307885325930865), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #82392 coedge 3687: ours (0.9867296862734367, 166.0287478596793), OCCT (0.986739645249469, 166.02874785968), tol 0.001
-  6  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (cone)
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14395 face #19817 coedge 2: ours (4.657014850782231, -0.566064683061235), OCCT (4.657014849567709, -0.5660649308876143), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #13085 face #19293 coedge 2: ours (4.657014850782231, -0.566064683061235), OCCT (4.657014849567709, -0.5660649308876143), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12975 face #19249 coedge 1: ours (1.633714378133722, -1.0151612636376075), OCCT (1.633714374000263, -1.0151611927884963), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11925 face #18829 coedge 3: ours (1.6337143781337173, -1.0151612636375495), OCCT (1.6337143740002573, -1.0151611927884978), tol 0.0000010000000000000002
-      gkv311-opencascade-dataset/step/OCC29.stp #5308 face #2572 coedge 38: ours (1.7065485627832975, -0.00289852076226394), OCCT (1.706548562611189, -0.002898532318206933), tol 0.0000010000000000000002
   5  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (sphere)
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1640 coedge 26: ours (-1.2045355978750025, 1.4820608107212616), OCCT (5.077610517492875, 1.4821730904946315), tol 0.001
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1640 coedge 29: ours (1.5348829122914571, 0.49409356572899044), OCCT (1.5348833780403426, 0.4940936847498188), tol 0.001
@@ -1041,6 +1040,10 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #2116 coedge 3: ours (2.0720199332405547, -1.0973743087901064), OCCT (-4.240964413350503, -1.1051431614822915), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 face #2059 coedge 0: ours (4.372064093674276, 1.1322715962135095), OCCT (-2.0418386474499846, 1.1052349504807066), tol 0.013647142049885342
       gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 face #2120 coedge 3: ours (2.0720199332405547, -1.0973743087901064), OCCT (-4.240964413350503, -1.1051431614822915), tol 0.013647142049885342
+  3  not a whole number of periods apart, 0.1-1 x tol apart in 3D: computed on request (a plane's) (plane)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #50774 coedge 1209: ours (-2.2060378939733987, 108.6864609217788), OCCT (-2.2060289312458807, 108.6864609217788), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #45387 coedge 1247: ours (-2.206037893947123, 187.4344784352715), OCCT (-2.2060289201058736, 187.43447843527184), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #282728 coedge 1277: ours (2.2060378939740883, -108.6864609286017), OCCT (2.2060289118583167, -108.68646092860169), tol 0.00001
   3  not a whole number of periods apart, 1-10 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (torus)
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #22400 coedge 986: ours (1.250003342430341, 1.1348957568087898), OCCT (1.2500049074289539, 1.1349085005845967), tol 0.001
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #54003 coedge 2601: ours (3.3556196561403766, 0.42638196699110265), OCCT (3.355581774749841, 0.42638194323020573), tol 0.001
@@ -1049,12 +1052,17 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #28120 coedge 1251: ours (5.5658374724513395, 101.34552395258211), OCCT (-0.7173400682339439, 101.34552438044564), tol 0.001
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #55416 coedge 2719: ours (0.8383556600991801, -54.68063951007757), OCCT (7.121437660898445, -54.680856472426555), tol 0.001
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #79058 coedge 3615: ours (0.26425251896006907, -77.95194251118461), OCCT (-6.018995004352133, -77.95215430700719), tol 0.001
+  2  not a whole number of periods apart, 1-10 x tol apart in 3D: ShapeFix_Edge::FixAddPCurve (OCCT projecting) (torus)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #257299 coedge 21640: ours (2.1545563253435094, 1.5707825503211374), OCCT (2.154556324772572, 1.5707825518105993), tol 0.00001
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #359850 coedge 21673: ours (0.1643640635294485, 1.5707825479599489), OCCT (0.16436406295841913, 1.5707825494496315), tol 0.00001
   2  not a whole number of periods apart, under 0.01 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (sphere)
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1640 coedge 30: ours (1.7656289896320332, 0.41134235520704643), OCCT (1.7656161818983263, 0.41134234819267446), tol 0.001
       gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #3166 coedge 52: ours (1.7656296463172882, -0.4113423552038258), OCCT (1.765616838870662, -0.4113423481926743), tol 0.001
   2  not a whole number of periods apart, over 100 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (torus)
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #823 coedge 33: ours (0, 1.682996064423378), OCCT (0, -1.6829960644239712), tol 0.3446599718419
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #823 coedge 34: ours (0, 0.11219973762848179), OCCT (0, -3.2537923912185716), tol 0.3446599718419
+  1  not a whole number of periods apart, over 100 x tol apart in 3D: computed on request (a plane's) (plane)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #483463 coedge 456: ours (-0.1439143688205866, 334.4755810383706), OCCT (-0.14391436882053887, 334.46529210283296), tol 0.00001
   1  not a whole number of periods apart, under 0.01 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (cone)
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #83014 coedge 3713: ours (6.116713020900472, 2.5696155764107065), OCCT (-0.16647228646007808, 2.5696113416047677), tol 0.001
   1  not a whole number of periods apart, 0.01-0.1 x tol apart in 3D: the shape's own (the model's: OCCT echoing it) (cone)
@@ -1281,82 +1289,88 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
   1  the same copies, the face's (u, v) a whole number of periods over: ShapeFix_Edge::FixAddPCurve (OCCT projecting); face -, edge +, use reversed (bspline)
 
 ## OCCT: its loops in (u, v), joint to joint
-  39947  continuous; no seam; none by FixAddPCurve (plane)
-  16471  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (cylinder)
+  42710  continuous; no seam; none by FixAddPCurve (plane)
+  17035  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (cylinder)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581 loop 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723 loop 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #778 loop 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #816 loop 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #938 loop 0
-  12303  continuous; no seam; some uses by FixAddPCurve (cylinder)
-  6141  continuous; no seam; some uses by FixAddPCurve (bspline)
-  4508  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (bspline)
+  14318  continuous; no seam; some uses by FixAddPCurve (cylinder)
+  11299  continuous; no seam; some uses by FixAddPCurve (bspline)
+  4510  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #613 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #613 loop 1
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #621 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #81 face #621 loop 1
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #80 face #628 loop 0
-  2146  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (cone)
+  2191  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (cone)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #425 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #30730 face #15900 loop 0
       gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2676 loop 0
       gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2676 loop 1
       gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #2708 loop 0
-  1971  continuous; no seam; some uses by FixAddPCurve (cone)
-  1658  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (torus)
+  2081  continuous; no seam; some uses by FixAddPCurve (cone)
+  1812  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (torus)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #201 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #218 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #327 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #339 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1459 loop 0
-  1503  continuous; no seam; some uses by FixAddPCurve (torus)
+  1797  continuous; no seam; some uses by FixAddPCurve (torus)
   1246  continuous; no seam; some uses by FixAddPCurve (extrusion)
   1185  continuous; no seam; none by FixAddPCurve (bspline)
-  1165  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (bspline)
+  1176  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1374 face #6284 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #659 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #1069 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #1520 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #1912 loop 0
   957  continuous; no seam; none by FixAddPCurve (cylinder)
+  826  continuous; no seam; some uses by FixAddPCurve (sphere)
+  723  continuous but for jumps along a pole line; no seam; some uses by FixAddPCurve (sphere)
+      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #596 loop 0
+      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440 face #31130 loop 0
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8569 loop 0
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8622 loop 0
+      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8692 loop 0
   723  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (revolution)
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #26 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4521 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5421 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5469 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5495 loop 0
-  639  continuous but for jumps along a pole line; no seam; some uses by FixAddPCurve (sphere)
-      gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #596 loop 0
-      gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440 face #31130 loop 0
-      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8569 loop 0
-      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8622 loop 0
-      gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8692 loop 0
-  566  continuous but for joints a whole period apart and jumps along a pole line; no seam; some uses by FixAddPCurve (cone)
+  585  continuous but for joints a whole period apart and jumps along a pole line; no seam; some uses by FixAddPCurve (cone)
       gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378 loop 0
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61567 loop 0
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61595 loop 0
       gkv311-opencascade-dataset/step/PRO10363.stp #169 face #468 loop 0
       gkv311-opencascade-dataset/step/PRO7071.stp #403 face #382 loop 0
-  549  continuous; no seam; some uses by FixAddPCurve (sphere)
-  530  continuous but for jumps along a pole line; no seam; some uses by FixAddPCurve (cone)
-      gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243 loop 0
-      gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61566 loop 0
-      gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61594 loop 0
-      gkv311-opencascade-dataset/step/PRO10363.stp #169 face #474 loop 0
-      gkv311-opencascade-dataset/step/PRO7071.stp #403 face #370 loop 0
-  518  continuous but for jumps along a pole line; no seam; some uses by FixAddPCurve (bspline)
+  568  continuous but for jumps along a pole line; no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891 face #2996 loop 0
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #891 face #3211 loop 0
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #139 loop 0
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #140 loop 0
       gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #142 loop 0
-  393  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (sphere)
+  547  continuous but for jumps along a pole line; no seam; some uses by FixAddPCurve (cone)
+      gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243 loop 0
+      gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61566 loop 0
+      gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61594 loop 0
+      gkv311-opencascade-dataset/step/PRO10363.stp #169 face #474 loop 0
+      gkv311-opencascade-dataset/step/PRO7071.stp #403 face #370 loop 0
+  489  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (bspline)
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7360 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9571 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #9780 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #16822 loop 0
+      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #20347 loop 0
+  414  continuous but for joints a whole period apart; no seam; some uses by FixAddPCurve (sphere)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1437 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #1457 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #77 face #686 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #77 face #688 loop 0
       gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #76 face #690 loop 0
-  344  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (bspline)
+  352  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #64 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #171 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2204 loop 0
@@ -1372,19 +1386,13 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2743 face #2787 loop 0
   173  continuous; no seam; some uses by FixAddPCurve (revolution)
   170  continuous; seam uses on our copies; some uses by FixAddPCurve (cylinder)
-  147  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (bspline)
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #6222 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7099 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7360 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #7737 loop 0
-      gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #8267 loop 0
-  138  continuous but for joints a whole period apart and jumps along a pole line; no seam; some uses by FixAddPCurve (sphere)
+  155  continuous but for joints a whole period apart and jumps along a pole line; no seam; some uses by FixAddPCurve (sphere)
       gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #954 loop 0
       gkv311-opencascade-dataset/step/trj7_k1-sd-214.stp #31440 face #31200 loop 0
       gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8639 loop 0
       gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #8849 loop 0
       gkv311-opencascade-dataset/step/bug32049_sp7_04dx_242.stp #13456 face #9497 loop 0
-  127  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; none by FixAddPCurve (plane)
+  130  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; none by FixAddPCurve (plane)
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #714 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #896 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #1967 loop 0
@@ -1402,31 +1410,31 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5129 face #5280 loop 0
       gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5129 face #5325 loop 0
       gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #4716 face #4780 loop 0
+  89  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (cylinder)
+      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6531 loop 0
+      gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2100 loop 0
+      gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2188 loop 0
+      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #116 loop 0
+      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #116 loop 1
   88  continuous but for joints a whole period apart; no seam; none by FixAddPCurve (cylinder)
       gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3283 loop 0
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #4663 loop 0
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #13664 loop 0
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #36411 loop 0
       gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #38624 loop 0
-  84  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (cylinder)
-      gkv311-opencascade-dataset/step/bug32049_sp7_10nx_242.stp #2882 face #6531 loop 0
-      gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2100 loop 0
-      gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2188 loop 0
-      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #116 loop 0
-      gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #116 loop 1
+  84  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (cylinder)
+      gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #9809 loop 0
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #30893 loop 0
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #31683 loop 0
+      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #34794 loop 0
+      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #5712 loop 0
   83  continuous but for joints a whole period apart; a seam use on the other copy than ours; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1920 loop 0
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #1989 loop 0
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #2058 loop 0
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1138 face #2127 loop 0
       gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #730 face #2442 loop 0
-  62  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (cylinder)
-      gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #9809 loop 0
-      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #30893 loop 0
-      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #31683 loop 0
-      gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #34794 loop 0
-      gkv311-opencascade-dataset/step/bug31251_Albatros_d2_elisa_a.STEP #787 face #5712 loop 0
-  55  with joints apart in (u, v) (the widest under 1e-4); no seam; none by FixAddPCurve (plane)
+  67  with joints apart in (u, v) (the widest under 1e-4); no seam; none by FixAddPCurve (plane)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #655 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #2252 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #3771 loop 0
@@ -1445,33 +1453,33 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1578 face #5597 loop 0
       gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1052 face #3313 loop 0
   48  continuous; no seam; none by FixAddPCurve (cone)
+  44  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (sphere)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755 loop 0
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7855 loop 0
+      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #18100 loop 0
+      gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157 loop 0
+      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4761 loop 0
   43  not every use's p-curve made or compared; no seam; none by FixAddPCurve (cone)
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525 face #21069 loop 1
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485 face #21053 loop 1
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17475 face #21049 loop 1
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17415 face #21025 loop 1
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17395 face #21017 loop 1
-  43  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (sphere)
-      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7855 loop 0
-      gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #18100 loop 0
-      gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157 loop 0
-      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4761 loop 0
-      gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4762 loop 0
   40  continuous; no seam; none by FixAddPCurve (sphere)
-  38  continuous; seam uses on our copies; some uses by FixAddPCurve (bspline)
-  38  continuous; seam uses on our copies; none by FixAddPCurve (torus)
-  37  with joints apart in (u, v) (the widest over 1e-2); no seam; none by FixAddPCurve (plane)
+  39  with joints apart in (u, v) (the widest over 1e-2); no seam; none by FixAddPCurve (plane)
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #12338 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #12463 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #13482 loop 0
       gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #14608 loop 0
       gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61662 loop 0
-  32  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (cone)
+  38  continuous; seam uses on our copies; some uses by FixAddPCurve (bspline)
+  38  continuous; seam uses on our copies; none by FixAddPCurve (torus)
+  34  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (cone)
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999 loop 0
       gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #226693 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #373321 loop 0
       gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14280 face #19771 loop 0
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14240 face #19755 loop 0
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11890 face #18815 loop 0
   31  with joints apart in (u, v) (the widest under 1e-4); no seam; some uses by FixAddPCurve (torus)
       gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #269 loop 0
       gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #270 loop 0
@@ -1559,6 +1567,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #1016 face #1118 loop 0
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #1016 face #1162 loop 0
       gkv311-opencascade-dataset/step/trj3_s1-ec-203.stp #913 face #944 loop 0
+  10  not every use's p-curve made or compared; no seam; some uses by FixAddPCurve (bspline)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #206982 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #93023 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #128930 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #334072 loop 0
   9  continuous; seam uses on our copies; none by FixAddPCurve (cone)
   9  continuous but for joints a whole period apart and jumps along a pole line; no seam; some uses by FixAddPCurve (bspline)
       gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1489 face #1333 loop 0
@@ -1616,6 +1630,12 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413 loop 0
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763 loop 0
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763 loop 1
+  7  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (cylinder)
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #36207 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #271606 loop 0
+      gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #35147 loop 0
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14210 face #19743 loop 0
+      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11385 face #18613 loop 0
   7  continuous; no seam; none by FixAddPCurve (revolution)
   6  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (revolution)
       gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #2226 loop 0
@@ -1639,11 +1659,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3742 loop 0
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68 loop 0
       gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #132 loop 0
-  4  with joints apart in (u, v) (the widest over 1e-2); no seam; some uses by FixAddPCurve (cylinder)
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14210 face #19743 loop 0
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11385 face #18613 loop 0
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10325 face #18189 loop 0
-      gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10055 face #18081 loop 0
   4  with joints apart in (u, v) (the widest under 1e-4); no seam; none by FixAddPCurve (cylinder)
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #33838 loop 0
       gkv311-opencascade-dataset/step/OCC8228.stp #10 face #48271 loop 0
@@ -1659,11 +1674,6 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #961 face #1208 loop 0
       gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #62 face #491 loop 0
       gkv311-opencascade-dataset/step/trj4_s1-ec-214.stp #62 face #849 loop 0
-  4  not every use's p-curve made or compared; no seam; some uses by FixAddPCurve (bspline)
-      gkv311-opencascade-dataset/step/bug25287_bad_tess_face_plus.step #2134 face #5924 loop 0
-      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #849 loop 0
-      gkv311-opencascade-dataset/step/trj7_k1-id-214.stp #44 face #923 loop 0
-      gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11796 loop 0
   4  with joints apart in (u, v) (the widest 1e-4 to 1e-2); no seam; some uses by FixAddPCurve (extrusion)
       gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #911 loop 0
       gkv311-opencascade-dataset/step/trj4_k1_top-md-203.stp #10 face #911 loop 0

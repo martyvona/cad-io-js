@@ -63,6 +63,7 @@ public:
   bool accept(const Vec2 t[3]) const override { return ask(t, kAccept, [&] { return field_.accept(t); }); }
   bool belowFloor(const Vec2 t[3]) const override { return ask(t, kFloor, [&] { return field_.belowFloor(t); }); }
   int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
 
 private:
   /**
@@ -189,6 +190,8 @@ struct PartMesher::Impl {
   std::vector<std::set<std::pair<int, int>>> creaseSplits;
   static Vec2 creaseUv(const CreasePiece& c, double s) { return c.isoU ? Vec2{c.at, s} : Vec2{s, c.at}; }
   int rounds = 0;
+  /** In the rounds: the poles whose rings were shrunk for a split asked inside them, the faces meshed again for it. */
+  int ringsShrunk = 0, ringFacesRemeshed = 0;
   /** The progress of the pass under way (PartOptions::progress). */
   PartProgress at;
   void report(const PartProgress& p) const {
@@ -207,6 +210,7 @@ struct PartMesher::Impl {
     e.projectMissingPcurves = o.projectMissingPcurves;
     e.deflection = o.d.linear;
     e.angle = o.d.angular;
+    e.analysis = o.analysis, e.analysisSize = o.analysisSize;
     return e;
   }
 
@@ -656,6 +660,144 @@ struct PartMesher::Impl {
    * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
    * (the normal there a limit, on a strongly curved patch).
    */
+  /**
+   * The faces' requests whose point is inside the ring of a pole the face hasn't (EdgeMesh::split drops them; a
+   * pole's own faces were sized their rings), each pole's (within `tol`) least reach to the point, never nearer the
+   * pole than the refinement floor (a ring already there keeps the split dropped). Planned before the split, on the
+   * spans the requests name.
+   */
+  std::vector<std::pair<Vec3, double>> ringShrinks(double tol) const {
+    std::vector<std::pair<Vec3, double>> shrink;
+    for (size_t asker = 0; asker < wanted.size(); asker++)
+      for (const SplitRequest& r : wanted[asker]) {
+        const EdgeSamples& es = em->edge(r.edge);
+        if (es.rings.empty() || r.span < 0 || r.span + 1 >= static_cast<int>(es.t.size())) continue;
+        const double f = r.exact ? r.fraction : std::clamp(r.fraction, 0.1, 0.9);
+        const double x = es.t[r.span] + f * (es.t[r.span + 1] - es.t[r.span]);
+        bool inRing = false;
+        for (const cadgeom::Range& g : es.rings) inRing = inRing || (x > g.lo && x < g.hi);
+        if (!inRing) continue;
+        // (The ring is the one whose pole, among those approaching this edge, is nearest the point.)
+        const Vec3 at = em->point(r.edge, x);
+        const PoleRing* ring = nullptr;
+        for (const auto& fr : rings)
+          for (const PoleRing& pr : fr) {
+            if (!(pr.reach > 0)) continue;
+            bool approaches = false;
+            for (auto [e, t0] : pr.approaches) approaches = approaches || e == r.edge;
+            if (approaches && (!ring || norm(pr.pole - at) < norm(ring->pole - at))) ring = &pr;
+          }
+        if (!ring) continue;
+        bool own = false;
+        for (const PoleRing& pr : rings[asker]) own = own || norm(pr.pole - ring->pole) <= tol;
+        for (const Vec3& q : unshrinkable) own = own || norm(q - ring->pole) <= tol;
+        if (own) continue;
+        // (Only a pole whose faces are all elementary: a free-form one's ring, smaller, leaves slivers along its
+        // pole row that turn against the surface.)
+        bool freeForm = false;
+        for (size_t f = 0; f < rings.size(); f++)
+          for (const PoleRing& pr : rings[f])
+            if (norm(pr.pole - ring->pole) <= tol) {
+              const int kind = m.surfaceKind(m.faceSurface(static_cast<int>(f)));
+              freeForm = freeForm || !(kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS);
+            }
+        if (freeForm) continue;
+        const double reach = std::max(norm(at - ring->pole), floor);
+        if (!(reach < ring->reach)) continue;
+        size_t k = 0;
+        while (k < shrink.size() && norm(shrink[k].first - ring->pole) > tol) k++;
+        if (k == shrink.size()) shrink.push_back({ring->pole, reach});
+        else shrink[k].second = std::min(shrink[k].second, reach);
+      }
+    return shrink;
+  }
+
+  /**
+   * A pole's rings shrunk in a round: as they were (face, ring, reach, radius), its cut edges' samples as they were
+   * (a pole's rings overlap on an edge its faces approach at different parameters, each cut removing the others'
+   * samples, so cutting again wouldn't give them back), and the faces it changes (its rings' and its cut edges'),
+   * those ok before it.
+   */
+  struct RingShrink {
+    Vec3 pole;
+    std::vector<std::tuple<int, int, double, double>> was;
+    std::vector<std::pair<int, EdgeSamples>> edges;
+    std::set<int> faces, okBefore;
+  };
+  /** Poles whose shrink was undone (shrinkRings, undoShrinks): never shrunk again. */
+  std::vector<Vec3> unshrinkable;
+
+  /**
+   * Each planned pole's rings shrunk (poles.h's shrinkRings) and cut again, so the dropped split's span is out of
+   * the ring for the next round. The edges cut added to `touched`; each shrink as undoShrinks needs it.
+   */
+  std::vector<RingShrink> shrinkRings(const std::vector<std::pair<Vec3, double>>& shrink, double tol,
+    std::set<int>& touched) {
+    std::vector<RingShrink> done;
+    if (shrink.empty()) return done;
+    std::vector<const Surface*> sp(surfaces.size(), nullptr);
+    for (size_t f = 0; f < surfaces.size(); f++) sp[f] = surfaces[f].get();
+    std::set<int> cutThisRound;
+    for (auto [pole, reach] : shrink) {
+      RingShrink R{pole, {}, {}, {}, {}};
+      for (int f = 0; f < static_cast<int>(rings.size()); f++)
+        for (int k = 0; k < static_cast<int>(rings[f].size()); k++)
+          if (norm(rings[f][k].pole - pole) <= tol) R.was.push_back({f, k, rings[f][k].reach, rings[f][k].radius});
+      const std::vector<int> changed = tesscadio::shrinkRings(sp, rings, tol, pole, reach);
+      if (changed.empty()) continue;
+      std::vector<RingCut> cuts;
+      std::set<std::tuple<int, double, double>> seen;
+      for (int f : changed) {
+        R.faces.insert(f);
+        for (const PoleRing& pr : rings[f])
+          if (norm(pr.pole - pole) <= tol)
+            for (const RingCut& c : ringCuts(*em, pr))
+              if (seen.insert({c.edge, c.approach, c.crossing}).second) cuts.push_back(c);
+      }
+      // (A pole whose cuts meet an edge another pole's cut this round waits for the next: each undone alone.)
+      bool shared = false;
+      for (const RingCut& c : cuts) shared = shared || cutThisRound.count(c.edge);
+      if (shared) {
+        for (auto [f, k, was, radius] : R.was) rings[f][k].reach = was, rings[f][k].radius = radius;
+        continue;
+      }
+      for (const RingCut& c : cuts) cutThisRound.insert(c.edge);
+      std::set<int> saved;
+      for (const RingCut& c : cuts) {
+        if (saved.insert(c.edge).second) R.edges.push_back({c.edge, em->edge(c.edge)});
+        touched.insert(c.edge);
+        for (int f = 0; f < static_cast<int>(faces.size()); f++)
+          if (edgesOf[f].count(c.edge)) R.faces.insert(f);
+      }
+      for (int f : R.faces)
+        if (faces[f].status == Status::ok) R.okBefore.insert(f);
+      em->cutRings(cuts);
+      ringsShrunk++;
+      done.push_back(std::move(R));
+    }
+    return done;
+  }
+
+  /**
+   * A shrink after which a face it changed that was ok before isn't (a pole's boundary, its ring smaller, crossing
+   * itself or its edges' others): undone, the rings and their cuts as they were, the pole never shrunk again. The
+   * faces to mesh again.
+   */
+  std::set<int> undoShrinks(const std::vector<RingShrink>& done) {
+    std::set<int> again;
+    for (const RingShrink& R : done) {
+      bool worse = false;
+      for (int f : R.okBefore) worse = worse || faces[f].status != Status::ok;
+      if (!worse) continue;
+      for (auto [f, k, reach, radius] : R.was) rings[f][k].reach = reach, rings[f][k].radius = radius;
+      for (const auto& [e, s] : R.edges) em->restore(e, s);
+      unshrinkable.push_back(R.pole);
+      ringsShrunk--;
+      again.insert(R.faces.begin(), R.faces.end());
+    }
+    return again;
+  }
+
   void checkFacing() {
     if (!o.failTurnedOver) return;
     const cadgeom::Tolerances tols(m);
@@ -801,12 +943,14 @@ struct PartMesher::Impl {
       d.points.push_back(p.uv);
       if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
     }
-    // The segments the edges won't split (an edge's span whose chord is within the refinement floor, as
-    // EdgeMesh::split has it): frozen, so the mesher inserts past them rather than asking.
+    // The segments the edges won't split (an edge's span whose chord is within the refinement floor, or an end
+    // span too short to take a point past the edge's near-end drop, as EdgeMesh::split has them): frozen, so the
+    // mesher inserts past them rather than asking.
     auto frozenSpan = [&](int32_t a, int32_t b) -> uint8_t {
       int edge, span;
       bool forward;
-      return a != b && norm(bp[b].point - bp[a].point) <= floor && spanOf(f, bp[a], bp[b], edge, span, forward);
+      if (a == b || !spanOf(f, bp[a], bp[b], edge, span, forward)) return 0;
+      return norm(bp[b].point - bp[a].point) <= floor || em->endSpanFrozen(edge, span);
     };
     for (const auto& l : d.loops)
       for (size_t k = 0; k < l.size(); k++) d.frozen.push_back(frozenSpan(l[k], l[(k + 1) % l.size()]));
@@ -838,6 +982,15 @@ struct PartMesher::Impl {
       meshedAt[f] = meshings++;
       field = memos[f].get();
     }
+    // (The boundary's own points for the criteria's facet tests: the output's, which the edges' curves give.)
+    {
+      std::vector<std::pair<Vec2, Vec3>> own;
+      own.reserve(bp.size());
+      for (const BoundaryPoint& q : bp)
+        if (q.kind == BoundaryPoint::edgeSample || q.kind == BoundaryPoint::pseudoSample)
+          own.push_back({q.uv, q.point});
+      criteria[f]->setBoundaryPoints(own);
+    }
     const bool detailed = o.countInsertions || o.countAngles;
     mo.refusalKinds = o.countInsertions;
     Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
@@ -846,11 +999,14 @@ struct PartMesher::Impl {
       // (A boundary whose seam side wasn't settled fails for that.)
       out.status = fb.status == Status::singular ? Status::singular : mesh.status;
       out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
-      // Two segments that cross, or one through a point: each segment that is an edge's span split at its middle,
-      // for the next round to mesh again (two edges leaving a vertex nearly tangent: the coarser one's chord across
-      // the other's samples, which no criterion of either edge sees).
+      // Segments that cross, or one through a point: each segment the refusal names (every one, not the first:
+      // mesh2 names them all; a span named twice split once, as split keeps one request a span) that is an edge's
+      // span split at its middle, for the next round to mesh again.
+      // Two edges leaving a vertex nearly tangent (the coarser one's chord across the other's samples), or two loops
+      // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
+      // a few spans a round wouldn't mend many crossings within the rounds.
       if (mesh.rejected.size() >= 4)
-        for (size_t k = 0; k < 4; k += 2) {
+        for (size_t k = 0; k + 1 < mesh.rejected.size(); k += 2) {
           const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
           int edge, span;
           bool forward;
@@ -1158,14 +1314,17 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     // same. None changed (and no crease split): the rounds end.
     std::map<int, size_t> before;
     for (const SplitRequest& r : requests) before.emplace(r.edge, I.em->edge(r.edge).t.size());
+    const std::vector<std::pair<Vec3, double>> shrinks = I.ringShrinks(tols.part());
     if (!requests.empty()) I.em->split(requests);
     std::set<int> touched;
     for (auto [e, n] : before)
       if (I.em->edge(e).t.size() != n) touched.insert(e);
+    const std::vector<Impl::RingShrink> shrunk = I.shrinkRings(shrinks, tols.part(), touched);
     if (touched.empty() && creased.empty()) break;
     std::vector<int> redo;
     for (int f = 0; f < nf; f++) {
       bool again = creased.count(f) > 0;
+      for (const Impl::RingShrink& R : shrunk) again = again || R.faces.count(f);
       for (int e : touched) again = again || I.edgesOf[f].count(e);
       if (again) redo.push_back(f);
     }
@@ -1174,6 +1333,10 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       I.meshFace(f);
       I.at.facesDone++;
     }
+    for (const Impl::RingShrink& R : shrunk) I.ringFacesRemeshed += static_cast<int>(R.faces.size());
+    const std::set<int> undone = I.undoShrinks(shrunk);
+    for (int f : undone) I.meshFace(f);
+    I.ringFacesRemeshed += static_cast<int>(undone.size());
   }
   I.memos.clear();
   I.failCapped();
@@ -1185,6 +1348,8 @@ PartMesher::~PartMesher() { delete impl_; }
 const FaceMesh& PartMesher::face(int f) const { return impl_->faces[f]; }
 const EdgeMesh& PartMesher::edges() const { return *impl_->em; }
 int PartMesher::rounds() const { return impl_->rounds; }
+int PartMesher::ringsShrunk() const { return impl_->ringsShrunk; }
+int PartMesher::ringFacesRemeshed() const { return impl_->ringFacesRemeshed; }
 size_t PartMesher::verdictPeak() const { return impl_->memoPeak; }
 
 } // namespace tesscadio

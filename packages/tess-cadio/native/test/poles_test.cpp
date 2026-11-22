@@ -262,4 +262,16 @@ TEST_CASE("one reach per pole across its faces: the least any asks, each face's 
   CHECK(near(s.at(1, 1)->reach, small, 1e-9));
   CHECK(near(ringReach(*s.surfaces[1], *s.at(1, 1), s.at(1, 1)->radius), small, 1e-9));
   CHECK_EQ(s.at(1, -5)->reach, south);
+  // Shrunk at the shared pole (a split another face asked inside): both rings to the new reach, each face's radius
+  // for it; the south poles as they were. A reach no less than theirs changes nothing.
+  const Vec3 pole = s.at(0, 1)->pole;
+  // (Face 1's shared reach is the unit one's within rounding, maybe a hair above it.)
+  CHECK(shrinkRings(sp, s.rings, s.tols.part(), pole, std::max(s.at(0, 1)->reach, s.at(1, 1)->reach)).empty());
+  const std::vector<int> faces = shrinkRings(sp, s.rings, s.tols.part(), pole, 0.5 * small);
+  CHECK((faces == std::vector<int>{0, 1}));
+  for (int f : {0, 1}) {
+    CHECK_EQ(s.at(f, 1)->reach, 0.5 * small);
+    CHECK(near(ringReach(*s.surfaces[f], *s.at(f, 1), s.at(f, 1)->radius), 0.5 * small, 1e-9));
+  }
+  CHECK_EQ(s.at(1, -5)->reach, south);
 }

@@ -5,7 +5,8 @@
 import * as occt from 'tess-occt';
 import * as truck from 'tess-truck';
 import * as smlib from 'tess-smlib';
+import * as cadio from 'tess-cadio';
 import * as heal from 'cad-heal';
 import { serveWebWorker } from 'tess-workers/web-worker';
 
-serveWebWorker({ 'tess-occt': occt, 'tess-truck': truck, 'tess-smlib': smlib, 'cad-heal': heal });
+serveWebWorker({ 'tess-occt': occt, 'tess-truck': truck, 'tess-smlib': smlib, 'tess-cadio': cadio, 'cad-heal': heal });

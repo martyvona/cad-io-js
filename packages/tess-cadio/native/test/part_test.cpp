@@ -360,6 +360,123 @@ TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsett
   }
 }
 
+TEST_CASE("an edge's inside sample within min(the part's tolerance, d / 10) of its vertex dropped from the edge "
+  "(clampedCorner): "
+  "the loop no longer reverses at the corner clamped onto the box's side, the face meshed") {
+  // (The polyline's sample (1.03, 0.011) is 0.02 from the corner, within min(0.1, 0.05) at d = 0.5: kept,
+  // both feet on u = 1 and the loop runs down to the corner and back up the side, refused as through its own point.)
+  cadgeom::Model m = load("clampedCorner");
+  REQUIRE(m.ok());
+  EdgeOptions eo;
+  eo.deflection = 0.5;
+  EdgeMesh em(m, eo);
+  CHECK_EQ(em.edge(0).points.size(), 2u);
+  // Under a tolerance of 0.01 it's past the tolerance, so kept whatever d / 10 is.
+  cadgeom::Model tight = load("clampedCornerTight");
+  REQUIRE(tight.ok());
+  EdgeMesh et(tight, eo);
+  CHECK_EQ(et.edge(0).points.size(), 3u);
+  // And at d = 0.1 past d / 10 (0.01) under the coarse tolerance: kept, the tolerance alone not enough to drop it.
+  EdgeOptions fine = eo;
+  fine.deflection = 0.1;
+  EdgeMesh ef(m, fine);
+  CHECK_EQ(ef.edge(0).points.size(), 3u);
+  PartMesher pm(m, options(0.5, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  clampedCorner: %s\n", fm.cause.c_str());
+  CHECK(fm.status == cadgeom::Status::ok);
+}
+
+TEST_CASE("an edge's sample stepping back along a side its feet are clamped onto dropped from the edge (sideWobble), "
+  "the chord bridging it within the deflection: the loop no longer reverses there, the face meshed") {
+  // (Its top edge's samples 0.8, 0.52, 0.53, 0.54, 0.5, 0.2 in u on v = 1: the loop turns back at 0.52 and 0.54 and
+  // runs back between, all three dropped where 0.8 to 0.5 bridges them within d (0.53's point 0.0005 off it); at
+  // d = 0.0002 kept. Inside the patch only the turns go, 0.53 kept: the loop no longer reverses either way.)
+  cadgeom::Model m = load("sideWobble");
+  REQUIRE(m.ok());
+  EdgeOptions eo;
+  eo.deflection = 0.1;
+  EdgeMesh em(m, eo);
+  CHECK_EQ(em.edge(0).points.size(), 3u);  // (the top edge, made first)
+  eo.deflection = 0.0002;
+  EdgeMesh fine(m, eo);
+  CHECK_EQ(fine.edge(0).points.size(), 6u);
+  PartMesher pm(m, options(0.1, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  sideWobble: %s\n", fm.cause.c_str());
+  CHECK(fm.status == cadgeom::Status::ok);
+  // And inside the patch (lineWobble, y = 0.9): the loop reverses on a line no side clamps it to, the same drop.
+  cadgeom::Model w = load("lineWobble");
+  REQUIRE(w.ok());
+  eo.deflection = 0.1;
+  EdgeMesh ew(w, eo);
+  CHECK_EQ(ew.edge(0).points.size(), 4u);
+}
+
+TEST_CASE("a pole's ring inside every edge's approach to the pole (poleDip): its arc, one span with no sample of its "
+  "own, its curve nearer the pole than its ends, counted by its nearest point; the face meshed") {
+  // (At d = 0.1 with the angle all but off, the arc is one span: its two ends, labelled with the meridians, are all
+  // the ring's clearance saw, the ring then outside the curve's dip and its pieces crossing the arc once it's split.)
+  cadgeom::Model m = load("poleDip");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 3));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  poleDip: %s\n", fm.cause.c_str());
+  CHECK(fm.status == cadgeom::Status::ok);
+}
+
+TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryPoints): a triangle accepted on the "
+  "surface's points refused where a corner's own point turns its facet; its deviation still on the surface's") {
+  // (pcurveNear's plane: the triangle (0, 0), (3, 0), (0, 3), its first corner's own point (2.5, 2.5, 0), across the
+  // far side: the facet as output faces down. Given the corner's own point on the surface, nothing changes.)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 t[3] = {{0, 0}, {3, 0}, {0, 3}};
+  CHECK(c->accept(t));
+  c->setBoundaryPoints({{t[0], Vec3{2.5, 2.5, 0}}});
+  CHECK(!c->accept(t));
+  c->setBoundaryPoints({{t[0], Vec3{0, 0, 0}}});
+  CHECK(c->accept(t));
+  // A corner's own point 0.25 off the plane (its edges' middles 0.125 off it, past d; its facet 7 degrees from the
+  // plane's normal), its facet still up: accepted, its deviation the surface's (none), the boundary's own point
+  // where the model put it.
+  c->setBoundaryPoints({{t[0], Vec3{0, 0, 0.25}}});
+  CHECK(c->accept(t));
+  // A thin triangle whose corner's own point is 0.25 off the plane: its facet 27 degrees from the plane's normal, past
+  // the angle, still up. Accepted: the angle is judged on the surface's points (on the output's, refinement thinning
+  // the triangle only steepens it).
+  const Vec2 thin[3] = {{0, 0}, {3, 0}, {0, 0.5}};
+  c->setBoundaryPoints({{thin[0], Vec3{0, 0, 0.25}}});
+  CHECK(c->accept(thin));
+}
+
+TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
+  "against the mean of its corners' normals, not against any one of them") {
+  // (cylinderLong, r = 2: corners at u = -0.1, 0.1 and 0, their normals 0.2 apart; own points whose facet's normal is
+  // along (1, 12, 0), against the u = -0.1 corner's normal (0.995, -0.0998, 0) but along their mean.)
+  cadgeom::Model m = load("cylinderLong");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-1, 1}, {0, 10}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 t[3] = {{-0.1, 0}, {0.1, 0}, {0, 1}};
+  CHECK(c->accept(t));
+  cadgeom::SurfacePoint sp;
+  REQUIRE(s->eval(t[0].x, t[0].y, 0, sp) == cadgeom::Status::ok);
+  const Vec3 q0 = sp.p;
+  c->setBoundaryPoints({{t[0], q0}, {t[1], q0 + Vec3{0, 0, 1}}, {t[2], q0 + Vec3{12, -1, 0}}});
+  CHECK(c->accept(t));
+  // (The same points the other way round: the facet against the mean too, refused.)
+  c->setBoundaryPoints({{t[0], q0}, {t[1], q0 + Vec3{12, -1, 0}}, {t[2], q0 + Vec3{0, 0, 1}}});
+  CHECK(!c->accept(t));
+}
+
 TEST_CASE("a boundary fold repaired: a corner convex in (u, v), concave in 3D, its (u, v) turned as its 3D point") {
   // cornerFold's corner point (0.994, 0.994) has its (u, v) at (1, 1) from its edges' p-curves: an ear there faced
   // against the plane. Repaired: its (u, v) onto the chord of (1, 0.99) and (0.99, 1), then a step to the point's
@@ -771,6 +888,81 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
         CHECK_EQ(sharedEdges(m, pm, name), 0);
         CHECK(fm.rejected.empty());
       }
+}
+
+TEST_CASE("the metric's size ratio is at most 1000 in 3D, not in (u, v): a long cylinder's size along its axis is "
+  "its extent (cylinderVast, radius 8000), or 1000 x its size across (cylinderLong, radius 2); the vast one's "
+  "straight edges unsplit") {
+  // (In (u, v) the ratio would be the 3D one times |S_u| / |S_v| = r: along the axis a few times across.)
+  for (auto [name, r, h] : {std::tuple{"cylinderVast", 8000.0, 22600.0}, {"cylinderLong", 2.0, 4000.0}}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+    REQUIRE(s);
+    const double d = 0.1;
+    auto crit = makeCriteria(m, 0, *s, cadgeom::Box2{{0, M_PI}, {0, h}}, Deflections{d, 0.26}, st);
+    REQUIRE(crit);
+    const Metric2 g = crit->metric({M_PI / 2, h / 2});
+    // (u along the circle, |S_u| = r; v along the axis, |S_v| = 1: the metric diagonal.)
+    // (Across, the smaller of the deflection's sqrt(6 d r) and the angle's 0.26 r.)
+    const double across = r / std::sqrt(g.a), along = 1 / std::sqrt(g.c),
+      want = std::min(std::sqrt(6 * d * r), 0.26 * r);
+    // The extent as the criteria sample it: the half cylinder's box, 2 r by r by h.
+    const double extent = std::sqrt(4 * r * r + r * r + h * h), alongWant = std::min(extent, 1000 * want);
+    CHECK(std::fabs(across - want) < 1e-6 * want);
+    CHECK(std::fabs(along - alongWant) < 1e-6 * alongWant);
+    if (std::fabs(along - alongWant) >= 1e-6 * alongWant)
+      std::printf("  %s: along %.9g want %.9g (across %.9g)\n", name, along, alongWant, across);
+  }
+  {
+    // The worst-point fallback on elementary surfaces only: a triangle far past d across the vast cylinder named,
+    // one on bumpPatch's B-spline (past d too) not.
+    cadgeom::Model bump = load("bumpPatch");
+    cadgeom::Status st;
+    auto bs = cadgeom::makeSurface(bump, bump.faceSurface(0), st);
+    const cadgeom::SurfaceDomain D = bs->domain();
+    auto bc = makeCriteria(bump, 0, *bs, cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}}, Deflections{1e-3, 0.26},
+      st);
+    REQUIRE(bc);
+    const Vec2 big[3] = {{D.u.lo, D.v.lo}, {D.u.hi, D.v.lo}, {D.u.lo, D.v.hi}};
+    Vec2 at;
+    CHECK(!bc->accept(big));
+    CHECK(!bc->worstPoint(big, at));
+    cadgeom::Model cyl = load("cylinderVast");
+    auto cs = cadgeom::makeSurface(cyl, cyl.faceSurface(0), st);
+    auto cc = makeCriteria(cyl, 0, *cs, cadgeom::Box2{{0, M_PI}, {0, 22600}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(cc);
+    const Vec2 wide[3] = {{0.2, 100}, {1.2, 100}, {0.7, 200}};
+    CHECK(!cc->accept(wide));
+    CHECK(cc->worstPoint(wide, at));
+  }
+  cadgeom::Model m = load("cylinderVast");
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  for (int e = 0; e < m.edges(); e++)
+    if (m.curveKind(m.edgeCurve(e)) == CBR_CURVE_LINE) CHECK_EQ(pm.edges().edge(e).points.size(), 2u);
+}
+
+TEST_CASE("a flat ring narrower than its circles' chords sag (thinRing): every crossing span split in one round, "
+  "meshed within the rounds") {
+  // (The circles' polygons cross each other many times in (u, v): mesh2 names every crossing, each a round splits;
+  // the first pair alone a round wouldn't get through within maxSplitRounds.)
+  cadgeom::Model m = load("thinRing");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  thinRing: %s, after %d rounds\n", fm.cause.c_str(), pm.rounds());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  double area = 0;
+  for (size_t t = 0; t < fm.triangles.size(); t += 3) {
+    Vec3 a = fm.points[fm.triangles[t]], b = fm.points[fm.triangles[t + 1]], c = fm.points[fm.triangles[t + 2]];
+    area += 0.5 * cadgeom::cross(b - a, c - a).z;
+  }
+  // (Each circle's polygon inside it, by its sag: the ring's area, within the outer chords' and inner chords' loss.)
+  const double want = M_PI * (1.002 * 1.002 - 1);
+  if (!(std::fabs(area - want) < 0.02 * want)) std::printf("  thinRing: area %.9g want %.9g\n", area, want);
+  CHECK(std::fabs(area - want) < 0.02 * want);
 }
 
 TEST_CASE("a band narrower than its circles' chords bow (thinBand): its circles split until nothing is refused") {
@@ -2338,17 +2530,18 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
-TEST_CASE("the rounds end once no split changes an edge: passBy's face still asks a split EdgeMesh::split drops") {
+TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
+          "the rounds short of the cap") {
   // (Meshing it again on the same edges would ask the same, every round to the cap.)
-  cadgeom::Model m = load("passBy");
-  PartOptions o = options(0.1, 0.26);
+  cadgeom::Model m = load("kinkStrip");
+  PartOptions o = options(0.5, 0.26);
   o.maxDeviationFactor = 0;
   PartMesher pm(m, o);
   int wanting = 0;
   for (int f = 0; f < m.faces(); f++)
     wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
   CHECK(wanting > 0);
-  CHECK_EQ(pm.rounds(), 0);
+  CHECK(pm.rounds() < o.maxSplitRounds);
 }
 
 namespace {
@@ -2647,5 +2840,32 @@ TEST_CASE("the same part twice: the same points, normals and triangles, bit for 
         same = key(x.points[i]) == key(y.points[i]) && key(x.normals[i]) == key(y.normals[i]);
       CHECK(same);
     }
+  }
+}
+
+TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, poleDipFarLoose): the face meshed, its "
+          "area poleDip's but for the bit past the pole") {
+  // (edges_test checks their boundaries: each use's end at the pole on the pole line. Off it, poleDipFarLoose's
+  // boundary went through its own point, LMP1 #172878 face #1063482's. The face is the sphere but for poleDip's lune,
+  // its vertex moved past the pole by at most 2e-3.)
+  auto area = [](const FaceMesh& fm) {
+    double a = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      a += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return a;
+  };
+  const cadgeom::Model dip = load("poleDip");
+  PartMesher ref(dip, options(0.1, 0.26));
+  REQUIRE(ref.face(0).status == cadgeom::Status::ok);
+  const double want = area(ref.face(0));
+  for (const char* name : {"poleDipFar", "poleDipFarLoose"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.1, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("    %s\n", fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(std::fabs(area(fm) - want) <= 0.01);
   }
 }

@@ -14,9 +14,10 @@ import { threejsJson } from 'export-threejs';
 import { exportStep, StepTessellator } from 'step-export';
 import { importStep } from 'step-import';
 import { OcctTessellator } from 'tess-occt';
+import { CadioTessellator } from 'tess-cadio';
 import { SmlibTessellator } from 'tess-smlib';
 import { listed } from '../src/stepconv.ts';
-import { assembly, cube, load, root, run, skip, smlibBuilt, tmp, triangles, truckBuilt, wireframe }
+import { assembly, cadioBuilt, cube, load, root, run, skip, smlibBuilt, tmp, triangles, truckBuilt, wireframe }
   from './stepconv-helpers.ts';
 
 test('stepconv: the same file as the library pipeline, in a worker pool and on the main thread', { skip }, async () => {
@@ -259,6 +260,54 @@ test('stepconv: smlib', { skip: skip || (!smlibBuilt && 'tess-smlib not built') 
   }
 });
 
+// Our own tessellator: the library's pipeline with it, in a pool and on the main thread; --min-angle as the request's
+// minAngle; --keep-failing keeps a face failed by construction, seen as meshed: conical-surface's face #77 at a
+// deflection of 1.2e-6 mm, past its point cap (it meshes within the cap from 3e-6 up), whatever the mesher's other
+// failures.
+test('stepconv: cadio, --min-angle, --keep-failing', { skip: skip || (!cadioBuilt && 'tess-cadio not built') },
+  async () => {
+  const expected = async (minAngle?: number) => {
+    const tess = new CadioTessellator();
+    await tess.init();
+    const { scene } = await importStep(fs.readFileSync(assembly));
+    const a = minAngle === undefined ? {} : { minAngle };
+    await tessellateScene(scene, new StepTessellator(tess), { edges: true, ...a });
+    tess.dispose();
+    return threejsJson(scene, exportView(scene, { ...meshDeflections({}), ...a, edges: true }),
+      { name: 'as1-oc-214-mat' });
+  };
+  const out = path.join(tmp, 'as1-cadio.json');
+  const plain = await expected(), none = await expected(0);
+  assert.ok(triangles(load(none)) < triangles(load(plain)), 'min angle 0: fewer triangles');
+  for (const workers of ['1', '0']) {
+    const r = await run([assembly, '-o', out, '--with-edges', '-b', 'cadio', '-j', workers]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /^5 parts \(5 of 5 brep parts tessellated\)/);
+    assert.equal(fs.readFileSync(out, 'utf8'), plain, `workers ${workers}`);
+    const m = await run([assembly, '-o', out, '--with-edges', '-b', 'cadio', '--min-angle', '0', '-j', workers]);
+    assert.equal(m.code, 0, m.stderr);
+    assert.equal(fs.readFileSync(out, 'utf8'), none, `--min-angle 0, workers ${workers}`);
+  }
+  const failing = path.join(root,
+    'test_corpus/third_party/occt-import-js/test/testfiles/conical-surface/conical-surface.step');
+  if (!fs.existsSync(failing)) return;
+  const failed = /error: #12: 1 faces failed to mesh: #77\n/;
+  for (const workers of ['2', '0']) {
+    const r = await run([failing, '-o', out, '-d', '1.2e-6', '-b', 'cadio', '--fallback', 'none', '-j', workers]);
+    assert.match(r.stderr, failed);
+    assert.doesNotMatch(r.stderr, /debugging/);
+    const k = await run([failing, '-o', out, '-d', '1.2e-6', '-b', 'cadio', '--fallback', 'none', '--keep-failing',
+      '-j', workers]);
+    assert.equal(k.code, 0, k.stderr);
+    assert.doesNotMatch(k.stderr, /failed to mesh/);
+    assert.match(k.stderr,
+      /\ndebugging \(--keep-failing\): cadio kept the faces it would fail for their mesh\n0 errors/);
+    // As the fallback too: occt first, cadio keeping what it meshes.
+    const f = await run([failing, '-o', out, '-d', '1.2e-6', '--fallback', 'cadio', '--keep-failing', '-j', workers]);
+    assert.equal(f.code, 0, f.stderr);
+  }
+});
+
 test('stepconv: standard input and output, gzipped input', { skip }, async () => {
   const stdin = new PassThrough();
   stdin.end(gzipSync(fs.readFileSync(cube)));
@@ -298,6 +347,14 @@ test('stepconv: usage errors and failures', async () => {
   await usage([cube, '-o', scratch, '-j', '1.5'], /--workers must be a whole number/);
   await usage([cube, '-o', scratch, '--timeout=-3'], /--timeout must be a non-negative number/);
   await usage([cube, '-o', scratch, '--cache-size', '5'], /--cache-size needs --cache/);
+  for (const f of [['--min-angle', '5'], ['--keep-failing']]) {
+    await usage([cube, '-o', scratch, ...f], new RegExp(`${f[0]} applies to the cadio backend`));
+    await usage([cube, '-o', scratch, '-b', 'smlib', ...f], new RegExp(`${f[0]} applies to the cadio backend`));
+  }
+  await usage([cube, '-o', scratch, '-b', 'cadio', '--min-angle', '31'], /--min-angle must be at most 30 degrees/);
+  await usage([cube, '-o', scratch, '-b', 'cadio', '--min-angle=-1'], /--min-angle must be a non-negative number/);
+  await usage([cube, '-o', scratch, '-b', 'cadio', '--keep-failing', '--cache', tmp], /--keep-failing with --cache/);
+  await usage([cube, '-o', scratch, '-b', 'cadio', '--fallback', 'cadio'], /the fallback backend can't be the /);
   await usage([cube, '-o', scratch, '--bogus'], /Unknown option '--bogus'/);
   const stp = path.join(tmp, 'usage.stp');
   await usage([cube, '-o', scratch, '--step-meshes'], /--step-meshes applies to step output/);

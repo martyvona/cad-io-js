@@ -77,6 +77,19 @@ struct EdgeOptions {
    * (face row, point, the sample before's (u, v), foot out, its distance out), true where it converged.
    */
   std::function<bool(int, Vec3, Vec2, Vec2&, double&)> localFootForTests;
+  /**
+   * The model's analysis buffer (cad-brep's cad_analysis.h), if given: 8-byte aligned, of this model, kept alive
+   * while the EdgeMesh is. An edge or vertex whose tolerance healing grew past repair (toleranceError) fails each
+   * face with a loop through it, its edges not sampled. Not given, or not an analysis: nothing.
+   */
+  const uint8_t* analysis = nullptr;
+  size_t analysisSize = 0;
+  /**
+   * With an analysis: a use whose p-curve healing made (pcurveFrom healed) placed as a projected one, at its trace's
+   * tolerance (a trace row's tol) or else its edge's (its inside samples at their points' feet, its ends at its
+   * vertices'). Off by default: it mends some healed faces and turns others (the bicycle's #2763, bug25287 #2134).
+   */
+  bool placeHealedPcurves = false;
 };
 
 /**
@@ -89,6 +102,9 @@ struct EdgeSamples {
   Status status = Status::unsupported;
   std::vector<double> t;
   std::vector<Vec3> points;
+  /** The spans kept empty for poles' rings (EdgeMesh::cutRings): parameter ranges, low to high; split drops a point
+   * inside one. */
+  std::vector<cadgeom::Range> rings;
 };
 
 /**
@@ -267,10 +283,17 @@ public:
    * there were none, else Status::invalidModel. Each request adds one sample inside its span (several on one span
    * each at its own fraction of the span as it was, those within a tenth of the span of one another once); existing
    * samples are kept, so other edges' indices stand and only the touched edges' later indices move. The touched
-   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), or on a span whose
-   * chord is within the refinement floor (criteria.h), is dropped.
+   * edges' coedges are redone. A request whose sample would fall inside a ring's span (cutRings), on a span whose
+   * chord is within the refinement floor (criteria.h), or on one with no width in parameter (a billionth of the
+   * edge's range: its end vertex off the curve's end), is dropped.
    */
   Status split(const std::vector<SplitRequest>& requests);
+  /**
+   * Whether split() drops every point in edge e's span `span` for its end: an end span with no point within 0.9 of
+   * the way from the edge's end past the reach that drops a sample near an end (min(tol, d / 10)). PartMesher
+   * freezes it, as one within the refinement floor.
+   */
+  bool endSpanFrozen(int e, int span) const;
 
   /**
    * The faces' spacing given after the edges were sampled (their criteria, made from the boxes these samples give):
@@ -286,10 +309,18 @@ public:
    * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
    * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between
    * them kept empty from then on: split() drops a request inside it, so the refinement rounds never refill a ring.
-   * Bad cuts (no such edge, parameters not finite or outside the edge's samples, approach equal to crossing) are
-   * ignored: Status::invalidModel if there were any, else Status::ok. Other edges' indices stand.
+   * A cut from the approach of a ring already on the edge (within a millionth of the edge's range), its crossing
+   * inside that ring, shrinks it instead: a sample at the new crossing, the span from there to the old one an
+   * ordinary span. Bad cuts (no such edge, parameters not finite or outside
+   * the edge's samples, approach equal to crossing) are ignored: Status::invalidModel if there were any, else
+   * Status::ok. Other edges' indices stand.
    */
   Status cutRings(const std::vector<RingCut>& cuts);
+  /**
+   * Edge e's samples as saved earlier (a copy of edge(e)), its uses placed again: for undoing a change the caller
+   * judged worse (PartMesher's ring shrinks). An index out of range is ignored.
+   */
+  void restore(int e, const EdgeSamples& saved);
 
 private:
   struct Impl;

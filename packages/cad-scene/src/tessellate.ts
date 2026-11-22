@@ -225,6 +225,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       let r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
         linearDeflection, angularDeflection, ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}),
+        ...(brep.analysis ? { analysis: new Uint8Array(brep.analysis.buffer) } : {}),
         edges: join || fill || opts.edges, ...(measure ? { measures: true } : {}),
       });
       if (join) r = joinResult(brep.model, r, linearDeflection);

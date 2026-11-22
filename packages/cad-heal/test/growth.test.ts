@@ -117,3 +117,32 @@ test('a vertex grown by one fix takes only that fix\'s need, not a larger one of
   const t = r.model.vertex.tolerance[1]!;
   assert.ok(Math.abs(t - GROWTH * 0.005) < 1e-9, `${t}`);
 });
+
+/** The analysis's toleranceError flags: [edges flagged, vertices flagged] and each flagged row's tolerance grown. */
+async function flags(d: ReturnType<typeof part>) {
+  const r = await healPart(d, {}, module), a = r.analysis!;
+  const rows = (t: 'edge' | 'vertex') => [...a[t].toleranceError].flatMap((x, i) => x ? [i] : []);
+  for (const t of ['edge', 'vertex'] as const) {
+    for (const i of rows(t)) assert.ok(r.model[t].tolerance[i]! > 5 * 1e-6, `${t} ${i} flagged and grown`);
+    assert.equal(a[t].toleranceError.length, r.model[t].tolerance.length, `${t}: a flag per row`);
+  }
+  return { edges: rows('edge'), vertices: rows('vertex'), error: r.diagnostics.some((x) => x.severity === 'error') };
+}
+
+test('toleranceError: every edge and vertex the error counts flagged in the analysis, the rest not', async () => {
+  const x = await flags(part(2.05));
+  assert.equal(x.error, true);
+  assert.equal(x.edges.length, 2, 'the diagnostic\'s 2 edges');
+  assert.deepEqual(x.vertices, [0], 'and its vertex');
+});
+
+test('toleranceError: growth within the rule flagged nowhere (a warning by the size, by the ratio, by the row\'s own '
+  + 'start; nothing grown)', async () => {
+  for (const [what, d] of [['within the size', part(2.01)], ['within the ratio', part(2.05, 0.04)],
+    ['the row\'s own start', planeArc(undefined, undefined, 0, 0.02, 0.01).finish()], ['nothing grown', part(2)]] as
+    const) {
+    const x = await flags(d);
+    assert.equal(x.error, false, what);
+    assert.deepEqual([x.edges, x.vertices], [[], []], what);
+  }
+});

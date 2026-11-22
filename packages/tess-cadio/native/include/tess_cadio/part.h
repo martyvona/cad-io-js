@@ -32,7 +32,7 @@ struct PartOptions {
   /** The linear deflection, and the angle for faces' normals and edges' chords alike (EdgeOptions::angle). */
   Deflections d;
   /** Rounds of splitting edges and meshing their faces again at most (they end once no face asks for a split). */
-  int maxSplitRounds = 24;
+  int maxSplitRounds = 48;
   /**
    * The criteria's spacing for each face's edges multiplied by this (above 1: edges coarser than the faces want,
    * left to the split rounds; for tests and tuning).
@@ -71,6 +71,9 @@ struct PartOptions {
    * and a cause saying so, as one past its deflection does: wrong output however rare.
    */
   bool failTurnedOver = true;
+  /** The model's analysis buffer, if given (EdgeOptions::analysis: healed p-curves, tolerances past repair). */
+  const uint8_t* analysis = nullptr;
+  size_t analysisSize = 0;
   /**
    * A face whose refinement reached its point cap (maxPointsPerFace) when the rounds end fails with
    * Status::noConvergence and a cause saying so, its triangles dropped: a capped mesh isn't the one asked for. False
@@ -192,6 +195,13 @@ public:
   const EdgeMesh& edges() const;
   /** The rounds of splitting run. */
   int rounds() const;
+  /**
+   * In the rounds, the poles whose rings were shrunk for a split another face asked inside them (never nearer the
+   * pole than the refinement floor; a shrink undone, a face it changed failing that didn't, not counted), and the
+   * faces meshed again for them, undoing included (counted each time).
+   */
+  int ringsShrunk() const;
+  int ringFacesRemeshed() const;
   /** The most bytes the kept verdicts took at once, as estimated (PartOptions::verdictBudget): for tests. */
   size_t verdictPeak() const;
 
