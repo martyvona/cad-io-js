@@ -1239,6 +1239,7 @@ Known work not yet scheduled; the detail behind each is in the topic notes in `d
 
 **Tessellation**
 
+- An on-demand check for geometric self-intersection, of meshes and of B-reps (faces crossing each other or themselves), apart from meshing; meshing checks topology only (oriented manifold per closed shell).
 - A strict mode for bit-identical results across platforms, at a cost in speed and complexity (`docs/own-tessellator.md`, "Platform differences": what differs and the fixes measured).
 - An adaptive meshing mode: the deflections driven by each part's size (its bounding box's diagonal, say) rather than absolute (absolute 0.1 mm gives a 32 m torus 3.9 M triangles), perhaps as a fourth profile beside coarse, medium and fine.
 - A maximum chord (edge) length, as another CAD system's meshing profiles have (10 m in each); neither backend has one.
