@@ -365,6 +365,16 @@ The user's models (`test_corpus/models.txt`, 31 files, 205,297 faces) at own-tes
 
 ### Parts ours is slow on
 
+Faces whose refinement converges slowly or not at all (own-tessellator 1adc689 and later; the split rounds' cap 24 then), worth a look at their curvature and parameterization:
+- `bug24593_281946.stp` part #13, B-splines #50, #53, #56, #59 and #62: 24 rounds for 393 triangles, all failing with triangles turned; each round mends its refusals, but the face meshed again from scratch has about as many new ones elsewhere.
+- `bug26889_export.step` part #33, face #1854: runs to its point cap (200,820 triangles) inside the face in every meshing, 74 s.
+- `Kuka.step` (`test_corpus/models/`) part #4099: cylinder #28051 (a band 29 mm high, radius about 101, its boundary circle in 72 spans of 8.8 mm, triangles beside it refused at 5 to 1,010 x d), #27713 (300 to 500 split requests a round), #27706, #27716, #27889, #28102.
+- `VW.step` part #2404, face #294090 (asking 10 to 38 splits a round from round 10 on).
+- `bug29979_firetherm_12.step` part #168383: cones #223558, #501415 and #106722, B-spline #15503.
+- `OCC8228.stp` part #10: cylinders #35465 and #56634, torus #75991.
+- `bug26451_Test_STEP.stp` part #13270: cylinder #19367.
+
+
 Over 120 s of CPU each, alone, at medium (own-tessellator a5357bf):
 - `t4mec.stp` #9 (125 s), `sit-stand` (`test_corpus/models/`, all three files) #1663 (175 s), `as1_motor.step` #3728 (154 s, a third in the triangulation): the B-spline deviation bounds, mostly.
 - Over 300 s: `as1_motor.step` #1070, `bm2_ec_exhaust-A.stp` #9, `trj4_pm2-ec-214.stp` #5727, `trj6_pm4-ec-203.stp` #23172.
