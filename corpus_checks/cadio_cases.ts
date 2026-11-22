@@ -21,6 +21,9 @@ const CASES: Case[] = [
   // not on the surface's points: the criteria's turn on the boundary's own points (setBoundaryPoints) mends it.
   { file: 'models/onshape/LMP1.step', part: 172400, faces: [1038482], why: 'turned on the boundary\'s own points' },
   { file: 'models/onshape/LMP1.step', part: 173233, faces: [1082381], why: 'turned on the boundary\'s own points' },
+  // A refused sliver at a boundary (u near 0) whose quadrilaterals across its interior edges are both non-convex in
+  // (u, v), so no flip mends it: the apex snapped onto its long edge.
+  { file: 'models/onshape/LMP1.step', part: 172440, faces: [1041915], why: 'a sliver no flip mends' },
   // The same face meshed only if no more is judged on those points than the output's own turn: the angle on them
   // (a thin triangle's tilt, steeper as refinement thins it) took it to the point cap, the turn against any one
   // corner's normal left one turned.

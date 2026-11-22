@@ -2583,16 +2583,15 @@ TEST_CASE("keepSteiner (the default): a face meshed again from its fourth meshin
   CHECK(wa.rounds() <= wb.rounds());
 }
 
-TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
-          "the rounds short of the cap") {
-  // (Meshing it again on the same edges would ask the same, every round to the cap.)
-  cadgeom::Model m = load("kinkStrip");
-  PartOptions o = options(0.5, 0.26);
-  o.maxDeviationFactor = 0;
+TEST_CASE("the rounds end once no split changes an edge: clampedCorner's face still asks a split EdgeMesh::split "
+          "drops, the rounds short of the cap") {
+  // (Its loop reversing in (u, v), the crossing segments' spans asked split within the floor. Meshing it again on the
+  // same edges would ask the same, every round to the cap.)
+  cadgeom::Model m = load("clampedCorner");
+  PartOptions o = options(0.1, 0.26);
   PartMesher pm(m, o);
   int wanting = 0;
-  for (int f = 0; f < m.faces(); f++)
-    wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
+  for (int f = 0; f < m.faces(); f++) wanting += pm.face(f).splitsWanted > 0;
   CHECK(wanting > 0);
   CHECK(pm.rounds() < o.maxSplitRounds);
 }
@@ -2921,4 +2920,46 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(std::fabs(area(fm) - want) <= 0.01);
   }
+}
+
+TEST_CASE("a B-spline's knot span narrower than the floor in 3D, sharply bent, doesn't set the curvature's sizes: "
+  "kinkAtEnd meshed about as its patch without the span, its area the patch's") {
+  struct Mesh {
+    size_t triangles;
+    double area;
+  };
+  auto mesh = [](const char* name) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.1, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    double area = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return Mesh{fm.triangles.size() / 3, area};
+  };
+  const Mesh kinked = mesh("kinkAtEnd"), plain = mesh("kinkAtEndPlain");
+  CHECK(kinked.triangles <= 2 * plain.triangles);
+  CHECK(std::fabs(kinked.area - plain.area) < 0.01 * plain.area);
+  if (!(kinked.triangles <= 2 * plain.triangles))
+    std::printf("  kinkAtEnd: %zu triangles (area %.4f), its plain patch %zu (%.4f)\n", kinked.triangles, kinked.area,
+      plain.triangles, plain.area);
+}
+
+TEST_CASE("a run of knot spans each narrower than the floor in 3D but not together keeps its curvature's sizes: "
+  "kinkStripRun's crease, four spans of 0.04 mm under a floor of 0.05, sized as curved") {
+  cadgeom::Model m = load("kinkStripRun");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, {{0, 1}, {0, 1}}, Deflections{0.5, 0.26}, st);
+  REQUIRE(c);
+  // (Across the crease, u: its slope turning by 0.1 over 0.16 mm, a size about 0.26 / 0.6 = 0.4 mm there, E / h^2
+  // about 600; flat away from it, the face's extent.)
+  const double across = c->metric({0.5, 0.5}).a, away = c->metric({0.1, 0.5}).a;
+  if (!(across > 50 * away)) std::printf("  kinkStripRun: metric across %.4g, away %.4g\n", across, away);
+  CHECK(across > 50 * away);
 }
