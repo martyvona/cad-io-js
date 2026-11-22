@@ -2583,6 +2583,26 @@ TEST_CASE("keepSteiner (the default): a face meshed again from its fourth meshin
   CHECK(wa.rounds() <= wb.rounds());
 }
 
+TEST_CASE("a loop of two one-chord edges (a lens whose chords coincide) gets a sample at each edge's middle: meshed, "
+  "its area the lens's within the chords' sag") {
+  cadgeom::Model m = load("lensPlane");
+  REQUIRE(m.ok());
+  // (Its arcs a little longer than the face's spacing, its extent, respace would split them anyway: a spacing past
+  // them leaves the two chords, as VW #2408's faces were left.)
+  PartOptions o = options(0.1, 0.26);
+  o.edgeSpacingScale = 4;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  double area = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  // (Two segments of height 0.02 over a chord of 2: about 4/3 x 2 x 0.02; the mesh's quadrilateral 2 x 0.02.)
+  CHECK(area > 0.03);
+  CHECK(area < 0.06);
+}
+
 TEST_CASE("the rounds end once no split changes an edge: clampedCorner's face still asks a split EdgeMesh::split "
           "drops, the rounds short of the cap") {
   // (Its loop reversing in (u, v), the crossing segments' spans asked split within the floor. Meshing it again on the

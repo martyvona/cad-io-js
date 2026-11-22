@@ -41,8 +41,13 @@ struct Oracle::Impl {
   Estimate edgeLength(int edge);
   /** The face's perimeter: its edge loops' coedges' edges' lengths summed. */
   Estimate perimeter(int face);
-  /** FaceMeasure::boundary of a face whose loops come from the face API's (swept and free-form faces). */
-  double boundary(int face);
+  /**
+   * FaceMeasure::boundary of a face: its uses' p-curves' deviations (the face API's loops: swept and free-form
+   * faces) and its edges' vertex gaps; with `closedForm`, the gaps alone (integrated along the 3D curves).
+   */
+  double boundary(int face, bool closedForm = false);
+  /** The larger distance of an edge's vertices from its curve's ends (its edgeParams' points); NaN where unknown. */
+  double vertexGap(int edge);
   /** A given p-curve's deviation from its edge's curve, by its own parameter along the use (oracle.h's
    * FaceMeasure::boundary); NaN where it can't be had. */
   double pcurveDeviation(int face, int coedge);
@@ -52,8 +57,14 @@ struct Oracle::Impl {
   FaceMeasure freeForm(int face);
   /** faceIntegral (oracle.h), on the faces closedForm, swept and freeForm measure. */
   std::vector<Estimate> integral(int face, const Integrand& g);
+  /** The face's surface as the face API closes it in fact (at the face's tolerance), made once; null where it can't be. */
+  const Surface* faceSurface(int face);
+  /** rayFace (oracle.h). */
+  RayFace rayFace(int face, Vec3 o, Vec3 d, Range tr);
 
 private:
+  std::vector<std::unique_ptr<Surface>> faceSurfaces_;
+  std::vector<uint8_t> faceSurfaceMade_;
   std::vector<std::unique_ptr<Curve>> curves_;
   std::vector<uint8_t> made_;
   std::vector<Estimate> lengths_;

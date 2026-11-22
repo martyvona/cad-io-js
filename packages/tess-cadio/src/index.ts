@@ -6,7 +6,7 @@
 
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
   from 'cad-scene';
-import { sha256 } from 'cad-scene';
+import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
@@ -303,6 +303,8 @@ export class CadioTessellator implements Tessellator {
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < fd.length; i += 3) faces.push({ entityId: id(fd[i]!), start: fd[i + 1]!, count: fd[i + 2]! });
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
+    // With measures, the area oracle's areas (cad-scene's oracleMeasures; this backend measures none of its own).
+    if (req.measures) result.oracle = oracleMeasures(req.data);
     if (req.edges) {
       const ne = m._tc_num_edges();
       const ed = u32(m._tc_edges(), ne * 4), angles = f32(m._tc_edge_angles(), ne);

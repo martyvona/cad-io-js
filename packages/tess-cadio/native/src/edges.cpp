@@ -2617,6 +2617,27 @@ Status EdgeMesh::respace(const std::vector<double>& faceSpacing) {
     if (split(requests) != Status::ok) st = Status::invalidModel;
     if (I.sampleCount() == before) break;  // (none could be made: within a ring or the floor)
   }
+  // A loop of fewer than three points (two edges between the same two vertices, each one chord within the
+  // deflection: a lens whose chords coincide, VW #2408's plane #294593): each of its one-span edges a sample at its
+  // middle, so it bounds a polygon. On the edges, so every face using them gets the samples.
+  for (int f = 0; f < I.m.faces(); f++)
+    for (int i = 0; i < I.m.faceLoopCount(f); i++) {
+      const int l = I.m.faceFirstLoop(f) + i;
+      if (I.m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      size_t points = 0;
+      for (int k = 0; k < I.m.loopCount(l); k++) {
+        const size_t n = I.edges[I.m.coedgeEdge(I.m.loopFirst(l) + k)].s.t.size();
+        points += n > 0 ? n - 1 : 0;
+      }
+      if (points >= 3) continue;
+      for (int k = 0; k < I.m.loopCount(l); k++) {
+        const int e = I.m.coedgeEdge(I.m.loopFirst(l) + k);
+        Impl::Edge& E = I.edges[e];
+        if (E.s.t.size() != 2 || !E.geom) continue;
+        I.insertSample(e, 0.5 * (E.s.t[0] + E.s.t[1]));
+        for (int c : E.coedges) I.computeCoedge(c);
+      }
+    }
   return st;
 }
 

@@ -660,6 +660,22 @@ function square(zero: boolean): BrepBuilder {
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
 }
+/**
+ * A lens on the plane z = 0 between two arcs of radius 25.01 through (-1, 0, 0) and (1, 0, 0), bulging 0.02 up and
+ * down: at d 0.1 each arc is one chord, the two the same segment, a loop of two points unless split.
+ */
+export const lensPlane = (): BrepBuilder => {
+  const b = new BrepBuilder();
+  const v0 = b.addVertex({ point: [-1, 0, 0] }), v1 = b.addVertex({ point: [1, 0, 0] });
+  const arc = (cy: number) => b.addCurve({ kind: 'circle', position: { origin: [0, cy, 0], axis: [0, 0, 1],
+    xDir: [1, 0, 0] }, radius: 25.01 });
+  const upper = b.addEdge({ curve: arc(-24.99), start: v1, end: v0, sameSense: true });
+  const lower = b.addEdge({ curve: arc(24.99), start: v0, end: v1, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: upper, orientation: 'forward' },
+      { edge: lower, orientation: 'forward' }] }] }));
+  return b;
+};
 export const wrongSense = (): BrepBuilder => square(false);
 export const zeroEdge = (): BrepBuilder => square(true);
 
@@ -2171,7 +2187,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, edgeFarOff, thinRing, pcurveNear,
   clampedCorner: () => clampedCorner(),
   clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
-  bandTwoSlots, poleDip, poleDipFar: () => poleDipFar(), poleDipFarLoose: () => poleDipFar(2e-3, 0.01),
+  bandTwoSlots, poleDip, poleDipFar: () => poleDipFar(), poleDipFarLoose: () => poleDipFar(2e-3, 0.01), lensPlane,
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,

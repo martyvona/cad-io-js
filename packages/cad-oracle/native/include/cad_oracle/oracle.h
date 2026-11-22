@@ -88,14 +88,16 @@ struct FaceMeasure {
    */
   double offSurface = 0;
   /**
-   * How far the area can be off for its loops' p-curves not being their edges' curves (mm^2): the sum over the edge
-   * loops' uses of the deviation of the use's p-curve as the face API takes it from its edge's curve, times the edge's
-   * length: the boundary on the surface moves at most that far. A given p-curve's is measured in its own parameter
-   * along the use (a p-curve needn't share its edge's parameter): each S(p(s)) against its nearest point on the curve
-   * within the edge's range, the feet going one way and the use's ends against the edge's (where the use runs over the
-   * edge's own range, |S(p(t)) - C(t)| at the same t, which bounds that); a healed one's the analysis's; a projected
-   * one's the projection's error. 0 where the area is integrated along the edges' 3D curves (closed forms) or an edge
-   * has none (its p-curve is the boundary); NaN where a deviation couldn't be had (a projection not made, a use's feet
+   * How far the area can be off for its loops not being where its edges' curves are (mm^2): the sum over the edge
+   * loops' uses of, times the edge's length, the deviation of the use's p-curve as the face API takes it from its
+   * edge's curve plus how far the curve's ends miss the edge's vertices (the larger gap, the vertices being where a
+   * loop's neighbours and other kernels take the boundary): the boundary on the surface moves at most that far. A given
+   * p-curve's deviation is measured in its own parameter along the use (a p-curve needn't share its edge's parameter):
+   * each S(p(s)) against its nearest point on the curve within the edge's range, the feet going one way and the use's
+   * ends against the edge's (where the use runs over the edge's own range, |S(p(t)) - C(t)| at the same t, which bounds
+   * that); a healed one's the analysis's; a projected one's the projection's error; none where the area is integrated
+   * along the edges' 3D curves (closed forms), whose vertex gaps still count. An edge without a 3D curve counts nothing
+   * (its p-curve is the boundary). NaN where a deviation or gap couldn't be had (a projection not made, a use's feet
    * going back along its curve). Included in area.error (the error reported with the area: the quadrature's plus this)
    * where it's known; where it's NaN, area.error is the quadrature's alone and trusted() refuses the face.
    */
@@ -143,6 +145,43 @@ struct Options {
    */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
+  /**
+   * The face API projects the edge loops' coedges without p-curves (made when a face is first asked; a free-form or
+   * swept face with such a coedge then gets an area flagged projectedBoundary). Off: such a face's area isn't computed
+   * (its loops have no p-curve to follow), the projections' cost spared.
+   */
+  bool projectMissing = true;
+};
+
+/**
+ * A line's contact with a face (Oracle::rayFace): a crossing of the face (inside its loops, |d . n| at least
+ * cadgeom::kLineMargin), a crossing on its boundary (within the face's tolerance of its loops: an edge or a vertex,
+ * which the neighbouring face may or may not see too), a tangency (the line within tol of the surface there, or too
+ * near to tell, reaching into the face), or an overlap (the line lying in the face's surface over a stretch).
+ */
+struct FaceHit {
+  enum Kind : uint8_t { crossing, boundary, tangency, overlap };
+  Kind kind = crossing;
+  /** The line's parameter, and the t it covers (a crossing's t alone). */
+  double t = 0;
+  cadgeom::Range span;
+  /** Where on the surface (an overlap's: its start's), and d . n there (unit n, the surface's own, not the face's). */
+  cadgeom::Vec2 uv;
+  Vec3 point;
+  double cosine = 0;
+};
+
+/** A line against a face: its hits sorted by t; noConvergence where the search's budget ran out (hits found given). */
+struct RayFace {
+  Status status = Status::unsupported;
+  std::vector<FaceHit> hits;
+  /** Whether a parity count may use it: status ok and every hit a crossing of the face. */
+  bool clean() const {
+    if (status != Status::ok) return false;
+    for (const FaceHit& h : hits)
+      if (h.kind != FaceHit::crossing) return false;
+    return true;
+  }
 };
 
 class Oracle {
@@ -169,6 +208,13 @@ public:
    * oracle doesn't measure), by the face's method with the area element's antiderivative numeric.
    */
   std::vector<Estimate> faceIntegral(int face, const Integrand& g);
+  /**
+   * The line o + t d, t in tr (finite), against the face: cad-geom's intersectLine on its surface (as the face API
+   * closes it in fact) at the face API's tolerance for the face, each contact classified against its loops by the face
+   * API (a tangency at that tolerance widened by half its span, so one reaching into the face isn't left out); a
+   * contact outside the face dropped. unsupported where the face has no surface or loops.
+   */
+  RayFace rayFace(int face, Vec3 o, Vec3 d, cadgeom::Range tr);
 
   struct Impl;
 

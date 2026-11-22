@@ -14,6 +14,7 @@
     "cad-scene": "0.3.0"
   },
   "devDependencies": {
+    "cad-oracle": "0.3.0",
     "step-import": "0.3.0",
     "tess-occt": "0.3.0",
     "tess-workers": "0.3.0"

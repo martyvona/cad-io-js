@@ -15,7 +15,7 @@ export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoop
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
-const API_VERSION = 3;
+const API_VERSION = 4;
 
 /** A computed real with an a posteriori estimate of its error (result.h's Estimate). */
 export interface Estimate {
@@ -140,6 +140,12 @@ export interface OracleOptions {
    * deviations of the p-curves healing made, which FaceMeasure.boundary takes instead of measuring them.
    */
   analysis?: { buffer: ArrayBuffer } | ArrayBuffer | Uint8Array;
+  /**
+   * Whether the face API projects the loops' coedges without p-curves (default true: oracle.h's
+   * Options::projectMissing). False: a face with such a coedge gets no area (status not ok), the projections' cost
+   * spared.
+   */
+  projectMissing?: boolean;
 }
 
 const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
@@ -169,7 +175,8 @@ export class Oracle {
     const q = a ? this.x._malloc(Math.max(8, a.length)) : 0;
     if (a) this.x.HEAPU8.set(a, q);
     // co_model_new owns p from here on, freed even where it isn't a model; the analysis is read, then ours to free.
-    this.h = this.x._co_model_new!(p, bytes.length, opts.relTol ?? 0, q, a?.length ?? 0);
+    this.h = this.x._co_model_new!(p, bytes.length, opts.relTol ?? 0, q, a?.length ?? 0,
+      opts.projectMissing === false ? 1 : 0);
     if (q) this.x._free(q);
     if (this.h < 0) throw new Error('cad-oracle: not a B-rep model buffer');
   }
@@ -244,3 +251,5 @@ export class Oracle {
     }
   }
 }
+export { AREA_ORACLE_ID, areaOracle, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, type JudgedArea, type ModelLike }
+  from './judge.ts';

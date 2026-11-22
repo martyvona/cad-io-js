@@ -9,6 +9,7 @@
 
 extern "C" {
 int32_t cg_model_new(uint8_t* buffer, uint32_t size);
+int32_t cg_model_options(int32_t h, int32_t flags);
 void cg_model_free(int32_t h);
 double* cg_scratch();
 int32_t cg_edge_params(int32_t h, int32_t edge, double* out);

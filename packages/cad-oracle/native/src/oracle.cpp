@@ -24,6 +24,8 @@ Oracle::Impl::Impl(const uint8_t* buf, size_t size, Options o) : model(buf, size
   if (!copy) return;
   std::memcpy(copy, buf, size);
   h = cg_model_new(copy, static_cast<uint32_t>(size));
+  // (Option bit 1: no projections of coedges without p-curves.)
+  if (h >= 0 && !o.projectMissing) cg_model_options(h, 1);
   curves_.resize(model.curves());
   made_.assign(model.curves(), 0);
   lengths_.assign(model.edges(), Estimate{NAN, INFINITY, Status::unsupported});
@@ -231,7 +233,23 @@ double Oracle::Impl::pcurveDeviation(int f, int c) {
   return bad ? NAN : worst;
 }
 
-double Oracle::Impl::boundary(int f) {
+double Oracle::Impl::vertexGap(int e) {
+  const Curve* C = curve(model.edgeCurve(e));
+  double t[2];
+  if (!C || !edgeParams(e, t[0], t[1])) return NAN;
+  double gap = 0;
+  const int v[2] = {model.edgeStart(e), model.edgeEnd(e)};
+  for (int k = 0; k < 2; k++) {
+    if (v[k] < 0) continue;
+    cadgeom::CurvePoint q;
+    if (C->eval(t[k], 0, q) != Status::ok) return NAN;
+    const cadgeom::Vec3 p = model.vertexPoint(v[k]);
+    gap = std::fmax(gap, std::hypot(q.p.x - p.x, q.p.y - p.y, q.p.z - p.z));
+  }
+  return gap;
+}
+
+double Oracle::Impl::boundary(int f, bool closedForm) {
   double sum = 0;
   for (int l = model.faceFirstLoop(f); l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++) {
     if (model.loopKind(l) != CBR_LOOP_EDGE) continue;
@@ -239,16 +257,22 @@ double Oracle::Impl::boundary(int f) {
       const int e = model.coedgeEdge(c);
       // An edge without a 3D curve: its p-curve is the boundary.
       if (model.edgeCurve(e) < 0) continue;
+      // How far the edge's curve misses its vertices at its ends: the boundary through the vertices (as a loop's
+      // neighbours and other kernels take it) can be that far from the curve the integral follows.
+      const double gap = vertexGap(e);
       double dev = NAN;
-      if (model.coedgePcurve(c) < 0) {
+      if (closedForm) {
+        // (Integrated along the edge's 3D curve: no p-curve's deviation.)
+        dev = 0;
+      } else if (model.coedgePcurve(c) < 0) {
         // The face API's projection (made when the face was first asked): its error, scratch[6] (putProjection).
         if (cg_coedge_project(h, c, NAN, nullptr, 0) == 0) dev = cg_scratch()[6];
       } else {
         dev = std::isfinite(healedDeviation[c]) ? healedDeviation[c] : pcurveDeviation(f, c);
       }
       const Estimate len = edgeLength(e);
-      if (!std::isfinite(dev) || len.status != Status::ok) return NAN;
-      sum += dev * (len.value + len.error);
+      if (!std::isfinite(dev) || !std::isfinite(gap) || len.status != Status::ok) return NAN;
+      sum += (dev + gap) * (len.value + len.error);
     }
   }
   return sum;
@@ -288,7 +312,9 @@ FaceMeasure Oracle::face(int f) {
     case CBR_SURFACE_CYLINDER:
     case CBR_SURFACE_CONE:
     case CBR_SURFACE_SPHERE:
-    case CBR_SURFACE_TORUS: m = I.closedForm(f); break;
+    case CBR_SURFACE_TORUS:
+      m = I.closedForm(f), m.boundary = m.area.status == Status::ok ? I.boundary(f, true) : NAN;
+      break;
     case CBR_SURFACE_EXTRUSION:
     case CBR_SURFACE_REVOLUTION: m = I.swept(f), m.boundary = m.area.status == Status::ok ? I.boundary(f) : NAN;
       break;

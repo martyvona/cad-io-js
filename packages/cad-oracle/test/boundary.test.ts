@@ -127,10 +127,11 @@ test('healed p-curves: the analysis\'s deviations taken instead of measured; wit
   assert.equal(measure(h.model, openAnalysis(new Uint8Array(a.buffer.slice(0))).buffer).boundary, with_.boundary);
 });
 
-test('closed forms: the boundary 0 (integrated along the edges\' curves)', async () => {
+test('closed forms: no p-curve deviation (integrated along the edges\' curves), only vertex gaps: here rounding\'s',
+  async () => {
   const { cylinderSide } = await import('../../cad-heal/test/models.ts');
   const m = measure(cylinderSide({ bottom: {} }).finish());
-  assert.equal(m.boundary, 0);
+  assert.ok(m.boundary >= 0 && m.boundary < 1e-12, `${m.boundary}`);
 });
 
 test('trusted(): the boundary\'s error unknown (NaN) refuses the face, whatever the quadrature\'s; projectedBoundary '
