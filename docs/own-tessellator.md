@@ -369,12 +369,21 @@ The user's models (`test_corpus/models.txt`, 31 files, 205,297 faces) at own-tes
 
 Faces whose refinement converges slowly or not at all (own-tessellator 1adc689 and later; the split rounds' cap 24 then), worth a look at their curvature and parameterization:
 - `bug24593_281946.stp` part #13, B-splines #50, #53, #56, #59 and #62: 24 rounds for 393 triangles, all failing with triangles turned; each round mends its refusals, but the face meshed again from scratch has about as many new ones elsewhere.
+  - Geometry (all five alike): bicubic B-splines 79 x 33 mm; curvature radius 0.036 mm median, 0.010 mm least (curvature 27 and 98 /mm: under d across the whole face); in v 59 knot spans from 0.002 to 2.1 mm in 3D (a ratio of 1,020); the parameter directions 34 deg from parallel at worst (least sine 0.56). Quick B-splines (VW, LMP1) have curvature 0.3 to 1.5 /mm and span ratios up to 103.
 - `bug26889_export.step` part #33, face #1854: runs to its point cap (200,820 triangles) inside the face in every meshing, 74 s.
+  - #1854: degree 3 x 11, 77 x 351 mm; a degenerate row near one side, |S_v| down to 3.7e-9 against 2.1 (the directions near parallel, least sine 0.003), the curvature there up to 2e16 /mm; elsewhere ordinary (0.84 /mm median).
 - `Kuka.step` (`test_corpus/models/`) part #4099: cylinder #28051 (a band 29 mm high, radius about 101, its boundary circle in 72 spans of 8.8 mm, triangles beside it refused at 5 to 1,010 x d), #27713 (300 to 500 split requests a round), #27706, #27716, #27889, #28102.
+  - All six plain (constant speed, uniform curvature) long narrow bands: cylinders #28051 632 x 21 mm (R 101), #27713 560 x 4.1 mm (R 89.5), #27706 311 x 10.7 mm (R 121), #27889 369 x 7.5 mm (R 173), #28102 987 x 6.2 mm (R 158); cone #27716 744 x 14 mm (R 119).
 - `VW.step` part #2404, face #294090 (asking 10 to 38 splits a round from round 10 on).
+  - #294090: a plain cylinder, R 40.25, 252 x 39 mm.
 - `bug29979_firetherm_12.step` part #168383: cones #223558, #501415 and #106722, B-spline #15503.
+  - Plain cones, long narrow bands: #223558 278 x 1.2 mm (R 95), #501415 and #106722 250 x 6.1 mm (R 161); B-spline #15503 (degree 2 x 1, flat across) a strip 142 x 0.155 mm, under 2 d wide.
 - `OCC8228.stp` part #10: cylinders #35465 and #56634, torus #75991.
+  - Plain: cylinder #35465 54 x 49 mm (R 433), cylinder #56634 4 x 23 mm (R 8), torus #75991 1,010 x 99 mm (radii 132.5 and 71).
 - `bug26451_Test_STEP.stp` part #13270: cylinder #19367.
+  - #19367: a plain cylinder (R 82), a strip 71 x 0.39 mm, under 4 d wide.
+
+What stands out (each face sampled at OCCT's mesh of it, against quick same-kind faces at own-tessellator 8b488fc): two B-spline sets have odd fine geometry, bug24593's (curvature radius under d over the whole face, with tiny knot spans) and bug26889's (a degenerate row); the elementary faces are plain, and many are long narrow bands, but quick faces include narrow strips too (LMP1's cones 0.28 to 0.9 mm wide and 24 to 57 mm long), so their slowness isn't in the surface's curvature or parameterization: what sets them apart is their length (250 to 1,000 mm on radii of 80 to 175 mm, against quick strips 22 to 146 mm on radii under 40), which leaves their boundary and neighbours to look at.
 
 
 Over 120 s of CPU each, alone, at medium (own-tessellator a5357bf):
