@@ -150,9 +150,11 @@ export function sphereOverPole(meridian?: Curve, range?: [number, number]): Brep
  * A cylinder of radius 2 from z = 0 to 5 as a B-spline surface: u a rational quadratic full circle over [0, 1] (nine
  * poles; closed in fact, so the face API finds period 1, which the surface's row doesn't have), v = z, degree 1. One
  * face round its side like cylinderSide's; the circles' p-curves left out, the seam's up use's `seamUp` with its use's
- * `range`, the down use's u = 0, v = t. `bottomRadius` the bottom circle's (off the surface by its difference from 2).
+ * `range`, the down use's u = 0, v = t. `bottomRadius` the bottom circle's (off the surface by its difference from 2);
+ * `bottomUse` gives the bottom circle's use a p-curve (and range).
  */
-export function bsplineCylinder(seamUp: Curve, range?: [number, number], bottomRadius = 2): BrepBuilder {
+export function bsplineCylinder(seamUp: Curve, range?: [number, number], bottomRadius = 2,
+  bottomUse?: { pcurve: Curve; range?: [number, number] }): BrepBuilder {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
   const h = Math.SQRT1_2, ring = [[2, 0], [2, 2], [0, 2], [-2, 2], [-2, 0], [-2, -2], [0, -2], [2, -2], [2, 0]];
   const w = [1, h, 1, h, 1, h, 1, h, 1];
@@ -170,7 +172,8 @@ export function bsplineCylinder(seamUp: Curve, range?: [number, number], bottomR
   const eTop = b.addEdge({ curve: top, start: v1, end: v1, sameSense: true, id: 12 });
   const eSeam = b.addEdge({ curve: seam, start: v0, end: v1, sameSense: true, id: 13 });
   const face = b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
-    { edge: eBottom, orientation: 'forward', id: 21 },
+    { edge: eBottom, orientation: 'forward', id: 21, ...bottomUse && { pcurve: b.addCurve(bottomUse.pcurve),
+      range: bottomUse.range } },
     { edge: eSeam, orientation: 'forward', pcurve: pUp, range, id: 22 },
     { edge: eTop, orientation: 'reversed', id: 23 },
     { edge: eSeam, orientation: 'reversed', pcurve: pDown, id: 24 },

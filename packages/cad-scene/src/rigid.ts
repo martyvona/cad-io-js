@@ -138,7 +138,8 @@ function stretchPart(part: Part, of: number, k: M3, keepMeasures: boolean): { pa
   }
   if (part.measures && s !== undefined && !keepMeasures) {
     out.measures = { ...part.measures, faces: new Map([...part.measures.faces].map(([f, x]) =>
-      [f, { ...x, area: x.area * s * s, perimeter: x.perimeter * s }])) };
+      [f, { ...x, area: x.area * s * s, perimeter: x.perimeter * s,
+        ...(x.oracle ? { oracle: { area: x.oracle.area * s * s, error: x.oracle.error * s * s } } : {}) }])) };
   }
   return { part: out, notes };
 }

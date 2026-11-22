@@ -55,7 +55,9 @@ test('in front of a worker pool, a cached part never reaches a worker', { skip }
   const t = new CachedTessellator(new StepTessellator(counted), new MemoryStore());
   await t.init();
   try {
-    assert.match(t.info.version, /^OCCT .*, wasm [0-9a-f]{12}, adapter \d+, native builder$/);
+    // (The workers' area oracle named: their results' areas are cad-oracle's.)
+    assert.match(t.info.version,
+      /^OCCT .*, wasm [0-9a-f]{12}, adapter \d+, native builder, area oracle cad-oracle .+$/);
     const a = await tessellateScene(scene, t, { ...opts, concurrency: 2 });
     const n = sent;
     assert.ok(n >= 5);

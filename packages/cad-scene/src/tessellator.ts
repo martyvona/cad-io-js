@@ -78,10 +78,11 @@ export interface TessellationResult {
    */
   measures?: { entityId: number; area: number; perimeter: number; valid: boolean }[];
   /**
-   * With measures, faces' areas and perimeters by cad-scene's area oracle (oracleMeasures: independent of the
-   * backend, on planes, cylinders, cones, spheres and tori), where it trusts them; in the payload's units.
+   * With measures, faces' areas and perimeters by the thread's area oracle (oracleMeasures: independent of the
+   * backend; in a pool's workers cad-oracle's, else cad-scene's own on planes and quadrics), where it trusts them for
+   * judging, `error` the area's error estimate; in the payload's units.
    */
-  oracle?: { entityId: number; area: number; perimeter: number }[];
+  oracle?: { entityId: number; area: number; perimeter: number; error?: number }[];
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {

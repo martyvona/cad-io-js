@@ -300,15 +300,18 @@ public:
    * every edge's spans, a pseudo-edge's too, split until none is longer in 3D (its length, not its chord) than the
    * least of its faces' spacing,
    * through split(), so the samples there are kept and the new ones' uses found as split's are (each p-curve at its
-   * parameter, a use with none continued locally). The edges are sampled once, refined only.
+   * parameter, a use with none continued locally). The edges are sampled once, refined only. Then a loop left with
+   * fewer than three points (two one-chord edges between the same vertices: a lens whose chords coincide) gets a
+   * sample at each of those edges' middles, so it bounds a polygon.
    */
   Status respace(const std::vector<double>& faceSpacing);
 
   /**
    * Each cut applied to its edge, once for every face using it (the samples are the edge's, its coedges redone): a
-   * sample at the approach and one at the crossing (an existing sample within a millionth of a span used instead,
-   * so a vertex at the pole stays the sample there), the samples strictly between them removed, and the span between
-   * them kept empty from then on: split() drops a request inside it, so the refinement rounds never refill a ring.
+   * sample at the approach and one at the crossing (an existing sample within a millionth of a span, or within the
+   * refinement floor of it in 3D, used instead, so a vertex at the pole stays the sample there), the samples strictly
+   * between them removed, and the span between them kept empty from then on: split() drops a request inside it, so the
+   * refinement rounds never refill a ring.
    * A cut from the approach of a ring already on the edge (within a millionth of the edge's range), its crossing
    * inside that ring, shrinks it instead: a sample at the new crossing, the span from there to the old one an
    * ordinary span. Bad cuts (no such edge, parameters not finite or outside

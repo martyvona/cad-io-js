@@ -441,6 +441,29 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   CHECK(!c->accept(t));
   c->setBoundaryPoints({{t[0], Vec3{0, 0, 0}}});
   CHECK(c->accept(t));
+  // Judged as shipped (setOutputOrigin): corners 6e-8, 5.8e-8 and 5.91e-8 up in v (y), the last above the chord of
+  // the first two in double, below it as float32 minus an origin 1 below them (1 + 6e-8 rounds up a unit in the last
+  // place, the others down to 1): the facet turned as shipped, refused, though accepted in double.
+  {
+    auto c2 = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(c2);
+    const Vec2 flip[3] = {{0, 6e-8}, {3, 5.8e-8}, {1.5, 5.91e-8}};
+    CHECK(c2->accept(flip));
+    const double origin[3] = {0, -1, 0};
+    c2->setOutputOrigin(origin);
+    CHECK(!c2->accept(flip));
+    const double none[3] = {NAN, NAN, NAN};
+    c2->setOutputOrigin(none);
+    CHECK(c2->accept(flip));
+    // (And in double again a facet turned is refused.)
+    const Vec2 turned[3] = {{0, 0}, {0, 3}, {3, 0}};
+    CHECK(!c2->accept(turned));
+  }
+  // Within the refinement floor (max(tol, d / 10), 0.01 here) the turn on the boundary's own points isn't judged:
+  // refinement can't go below the floor, and a boundary off its surface turns slivers it would only thin further.
+  const Vec2 tiny[3] = {{0, 0}, {0.003, 0}, {0, 0.003}};
+  c->setBoundaryPoints({{tiny[0], Vec3{0.0025, 0.0025, 0}}});
+  CHECK(c->accept(tiny));
   // A corner's own point 0.25 off the plane (its edges' middles 0.125 off it, past d; its facet 7 degrees from the
   // plane's normal), its facet still up: accepted, its deviation the surface's (none), the boundary's own point
   // where the model put it.
@@ -2530,16 +2553,35 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
   }
 }
 
-TEST_CASE("the rounds end once no split changes an edge: kinkStrip's face still asks splits EdgeMesh::split drops, "
-          "the rounds short of the cap") {
-  // (Meshing it again on the same edges would ask the same, every round to the cap.)
-  cadgeom::Model m = load("kinkStrip");
-  PartOptions o = options(0.5, 0.26);
-  o.maxDeviationFactor = 0;
+TEST_CASE("a loop of two one-chord edges (a lens whose chords coincide) gets a sample at each edge's middle: meshed, "
+  "its area the lens's within the chords' sag") {
+  cadgeom::Model m = load("lensPlane");
+  REQUIRE(m.ok());
+  // (Its arcs a little longer than the face's spacing, its extent, respace would split them anyway: a spacing past
+  // them leaves the two chords, as VW #2408's faces were left.)
+  PartOptions o = options(0.1, 0.26);
+  o.edgeSpacingScale = 4;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  double area = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  // (Two segments of height 0.02 over a chord of 2: about 4/3 x 2 x 0.02; the mesh's quadrilateral 2 x 0.02.)
+  CHECK(area > 0.03);
+  CHECK(area < 0.06);
+}
+
+TEST_CASE("the rounds end once no split changes an edge: clampedCorner's face still asks a split EdgeMesh::split "
+          "drops, the rounds short of the cap") {
+  // (Its loop reversing in (u, v), the crossing segments' spans asked split within the floor. Meshing it again on the
+  // same edges would ask the same, every round to the cap.)
+  cadgeom::Model m = load("clampedCorner");
+  PartOptions o = options(0.1, 0.26);
   PartMesher pm(m, o);
   int wanting = 0;
-  for (int f = 0; f < m.faces(); f++)
-    wanting += pm.face(f).status == cadgeom::Status::ok && pm.face(f).splitsWanted > 0;
+  for (int f = 0; f < m.faces(); f++) wanting += pm.face(f).splitsWanted > 0;
   CHECK(wanting > 0);
   CHECK(pm.rounds() < o.maxSplitRounds);
 }
@@ -2868,4 +2910,46 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(std::fabs(area(fm) - want) <= 0.01);
   }
+}
+
+TEST_CASE("a B-spline's knot span narrower than the floor in 3D, sharply bent, doesn't set the curvature's sizes: "
+  "kinkAtEnd meshed about as its patch without the span, its area the patch's") {
+  struct Mesh {
+    size_t triangles;
+    double area;
+  };
+  auto mesh = [](const char* name) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.1, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    double area = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return Mesh{fm.triangles.size() / 3, area};
+  };
+  const Mesh kinked = mesh("kinkAtEnd"), plain = mesh("kinkAtEndPlain");
+  CHECK(kinked.triangles <= 2 * plain.triangles);
+  CHECK(std::fabs(kinked.area - plain.area) < 0.01 * plain.area);
+  if (!(kinked.triangles <= 2 * plain.triangles))
+    std::printf("  kinkAtEnd: %zu triangles (area %.4f), its plain patch %zu (%.4f)\n", kinked.triangles, kinked.area,
+      plain.triangles, plain.area);
+}
+
+TEST_CASE("a run of knot spans each narrower than the floor in 3D but not together keeps its curvature's sizes: "
+  "kinkStripRun's crease, four spans of 0.04 mm under a floor of 0.05, sized as curved") {
+  cadgeom::Model m = load("kinkStripRun");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, {{0, 1}, {0, 1}}, Deflections{0.5, 0.26}, st);
+  REQUIRE(c);
+  // (Across the crease, u: its slope turning by 0.1 over 0.16 mm, a size about 0.26 / 0.6 = 0.4 mm there, E / h^2
+  // about 600; flat away from it, the face's extent.)
+  const double across = c->metric({0.5, 0.5}).a, away = c->metric({0.1, 0.5}).a;
+  if (!(across > 50 * away)) std::printf("  kinkStripRun: metric across %.4g, away %.4g\n", across, away);
+  CHECK(across > 50 * away);
 }

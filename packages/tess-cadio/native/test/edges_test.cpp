@@ -1013,6 +1013,22 @@ TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing 
   for (int co = 0; co < m.coedges(); co++)
     if (m.coedgeEdge(co) == e) CHECK_EQ(em.coedge(co).index.size(), saved.t.size());
   CHECK_EQ(checkCoedges(m, em, 1e-9, "cube ring restored"), 0);
+  // A crossing within the refinement floor of a sample in 3D, though more than a millionth of the span from it: that
+  // sample, no new one a hair beside it (a needle between them).
+  {
+    EdgeMesh en(m, o);
+    const int e3 = 3;
+    const std::vector<double> w = en.edge(e3).t;
+    REQUIRE(w.size() >= 4u);
+    const double floor = std::max(cadgeom::Tolerances(m).part(), 0.1 * o.deflection);  // (criteria.h's refinementFloor)
+    const double per = cadgeom::norm(en.edge(e3).points[2] - en.edge(e3).points[1]) / std::fabs(w[2] - w[1]);
+    const double near = w[2] + 0.5 * floor / per * (w[3] > w[2] ? 1 : -1);
+    REQUIRE(std::fabs(near - w[2]) > 1e-6 * std::fabs(w[3] - w[2]));
+    CHECK(en.cutRings({{e3, w.front(), near}}) == cadgeom::Status::ok);
+    CHECK_EQ(en.edge(e3).t.size(), w.size() - 1);
+    REQUIRE(!en.edge(e3).rings.empty());
+    CHECK((en.edge(e3).rings[0].lo == w[2] || en.edge(e3).rings[0].hi == w[2]));
+  }
   // An approach between samples (a curve passing the pole): a sample there too, the ring the span to the crossing.
   const int e2 = 1;
   const std::vector<double> u = em.edge(e2).t;

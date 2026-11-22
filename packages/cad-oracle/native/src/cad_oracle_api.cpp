@@ -44,12 +44,13 @@ void putClass(double* o, const PointClass& c) {
 extern "C" {
 
 /** The format's version of this API, for the TypeScript layer to check. */
-int32_t co_api_version() { return 4; }
+int32_t co_api_version() { return 5; }
 
 /**
  * The oracle of `size` bytes at `buffer` (from malloc; owned from now on, freed by co_model_free or here if it isn't
  * a model), with its analysis's `analysisSize` bytes at `analysis` (Options::analysis; none: 0; read here, not kept,
- * the caller's to free); `flags` bit 1 Options::checkSecondRay: its handle, or -1.
+ * the caller's to free), `flags` bit 1 for no projections (Options::projectMissing false), bit 2
+ * Options::checkSecondRay: its handle, or -1.
  */
 int32_t co_model_new(uint8_t* buffer, uint32_t size, double relTol, const uint8_t* analysis, uint32_t analysisSize,
   int32_t flags) {
@@ -57,8 +58,9 @@ int32_t co_model_new(uint8_t* buffer, uint32_t size, double relTol, const uint8_
   e->buffer = buffer;
   Options o;
   if (relTol > 0) o.relTol = relTol;
-  o.checkSecondRay = (flags & 1) != 0;
+  o.checkSecondRay = (flags & 2) != 0;
   if (analysis && analysisSize) o.analysis = analysis, o.analysisSize = analysisSize;
+  o.projectMissing = (flags & 1) == 0;
   e->oracle = std::make_unique<Oracle>(buffer, size, o);
   if (!e->oracle->ok()) return -1;
   for (size_t i = 0; i < models.size(); i++)

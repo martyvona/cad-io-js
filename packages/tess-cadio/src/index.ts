@@ -6,7 +6,7 @@
 
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
   from 'cad-scene';
-import { sha256 } from 'cad-scene';
+import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
@@ -24,6 +24,12 @@ export const INSERTED_KINDS = ['size', 'thinness', 'refused (no kind)', 'deviati
  * again (part.h's PartMesher::rounds; PartOptions::maxSplitRounds the most).
  */
 export const ROUNDS_HEAD = 'split rounds: ';
+/**
+ * With listPoles, an info diagnostic of this head then a JSON array of every face's poles and apexes as tess-cadio's
+ * closed surface has them (the ones its turned-over check exempts corners at), 5 numbers each: face id, cad-geom's
+ * Singularity kind, x, y, z (the part's coordinates, not minus the origin).
+ */
+export const POLES_HEAD = 'poles (face id, kind, x, y, z): ';
 /** The workspace's version (package.json's; a test checks they agree). */
 export const VERSION = '0.3.0';
 /** result.h's Status, by code. */
@@ -84,6 +90,7 @@ interface CadioExports {
   _tc_set_deviation_factor: Fn;
   _tc_set_count_insertions: Fn;
   _tc_set_count_angles: Fn;
+  _tc_set_list_poles: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
   _tc_set_analysis: Fn;
@@ -145,6 +152,8 @@ export interface CadioInitOptions {
   countAngles?: boolean;
   /** Say the part's split rounds in an info diagnostic (ROUNDS_HEAD); the same mesh; default false. */
   countRounds?: boolean;
+  /** List every face's poles in an info diagnostic (POLES_HEAD); the same mesh; default false. */
+  listPoles?: boolean;
   /**
    * Fail a face whose refinement reached its point cap (part.h's PartOptions::failCapped), and one with a triangle
    * turned against its surface (failTurnedOver); default true each. False keeps them as meshed, for measuring.
@@ -185,6 +194,7 @@ export class CadioTessellator implements Tessellator {
   private countInsertions = false;
   private countAngles = false;
   private countRounds = false;
+  private listPoles = false;
   private failCapped = true;
   private failTurnedOver = true;
   private maxPoints = 0;
@@ -202,6 +212,7 @@ export class CadioTessellator implements Tessellator {
     this.countInsertions = opts.countInsertions ?? false;
     this.countAngles = opts.countAngles ?? false;
     this.countRounds = opts.countRounds ?? false;
+    this.listPoles = opts.listPoles ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.maxPoints = opts.maxPointsPerFace ?? 0;
@@ -259,6 +270,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_deviation_factor(this.deviationFactor);
     m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
     m._tc_set_count_angles(this.countAngles ? 1 : 0);
+    m._tc_set_list_poles(this.listPoles ? 1 : 0);
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_max_points(this.maxPoints);
@@ -290,6 +302,8 @@ export class CadioTessellator implements Tessellator {
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < fd.length; i += 3) faces.push({ entityId: id(fd[i]!), start: fd[i + 1]!, count: fd[i + 2]! });
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
+    // With measures, the area oracle's areas (cad-scene's oracleMeasures; this backend measures none of its own).
+    if (req.measures) result.oracle = oracleMeasures(req.data);
     if (req.edges) {
       const ne = m._tc_num_edges();
       const ed = u32(m._tc_edges(), ne * 4), angles = f32(m._tc_edge_angles(), ne);
@@ -350,6 +364,9 @@ export class CadioTessellator implements Tessellator {
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     if (this.countRounds && typeof diag.rounds === 'number') {
       diagnostics.push({ severity: 'info', message: `${ROUNDS_HEAD}${diag.rounds}` });
+    }
+    if (this.listPoles && Array.isArray(diag.poles)) {
+      diagnostics.push({ severity: 'info', message: `${POLES_HEAD}${JSON.stringify(diag.poles)}` });
     }
     // (Faces whose refinement asked for a pole ring's segment to be split, which a ring's never is: their triangles
     // there refused for good. With the rounds it asked in.)

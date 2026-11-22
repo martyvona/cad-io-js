@@ -655,7 +655,8 @@ struct PartMesher::Impl {
 
   /**
    * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
-   * normals) fail as one past its deflection does (PartOptions::failTurnedOver): wrong output however small. Such a
+   * normals, as shipped where the output's origin is known: PartOptions::outputOrigin) fail as one past its deflection
+   * does (PartOptions::failTurnedOver): wrong output however small. Such a
    * triangle is one its criteria refused that refinement didn't mend (they refuse a facet turned against any corner's
    * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
    * (the normal there a limit, on a strongly curved patch).
@@ -800,6 +801,14 @@ struct PartMesher::Impl {
 
   void checkFacing() {
     if (!o.failTurnedOver) return;
+    // (As shipped, where the output's origin is known: float32 positions minus it, float32 normals.)
+    const double* O = o.outputOrigin;
+    const bool shipped = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    auto asFloat = [](Vec3 p) {
+      return Vec3{static_cast<double>(static_cast<float>(p.x)), static_cast<double>(static_cast<float>(p.y)),
+        static_cast<double>(static_cast<float>(p.z))};
+    };
+    auto asShipped = [&](Vec3 p) { return asFloat(Vec3{p.x - O[0], p.y - O[1], p.z - O[2]}); };
     const cadgeom::Tolerances tols(m);
     for (size_t f = 0; f < faces.size(); f++) {
       FaceMesh& fm = faces[f];
@@ -816,6 +825,12 @@ struct PartMesher::Impl {
       for (size_t t = 0; t + 2 < fm.triangles.size() && t / 3 < mesherTriangles[f]; t += 3) {
         const int32_t* v = &fm.triangles[t];
         if (atSingular(fm.points[v[0]]) || atSingular(fm.points[v[1]]) || atSingular(fm.points[v[2]])) continue;
+        if (shipped) {
+          Vec3 q[3], n{0, 0, 0};
+          for (int k = 0; k < 3; k++) q[k] = asShipped(fm.points[v[k]]), n = n + asFloat(fm.normals[v[k]]);
+          against += facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
+          continue;
+        }
         const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
         against += facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
       }
@@ -1261,6 +1276,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         continue;
       }
       I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
+      if (I.criteria[f]) I.criteria[f]->setOutputOrigin(I.o.outputOrigin);
       if (!I.criteria[f]) I.criteriaWhy[f] = "no criteria for it (its (u, v) box not finite)";
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
     }

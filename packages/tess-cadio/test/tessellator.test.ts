@@ -8,7 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, progressReporter, ROUNDS_HEAD, VERSION }
+import { CadioTessellator, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD, VERSION }
   from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses } from '../src/causes.ts';
 import { ANALYSES, MODELS as TESS_MODELS, affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap,
@@ -56,6 +56,16 @@ test('info: the workspace version and the module\'s hash, AGPL-3.0-only, cad-bre
   assert.equal(t.info.license, pkg.license);
   assert.deepEqual(t.info.formats, ['cad-brep']);
   await assert.rejects(t.tessellate({ ...req('cube'), format: 'step' }), /isn't taken/);
+});
+
+test('measures: the area oracle\'s areas (this thread\'s oracleMeasures), none of its own; none unasked', { skip },
+  async () => {
+  const t = await tessellator();
+  const r = await t.tessellate({ ...req('cube'), measures: true });
+  assert.deepEqual(r.oracle, oracleMeasures(new Uint8Array(req('cube').data)));
+  assert.equal(r.oracle!.length, 6);
+  assert.equal(r.measures, undefined);
+  assert.equal((await t.tessellate(req('cube'))).oracle, undefined);
 });
 
 test('closed models: every face meshed to its area, no open edge, every edge shared at its dihedral', { skip },
@@ -267,6 +277,34 @@ test('init({countRounds}): the part\'s split rounds said (none on a cube\'s plan
   const fine = await rounds(true, 'spheres', 0.001);
   assert.ok(fine! >= 1 && fine! <= 24, String(fine));
   assert.equal(await rounds(false, 'spheres', 0.001), undefined);
+});
+
+test('init({listPoles}): every face\'s poles as its closed surface has them, 5 numbers each, in the part\'s '
+  + 'coordinates (the spheres\' surfaces\' poles, those their faces reach at a mesh vertex; none on a cube); nothing '
+  + 'without it', { skip }, async () => {
+  const poles = async (listPoles: boolean, name: keyof typeof MODELS) => {
+    const t = new CadioTessellator();
+    await t.init({ listPoles });
+    const r = await t.tessellate(req(name));
+    const said = r.diagnostics.filter((x) => x.message.startsWith(POLES_HEAD));
+    return { r, said: said.length ? JSON.parse(said[0]!.message.slice(POLES_HEAD.length)) as number[] : undefined,
+      count: said.length };
+  };
+  assert.deepEqual((await poles(true, 'cube')).said, []);
+  const { r, said, count } = await poles(true, 'spheres');
+  assert.equal(count, 1);
+  assert.ok(said!.length >= 5 && said!.length % 5 === 0, String(said!.length));
+  // (A surface's poles, whether its face reaches them or not: those it does at a vertex of the mesh.)
+  let atVertex = 0;
+  for (let k = 0; k < said!.length; k += 5) {
+    const p = said!.slice(k + 2, k + 5);
+    let nearest = Infinity;
+    for (let i = 0; i < r.positions.length / 3; i++)
+      nearest = Math.min(nearest, Math.hypot(...[0, 1, 2].map((c) => r.positions[3 * i + c]! + r.origin[c]! - p[c]!)));
+    atVertex += nearest < 1e-4 ? 1 : 0;
+  }
+  assert.ok(atVertex >= 1, String(atVertex));
+  assert.equal((await poles(false, 'spheres')).said, undefined);
 });
 
 test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by default, more triangles at 0.5 rad',

@@ -399,8 +399,12 @@ export class SceneGraph implements Looks {
 const faceHidden = (look: PlacementLook | undefined, source: number) => (look?.faces?.get(source) ?? look)?.hidden
   ?? false;
 
-/** What Details says of a face: how it failed (faceFailures), and its measured and meshed areas in mm^2. */
-export interface FaceReport { failure?: FaceFailure; area?: number; meshArea: number }
+/**
+ * What Details says of a face: how it failed (faceFailures), its measured and meshed areas in mm^2, and the area
+ * oracle's area with its error estimate where it measured the face (FaceMeasures.oracle).
+ */
+export interface FaceReport { failure?: FaceFailure; area?: number; meshArea: number;
+  oracle?: { area: number; error: number } }
 
 /** Each face's report, by source id (faces with a source only). */
 function reportOf(mesh: Mesh, failures: ReadonlyMap<number, FaceFailure>,
@@ -420,6 +424,7 @@ function reportOf(mesh: Mesh, failures: ReadonlyMap<number, FaceFailure>,
   for (const [s, r] of Object.entries(out)) {
     const m = measures?.faces.get(Number(s)), failure = failures.get(Number(s));
     if (m) r.area = m.area;
+    if (m?.oracle) r.oracle = m.oracle;
     if (failure) r.failure = failure;
   }
   return out;

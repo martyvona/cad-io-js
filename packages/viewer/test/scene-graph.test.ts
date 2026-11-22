@@ -259,6 +259,17 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   assert.ok(details(model, [face(7)]).includes('Its mesh is larger than the face (its mesh 325.8 mm^2, the face ' +
     '193.5 mm^2): outlined in red'), details(model, [face(7)]).join('\n'));
   assert.ok(details(model, [face(7)]).includes('Area on the exact geometry: 193.5 mm^2'));
+  // With the area oracle's measure of the face: its area and error estimate instead.
+  const withOracle = measured([[8, 1, true], [7, 0.3, true]]);
+  withOracle.parts[0]!.measures!.faces.get(7)!.oracle = { area: 193.6, error: 0.0042 };
+  const gOracle = new SceneGraph(withOracle, 'model');
+  gOracle.addMesh(0, mesh(), 0.001);
+  const mOracle = new NodeModel(gOracle.root, gOracle);
+  mOracle.setDetail(true);
+  const pOracle = mOracle.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const fOracle7 = mOracle.children(pOracle).find((c) => mOracle.nodes[c]!.face?.source === 7)!;
+  assert.ok(details(mOracle, [fOracle7]).includes('Area on the exact geometry: 193.6 mm^2 +/- 0.0042 mm^2'),
+    details(mOracle, [fOracle7]).join('\n'));
   // A failed face's cause where its backend said one (problems.ts's faceCausesOf), and only its own.
   const causes = new Map([[8, 'noConvergence: meshed past its deflection']]);
   assert.ok(details(model, [face(8)], causes).includes('Cause: noConvergence: meshed past its deflection'));
