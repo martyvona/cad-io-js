@@ -911,6 +911,31 @@ TEST_CASE("a split in an edge's end span kept past the near-end drop (min(tol, d
   CHECK(!em.endSpanFrozen(e, spans - 2));
 }
 
+TEST_CASE("a span with no width in parameter never split, however long (an end vertex off its curve's end)") {
+  cadgeom::Model m = load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  o.maxSpacing = 0.25;
+  EdgeMesh em(m, o);
+  const int e = 0;
+  // (A sample 1e-15 of the range past the edge's second, its point 0.2 off it: a span of no width, 0.2 long.)
+  EdgeSamples s = em.edge(e);
+  REQUIRE(s.t.size() >= 4u);
+  const double w = 1e-15 * (s.t.back() - s.t.front());
+  s.t.insert(s.t.begin() + 2, s.t[1] + w);
+  s.points.insert(s.points.begin() + 2, s.points[1] + Vec3{0, 0, 0.2});
+  em.restore(e, s);
+  const size_t n = em.edge(e).t.size();
+  CHECK(em.split({{e, 1, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n);
+  CHECK(em.split({{e, 1, 0.5, true}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n);
+  // The span after it, as wide as any: split.
+  CHECK(em.split({{e, 2, 0.5}}) == cadgeom::Status::ok);
+  CHECK_EQ(em.edge(e).t.size(), n + 1);
+}
+
 TEST_CASE("rings cut into edges: the approach and the crossing samples, nothing between, never refilled") {
   // The cube's edge 0 (shared by two faces), sampled at 0.25: a ring from its start vertex to 0.4 of the way along.
   cadgeom::Model m = load("cube");

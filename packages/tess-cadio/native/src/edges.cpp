@@ -40,6 +40,8 @@ constexpr size_t kMaxSamples = 1000000;
 /** A split's point in an edge's end span kept this much past dropNearEnds' reach of the end, so rounding doesn't
  * drop it. */
 constexpr double kNearEndMargin = 1.01;
+/** A span narrower in parameter than this fraction of its edge's range is never split (EdgeMesh::split). */
+constexpr double kNarrowSpan = 1e-9;
 /** Pole lines: at least this many points per period. */
 constexpr int kMinPolePoints = 16;
 
@@ -2439,6 +2441,11 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     // changes, and below the part's tolerance the model can't say where its curve is. The mesher is told such spans
     // are frozen, PartMesher's Domain2::frozen.)
     const std::vector<Vec3>& pts = I.edges[r.edge].s.points;
+    // (A span with no width in parameter has no point to add between its samples, however far apart they are: an
+    // edge's end sample is its vertex, which may lie off the curve's end. A point there, at the curve's end, is
+    // dropped again as a reversal, the edge flipping between two states every round: LMP1 #172427's edge 14, a span
+    // 1.8e-15 wide and 0.22 mm long.)
+    if (!(std::fabs(t[r.span + 1] - t[r.span]) > kNarrowSpan * std::fabs(t.back() - t.front()))) continue;
     if (r.exact) {
       if (!(r.fraction > 1e-9 && r.fraction < 1 - 1e-9)) continue;  // (at a sample: that sample)
       exact[r.edge].push_back(t[r.span] + r.fraction * (t[r.span + 1] - t[r.span]));

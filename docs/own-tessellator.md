@@ -329,6 +329,7 @@ Not beyond repair, for contrast: `bug24383_224013.stp` #11's 30 faces are far of
 ### Faces ours fails
 
 - Triangles turned against the surface on faces otherwise within max(d, tol): 125 faces at medium (t4-criteria 95d6052, the failures off), being fixed. The worst, `bug30014.stp` part #61091 face #125217: a strip 5e-4 wide in u against 1 in v, slivers edge-on to the surface, 98.7% of its area past the angle, 654 triangles against OCCT's 25 and SMLib's 15. `LMP1.step` face #1042701: 275 turned triangles near a pole, of 125,340.
+- `trj4_k1_top-pe-214.stp` part #4779, extrusions #1529 and #1759: 3 triangles turned each, against an edge's end span along v = 0 long in the metric (49 and 107 units, u from 1.0 to 2 pi and 3 pi) and short in 3D (just past the refinement floor), which tess-cadio freezes as too short for a point past the edge's near-end drop (EdgeMesh::endSpanFrozen): the mesher inserts past it and turns triangles there. Before that freeze they meshed, the span asked split every round and the split dropped.
 - `trj3_s1-al-214.stp` part #6704: 13 faces, pole and boundary faults, after its six creased faces were fixed.
 - `bug24383_224013.stp` part #11: 63 faces as imported. 30 of them have uses "far off" their surfaces as written: each curve's first pole is about 3e7 mm out, inside a first knot span 2e-6 long, which healing's stray-pole fix moves; 33 cross their boundary within a hair of a vertex whose two edges' (u, v) ends disagree.
 - `as1_motor.step` parts #3728 (14 faces) and #6322 (19).
