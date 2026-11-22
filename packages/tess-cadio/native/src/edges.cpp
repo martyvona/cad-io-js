@@ -1255,7 +1255,9 @@ struct EdgeMesh::Impl {
       // edge's tolerance (the curve that far off its surface), else by inversion.
       const Range r{std::min(t0, t1), std::max(t0, t1)};
       const double edgeTol = tols.edge(e), tight = std::min(edgeTol, kMeshTolerance * o.deflection);
-      Pcurve p = projectCurve(*E.curve, r, *faces[C.face].s, tight, &ends, &source);
+      // (Where the edge's tolerance follows, the tight attempt wants a p-curve within it or none: withinTolOnly stops
+      // it where the curve is plainly farther, before the fit, a failed attempt's cost.)
+      Pcurve p = projectCurve(*E.curve, r, *faces[C.face].s, tight, &ends, &source, tight < edgeTol);
       bool ok = p.status == Status::ok && !p.pieces.empty();
       double madeAt = tight;
       if (!ok && tight < edgeTol) {
