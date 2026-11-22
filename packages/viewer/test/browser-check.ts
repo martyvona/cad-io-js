@@ -3493,6 +3493,59 @@ await check('triangle edges', async () => {
   expect(a.none === 0 && a.selectedPart && a.selectedFace && a.cleared, `the selection's: ${j}`);
   return undefined;
 });
+// Triangle edges on a selected face, on screen: its highlight (an overlay over its triangles) doesn't hide them, with
+// Triangle edges on Selected or All. The face's pixels: those its highlight changes; its edges: those of them that
+// turning the edges on changes (as1's plate face: about 13% Selected and 18% All; hidden, under 1.2%).
+await check('triangle edges on a selected face', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes;
+    const pixels = async () => {
+      await cadViewer.idle();
+      const img = new Image();
+      img.src = cadViewer.screenshot();
+      await img.decode();
+      const c = document.createElement('canvas');
+      [c.width, c.height] = [img.width, img.height];
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      return g.getImageData(0, 0, c.width, c.height).data;
+    };
+    const differ = (a, b, i) => Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) >
+      30;
+    // (Faces have nodes only with the tree's detail.)
+    ui.setTree({ detail: true });
+    ui.setPickLevel('detail');
+    let path;
+    for (const [x, y] of [[0.5, 0.5], [0.4, 0.5], [0.6, 0.5], [0.5, 0.4], [0.5, 0.6]]) {
+      path = cadViewer.pickAt(x, y)?.path;
+      if (path) break;
+    }
+    const face = path === undefined ? undefined : m.find(path);
+    if (face === undefined || m.nodes[face].kind !== 'face') return { face: path ?? null };
+    cadViewer.apply({ render: { triangleEdges: 'off' } });
+    ui.select([]);
+    const plain = await pixels();
+    ui.select([face]);
+    const lit = await pixels();
+    const mask = [];
+    for (let i = 0; i < lit.length; i += 4) if (differ(plain, lit, i)) mask.push(i);
+    const edges = async (mode) => {
+      cadViewer.apply({ render: { triangleEdges: mode } });
+      const p = await pixels();
+      return mask.filter((i) => differ(lit, p, i)).length;
+    };
+    const selected = await edges('selected'), all = await edges('all');
+    cadViewer.apply({ render: { triangleEdges: 'off' } });
+    ui.select([]);
+    return { face: path, mask: mask.length, selected, all };
+  })()`) as { after: { face: string | null; mask?: number; selected?: number; all?: number } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.mask !== undefined && a.mask > 100, `a face picked and highlighted: ${j}`);
+  expect(a.selected! > a.mask! * 0.05 && a.all! > a.mask! * 0.05, `its edges drawn over its highlight: ${j}`);
+  return undefined;
+});
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);
