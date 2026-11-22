@@ -152,12 +152,7 @@ tests=$(find native/test -name '*_test.cpp' | sort)
 "$NODE" native/test/fixtures.ts build/test/fixtures/brep_models.h
 FIX=(-Ibuild/test/fixtures)
 [ -n "$tests" ] || { echo "no tests in native/test" >&2; exit 1; }
-fail=0
-run() { # <name> <command...>: runs one test binary, its output as it comes
-  local name=$1; shift
-  echo "== $name"
-  "$@" || { echo "== $name: exit $?" >&2; fail=1; }
-}
+. native/test/run.sh
 
 # Natively, the library's sources compiled again with the sanitizers; -fno-sanitize-recover makes UB exit nonzero.
 SAN=(-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all)
