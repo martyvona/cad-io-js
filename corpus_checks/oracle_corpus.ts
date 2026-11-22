@@ -16,7 +16,11 @@
 //     measures may take the curves); past 1e-4, OCCT's mesh of the face says which side it's on (nearer ours, or nearer
 //     a measure: a disagreement) where the difference is past the mesh's resolution (its perimeter times the
 //     deflection), else unrefereed.
-// The oracle's coverage by surface kind: trusted, flagged (by flag), unsupported (by why). Planted bugs, in about one
+// The oracle's coverage by surface kind: trusted, flagged (by flag), unsupported (by why). Its trust rule (trusted():
+// no flags but projectedBoundary, the area's error, its boundary's included, within 1e-6) against the rule before it
+// (no flags, the quadrature's error alone): the faces newly trusted and newly refused, by surface kind, each with the
+// nearer of OCCT's and SMLib's measures (SMLib's on parts with free-form or swept faces) binned; and the faces each
+// rule judges (trusts) at 1e-6, 1e-4 and 1e-3. Planted bugs, in about one
 // part in 10 (corpus.ts's plantedPart): PLANT=area scales the oracle's area by 1 + 1e-6 (each planted face both trust
 // must disagree with today's oracle, where the allowance is at most half that), PLANT=perimeter its perimeter by
 // 1 + 1e-5 (against today's oracle's perimeter, within 1e-6, where both trust a face and its vertices are on its
@@ -50,6 +54,10 @@ const EXAMPLES = 6;
 const PERIM = 1e-6, AREA_PLANT = 1e-6, PERIM_PLANT = 1e-5, FREE_PLANT = 1e-5;
 /** The free-form method's surface kinds. */
 const FREE_KINDS = new Set<number>([SURFACE_KIND.bspline, SURFACE_KIND.offset, SURFACE_KIND.rectangularTrimmed]);
+/** The thresholds the faces judged are counted at, each rule. */
+const JUDGED = [1e-6, 1e-4, 1e-3];
+/** The kinds whose loops come from the face API (the boundary's bound applies): free-form and swept. */
+const LOOP_KINDS = new Set<number>([...FREE_KINDS, SURFACE_KIND.extrusion, SURFACE_KIND.revolution]);
 const useSmlib = process.env.SMLIB !== '0';
 const bins = [1e-12, 1e-9, 1e-6, 1e-4, 1e-2, 0.1, Infinity];
 const plant = process.env.PLANT;
@@ -60,6 +68,8 @@ type Tally = Record<string, { n: number; ex: string[] }>;
 const fresh = () => ({
   files: 0, skipped: 0, parts: 0, faces: 0, failed: [] as string[],
   coverage: {} as Tally, vsToday: {} as Tally, vsOcct: {} as Tally, refereed: {} as Tally, free: {} as Tally,
+  trustChange: {} as Tally, judged: Object.fromEntries(JUDGED.flatMap((t) => [[`now ${t}`, 0], [`before ${t}`, 0]])) as
+    Record<string, number>,
   freeHist: bins.map(() => 0), freeSlowest: 0, freeSlowestAt: '', freeMs: 0, smlibFailed: 0,
   areaHist: bins.map(() => 0), perimHist: bins.map(() => 0), worstToday: 0, worstTodayAt: '',
   planted: 0, plantedCaught: 0, plantedMissed: [] as string[], msOracle: 0, msToday: 0,
@@ -221,14 +231,15 @@ export const check: FileCheck<undefined, Result> = {
       // SMLib's exact areas, where the part has free-form faces.
       let smArea: Map<number, number> | undefined;
       let hasFree = false;
-      for (let f = 0; f < rowCount(d, 'face'); f++) hasFree ||= FREE_KINDS.has(d.surface.kind[d.face.surface[f]!]!);
+      for (let f = 0; f < rowCount(d, 'face'); f++) hasFree ||= LOOP_KINDS.has(d.surface.kind[d.face.surface[f]!]!);
       if (smlib && hasFree) {
         const r = await smlib.tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer), origin: part.origin,
           linearDeflection: LINEAR_MM, angularDeflection: ANGULAR, measures: true }).catch((e: Error) => e);
         if (r instanceof Error) R.smlibFailed++;
         else smArea = new Map((r.measures ?? []).filter((x) => x.valid !== false).map((x) => [x.entityId, x.area]));
       }
-      using o = new Oracle(module, d.buffer);
+      // (A healed model with its analysis: its p-curves' deviations, healing's, which the oracle's bound takes.)
+      using o = new Oracle(module, d.buffer, part.brep?.analysis ? { analysis: part.brep.analysis } : {});
       const seen = new Map<number, number>();
       for (let f = 0; f < rowCount(d, 'face'); f++) seen.set(d.face.id[f]!, (seen.get(d.face.id[f]!) ?? 0) + 1);
       for (let f = 0; f < rowCount(d, 'face'); f++) {
@@ -249,6 +260,25 @@ export const check: FileCheck<undefined, Result> = {
         if (planted && plant === 'area') m.area.value *= 1 + AREA_PLANT;
         if (planted && plant === 'perimeter') m.perimeter.value *= 1 + PERIM_PLANT;
         const ok = trusted(m, TRUST);
+        // The rule before the boundary's bound: no flags at all, the quadrature's error alone.
+        const quad = Number.isFinite(m.boundary) ? m.area.error - m.boundary : m.area.error;
+        const beforeAt = (rel: number) => m.area.status === 'ok' && m.flags.length === 0 && quad <= rel * m.area.value;
+        const before = beforeAt(TRUST);
+        for (const t of JUDGED) {
+          if (trusted(m, t)) R.judged[`now ${t}`]!++;
+          if (beforeAt(t)) R.judged[`before ${t}`]!++;
+        }
+        if (ok !== before && seen.get(id)! === 1) {
+          const sm = smArea?.has(id) ? { area: smArea.get(id)!, valid: true } : undefined;
+          const refs = [occt?.get(id), sm].filter((x): x is { area: number; valid: boolean } => !!x && x.valid
+            && Number.isFinite(x.area));
+          const near = refs.length ? Math.min(...refs.map((x) => Math.abs(x.area - m.area.value) / Math.abs(x.area)))
+            : NaN;
+          const b = !Number.isFinite(near) ? 'no measure' : near <= 1e-9 ? 'within 1e-9' : near <= 1e-6 ? 'within 1e-6'
+            : near <= 1e-4 ? 'within 1e-4' : near <= 1e-2 ? 'within 1e-2' : 'past 1e-2';
+          add(R.trustChange, `${ok ? 'newly trusted' : 'newly refused'}: ${kind.padEnd(11)} the nearer measure ${b}`,
+            `${at}: ${m.area.value} vs ${refs.map((x) => x.area).join(', ')}, boundary ${m.boundary.toPrecision(3)}`);
+        }
         add(R.coverage, `${kind.padEnd(11)} ${m.area.status !== 'ok' ? `${m.area.status}: ${m.why}`
           : ok ? 'trusted' : m.flags.length ? `flagged ${m.flags.join(', ')}` : 'error estimate past 1e-9'}`, at);
         // Today's oracle, where it covers the face.
@@ -330,7 +360,8 @@ function merge(all: Result, r: Result) {
     'smlibFailed'] as const) {
     all[k] += r[k];
   }
-  for (const k of ['coverage', 'vsToday', 'vsOcct', 'refereed', 'free'] as const) {
+  for (const [k, n] of Object.entries(r.judged)) all.judged[k] = (all.judged[k] ?? 0) + n;
+  for (const k of ['coverage', 'vsToday', 'vsOcct', 'refereed', 'free', 'trustChange'] as const) {
     for (const [key, e] of Object.entries(r[k])) {
       const a = all[k][key] ??= { n: 0, ex: [] };
       a.n += e.n;
@@ -357,7 +388,7 @@ if (import.meta.main) {
     console.log(`\n${title}`);
     for (const [k, e] of Object.entries(t).sort((a, b) => b[1].n - a[1].n || (a[0] < b[0] ? -1 : 1))) {
       console.log(`${String(e.n).padStart(8)}  ${k}`);
-      if (examples && (/DISAGREE|past/.test(k) || !/trusted$|agree$|within/.test(k))) {
+      if (examples && (/DISAGREE|past|within 1e-2/.test(k) || !/trusted$|agree$|within/.test(k))) {
         for (const x of e.ex) console.log(`            ${x}`);
       }
     }
@@ -375,6 +406,10 @@ if (import.meta.main) {
   console.log(`  relative difference of the area: ${hist(all.areaHist)}`);
   console.log(`  of the perimeter, planes only: ${hist(all.perimHist)}`);
   show(`OCCT's measure more than ${OFF * 100} % off ours, by its own mesh:`, all.refereed);
+  show('The trust rule with the boundary\'s bound against the rule before it (no flags, the error alone): faces newly '
+    + 'trusted or refused, by the nearer of OCCT\'s and SMLib\'s measures:', all.trustChange);
+  console.log(`\nFaces judged (trusted) at each threshold, of ${all.faces}: ${JUDGED.map((t) => `${t}: ${
+    all.judged[`now ${t}`]} (before the bound ${all.judged[`before ${t}`]})`).join('; ')}`);
   show(`Free-form faces against OCCT's and SMLib's measures${useSmlib ? '' : ' (SMLIB=0: OCCT\'s only)'}, past 1e-4 by `
     + `OCCT's mesh:`, all.free);
   console.log(`  trusted, the nearer measure's relative difference: ${hist(all.freeHist)}`);
