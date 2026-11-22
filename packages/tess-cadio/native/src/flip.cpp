@@ -2,6 +2,7 @@
 #include "flip.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace tesscadio {
@@ -65,6 +66,47 @@ int flipTurned(const std::vector<cadgeom::Vec2>& uv, std::vector<int32_t>& T, st
     }
   }
   return flips;
+}
+
+std::vector<size_t> sectorKeep(double ta, const std::vector<double>& th, double tb, double minTurn) {
+  auto wrap = [](double t) {
+    while (t > M_PI) t -= 2 * M_PI;
+    while (t <= -M_PI) t += 2 * M_PI;
+    return t;
+  };
+  std::vector<size_t> all(th.size());
+  for (size_t j = 0; j < th.size(); j++) all[j] = j;
+  if (th.empty()) return all;
+  double total = wrap(th.front() - ta) + wrap(tb - th.back());
+  for (size_t j = 0; j + 1 < th.size(); j++) total += wrap(th[j + 1] - th[j]);
+  if (total == 0) return all;
+  const double sigma = total > 0 ? 1 : -1;
+  std::vector<size_t> kept;
+  double turn = 0, last = 0;
+  for (size_t j = 0; j < th.size(); j++) {
+    turn += wrap(th[j] - (j ? th[j - 1] : ta));
+    if (sigma * (turn - last) > minTurn && sigma * (total - turn) > minTurn) kept.push_back(j), last = turn;
+  }
+  return kept;
+}
+
+int foldedEdges(const std::vector<int32_t>& T, const std::vector<int32_t>& weld, const std::vector<char>& near) {
+  std::map<std::pair<int32_t, int32_t>, int> uses;
+  std::set<std::pair<int32_t, int32_t>> tried;
+  for (size_t t = 0; t + 2 < T.size(); t += 3)
+    for (int k = 0; k < 3; k++) {
+      const int32_t a = T[t + k], b = T[t + (k + 1) % 3];
+      if (weld[a] == weld[b]) continue;
+      uses[{weld[a], weld[b]}]++;
+      if (near[a] || near[b]) tried.insert({std::min(weld[a], weld[b]), std::max(weld[a], weld[b])});
+    }
+  int folded = 0;
+  for (auto [a, b] : tried) {
+    auto ab = uses.find({a, b}), ba = uses.find({b, a});
+    const int n1 = ab == uses.end() ? 0 : ab->second, n2 = ba == uses.end() ? 0 : ba->second;
+    folded += n1 >= 2 || n2 >= 2;
+  }
+  return folded;
 }
 
 bool collapseVertex(const UvOf& uv, std::vector<int32_t>& T, int32_t C, int32_t E,

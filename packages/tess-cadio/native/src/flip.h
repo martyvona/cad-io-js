@@ -31,6 +31,22 @@ int flipTurned(const std::vector<cadgeom::Vec2>& uv, std::vector<int32_t>& trian
   const std::set<std::pair<int32_t, int32_t>>& fixed, const TrianglePredicate& turned,
   const TrianglePredicate& accepted, const TrianglePredicate& barred);
 
+/**
+ * The edges of `triangles` (corners indices into `weld`, each point's welded index) with a corner where `near` holds
+ * used twice the same way (as is any used more than twice): a fold (part.h's PartOptions::failFoldedFans). Edges
+ * whose two ends weld to one point aren't edges.
+ */
+int foldedEdges(const std::vector<int32_t>& triangles, const std::vector<int32_t>& weld,
+  const std::vector<char>& near);
+
+/**
+ * The indices of a fan chain's inside points kept (part.cpp's makeFans): the chain from angle ta through th to tb
+ * (radians about the pole, in order), measured by the turn along it (each step's wrapped into (-pi, pi], so a sector
+ * past half a turn is whole), its direction that of the whole turn; a point kept where it turns past the last kept by
+ * more than minTurn that way and is short of tb by more than minTurn. All where the whole turn is 0.
+ */
+std::vector<size_t> sectorKeep(double ta, const std::vector<double>& th, double tb, double minTurn);
+
 /** A point's (u, v): false where it has none (a fan's pole). */
 using UvOf = std::function<bool(int32_t, cadgeom::Vec2&)>;
 

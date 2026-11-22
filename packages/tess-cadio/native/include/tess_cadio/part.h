@@ -71,6 +71,13 @@ struct PartOptions {
    * and a cause saying so, as one past its deflection does: wrong output however rare.
    */
   bool failTurnedOver = true;
+  /**
+   * Fail a face whose pole's fan folds over itself (Status::noConvergence, "a pole's fan folds over itself: N edges
+   * used twice the same way"): its output welded at shipped positions, an edge with a corner within the face's
+   * tolerance of a pole or apex used twice the same way (as is any used more than twice). failTurnedOver exempts
+   * triangles there.
+   */
+  bool failFoldedFans = true;
   /** The model's analysis buffer, if given (EdgeOptions::analysis: healed p-curves, tolerances past repair). */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
@@ -196,7 +203,10 @@ struct FaceMesh {
    */
   int thin = 0, thinByAngle[kThinBins] = {}, thinBoundary = 0, thinFrozen = 0, thinFloor = 0;
   double thinArea = 0;
-  /** With PartOptions::countExpected, its triangles as its own size metric expects them (0 otherwise). */
+  /**
+   * With PartOptions::countExpected, its triangles as its own size metric expects them (0 otherwise), kept where the
+   * face fails after meshing (at its point cap, turned).
+   */
   double expectedTriangles = 0;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
