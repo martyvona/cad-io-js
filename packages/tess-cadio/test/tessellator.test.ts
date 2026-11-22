@@ -568,3 +568,17 @@ test('init({countInsertions}): the points inserted by what queued them, said; th
     assert.ok(sp.get('deviation in closed form')! > 0);
     assert.equal(sp.get('deviation sampled'), 0), assert.equal(sp.get('deviation bounded'), 0);
   });
+
+test('a face bounded by holes only (sphereBelt\'s belt between two circles) said in an info diagnostic, meshed as '
+  + 'its surface less them; none on a cube', { skip }, async () => {
+  const t = new CadioTessellator();
+  await t.init();
+  const said = async (data: Uint8Array) => (await t.tessellate({ ...req('cube'), data })).diagnostics
+    .filter((x) => x.message.includes('bounded by holes only'));
+  const belt = await said(new Uint8Array(TESS_MODELS.sphereBelt().finish().buffer));
+  assert.equal(belt.length, 1);
+  assert.match(belt[0]!.message,
+    /^1 faces bounded by holes only, meshed as their surface's natural extent less them: faces \d+$/);
+  assert.equal(belt[0]!.severity, 'info');
+  assert.equal((await said(new Uint8Array(MODELS.cube().finish().buffer))).length, 0);
+});

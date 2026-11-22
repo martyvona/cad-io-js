@@ -204,6 +204,11 @@ struct FaceBoundary {
    */
   bool againstSense = false;
   /**
+   * Its edge loops, two or more, are all holes, none winding round a period: the first loop is its surface's natural
+   * extent (as a face without edge loops has), their outer loop.
+   */
+  bool holesOnly = false;
+  /**
    * Boundary folds repaired: a point whose (u, v) made a convex corner with its loop's neighbours while its 3D point
    * turns the other way about the surface's normal there (an ear on it would face against the surface: vertices off
    * their surface past its range's edge, their feet clamped), its (u, v) moved onto their (u, v) chord, at its share

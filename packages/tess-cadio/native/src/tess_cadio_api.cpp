@@ -157,7 +157,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
   };
   PartMesher pm(m, opts);
-  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense;
+  std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense,
+    holesOnly;
   std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped;
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
@@ -226,6 +227,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (fm.seamUnsettled) unsettled.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
+      if (fm.holesOnly) holesOnly.push_back(faceId[f]);
       if (fm.foldsRepaired) folded.push_back(faceId[f]), folds += static_cast<uint32_t>(fm.foldsRepaired);
     } else {
       if (fm.capped) capped.push_back(faceId[f]);
@@ -315,8 +317,9 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   result.diag = "{\"failed\":" + ids(failed) + ",\"failedRows\":" + ids(failedRows) + ",\"failedStatus\":" +
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
-    ",\"againstSense\":" + ids(againstSense) + ",\"folded\":" + ids(folded) + ",\"ringBlocked\":" +
-    ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" + ids(capped) +
+    ",\"againstSense\":" + ids(againstSense) + ",\"holesOnly\":" + ids(holesOnly) + ",\"folded\":" + ids(folded) +
+    ",\"ringBlocked\":" + ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" +
+    ids(capped) +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"thin\":" + ids(thin) +
     ",\"thinArea\":" + thinArea + "]" + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
@@ -351,8 +354,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "thin" and "thinArea" (with tc_set_count_angles, per meshed face with triangles under the minimum angle, 11 numbers
  * [face id, count, by angle under 1, 2, 5, 8, 10 degrees and the rest, every corner on the boundary, an edge frozen,
  * within the floor] and its area of them in mm^2: FaceMesh::thin and the rest),
- * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "folded" and "folds"
- * (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
+ * "againstSense" (faces with a loop against their sense, meshed: FaceBoundary::againstSense), "holesOnly" (faces whose
+ * edge loops are all holes, meshed as their surface's natural extent less them: FaceBoundary::holesOnly), "folded"
+ * and "folds" (the faces with boundary folds repaired, and how many: FaceBoundary::foldsRepaired), "projections" (the
  * uses without p-curves, by how they were sampled: EdgeMesh::projections, [withinMesh, atEdgeTolerance,
  * byInversion]), "traces" (the samples of uses traced sample by sample, [local, global]: EdgeMesh::traces) and
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
