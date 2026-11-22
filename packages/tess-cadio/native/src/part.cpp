@@ -1411,6 +1411,16 @@ struct PartMesher::Impl {
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
     out.splitsWanted = static_cast<int>(wanted[f].size() + creaseSplits[f].size());
     out.sampled = !criteria[f]->bounded();
+    if (o.countExpected) {
+      double metricArea = 0;
+      for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+        const Vec2 a = mesh.points[mesh.triangles[t]], b = mesh.points[mesh.triangles[t + 1]],
+                   c = mesh.points[mesh.triangles[t + 2]];
+        const double area = 0.5 * std::fabs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+        metricArea += area * criteria[f]->gridDensity({(a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3});
+      }
+      out.expectedTriangles = metricArea / (std::sqrt(3.0) / 4);
+    }
     // In 3D: the boundary's points exactly, the mesher's on the surface.
     const Surface& s = *surfaces[f];
     double sense = m.faceSameSense(f) ? 1 : -1;

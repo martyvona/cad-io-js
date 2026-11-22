@@ -96,6 +96,13 @@ struct PartOptions {
    */
   bool countAngles = false;
   /**
+   * Each meshed face's expected triangles from its own size metric (FaceMesh::expectedTriangles): the integral over its
+   * mesh's triangles in (u, v) of the criteria's graded grid's sqrt(det M) (SurfaceCriteria::gridDensity, at each
+   * triangle's centroid), over sqrt(3) / 4, an equilateral triangle of unit size in the metric. Off by default; the
+   * mesh is the same either way.
+   */
+  bool countExpected = false;
+  /**
    * Where the output's positions go as float32 minus this point (the C API's origin): the turned-over check
    * (failTurnedOver) judges each facet as shipped, its corners and normals so rounded; a needle's facet can turn in the
    * rounding alone. Not finite (the default): judged in double.
@@ -189,6 +196,8 @@ struct FaceMesh {
    */
   int thin = 0, thinByAngle[kThinBins] = {}, thinBoundary = 0, thinFrozen = 0, thinFloor = 0;
   double thinArea = 0;
+  /** With PartOptions::countExpected, its triangles as its own size metric expects them (0 otherwise). */
+  double expectedTriangles = 0;
   /** Splits of its edges it still wanted when the rounds ran out. */
   int splitsWanted = 0;
   /** Its triangles turned as shipped flipped with a neighbour (PartOptions::flipTurned). */

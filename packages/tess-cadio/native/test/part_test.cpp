@@ -3073,3 +3073,33 @@ TEST_CASE("flipTurned (the default): a triangle turned as shipped flipped with i
     CHECK_EQ(b.face(0).turnedFlips, 0);
   }
 }
+
+TEST_CASE("countExpected: a face's triangles as its own size metric expects them, the band's in closed form; none "
+  "without it, the mesh the same") {
+  // (The band, radius 2 and 5 high: across its axis the size sqrt(6 d / k) with k = 1 / 2, along it the face's
+  // extent, the diagonal of its box (4, 4, 5); its area 2 pi 2 x 5 in the metric's units over an equilateral
+  // triangle's sqrt(3) / 4.)
+  cadgeom::Model m = load("band");
+  REQUIRE(m.ok());
+  PartOptions on = options(0.001, 0.26), off = on;
+  on.countExpected = true;
+  PartMesher a(m, on), b(m, off);
+  const double across = std::sqrt(6 * 0.001 * 2), along = std::sqrt(16.0 + 16.0 + 25.0);
+  const double want = 2 * M_PI * 2 * 5 / (across * along) / (std::sqrt(3.0) / 4);
+  const double got = a.face(0).expectedTriangles;
+  if (!(std::fabs(got - want) <= 0.05 * want)) std::printf("  band: expected %.1f, closed form %.1f\n", got, want);
+  CHECK(std::fabs(got - want) <= 0.05 * want);
+  CHECK_EQ(b.face(0).expectedTriangles, 0.0);
+  CHECK(a.face(0).triangles == b.face(0).triangles);
+  // A parallelogram, flat: its size the face's extent everywhere, its metric in (u, v) the first fundamental form
+  // over it squared, cross term and all (its sides 60 degrees apart): its area over the extent squared, over
+  // sqrt(3) / 4. (Without the cross term, 1 / sin 60 degrees as many.)
+  cadgeom::Model s = load("skewPatch");
+  REQUIRE(s.ok());
+  PartMesher ps(s, on);
+  const double h = std::hypot(15.0, 10 * std::sin(M_PI / 3)), flat = 10 * 10 * std::sin(M_PI / 3) / (h * h);
+  const double skewWant = flat / (std::sqrt(3.0) / 4), skewGot = ps.face(0).expectedTriangles;
+  if (!(std::fabs(skewGot - skewWant) <= 0.05 * skewWant))
+    std::printf("  skewPatch: expected %.4f, closed form %.4f\n", skewGot, skewWant);
+  CHECK(std::fabs(skewGot - skewWant) <= 0.05 * skewWant);
+}
