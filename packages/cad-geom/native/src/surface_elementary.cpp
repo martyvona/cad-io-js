@@ -94,6 +94,14 @@ void ring(double v, std::vector<Vec2>& out, int n = 8) {
   for (int j = 0; j < n; j++) out.push_back({kTwoPi * j / n, v});
 }
 
+/** The s in [lo, hi] where a + b s lies in r (an empty range, lo > hi, where none does). */
+Range linearIn(double a, double b, Range r, double lo, double hi) {
+  if (b == 0) return a >= r.lo && a <= r.hi ? Range{lo, hi} : Range{1, 0};
+  double s0 = (r.lo - a) / b, s1 = (r.hi - a) / b;
+  if (s0 > s1) std::swap(s0, s1);
+  return {maxNum(lo, s0), minNum(hi, s1)};
+}
+
 class Plane final : public SurfaceImpl {
 public:
   explicit Plane(const double* r) : f_(readFrame(r)) {}
@@ -125,6 +133,39 @@ public:
     Vec3 q = p - f_.o;
     double e = d * (1 + 1e-12) + 4 * kEps * norm(q);
     ru = {dot(q, f_.x) - e, dot(q, f_.x) + e}, rv = {dot(q, f_.y) - e, dot(q, f_.y) + e};
+  }
+  bool lineClosedForm(Vec3 o, Vec3 ud, double sLo, double sHi, Range ru, Range rv, double tol,
+    LineIntersection& out) const override {
+    // The signed distance to the plane is linear along the line, a + b s; (u, v) too.
+    const Vec3 q = o - f_.o;
+    const double a = dot(q, f_.z), b = dot(ud, f_.z), r = 4 * kEps * (norm(q) + maxNum(std::fabs(sLo), std::fabs(sHi)));
+    const Range su = linearIn(dot(q, f_.x), dot(ud, f_.x), ru, sLo, sHi);
+    const Range sv = linearIn(dot(q, f_.y), dot(ud, f_.y), rv, sLo, sHi);
+    const Range in{maxNum(su.lo, sv.lo), minNum(su.hi, sv.hi)};
+    out = LineIntersection{};
+    out.status = Status::ok;
+    if (std::fabs(a + b * sLo) <= tol + r && std::fabs(a + b * sHi) <= tol + r) {
+      // Within tol all along: an overlap where it's over the rectangle.
+      if (in.lo <= in.hi) out.overlaps.push_back(in);
+      return true;
+    }
+    if (b == 0) return true;
+    // Within tol over [w.lo, w.hi], crossing at s0; that over the rectangle.
+    const double s0 = -a / b, w0 = (-tol - r - a) / b, w1 = (tol + r - a) / b;
+    const Range w{maxNum(in.lo, minNum(w0, w1)), minNum(in.hi, maxNum(w0, w1))};
+    if (!(w.lo <= w.hi)) return true;
+    const double sc = std::clamp(s0, w.lo, w.hi);
+    const Vec3 p = o + sc * ud;
+    LineHit h{sc, {dot(p - f_.o, f_.x), dot(p - f_.o, f_.y)}, p, b, false, {sc, sc}};
+    // (A crossing within tol of the segment's or the rectangle's end is that end's, as the search keeps it.)
+    if (std::fabs(b) >= kLineMargin && s0 >= in.lo - tol && s0 <= in.hi + tol) out.crossings.push_back(h);
+    else {
+      // Too oblique for tol to place the crossing along the line, or crossing outside the rectangle within tol of the
+      // surface there: a contact over the stretch within tol.
+      h.span = w;
+      out.tangencies.push_back(h);
+    }
+    return true;
   }
   bool footCandidates(Vec3 p, Range ru, Range rv, double, std::vector<Vec2>& out) const override {
     // |S - p|^2 is (u - a)^2 + (v - b)^2 plus a constant: its minimum over a rectangle the clamped (a, b).
@@ -171,6 +212,56 @@ public:
   void singularities(std::vector<Singularity>& out) const override {
     out.clear();
     if (k_ != 0) out.push_back({Singularity::apex, false, apex(), f_.o + apex() * f_.z});
+  }
+  bool lineClosedForm(Vec3 o, Vec3 ud, double sLo, double sHi, Range ru, Range rv, double tol,
+    LineIntersection& out) const override {
+    // In a meridian plane the surface is the generator rho = |r + k h| (h = v, the axial coordinate), a point's
+    // distance from it |phi| / sqrt(1 + k^2) with phi = rho - |r + k h|. Along the line rho is convex and h linear, so
+    // phi is convex on each side of the apex's height (its least value by golden section, the most at the ends):
+    // - within T = tol sqrt(1 + k^2) all along: the segment lies in the surface, an overlap;
+    // - a cylinder's (phi exactly the distance there): more than tol out all along, or more than tol in, no contact.
+    // Anything else is searched (on a cone near its apex the other nappe is nearer than phi says).
+    const Vec3 q = o - f_.o;
+    const double h0 = dot(q, f_.z), hd = dot(ud, f_.z);
+    const Vec3 c0 = q - h0 * f_.z, cd = ud - hd * f_.z;
+    auto phi = [&](double s) { return norm(c0 + s * cd) - std::fabs(r_ + k_ * (h0 + s * hd)); };
+    const double T = tol * std::sqrt(1 + k_ * k_);
+    const double r = 16 * kEps * (norm(q) + maxNum(std::fabs(sLo), std::fabs(sHi)) + std::fabs(r_));
+    std::vector<double> cuts{sLo};
+    if (k_ != 0 && hd != 0) {
+      const double sa = (apex() - h0) / hd;
+      if (sa > sLo && sa < sHi) cuts.push_back(sa);
+    }
+    cuts.push_back(sHi);
+    double least = kInf, most = -kInf;
+    for (size_t i = 0; i + 1 < cuts.size(); i++) {
+      double lo = cuts[i], hi = cuts[i + 1];
+      most = maxNum(most, maxNum(phi(lo), phi(hi)));
+      least = minNum(least, minNum(phi(lo), phi(hi)));
+      const double g = 0.6180339887498949;
+      double a = hi - g * (hi - lo), b = lo + g * (hi - lo), fa = phi(a), fb = phi(b);
+      for (int it = 0; it < 200 && hi - lo > 1e-13 * (std::fabs(lo) + std::fabs(hi) + 1); it++) {
+        if (fa < fb) hi = b, b = a, fb = fa, a = hi - g * (hi - lo), fa = phi(a);
+        else lo = a, a = b, fa = fb, b = lo + g * (hi - lo), fb = phi(b);
+      }
+      least = minNum(least, phi(0.5 * lo + 0.5 * hi));
+    }
+    out = LineIntersection{};
+    out.status = Status::ok;
+    if (k_ == 0 && (least > tol + r || most < -tol - r)) return true;
+    if (!(least >= -T - r && most <= T + r)) return false;
+    // v = h is linear along the line; u, the angle in the meridian plane (turned by pi past the apex), nearly
+    // constant: the segment kept where v is in rv, u judged at its middle.
+    Range sv = linearIn(h0, hd, rv, sLo, sHi);
+    if (sv.lo <= sv.hi) {
+      const double sm = 0.5 * sv.lo + 0.5 * sv.hi, hm = h0 + sm * hd;
+      const Vec3 cm = c0 + sm * cd;
+      double u = std::atan2(dot(cm, f_.y), dot(cm, f_.x));
+      if (r_ + k_ * hm < 0) u += kPi;
+      u = ru.lo + reduce(u - ru.lo, kTwoPi);
+      if (u <= ru.hi) out.overlaps.push_back(sv);
+    }
+    return true;
   }
   void within(Vec3 p, double d, Range& ru, Range& rv) const override {
     // The axial coordinate of S is v: |S - p| >= |v - (p - o) . z|.

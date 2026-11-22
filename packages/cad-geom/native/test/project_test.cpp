@@ -489,6 +489,32 @@ TEST_CASE("a curve 1000 tol off its surface: its line and its fit judged by a qu
   }
 }
 
+TEST_CASE("withinTolOnly: a trace whose feet pass 2 tol stops before its fit; otherwise the same result") {
+  // OffHelix 1e-5 off its cylinder, traced (its angle wiggling). At tol 1e-8 the curve is 1000 tol off: invalidModel
+  // at once, no pieces, no fit, offSurface its distance. At 1e-4 (within tol) and 6e-6 (1.67 tol off, within the
+  // margin: the feet can stand a little farther than the nearest points) the result is the full one's.
+  const double sr[10] = {0, 0, 0, 0, 0, 1, 1, 0, 0, 2};
+  OffHelix h(2e-6, 20.0);
+  {
+    std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, 2, 0), 1e-8);
+    const long before = project::traceFits;
+    Pcurve p = projectCurve(h, {0, 1}, *cyl, 1e-8, nullptr, nullptr, true);
+    CHECK(p.status == Status::invalidModel);
+    CHECK(p.pieces.empty());
+    CHECK_EQ(project::traceFits - before, 0L);
+    CHECK(p.offSurface > 0.99e-5 && p.offSurface < 1.01e-5);
+  }
+  for (double tol : {1e-4, 6e-6}) {
+    std::unique_ptr<Surface> cyl = closeInFact(surfaces::makeCone(sr, 2, 0), tol);
+    Pcurve full = projectCurve(h, {0, 1}, *cyl, tol), only = projectCurve(h, {0, 1}, *cyl, tol, nullptr, nullptr, true);
+    CHECK(only.status == full.status);
+    CHECK_EQ(only.pieces.size(), full.pieces.size());
+    CHECK(only.error == full.error);
+    CHECK(only.offSurface == full.offSurface);
+    CHECK(!full.pieces.empty());
+  }
+}
+
 namespace {
 
 // LMP1 #172428 face #1039682 coedge #227897 (the user's models): a cubic of 229 poles along the v = 1 side of a
