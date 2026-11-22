@@ -65,7 +65,13 @@ export interface Ui {
    */
   setOpacity(alpha: number | undefined): void;
   zoomSelected(): void;
-  selectParent(): void;
+  /** Selects the parents of `ids` (by default the selection). */
+  selectParent(ids?: readonly number[]): void;
+  /**
+   * Selects the children of `ids` (by default the selection): an assembly's placements, a part's faces, edges, curves
+   * and points (turning on the tree's detail).
+   */
+  selectChildren(ids?: readonly number[]): void;
   /** Selects everything a click could at the pick level: every part, assembly or face, edge and curve shown. */
   selectAll(): void;
   /**
@@ -859,7 +865,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // Hide and Show set each node's own override's visibility, as Override Appearance... would, keeping the rest of
     // it; Remove Appearance Override (when one has an override) clears them. Each on the node right-clicked, or on the
     // whole selection when that node is in it with others; Override Appearance... on the node right-clicked alone.
-    // At once, recorded node by node, the open panel following.
+    // At once, recorded node by node, the open panel following. Then Selection's actions: Select parent and Select
+  // children on the same nodes as Hide, the rest as their buttons.
     panel.onContextMenu = (id, x, y) => {
       const targets = selected.length > 1 && selected.includes(id) ? [...selected] : [id];
       const each = (o: (t: number) => AppearanceOverride) => {
@@ -877,6 +884,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         { label: 'Override Appearance...', action: () => editAppearance(id) },
         ...(overridden ? [{ label: many('Remove Appearance Override', overridden),
           action: () => each(() => ({})) }] : []),
+        { label: 'Select parent', divider: true, action: () => ui.selectParent(targets) },
+        { label: 'Select children', action: () => ui.selectChildren(targets) },
+        { label: 'Select none', action: selectNone },
+        { label: 'Select all', action: () => ui.selectAll() },
+        { label: 'Invert selection', action: () => ui.invertSelection() },
+        { label: 'Select by ID...', action: () => void selectById() },
       ]);
     };
     if (tree.detail) panel.setDetail(true);
@@ -1005,6 +1018,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       : parts.flatMap((id) => nodes.children(id).filter(shown));
     return ids;
   };
+  const selectNone = () => select([]);
+  // STEP ids typed or pasted (as the problems dialog's Copy IDs copies them).
+  const selectById = async () => {
+    const r = await showDialog({ title: 'Select by ID', body: ['STEP instance ids, separated by spaces: #123 or ' +
+      '123. Every placement of a part is selected, and faces through the tree\'s detail.'],
+    input: { label: 'IDs', placeholder: '#123 #456 789', lines: 4 },
+    buttons: [{ label: 'Select', value: 'select', primary: true }, { label: 'Cancel', value: 'cancel' }] });
+    if (r.button === 'select' && r.input) ui.selectByIds(r.input);
+  };
   const ui: Ui = {
     updates,
     panel: () => panel,
@@ -1030,10 +1052,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (!viewer.nodes || !selected.length) return viewer.zoomAll();
       viewer.zoomTo(sphereOf(piecesOf(viewer.nodes, selected)));
     },
-    selectParent: () => {
+    selectParent: (ids = selected) => {
       const nodes = viewer.nodes;
       if (!nodes) return;
-      select(selected.map((id) => nodes.nodes[id]!.parent).filter((p) => p >= 0));
+      select([...new Set(ids.map((id) => nodes.nodes[id]!.parent).filter((p) => p >= 0))]);
+    },
+    selectChildren: (ids = selected) => {
+      const nodes = viewer.nodes;
+      if (!nodes || !panel) return;
+      // A part's children are its detail, which has nodes only with the tree's detail on.
+      if (!nodes.hasDetail() && ids.some((id) => nodes.nodes[id]!.kind === 'part')) {
+        tree.detail = true;
+        panel.setDetail(true);
+        detailControl?.updateDisplay();
+      }
+      select([...new Set(ids.flatMap((id) => nodes.children(id)))]);
     },
     selectAll: () => {
       const ids = everything();
@@ -1134,18 +1167,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     .name('Pick');
   selFolder.add(selection, 'multi').name('Multi-select (touch)');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
-  selFolder.add(ui, 'selectParent').name('Select parent');
-  selFolder.add({ none: () => select([]) }, 'none').name('Select none');
+  selFolder.add({ parent: () => ui.selectParent() }, 'parent').name('Select parent');
+  selFolder.add({ children: () => ui.selectChildren() }, 'children').name('Select children');
+  selFolder.add({ none: selectNone }, 'none').name('Select none');
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(ui, 'invertSelection').name('Invert selection');
-  // STEP ids typed or pasted (as the problems dialog's Copy IDs copies them).
-  selFolder.add({ byId: async () => {
-    const r = await showDialog({ title: 'Select by ID', body: ['STEP instance ids, separated by spaces: #123 or ' +
-      '123. Every placement of a part is selected, and faces through the tree\'s detail.'],
-    input: { label: 'IDs', placeholder: '#123 #456 789', lines: 4 },
-    buttons: [{ label: 'Select', value: 'select', primary: true }, { label: 'Cancel', value: 'cancel' }] });
-    if (r.button === 'select' && r.input) ui.selectByIds(r.input);
-  } }, 'byId').name('Select by ID...');
+  selFolder.add({ byId: selectById }, 'byId').name('Select by ID...');
   view.add(selection, 'details').name('Details').onChange(describe);
   view.add(ui, 'hideSelected').name('Hide selected');
   view.add(ui, 'showSelected').name('Show selected');
