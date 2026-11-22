@@ -300,7 +300,9 @@ public:
    * every edge's spans, a pseudo-edge's too, split until none is longer in 3D (its length, not its chord) than the
    * least of its faces' spacing,
    * through split(), so the samples there are kept and the new ones' uses found as split's are (each p-curve at its
-   * parameter, a use with none continued locally). The edges are sampled once, refined only.
+   * parameter, a use with none continued locally). The edges are sampled once, refined only. Then a loop left with
+   * fewer than three points (two one-chord edges between the same vertices: a lens whose chords coincide) gets a
+   * sample at each of those edges' middles, so it bounds a polygon.
    */
   Status respace(const std::vector<double>& faceSpacing);
 
