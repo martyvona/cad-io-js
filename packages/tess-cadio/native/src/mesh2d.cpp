@@ -216,9 +216,28 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       cause = detail && options.refusalKinds ? static_cast<uint8_t>(2 + std::clamp(field.refusalKind(p), 0, 7)) : 2;
     queue.push({key, seq++, t, R.gen, cause});
   };
-  for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) consider(t);
   int steiner = 0;
   std::vector<int32_t> created;
+  {
+    // The seeds, each where it lands from the last one's triangle.
+    int32_t hint = 0;
+    for (Vec2 q : domain.seeds) {
+      if (steiner >= options.maxPoints) break;
+      if (!(std::isfinite(q.x) && std::isfinite(q.y))) continue;
+      if (hint >= static_cast<int32_t>(T.tris().size()) || T.tris()[hint].dead) hint = 0;
+      while (T.tris()[hint].dead) hint++;
+      const int32_t at = T.locate(q, hint);
+      const cdt::Tri& W = T.tris()[at];
+      if (W.v[2] == kGhost || !W.inside) continue;
+      Metric2 Mq = field.metric(q);
+      double l11 = std::sqrt(std::max(Mq.a, 1e-300)), l12 = Mq.b / l11;
+      if (T.insertPoint(q, at, created, {l11, l12, std::sqrt(std::max(Mq.c - l12 * l12, 1e-300))}) < 0) continue;
+      steiner++;
+      D.inserted[10]++;
+      if (!created.empty()) hint = created[0];
+    }
+  }
+  for (int32_t t = 0; t < static_cast<int32_t>(T.tris().size()); t++) consider(t);
   std::vector<std::pair<int32_t, int32_t>> hits;
   // Each refusal for encroachment: the segment (its sorted point pair) and the triangle refused, as it was.
   std::vector<std::tuple<uint64_t, int32_t, uint32_t>> wanted;

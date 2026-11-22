@@ -1256,7 +1256,7 @@ export const pcurveShortStart = (): BrepBuilder => pcurveShort(5e-10, true);
  * past it): the corner convex in (u, v) and concave in 3D, its point 0.0085 off its (u, v)'s, within the tolerance.
  * The other sides lines without p-curves.
  */
-function cornerFoldAt(faceTolerance: number): BrepBuilder {
+function cornerFoldAt(faceTolerance: number, sense = true): BrepBuilder {
   const b = new BrepBuilder();
   const pts = [[0, 0, 0], [1, 0, 0], [1, 0.99, 0], [0.994, 0.994, 0], [0.99, 1, 0], [0, 1, 0]];
   const uvs: Array<number[] | undefined> = [undefined, undefined, [1, 0.99], [1, 1], [0.99, 1], undefined];
@@ -1270,11 +1270,13 @@ function cornerFoldAt(faceTolerance: number): BrepBuilder {
       tolerance: 0.01 });
     // (The corner's two edges with p-curves from (u, v) to (u, v) over their own lengths.)
     const a = uvs[k], c = uvs[(k + 1) % pts.length];
+    const orientation = sense ? 'forward' as const : 'reversed' as const;
     coedges.push(k === 2 || k === 3
-      ? { edge, orientation: 'forward', pcurve: b.addCurve(line2(a!, [(c![0]! - a![0]!) / l, (c![1]! - a![1]!) / l])) }
-      : { edge, orientation: 'forward' });
+      ? { edge, orientation, pcurve: b.addCurve(line2(a!, [(c![0]! - a![0]!) / l, (c![1]! - a![1]!) / l])) }
+      : { edge, orientation });
   }
-  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+  if (!sense) coedges.reverse();
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: sense,
     tolerance: faceTolerance,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
   return b;
@@ -1282,6 +1284,8 @@ function cornerFoldAt(faceTolerance: number): BrepBuilder {
 export const cornerFold = (): BrepBuilder => cornerFoldAt(0.01);
 /** The same with the face's tolerance 0.001: the chord 0.0014 from the corner's point, past it. */
 export const cornerFoldTight = (): BrepBuilder => cornerFoldAt(0.001);
+/** cornerFoldTight with the face's sense against its plane's (its normal -z), its loop reversed. */
+export const cornerFoldTightAgainst = (): BrepBuilder => cornerFoldAt(0.001, false);
 
 /**
  * The unit square (z = 0) whose bottom edge is a cubic B-spline along it with interior knots 1e-13 from each end of
@@ -2222,7 +2226,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   fineProjection, knotAtEnd, kinkAtEnd: () => kinkAtEnd(), kinkAtEndPlain: () => kinkAtEnd(0), cornerFold,
   sphereBelt: () => sphereBelt(3, 1, true), sphereBeltInward: () => sphereBelt(3, 1, false),
   sphereBeltEven: () => sphereBelt(3, 2, true), sphereBeltEvenInward: () => sphereBelt(3, 2, false),
-  planeHoleOnly, roof: () => roof(), roofJunction: () => roof(0, 1, true),
+  planeHoleOnly, cornerFoldTightAgainst, roof: () => roof(), roofJunction: () => roof(0, 1, true),
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
