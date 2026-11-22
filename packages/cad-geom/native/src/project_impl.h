@@ -44,6 +44,8 @@ struct Job {
    * may jump: the trace's rate.
    */
   std::vector<double> uBreaks, vBreaks;
+  /** projectCurve's withinTolOnly: the trace stops, invalidModel, once its feet are farther than tol. */
+  bool withinTolOnly = false;
 };
 
 /** The piece's `curve` from its form (kind, reals, ints; kind 0 from `affine` over `basis`); false if it can't be. */
@@ -87,7 +89,7 @@ extern int wholeFirstSpans;
 
 /** projectCurve with the table's forms given directly (projectCurve reads them from its PcurveSource). */
 Pcurve projectForms(const Curve& c, Range r, const Surface& s, double tol, const PcurveEnds* ends, Form curve,
-  Form surface);
+  Form surface, bool withinTolOnly = false);
 
 /** Takes the pieces whole periods on so the start is the given one's (or in the domain), and checks the end. */
 void align(const Job& job, Pcurve& out);
