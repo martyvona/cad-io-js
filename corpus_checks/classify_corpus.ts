@@ -4,10 +4,14 @@
 // parity with a second ray required to agree (checkSecondRay: a disagreement is a fault in the line's search or the
 // faces' classification); the shell's verdict the faces' if they agree. By the exact volume's sign: the oracle's
 // degree-1 moments summed over the shell's faces (V = sum (x n_x + y n_y + z n_z) / 3), unknown where |V| is within 4
-// x its error or a face's moments failed. The two compared shell by shell (agreeing, disagreeing, one unknown, by
-// why), and each solid's shells nested (nesting): a root shell should face out, a void (depth 1) in. Not meshed, so
-// not against orientResult's mesh volumes. PLANT=rays inverts the rays' verdict on one shell of about one part in
-// 10, PLANT=volume negates its volume: each planted shell must show as a disagreement.
+// x its error, a face's moments failed or its measure is flagged. The two compared shell by shell (agreeing,
+// disagreeing, one unknown, by why), and each solid's shells nested (nesting): a root shell should face out, a void
+// (depth 1) in. Not meshed, so not against orientResult's mesh volumes. PLANT=rays inverts the rays' verdict on one
+// shell of about one part in 10, PLANT=volume negates its volume: each planted shell must show as a disagreement.
+// OCCT=1: each face's point moved off it, classified by rays, also against the solid holding the face by OCCT's solid
+// classifier (tess-occt's probe, build-probe.sh: occt_probe_classify_solid, the part built by the native builder,
+// unhealed), ours against one shell, OCCT's against the solid: a root shell's outside OCCT's out and inside its in, a
+// void's the other way round.
 // Usage: node --max-old-space-size=8192 corpus_checks/classify_corpus.ts <list> [max MB]
 import fs from 'node:fs';
 import { type BrepData, BODY_KIND, rowCount, SHELL_KIND, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
@@ -16,6 +20,30 @@ import { importStep } from '../packages/step-import/src/index.ts';
 import { corpusFiles, plantedPart, shortName } from './corpus.ts';
 import { addInto, runFiles, type FileCheck } from './runner.ts';
 import { hostLine } from '../scripts/host.ts';
+import path from 'node:path';
+
+// tess-occt's probe (build-probe.sh): the part built by the native builder, points classified against its solids.
+interface ProbeModule { HEAPU8: Uint8Array; HEAPF64: Float64Array; _malloc(n: number): number; _free(p: number): void;
+  _occt_probe_build(p: number, n: number): number; _occt_probe_free(): void;
+  _occt_probe_classify_solid(q: number, n: number, out: number): void }
+let probe: ProbeModule | undefined;
+const withOcct = process.env.OCCT === '1';
+const PROBE = path.join(import.meta.dirname, '../packages/tess-occt/dist/occt_probe.mjs');
+const loadProbe = async () => {
+  probe = await ((await import(PROBE)) as { default: () => Promise<ProbeModule> }).default();
+};
+/** OCCT's side of a point against the solid holding a face (by its id): in, out, on, unknown, or none. */
+function occtSide(faceId: number, p: [number, number, number], tol: number): string {
+  const m = probe!, q = m._malloc(40), o = m._malloc(8);
+  try {
+    m.HEAPF64.set([faceId, p[0], p[1], p[2], tol], q >> 3);
+    m._occt_probe_classify_solid(q, 1, o);
+    return ['in', 'out', 'on', 'unknown'][m.HEAPU8[o]!] ?? 'none';
+  } finally {
+    m._free(q);
+    m._free(o);
+  }
+}
 
 let maxMB = 1000, module: OracleModule;
 const plant = process.env.PLANT;
@@ -33,7 +61,7 @@ const tally = (t: Tally, key: string, ex?: string) => {
 const fresh = () => ({
   files: 0, parts: 0, solids: 0, shells: 0, faces: 0, ms: 0, planted: 0, caught: [] as string[],
   plantedAt: [] as string[], rays: {} as Tally, faceSides: {} as Tally, unknown: {} as Tally, volume: {} as Tally,
-  pair: {} as Tally, nesting: {} as Tally, slow: [] as string[],
+  pair: {} as Tally, nesting: {} as Tally, occt: {} as Tally, occtFar: {} as Tally, slow: [] as string[],
 });
 type Result = ReturnType<typeof fresh>;
 
@@ -63,6 +91,10 @@ export const check: FileCheck<undefined, Result> = {
   async setup({ args }) {
     maxMB = Number(args[1] ?? 1000);
     module = await init();
+    if (withOcct) {
+      if (!fs.existsSync(PROBE)) throw new Error(`OCCT=1 needs tess-occt's probe: ${PROBE} (build-probe.sh)`);
+      await loadProbe();
+    }
   },
   async file(file, _job, ctx) {
     const R = fresh();
@@ -78,6 +110,19 @@ export const check: FileCheck<undefined, Result> = {
       ctx.progress(where);
       const t0 = performance.now();
       using o = new Oracle(module, d.buffer, { checkSecondRay: true });
+      let built = false;
+      if (probe) {
+        const p = probe._malloc(d.buffer.byteLength);
+        probe.HEAPU8.set(new Uint8Array(d.buffer), p);
+        try {
+          built = probe._occt_probe_build(p, d.buffer.byteLength) === 0;
+          if (!built) tally(R.occt, 'the native builder failed on the part', where);
+        } catch (e) {
+          tally(R.occt, `the probe trapped building the part: ${(e as Error).message}`, where);
+          await loadProbe();
+        }
+        probe?._free(p);
+      }
       const pick = !!plant && plantedPart(where);
       let plantedShell = -1;
       for (let b = 0; b < rowCount(d, 'body'); b++) {
@@ -98,11 +143,28 @@ export const check: FileCheck<undefined, Result> = {
           const eps = 1e-3 * verticesBox(d, faces);
           const picks = [...new Set([0, faces.length >> 1, faces.length - 1])].map((i) => faces[i]!);
           const answers: string[] = [];
+          if (built && depth === 0) {
+            // A point far outside the shell (10 x its box's diagonal off a point on it in each axis) against OCCT's
+            // solid: in says OCCT takes the solid inside out, so its answers there are complemented.
+            const r = o.shellSide(s, picks[0]!, eps);
+            if (Number.isFinite(r.from[0])) {
+              const far = r.from.map((x) => x + 1e4 * eps) as [number, number, number];
+              tally(R.occtFar, `a root shell's far point, OCCT ${occtSide(d.face.id[picks[0]!]!, far, eps)}`, at);
+            }
+          }
           for (const f of picks) {
             R.faces++;
             const r = o.shellSide(s, f, eps);
             answers.push(r.side);
             tally(R.faceSides, `${r.side} (${SKIND[d.surface.kind[d.face.surface[f]!]!] ?? '?'})`);
+            if (built && r.side !== 'unknown') {
+              // OCCT against the solid: for a shell at an even depth (a root, a lump in a void) ours outside is out of
+              // the solid there; at an odd one (a void) outside is in the material.
+              const theirs = occtSide(d.face.id[f]!, r.point, 1e-3 * Math.abs(r.eps));
+              const want = (r.side === 'outside') === (depth % 2 === 0) ? 'out' : 'in';
+              tally(R.occt, `ours ${r.side} at depth ${depth}, OCCT ${theirs}: ${theirs === want ? 'agree' : 'differ'}`,
+                `${at} face #${d.face.id[f]}`);
+            }
             if (r.side === 'unknown') {
               tally(R.unknown, r.why || r.classified.why || '(no reason)', `${at} face #${d.face.id[f]}`);
             }
@@ -110,8 +172,12 @@ export const check: FileCheck<undefined, Result> = {
           const known = answers.filter((a) => a !== 'unknown');
           let rays = known.length === 0 ? 'unknown' : known.every((a) => a === known[0]) ? known[0]! : 'mixed';
           // By the volume's sign.
+          // (A face whose measure the oracle flags, beyond its projected boundary, makes the volume unknown: its loops
+          // against its sense, a sphere's or revolution's area known modulo the whole surface's, and so on.)
           let V = 0, err = 0, volumeOk = true;
+          const flagged = new Set<string>();
           for (const f of faces) {
+            for (const x of o.face(f).flags) if (x !== 'projectedBoundary') flagged.add(x);
             const m = o.faceMoments(f, { degree: 1 });
             for (const mm of m.slice(1)) {
               const j = mm.exponent.indexOf(1), e = mm.n[j]!;
@@ -126,6 +192,7 @@ export const check: FileCheck<undefined, Result> = {
             else V = -V;
           }
           const volume = !volumeOk ? 'unknown (a face\'s moments failed)'
+            : flagged.size ? `unknown (a face's measure flagged: ${[...flagged].sort().join(', ')})`
             : !(Math.abs(V) > 4 * err) ? 'unknown (|V| within 4 x its error)' : V > 0 ? 'outside' : 'inside';
           tally(R.rays, `${rays}, depth ${depth}`, at);
           tally(R.volume, `${volume}, depth ${depth}`, at);
@@ -143,6 +210,7 @@ export const check: FileCheck<undefined, Result> = {
           }
         });
       }
+      if (built) probe!._occt_probe_free();
       const ms = performance.now() - t0;
       R.ms += ms;
       if (ms > 20000) R.slow.push(`${where}: ${(ms / 1000).toFixed(1)} s`);
@@ -183,5 +251,10 @@ if (import.meta.main) {
   printTally('Shells facing as their depth wants (a root out, a void in), by the rays', all.nesting);
   printTally('Faces asked, by side and surface', all.faceSides);
   printTally('Faces unknown, by why', all.unknown);
+  if (withOcct) {
+    printTally('The faces\' points moved off them against OCCT\'s solid classifier (ours by one shell, OCCT\'s by the '
+      + 'solid)', all.occt);
+    printTally('A point far outside each root shell against OCCT\'s solid classifier', all.occtFar);
+  }
   if (all.slow.length) console.log(`\n## Parts over 20 s\n${all.slow.map((s) => `  ${s}`).join('\n')}`);
 }
