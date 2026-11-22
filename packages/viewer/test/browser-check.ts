@@ -1313,7 +1313,58 @@ await check('view context menu', async () => {
     a.detail.selected.length === 0, `at the detail level: ${j}`);
   return undefined;
 });
-// Dialogs dragged by their title:Override Appearance... moved by a mouse drag of its title, as far as the drag, a
+// The tree's arrow keys move its focus through the structure: up and down to the previous and next sibling, past
+// the first to the parent, past the last to the next sibling of the parent; right to the first child, unfolding it;
+// left to the parent; with the focus cleared, nowhere. As1's tree, by name.
+await check('tree arrow keys', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes, p = ui.panel();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 20)));
+    const focused = () => document.querySelector('#tree .tree-row.focused');
+    const at = () => { const f = focused(); return f ? m.pathOf(+f.dataset.id) : null; };
+    // A key on the focused row (the tree's keys are its container's), its default prevented or not.
+    const key = async (k) => {
+      const t = focused() ?? document.querySelector('#tree .tree-row');
+      const allowed = t.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true,
+        cancelable: true }));
+      t.dispatchEvent(new KeyboardEvent('keyup', { key: k, code: k, bubbles: true }));
+      await frame();
+      return at() + (allowed ? ' (default)' : '');
+    };
+    p.collapseAll();
+    p.setFocus(m.find('as1/rod-assembly_1'));
+    await frame();
+    const seq = [['start', at()]];
+    for (const k of ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowRight',
+      'ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowUp', 'ArrowLeft', 'ArrowLeft', 'ArrowUp']) seq.push([k, await key(k)]);
+    // The last child of a last child: on to the next sibling of the parent's.
+    p.setFocus(m.find('as1/l-bracket-assembly_2/l-bracket_1'));
+    await frame();
+    seq.push(['ArrowDown', await key('ArrowDown')]);
+    // A part, folded and without detail: no child to go to.
+    seq.push(['ArrowRight', await key('ArrowRight')]);
+    // The focus cleared: the keys do nothing (not even from the first row, which a fresh tree outlines).
+    p.setFocus(undefined);
+    await frame();
+    seq.push(['ArrowRight', await key('ArrowRight')]);
+    return { seq, selected: ui.selected().length };
+  })()`) as { after: { seq: [string, string][]; selected: number } };
+  const got = r.after.seq.map(([k, v]) => `${k}: ${v}`);
+  const lb2 = 'as1/l-bracket-assembly_2';
+  const want = ['start: as1/rod-assembly_1', 'ArrowDown: as1/l-bracket-assembly_1', `ArrowDown: ${lb2}`,
+    'ArrowDown: as1/plate_1', 'ArrowDown: as1/plate_1', `ArrowUp: ${lb2}`,
+    `ArrowRight: ${lb2}/nut-bolt-assembly_1`, `ArrowRight: ${lb2}/nut-bolt-assembly_1/bolt_1`,
+    `ArrowDown: ${lb2}/nut-bolt-assembly_1/nut_3`, `ArrowDown: ${lb2}/nut-bolt-assembly_2`,
+    `ArrowUp: ${lb2}/nut-bolt-assembly_1`, `ArrowUp: ${lb2}`, 'ArrowLeft: as1', 'ArrowLeft: as1',
+    'ArrowUp: as1', 'ArrowDown: as1/plate_1', 'ArrowRight: as1/plate_1', 'ArrowRight: null'];
+  const diff = want.map((w, i) => (w === got[i] ? '' : `step ${i}: ${got[i]}, not ${w}`)).filter(Boolean);
+  expect(!diff.length && got.length === want.length, `the moves: ${diff.join('; ')} (${got.join(' | ')})`);
+  expect(r.after.selected === 0, `the selection unchanged: ${r.after.selected}`);
+  return undefined;
+});
+// Dialogs dragged by their title: Override Appearance... moved by a mouse drag of its title, as far as the drag, a
 // second from where it was left; dragged far off, its title kept in the window; a modal one (About) too.
 await check('dialog drag', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
