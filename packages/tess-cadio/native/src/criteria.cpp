@@ -194,17 +194,19 @@ public:
   }
 
   bool accept(const Vec2 t[3]) const override {
-    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over: nothing is
-    // refined below it for its size or its normals' angles, but a facet against its surface is wrong output however
-    // small. Every check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the
-    // deviation alone there).
+    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over on the
+    // surface's points: nothing is refined below it for its size or its normals' angles, but a facet against its
+    // surface is wrong output however small. Not judged there on the boundary's own points (setBoundaryPoints): a
+    // boundary off its surface turns slivers that refinement, only thinning them, turns further, to the point cap (a
+    // healed fitted p-curve 0.024 off, bug24594_284965 #13); the part's check of its output fails what's left. Every
+    // check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation alone).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p) && !(own && turnedAsOutput(t, q));
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, q));
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, p, q));
   }
 
   bool acceptFan(const Vec2 t[3]) const override {
@@ -212,9 +214,9 @@ public:
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p) && !(own && turnedAsOutput(t, q));
+    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnedAsOutput(t, q));
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnedAsOutput(t, p, q));
   }
 
   int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
@@ -242,13 +244,12 @@ public:
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated))
-      return normals && (turnedOver(t, p) || (own && turnedAsOutput(t, q))) ? Refusal::normalFacet : Refusal::none;
+    if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
     if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
-    if (r == Refusal::none && normals && own && turnedAsOutput(t, q)) r = Refusal::normalFacet;
+    if (r == Refusal::none && normals && own && turnedAsOutput(t, p, q)) r = Refusal::normalFacet;
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -817,9 +818,10 @@ private:
 
   /**
    * Turned as the part judges its output (part.cpp's checkFacing): the facet of q, the corners as output, against the
-   * mean of the corners' normals; not with a corner within the tolerance of a pole or apex.
+   * mean of the corners' normals, p the surface's points at the corners; not with a corner within the tolerance of a
+   * pole or apex.
    */
-  bool turnedAsOutput(const Vec2 t[3], const Vec3 q[3]) const {
+  bool turnedAsOutput(const Vec2 t[3], const Vec3 p[3], const Vec3 q[3]) const {
     for (const Vec3& s : poles_)
       for (int i = 0; i < 3; i++)
         if (norm(q[i] - s) <= tolerance_) return false;

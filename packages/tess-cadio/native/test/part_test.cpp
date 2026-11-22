@@ -441,6 +441,11 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   CHECK(!c->accept(t));
   c->setBoundaryPoints({{t[0], Vec3{0, 0, 0}}});
   CHECK(c->accept(t));
+  // Within the refinement floor (max(tol, d / 10), 0.01 here) the turn on the boundary's own points isn't judged:
+  // refinement can't go below the floor, and a boundary off its surface turns slivers it would only thin further.
+  const Vec2 tiny[3] = {{0, 0}, {0.003, 0}, {0, 0.003}};
+  c->setBoundaryPoints({{tiny[0], Vec3{0.0025, 0.0025, 0}}});
+  CHECK(c->accept(tiny));
   // A corner's own point 0.25 off the plane (its edges' middles 0.125 off it, past d; its facet 7 degrees from the
   // plane's normal), its facet still up: accepted, its deviation the surface's (none), the boundary's own point
   // where the model put it.
