@@ -441,6 +441,24 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   CHECK(!c->accept(t));
   c->setBoundaryPoints({{t[0], Vec3{0, 0, 0}}});
   CHECK(c->accept(t));
+  // Judged as shipped (setOutputOrigin): corners 6e-8, 5.8e-8 and 5.91e-8 up in v (y), the last above the chord of
+  // the first two in double, below it as float32 minus an origin 1 below them (1 + 6e-8 rounds up a unit in the last
+  // place, the others down to 1): the facet turned as shipped, refused, though accepted in double.
+  {
+    auto c2 = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(c2);
+    const Vec2 flip[3] = {{0, 6e-8}, {3, 5.8e-8}, {1.5, 5.91e-8}};
+    CHECK(c2->accept(flip));
+    const double origin[3] = {0, -1, 0};
+    c2->setOutputOrigin(origin);
+    CHECK(!c2->accept(flip));
+    const double none[3] = {NAN, NAN, NAN};
+    c2->setOutputOrigin(none);
+    CHECK(c2->accept(flip));
+    // (And in double again a facet turned is refused.)
+    const Vec2 turned[3] = {{0, 0}, {0, 3}, {3, 0}};
+    CHECK(!c2->accept(turned));
+  }
   // Within the refinement floor (max(tol, d / 10), 0.01 here) the turn on the boundary's own points isn't judged:
   // refinement can't go below the floor, and a boundary off its surface turns slivers it would only thin further.
   const Vec2 tiny[3] = {{0, 0}, {0.003, 0}, {0, 0.003}};

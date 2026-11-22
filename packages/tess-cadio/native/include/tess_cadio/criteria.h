@@ -79,6 +79,12 @@ public:
    */
   virtual void setBoundaryPoints(const std::vector<std::pair<cadgeom::Vec2, cadgeom::Vec3>>& points) { (void)points; }
   /**
+   * Where the output's positions go as float32 minus this point (PartOptions::outputOrigin): the turned-over tests
+   * judge each facet with its corners so rounded, as shipped, so refinement mends a facet the rounding alone turns.
+   * None by default (in double).
+   */
+  virtual void setOutputOrigin(const double origin[3]) { (void)origin; }
+  /**
    * Whether accept() has bounded every triangle's deviation from the surface it judged so far (by derivative bounds
    * or a distance function) rather than sampling it: false for the kinds it samples (extrusions, revolutions,
    * offsets) and wherever a bound wasn't available (near a cone's apex).

@@ -447,7 +447,7 @@ private:
    * as the pole's ring was sized for.)
    */
   Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
-    Vec3 n[3], g = cross(p[1] - p[0], p[2] - p[0]);
+    Vec3 n[3], g = facet(p);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = cornerNormal(t, i, n[i]) == Status::ok;
     // (A facet with two corners on a pole line has rounding for a normal: no direction to judge.)
@@ -825,7 +825,7 @@ private:
     for (const Vec3& s : poles_)
       for (int i = 0; i < 3; i++)
         if (norm(q[i] - s) <= tolerance_) return false;
-    const Vec3 g = cross(q[1] - q[0], q[2] - q[0]);
+    const Vec3 g = facet(q);
     Vec3 sum{0, 0, 0};
     for (int i = 0; i < 3; i++) {
       Vec3 n;
@@ -833,11 +833,28 @@ private:
     }
     return facetAgainst(g, sum);
   }
+  /** The output's origin (setOutputOrigin), and corners as shipped from it. */
+  double origin_[3] = {0, 0, 0};
+  bool shipped_ = false;
+  void setOutputOrigin(const double o[3]) override {
+    shipped_ = std::isfinite(o[0]) && std::isfinite(o[1]) && std::isfinite(o[2]);
+    for (int k = 0; k < 3; k++) origin_[k] = o[k];
+  }
+  /** The facet's normal (unnormalized) of corners p, as shipped where the output's origin is known. */
+  Vec3 facet(const Vec3 p[3]) const {
+    if (!shipped_) return cross(p[1] - p[0], p[2] - p[0]);
+    Vec3 s[3];
+    for (int i = 0; i < 3; i++)
+      s[i] = {static_cast<double>(static_cast<float>(p[i].x - origin_[0])),
+        static_cast<double>(static_cast<float>(p[i].y - origin_[1])),
+        static_cast<double>(static_cast<float>(p[i].z - origin_[2]))};
+    return cross(s[1] - s[0], s[2] - s[0]);
+  }
   bool turnedOver(const Vec2 t[3], const Vec3 p[3]) const {
     for (const Vec3& q : poles_)
       for (int i = 0; i < 3; i++)
         if (norm(p[i] - q) <= tolerance_) return false;
-    const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
+    const Vec3 g = facet(p);
     const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     if (!(norm(g) > 1e-9 * longest * longest)) return false;
     for (int i = 0; i < 3; i++) {
