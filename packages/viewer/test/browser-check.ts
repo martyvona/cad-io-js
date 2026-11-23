@@ -923,6 +923,11 @@ await check('hide others and transparency', async () => {
 // node, not of several or none, a right-click winning over the selection; triangle edges on through it; not modal, so
 // the page stays usable; closed by its x and by Escape; a long press on a touch screen opening the menu too; recorded
 // and replayed in a fresh page with the same overrides.
+// The tree's context menu ends with Selection's actions: what's before them (else the whole menu, so it doesn't match).
+const SELECT_ITEMS = ['Select parent', 'Select children', 'Select none', 'Select all', 'Invert selection',
+  'Select by ID...'];
+const ownItems = (items: string[]) => (JSON.stringify(items.slice(-SELECT_ITEMS.length)) ===
+  JSON.stringify(SELECT_ITEMS) ? items.slice(0, -SELECT_ITEMS.length) : items);
 await check('override appearance', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -1056,7 +1061,8 @@ await check('override appearance', async () => {
   const j = JSON.stringify({ ...a, rec: undefined });
   type Read = { title: string; visibility: string; opacity: string; edges: string; options: string[];
     disabled: boolean; value: string; buttons: string[] };
-  expect(JSON.stringify(a.items) === '["Hide","Show","Override Appearance..."]' && !!a.closed, `the menu: ${j}`);
+  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Override Appearance..."]' && !!a.closed,
+    `the menu: ${j}`);
   const first = a.first as Read;
   expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
     first.disabled && first.value === '1' && first.options.includes('Inherit') &&
@@ -1082,7 +1088,8 @@ await check('override appearance', async () => {
   expect((a.childMeshes as number) > 0 && a.wires === a.childMeshes, `the child's triangle edges: ${j}`);
   expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
   // (The child has an override of its own by then.)
-  expect(JSON.stringify(a.pressed) === '["Hide","Show","Override Appearance...","Remove Appearance Override"]',
+  expect(JSON.stringify(ownItems(a.pressed as string[])) ===
+    '["Hide","Show","Override Appearance...","Remove Appearance Override"]',
     `a long press: ${j}`);
   // Recorded once each change was made (the box's input not, its change yes), Hide and Show selected as buttons.
   expect(a.rec.events.filter((e) => e.type === 'appearance').length === 7, `recorded: ${JSON.stringify(
@@ -1160,31 +1167,33 @@ await check('tree menu hide and show', async () => {
     drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] }; multi: unknown } };
   const a = r.after;
   const j = JSON.stringify({ ...a, rec: undefined });
-  expect(JSON.stringify(a.plain!.items) === '["Hide","Show","Override Appearance..."]' && !a.plain!.open &&
+  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Override Appearance..."]' && !a.plain!.open &&
     JSON.stringify(a.plain!.own) === '{"hidden":true}' && a.plain!.hidden && !a.plain!.drawn, `Hide: ${j}`);
-  expect(JSON.stringify(a.shown!.items) === '["Hide","Show","Override Appearance...","Remove Appearance Override"]'
-    && JSON.stringify(a.shown!.own) === '{"hidden":false}' && !a.shown!.hidden && a.shown!.drawn, `Show: ${j}`);
+  expect(JSON.stringify(ownItems(a.shown!.items)) ===
+    '["Hide","Show","Override Appearance...","Remove Appearance Override"]' &&
+    JSON.stringify(a.shown!.own) === '{"hidden":false}' && !a.shown!.hidden && a.shown!.drawn, `Show: ${j}`);
   expect(JSON.stringify(a.hidden!.own) === '{"transparent":true,"alpha":0.5,"triangleEdges":true,"hidden":true}' &&
     a.hidden!.panel === 'hide', `Hide keeping the rest, the panel following: ${j}`);
   expect(a.removed!.own === null && !a.removed!.hidden && a.removed!.drawn && a.removed!.panel === 'inherit',
     `removed: ${j}`);
-  expect(JSON.stringify(a.after!.items) === '["Hide","Show","Override Appearance..."]', `no Remove without: ${j}`);
+  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Override Appearance..."]',
+    `no Remove without: ${j}`);
   type Several = { items: string[]; open: boolean; owns: unknown[]; selected: number[]; focused: number };
   const mu = a.multi as unknown as { hide: Several; show: Several; remove: Several; outside: Several; opened: Several;
     panel: string; name: string; p: number[] };
   // (How many, on several: Remove's those with an override, one of the two at first.)
   const all = '["Hide 2","Show 2","Override Appearance...","Remove Appearance Override 1"]';
   const both = JSON.stringify(mu.p.slice(0, 2));
-  expect(JSON.stringify(mu.hide.items) === all && JSON.stringify(mu.hide.owns) ===
+  expect(JSON.stringify(ownItems(mu.hide.items)) === all && JSON.stringify(mu.hide.owns) ===
     '[{"hidden":true},{"transparent":true,"alpha":0.5,"hidden":true},null]' && JSON.stringify(mu.hide.selected) ===
     both, `Hide on the selection: ${j}`);
   expect(JSON.stringify(mu.show.owns) === '[{"hidden":false},{"transparent":true,"alpha":0.5,"hidden":false},null]',
     `Show on the selection: ${j}`);
   expect(mu.panel === `Override Appearance: ${mu.name}`, `Override Appearance... on the one clicked: ${j}`);
-  expect(JSON.stringify(mu.remove.items) === '["Hide 2","Show 2","Override Appearance...",' +
+  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Override Appearance...",' +
     '"Remove Appearance Override 2"]' && JSON.stringify(mu.remove.owns) === '[null,null,null]',
     `Remove on the selection: ${j}`);
-  expect(JSON.stringify(mu.outside.items) === '["Hide","Show","Override Appearance..."]' &&
+  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Override Appearance..."]' &&
     JSON.stringify(mu.outside.owns) === '[null,null,{"hidden":true}]' && JSON.stringify(mu.outside.selected) === both,
     `outside the selection, that one alone: ${j}`);
   // The focus (the outlined row) moved to each row right-clicked, the selection kept.
@@ -1202,6 +1211,157 @@ await check('tree menu hide and show', async () => {
   })()`) as { after: { divergences: string[]; overrides: unknown } };
   expect(replayed.after.divergences.length === 0 && JSON.stringify(replayed.after.overrides) ===
     JSON.stringify(a.overrides), `replayed: ${JSON.stringify(replayed.after)} ${j}`);
+  return undefined;
+});
+// The view's context menu and the tree's focus: a right-click on a part (the mouse unmoved) opens the tree's menu for
+// it, the selection unchanged, the tree's focus (outlined) on its row, revealed in a folded tree; its Hide hides that
+// part alone; on nothing, no menu and no focus; a right-drag (a pan) no menu; a long press with a finger the menu,
+// its lift no pick; a left click moves the focus to what it picks, or clears it on nothing; at the detail level, a
+// face's.
+await check('view context menu', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const send = (type, x, y, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: x, clientY: y, ...o }));
+    const rightClick = (x, y) => { send('pointerdown', x, y, { button: 2, buttons: 2 });
+      send('pointerup', x, y, { button: 2, buttons: 0 }); };
+    const leftClick = (x, y) => { send('pointerdown', x, y, { button: 0, buttons: 1 });
+      send('pointerup', x, y, { button: 0, buttons: 0 }); };
+    const look = async () => {
+      await frame();
+      const menu = [...document.querySelectorAll('.cv-menu button')].map((b) => b.textContent);
+      const f = document.querySelector('#tree .tree-row.focused');
+      return { menu, focused: f ? +f.dataset.id : null, selected: [...ui.selected()] };
+    };
+    const escape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // A point over a part (as a click picks it), and one over nothing.
+    let spot;
+    for (let i = 1; i < 10 && !spot; i++) for (let j = 1; j < 10 && !spot; j++) {
+      const path = cadViewer.pickAt(i / 10, j / 10)?.path;
+      if (path) spot = { x: rect.left + i / 10 * rect.width, y: rect.top + j / 10 * rect.height, id: m.find(path) };
+    }
+    if (!spot) return { spot: null };
+    const empty = { x: rect.left + 2, y: rect.top + 2 };
+    const part = spot.id, other = m.nodes.find((n) => n.kind === 'part' && n.id !== part).id;
+    const out = { part, other };
+    ui.select([other]);
+    ui.panel().collapseAll();
+    await frame();
+    rightClick(spot.x, spot.y);
+    out.right = await look();
+    [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === 'Hide').click();
+    await frame();
+    out.hid = { part: !!m.ownOverride(part)?.hidden, other: !!m.ownOverride(other)?.hidden };
+    ui.setOverride(part, {});
+    await cadViewer.idle();
+    rightClick(empty.x, empty.y);
+    out.rightEmpty = await look();
+    // A long press: the menu while the finger is down, no pick when it lifts, even at once (within a tap's time).
+    send('pointerdown', spot.x, spot.y, { pointerType: 'touch', pointerId: 2, button: 0, buttons: 1 });
+    const t0 = performance.now();
+    while (!document.querySelector('.cv-menu') && performance.now() - t0 < 2000) {
+      await new Promise((res) => setTimeout(res, 2));
+    }
+    send('pointerup', spot.x, spot.y, { pointerType: 'touch', pointerId: 2, button: 0, buttons: 0 });
+    out.liftedAfter = Math.round(performance.now() - t0);
+    out.press = await look();
+    out.lifted = await look();
+    escape();
+    leftClick(spot.x, spot.y);
+    out.left = await look();
+    leftClick(empty.x, empty.y);
+    out.leftEmpty = await look();
+    // The detail level: a face's menu and focus.
+    ui.setPickLevel('detail');
+    rightClick(spot.x, spot.y);
+    out.detail = await look();
+    out.detailKind = out.detail.focused === null ? null : m.nodes[out.detail.focused].kind;
+    escape();
+    // Last, as they move the view, each just past its threshold (so what's under the point stays the part): a finger
+    // that moves 12 px (turning the view), no menu; a right-drag of 8 px (a pan), no menu.
+    send('pointerdown', spot.x, spot.y, { pointerType: 'touch', pointerId: 3, button: 0, buttons: 1 });
+    send('pointermove', spot.x + 12, spot.y, { pointerType: 'touch', pointerId: 3, button: -1, buttons: 1 });
+    await new Promise((res) => setTimeout(res, 700));
+    out.turned = await look();
+    send('pointerup', spot.x + 12, spot.y, { pointerType: 'touch', pointerId: 3, button: 0, buttons: 0 });
+    escape();
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointermove', spot.x + 8, spot.y, { button: -1, buttons: 2 });
+    send('pointerup', spot.x + 8, spot.y, { button: 2, buttons: 0 });
+    out.drag = await look();
+    escape();
+    return out;
+  })()`) as { after: Record<string, unknown> & Record<'right' | 'rightEmpty' | 'drag' | 'press' | 'lifted' | 'turned' |
+    'left' | 'leftEmpty' | 'detail', { menu: string[]; focused: number | null; selected: number[] }> };
+  const a = r.after, j = JSON.stringify(a);
+  const other = JSON.stringify([a.other]);
+  expect(a.right?.menu[0] === 'Hide' && a.right.menu.includes('Select children') && a.right.focused === a.part &&
+    JSON.stringify(a.right.selected) === other, `a right-click on a part: ${j}`);
+  expect(JSON.stringify(a.hid) === '{"part":true,"other":false}', `its Hide: ${j}`);
+  expect(a.rightEmpty.menu.length === 0 && a.rightEmpty.focused === null, `a right-click on nothing: ${j}`);
+  expect(a.drag.menu.length === 0, `a right-drag: ${j}`);
+  expect(a.press.menu[0] === 'Hide' && a.press.focused === a.part && JSON.stringify(a.lifted.selected) === other &&
+    (a.liftedAfter as number) < 600,
+    `a long press: ${j}`);
+  expect(a.turned.menu.length === 0, `a finger that moves: ${j}`);
+  expect(a.left.focused === a.part && JSON.stringify(a.left.selected) === JSON.stringify([a.part]) &&
+    a.leftEmpty.focused === null && a.leftEmpty.selected.length === 0, `left clicks: ${j}`);
+  expect(a.detail.menu[0] === 'Hide' && ['face', 'edges', 'curves', 'points'].includes(a.detailKind as string) &&
+    a.detail.selected.length === 0, `at the detail level: ${j}`);
+  return undefined;
+});
+// The tree's arrow keys move its focus through the structure: up and down to the previous and next sibling, past
+// the first to the parent, past the last to the next sibling of the parent; right to the first child, unfolding it;
+// left to the parent; with the focus cleared, nowhere. As1's tree, by name.
+await check('tree arrow keys', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes, p = ui.panel();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 20)));
+    const focused = () => document.querySelector('#tree .tree-row.focused');
+    const at = () => { const f = focused(); return f ? m.pathOf(+f.dataset.id) : null; };
+    // A key on the focused row (the tree's keys are its container's), its default prevented or not.
+    const key = async (k) => {
+      const t = focused() ?? document.querySelector('#tree .tree-row');
+      const allowed = t.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true,
+        cancelable: true }));
+      t.dispatchEvent(new KeyboardEvent('keyup', { key: k, code: k, bubbles: true }));
+      await frame();
+      return at() + (allowed ? ' (default)' : '');
+    };
+    p.collapseAll();
+    p.setFocus(m.find('as1/rod-assembly_1'));
+    await frame();
+    const seq = [['start', at()]];
+    for (const k of ['ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowRight',
+      'ArrowDown', 'ArrowDown', 'ArrowUp', 'ArrowUp', 'ArrowLeft', 'ArrowLeft', 'ArrowUp']) seq.push([k, await key(k)]);
+    // The last child of a last child: on to the next sibling of the parent's.
+    p.setFocus(m.find('as1/l-bracket-assembly_2/l-bracket_1'));
+    await frame();
+    seq.push(['ArrowDown', await key('ArrowDown')]);
+    // A part, folded and without detail: no child to go to.
+    seq.push(['ArrowRight', await key('ArrowRight')]);
+    // The focus cleared: the keys do nothing (not even from the first row, which a fresh tree outlines).
+    p.setFocus(undefined);
+    await frame();
+    seq.push(['ArrowRight', await key('ArrowRight')]);
+    return { seq, selected: ui.selected().length };
+  })()`) as { after: { seq: [string, string][]; selected: number } };
+  const got = r.after.seq.map(([k, v]) => `${k}: ${v}`);
+  const lb2 = 'as1/l-bracket-assembly_2';
+  const want = ['start: as1/rod-assembly_1', 'ArrowDown: as1/l-bracket-assembly_1', `ArrowDown: ${lb2}`,
+    'ArrowDown: as1/plate_1', 'ArrowDown: as1/plate_1', `ArrowUp: ${lb2}`,
+    `ArrowRight: ${lb2}/nut-bolt-assembly_1`, `ArrowRight: ${lb2}/nut-bolt-assembly_1/bolt_1`,
+    `ArrowDown: ${lb2}/nut-bolt-assembly_1/nut_3`, `ArrowDown: ${lb2}/nut-bolt-assembly_2`,
+    `ArrowUp: ${lb2}/nut-bolt-assembly_1`, `ArrowUp: ${lb2}`, 'ArrowLeft: as1', 'ArrowLeft: as1',
+    'ArrowUp: as1', 'ArrowDown: as1/plate_1', 'ArrowRight: as1/plate_1', 'ArrowRight: null'];
+  const diff = want.map((w, i) => (w === got[i] ? '' : `step ${i}: ${got[i]}, not ${w}`)).filter(Boolean);
+  expect(!diff.length && got.length === want.length, `the moves: ${diff.join('; ')} (${got.join(' | ')})`);
+  expect(r.after.selected === 0, `the selection unchanged: ${r.after.selected}`);
   return undefined;
 });
 // Dialogs dragged by their title: Override Appearance... moved by a mouse drag of its title, as far as the drag, a
@@ -2000,9 +2160,11 @@ await check('picks unfold the tree', async () => {
   expect(r.after.selected.length === 2 && r.after.unfolded, `both picks shown, their branches unfolded: ${j}`);
   return undefined;
 });
-// Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent and Select
-// none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted exactly as the
-// selection is (none stale), the tree scrolled to show a selected row.
+// Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent, Select
+// children and Select none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted
+// exactly as the selection is (none stale), the tree scrolled to show a selected row. Select children: the assemblies'
+// children, then a part's faces, edges and curves (the tree's detail turned on). The tree's menu: Select parent and
+// Select children on the row right-clicked (not the selection), the rest as the buttons.
 await check('selection buttons in the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();
@@ -2028,14 +2190,53 @@ await check('selection buttons in the tree', async () => {
     press('Invert selection'); out.invert = await look();
     ui.panel().collapseAll();
     press('Select parent'); out.parent = await look();
+    const parents = [...ui.selected()];
+    ui.panel().collapseAll();
+    press('Select children'); out.children = await look();
+    out.childrenOk = ui.selected().length > 0 && ui.selected().every((id) => parents.includes(m.nodes[id].parent));
+    const part = m.nodes.find((n) => n.kind === 'part').id;
+    out.detailBefore = m.hasDetail();
+    ui.select([part]);
+    press('Select children'); out.detail = await look();
+    out.kinds = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
+    out.detailAfter = m.hasDetail();
     press('Select none'); out.none = await look();
+    // The menu: on a row not selected, Select parent selects that row's parent; Select children, its children.
+    const menu = async (id, choose) => {
+      for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res));
+      const row = [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === id);
+      const b = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
+        clientY: b.top + 5 }));
+      const items = [...document.querySelectorAll('.cv-menu button')];
+      const divided = items.find((x) => x.textContent === 'Select parent')?.classList.contains('divider');
+      items.find((x) => x.textContent === choose).click();
+      return { divided, selected: [...ui.selected()] };
+    };
+    // (Something else selected, of another parent, so the selection's parent or children differ.)
+    const asm = m.nodes[part].parent;
+    const other = m.nodes.find((n) => n.kind === 'part' && n.parent !== asm && n.parent >= 0).id;
+    ui.select([other]);
+    const mp = await menu(part, 'Select parent');
+    out.menuParent = mp.divided && JSON.stringify(mp.selected) === JSON.stringify([asm]);
+    ui.select([other]);
+    const mc = await menu(asm, 'Select children');
+    out.menuChildren = JSON.stringify(mc.selected) === JSON.stringify(m.children(asm));
+    out.menuAll = (await menu(part, 'Select all')).selected.length > 1;
+    out.menuNone = (await menu(part, 'Select none')).selected.length === 0;
     return out;
   })()`) as { after: Record<string, { selected: number; unfolded: boolean; stale: number; shown: number }> };
   const a = r.after, j = JSON.stringify(a);
-  for (const k of ['all', 'invert', 'parent']) {
+  const o = r.after as unknown as Record<string, unknown>;
+  for (const k of ['all', 'invert', 'parent', 'children', 'detail']) {
     expect(a[k]!.selected > 0 && a[k]!.unfolded && a[k]!.stale === 0 && a[k]!.shown > 0, `${k}: ${j}`);
   }
   expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
+  expect(o.childrenOk === true, `the parents' children: ${j}`);
+  expect(o.detailBefore === false && o.detailAfter === true && (o.kinds as string[]).includes('face'),
+    `a part's children, its detail: ${j}`);
+  expect(o.menuParent === true && o.menuChildren === true && o.menuAll === true && o.menuNone === true,
+    `the tree's menu: ${j}`);
   return undefined;
 });
 // Faces that fail to mesh: every part of as1 timed out (a millisecond, the cache emptied; a part OCCT meshes within it
@@ -2751,7 +2952,8 @@ await check('heal B-reps', async () => {
     && !a.meshedWith.healFixes.pcurveMissingOnFreeForm, `meshed with healing: ${j}`);
   expect(a.triangles > 0 && a.parts.total === 4 && a.parts.failed === 0, `meshed: ${j}`);
   expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissingOnPlane,pcurveMissingOnElementary,'
-    + 'pcurveMissingOnFreeForm,pcurveReparam,pcurveReplace,pcurveEnds,edgeTolerance,vertexTolerance,Fit (mm)',
+    + 'pcurveMissingOnFreeForm,pcurveReparam,pcurveReplace,pcurveEnds,edgeTolerance,vertexTolerance,orientShells,'
+    + 'Fit (mm)',
     `the fixes and the fit, closed: ${j}`);
   expect(a.off.said.join() === 'strayPole' && !a.off.heal && a.off.triangles > 0,
     `unticked, meshed again as imported in place (the moved pole said kept): ${j}`);
@@ -3441,6 +3643,59 @@ await check('triangle edges', async () => {
   expect(a.partHidden && a.faceHidden, `hidden parts and faces: ${j}`);
   expect(a.changed > a.total * 0.01, `drawn: ${j}`);
   expect(a.none === 0 && a.selectedPart && a.selectedFace && a.cleared, `the selection's: ${j}`);
+  return undefined;
+});
+// Triangle edges on a selected face, on screen: its highlight (an overlay over its triangles) doesn't hide them, with
+// Triangle edges on Selected or All. The face's pixels: those its highlight changes; its edges: those of them that
+// turning the edges on changes (as1's plate face: about 13% Selected and 18% All; hidden, under 1.2%).
+await check('triangle edges on a selected face', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = viewer.nodes;
+    const pixels = async () => {
+      await cadViewer.idle();
+      const img = new Image();
+      img.src = cadViewer.screenshot();
+      await img.decode();
+      const c = document.createElement('canvas');
+      [c.width, c.height] = [img.width, img.height];
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      return g.getImageData(0, 0, c.width, c.height).data;
+    };
+    const differ = (a, b, i) => Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) >
+      30;
+    // (Faces have nodes only with the tree's detail.)
+    ui.setTree({ detail: true });
+    ui.setPickLevel('detail');
+    let path;
+    for (const [x, y] of [[0.5, 0.5], [0.4, 0.5], [0.6, 0.5], [0.5, 0.4], [0.5, 0.6]]) {
+      path = cadViewer.pickAt(x, y)?.path;
+      if (path) break;
+    }
+    const face = path === undefined ? undefined : m.find(path);
+    if (face === undefined || m.nodes[face].kind !== 'face') return { face: path ?? null };
+    cadViewer.apply({ render: { triangleEdges: 'off' } });
+    ui.select([]);
+    const plain = await pixels();
+    ui.select([face]);
+    const lit = await pixels();
+    const mask = [];
+    for (let i = 0; i < lit.length; i += 4) if (differ(plain, lit, i)) mask.push(i);
+    const edges = async (mode) => {
+      cadViewer.apply({ render: { triangleEdges: mode } });
+      const p = await pixels();
+      return mask.filter((i) => differ(lit, p, i)).length;
+    };
+    const selected = await edges('selected'), all = await edges('all');
+    cadViewer.apply({ render: { triangleEdges: 'off' } });
+    ui.select([]);
+    return { face: path, mask: mask.length, selected, all };
+  })()`) as { after: { face: string | null; mask?: number; selected?: number; all?: number } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.mask !== undefined && a.mask > 100, `a face picked and highlighted: ${j}`);
+  expect(a.selected! > a.mask! * 0.05 && a.all! > a.mask! * 0.05, `its edges drawn over its highlight: ${j}`);
   return undefined;
 });
 await check('no model', async () => {

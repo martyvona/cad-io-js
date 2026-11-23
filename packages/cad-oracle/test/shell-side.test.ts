@@ -206,6 +206,48 @@ test('a revolution bulging past its boundary\'s box (its domain unbounded): a ra
     assert.equal(o.classify(0, [0, 2.2, 0]).side, 'outside');
   });
 
+/**
+ * A ring solid between radii 1 and 2, 0.5 high (planes and cylinders), its top face's tolerance 0.01: that face's
+ * point well inside is in at 0.01 and farther than 10 x that from both circles.
+ */
+function ring(tol = 0.01): BrepData {
+  const b = new BrepBuilder();
+  const Z: [number, number, number] = [0, 0, 1], X: [number, number, number] = [1, 0, 0];
+  const circle = (r: number, z: number) => {
+    const p = b.addVertex({ point: [r, 0, z] });
+    const c = b.addCurve({ kind: 'circle', radius: r, position: { origin: [0, 0, z], axis: Z, xDir: X } });
+    return b.addEdge({ curve: c, start: p, end: p, sameSense: true, range: [0, 2 * Math.PI] });
+  };
+  const t1 = circle(1, 0.5), t2 = circle(2, 0.5), b1 = circle(1, 0), b2 = circle(2, 0);
+  const plane = (z: number, up: boolean) => b.addSurface({ kind: 'plane', position: { origin: [0, 0, z],
+    axis: up ? Z : [0, 0, -1], xDir: X } });
+  const cylinder = (r: number) => b.addSurface({ kind: 'cylinder', radius: r, position: { origin: [0, 0, 0], axis: Z,
+    xDir: X } });
+  const loop = (edge: number, forward: boolean, bound: 'outer' | 'inner' = 'outer') => ({ kind: 'edge' as const,
+    bound, coedges: [{ edge, orientation: forward ? 'forward' as const : 'reversed' as const }] });
+  const faces = [
+    b.addFace({ surface: plane(0.5, true), sameSense: true, tolerance: tol, loops: [loop(t2, true),
+      loop(t1, false, 'inner')] }),
+    b.addFace({ surface: plane(0, false), sameSense: true, loops: [loop(b2, false), loop(b1, true, 'inner')] }),
+    b.addFace({ surface: cylinder(2), sameSense: true, loops: [loop(b2, true), loop(t2, false)] }),
+    b.addFace({ surface: cylinder(1), sameSense: false, loops: [loop(b1, false), loop(t1, true)] })];
+  const shell = b.addShell({ kind: 'closed', faces: faces.map((face) => ({ face, sense: true })) });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+  return b.finish();
+}
+
+test('a point well inside a face: in at its tolerance, and clear of its boundary by 100, else 10, x it', { skip },
+  async () => {
+    // At 0.01 the ring 1 wide is all within 100 x the tolerance of its circles: 10 x; at 0.002, 100 x (0.2).
+    for (const [tol, clear] of [[0.01, 0.1], [0.002, 0.2]] as const) {
+      using o = new Oracle(await init(), ring(tol).buffer);
+      const r = o.shellSide(0, 0, 1e-3);
+      assert.equal(r.side, 'outside');
+      const rho = Math.hypot(r.from[0], r.from[1]);
+      assert.ok(rho >= 1 + clear && rho <= 2 - clear && Math.abs(r.from[2] - 0.5) < 1e-12, `${tol}: ${r.from}`);
+    }
+  });
+
 test('a cone reaching its apex as a pole: a ray meeting it below its circle\'s box still counted', { skip },
   async () => {
     const d = conePoint();
