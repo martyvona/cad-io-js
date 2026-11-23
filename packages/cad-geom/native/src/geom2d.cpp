@@ -670,24 +670,38 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
  */
 Estimate boundaryArea(const Boundary& bd, int loop) {
   Estimate total{0, 0, Status::ok};
-  double scale = 0;
+  // The pieces' extent (their boxes), for the rounding and the quadrature's absolute tolerance: only the sign is used.
+  double scale = 0, size = 0;
+  for (size_t k = 0; k < bd.pieces.size(); k++) {
+    if (loop >= 0 && bd.loopOf[k] != loop) continue;
+    const Bbox& b = bd.boxes[k];
+    scale = std::max({scale, std::fabs(b.x0), std::fabs(b.x1), std::fabs(b.y0), std::fabs(b.y1)});
+    size = std::max({size, b.x1 - b.x0, b.y1 - b.y0});
+  }
   for (size_t k = 0; k < bd.pieces.size(); k++) {
     if (loop >= 0 && bd.loopOf[k] != loop) continue;
     const LoopPiece& piece = bd.pieces[k];
     const Vec2 s = pieceStart(piece), e = pieceEnd(piece), next = pieceStart(bd.pieces[bd.next[k]]);
-    scale = std::max({scale, std::fabs(s.x), std::fabs(s.y), std::fabs(e.x), std::fabs(e.y)});
     total.value += 0.5 * cross(e, next);
     if (straight(*piece.curve, piece.range)) {
       total.value += 0.5 * cross(s, e);
       continue;
     }
-    Estimate q = quadrature::integrate([&](double t) {
-      P2 e2 = at(*piece.curve, t);
-      return 0.5 * cross(e2.p, e2.d1);
-    }, piece.range.lo, piece.range.hi, 0, 1e-13);
-    total.value += piece.reversed ? -q.value : q.value;
-    total.error += q.error;
-    if (q.status != Status::ok) total.status = q.status;
+    // Span by span between the curve's breaks (a B-spline's knots: smooth within each).
+    std::vector<double> br;
+    piece.curve->breaks(piece.range, br);
+    if (br.empty() || br.front() != piece.range.lo) br.insert(br.begin(), piece.range.lo);
+    if (br.back() != piece.range.hi) br.push_back(piece.range.hi);
+    for (size_t i = 0; i + 1 < br.size(); i++) {
+      if (!(br[i + 1] > br[i])) continue;
+      Estimate q = quadrature::integrate([&](double t) {
+        P2 e2 = at(*piece.curve, t);
+        return 0.5 * cross(e2.p, e2.d1);
+      }, br[i], br[i + 1], 1e-12 * scale * size, 1e-10);
+      total.value += piece.reversed ? -q.value : q.value;
+      total.error += q.error;
+      if (q.status != Status::ok) total.status = q.status;
+    }
   }
   // (Each term's rounding, about scale^2 eps, over two per piece.)
   total.error += 4 * static_cast<double>(bd.pieces.size()) * scale * scale * 2.3e-16;
@@ -881,13 +895,13 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
     if (r == RayResult::retry) continue;
     return r == RayResult::in ? Side::in : Side::out;
   }
-  // No ray met anything: nothing bounds p.
-  if (!hit) return Side::out;
   // Not periodic, a ray meeting nothing puts p in the region unbounded in (u, v) (a region reaching a pole line is
-  // closed along it, so a ray from inside meets that), though every ray meeting the boundary decided nothing (a far
-  // point whose ray passes a small face within tol): out where the loops bound a region (their signed area positive,
-  // the outer counterclockwise), in where they bound its complement (negative: holes alone), unsettled where the sign
-  // is within its error.
+  // closed along it, so a ray from inside meets that), whether no ray met anything or every ray meeting the boundary
+  // decided nothing (a far point whose ray passes a small face within tol): out where the loops bound a region (their
+  // signed area positive, the outer counterclockwise), in where they bound its complement (negative: holes alone),
+  // unsettled where the sign is within its error. Periodic, no ray meeting anything is out (a ray along a period
+  // can miss a band's loops, one to a pole line a polar cap's), and one meeting nothing says nothing more.
+  if (!hit && !(per.u == 0 && per.v == 0)) return Side::out;
   if (missed && per.u == 0 && per.v == 0) {
     const Estimate a = boundaryArea(bd, -1);
     if (a.status == Status::ok && std::fabs(a.value) > a.error) return a.value > 0 ? Side::out : Side::in;

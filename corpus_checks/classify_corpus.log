@@ -1,5 +1,5 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 2.4; speed 5438 on 1 thread, 67585 on 18
-517 files, 3258 B-rep parts, 1259 solids, 1317 closed shells, 3927 faces asked; 1816 s in the parts, 519 s in all
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 3.1; speed 5611 on 1 thread, 69469 on 18
+517 files, 3258 B-rep parts, 1259 solids, 1317 closed shells, 3927 faces asked; 1781 s in the parts, 507 s in all
 
 ## Rays and volume, shell by shell, by depth
   1090  agree: outside, depth 0
@@ -3690,18 +3690,18 @@ host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB;
       gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 shell 0 of body 0 (292 faces) face #17
 
 ## Parts over 20 s
-  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10: 60.3 s
-  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794: 22.3 s
-  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5727: 62.9 s
-  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858: 49.2 s
-  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799: 89.2 s
-  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10: 59.3 s
-  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110: 55.1 s
-  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #23172: 56.8 s
-  gkv311-opencascade-dataset/step/bug26889_export.step #33: 286.6 s
-  gkv311-opencascade-dataset/step/OCC5157.stp #11: 195.4 s
-  gkv311-opencascade-dataset/step/bug31711.stp #11: 65.9 s
-  gkv311-opencascade-dataset/step/bug32239.STEP #116154: 40.7 s
-  gkv311-opencascade-dataset/step/2.stp #342: 168.8 s
-  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397: 28.6 s
-  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10: 67.8 s
+  gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10: 59.3 s
+  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794: 22.0 s
+  gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #5727: 61.8 s
+  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858: 48.4 s
+  gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #69799: 87.9 s
+  gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10: 58.2 s
+  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #43110: 54.4 s
+  gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #23172: 56.0 s
+  gkv311-opencascade-dataset/step/bug26889_export.step #33: 277.5 s
+  gkv311-opencascade-dataset/step/OCC5157.stp #11: 191.9 s
+  gkv311-opencascade-dataset/step/bug31711.stp #11: 64.9 s
+  gkv311-opencascade-dataset/step/bug32239.STEP #116154: 39.7 s
+  gkv311-opencascade-dataset/step/2.stp #342: 165.7 s
+  gkv311-opencascade-dataset/step/bug24055_8MTF-75LS05.step #93397: 28.0 s
+  gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10: 66.9 s
