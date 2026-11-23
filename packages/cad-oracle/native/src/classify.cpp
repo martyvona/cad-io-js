@@ -1,7 +1,9 @@
 // Point classification's faces (oracle.h's rayFace): a line against a trimmed face, cad-geom's intersectLine on the
 // face's surface as the face API closes it, each contact classified against the face's loops by the face API
 // (cg_face_classify), so a ray and a mesh see one face. A crossing on the boundary within the face's tolerance is its
-// own kind: the face beside it may or may not see the same crossing, so a parity count can't take it.
+// own kind: the face beside it may or may not see the same crossing, so a parity count can't take it. A broad phase
+// goes first: a line missing the face's box (faceBox) skips the face, so on a large shell a ray builds and tests only
+// the faces near it (building a face, its p-curves projected, costs far more than its line test).
 #include <algorithm>
 #include <cmath>
 
@@ -25,16 +27,104 @@ const Surface* Oracle::Impl::faceSurface(int face) {
   return faceSurfaces_[face].get();
 }
 
+bool Oracle::Impl::faceBox(int f, cadgeom::Box3& box) {
+  if (f < 0 || f >= model.faces()) return false;
+  if (faceBoxMade_.empty()) faceBoxes_.resize(model.faces()), faceBoxMade_.assign(model.faces(), 0);
+  if (!faceBoxMade_[f]) {
+    faceBoxMade_[f] = 2;
+    Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
+    auto add = [&](const cadgeom::Box3& b) {
+      lo = {std::fmin(lo.x, b.x.lo), std::fmin(lo.y, b.y.lo), std::fmin(lo.z, b.z.lo)};
+      hi = {std::fmax(hi.x, b.x.hi), std::fmax(hi.y, b.y.hi), std::fmax(hi.z, b.z.hi)};
+    };
+    auto point = [&](Vec3 p) { add({{p.x, p.x}, {p.y, p.y}, {p.z, p.z}}); };
+    const Surface* S = faceSurface(f);
+    if (!S) return false;
+    const cadgeom::SurfaceDomain D = S->domain();
+    const int kind = model.surfaceKind(model.faceSurface(f));
+    bool ok = model.faceLoopCount(f) > 0;
+    if (std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi)) {
+      cadgeom::Box3 b;
+      ok = S->bound(D.u, D.v, b) == Status::ok;
+      if (ok) add(b);
+    } else {
+      ok = ok && (kind == CBR_SURFACE_PLANE || kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_CONE ||
+        kind == CBR_SURFACE_EXTRUSION);
+      // A ruling may end at a cone's apex, not on the boundary (a face reaching it as a pole, no vertex there).
+      std::vector<cadgeom::Singularity> sing;
+      if (ok) S->singularities(sing);
+      for (const cadgeom::Singularity& g : sing)
+        if (g.kind != cadgeom::Singularity::normalVanishes) point(g.point);
+    }
+    double tol = tols.face(f);
+    for (int l = model.faceFirstLoop(f); ok && l < model.faceFirstLoop(f) + model.faceLoopCount(f); l++) {
+      for (int c = model.loopFirst(l); ok && c < model.loopFirst(l) + model.loopCount(l); c++) {
+        // (A vertex loop, its rows vertices, stands at a singular point: in the surface's bound, or its apex above.)
+        if (model.loopKind(l) == CBR_LOOP_VERTEX) continue;
+        const int e = model.coedgeEdge(c);
+        if (e < 0) { ok = false; break; }
+        tol = std::fmax(tol, tols.edge(e));
+        for (int v : {model.edgeStart(e), model.edgeEnd(e)})
+          if (v >= 0) point(model.vertexPoint(v));
+        double t0, t1;
+        const Curve* C = model.edgeCurve(e) >= 0 ? curve(model.edgeCurve(e)) : nullptr;
+        cadgeom::Box3 b;
+        if (C && edgeParams(e, t0, t1) && C->bound({std::fmin(t0, t1), std::fmax(t0, t1)}, b) == Status::ok) add(b);
+        else ok = false;
+      }
+    }
+    const double w = 2 * tol;
+    ok = ok && std::isfinite(lo.x + lo.y + lo.z + hi.x + hi.y + hi.z) && std::isfinite(w);
+    if (ok) {
+      faceBoxMade_[f] = 1;
+      faceBoxes_[f] = {{lo.x - w, hi.x + w}, {lo.y - w, hi.y + w}, {lo.z - w, hi.z + w}};
+    }
+  }
+  if (faceBoxMade_[f] != 1) return false;
+  box = faceBoxes_[f];
+  return true;
+}
+
+namespace {
+
+/** Whether o + t d for some t in tr meets the box (slabs; a component of d zero: o's within its slab). */
+bool segmentMeets(const cadgeom::Box3& b, Vec3 o, Vec3 d, Range tr) {
+  double lo = tr.lo, hi = tr.hi;
+  const cadgeom::Interval I[3] = {b.x, b.y, b.z};
+  const double O[3] = {o.x, o.y, o.z}, Dd[3] = {d.x, d.y, d.z};
+  for (int k = 0; k < 3; k++) {
+    if (Dd[k] == 0) {
+      if (O[k] < I[k].lo || O[k] > I[k].hi) return false;
+      continue;
+    }
+    double a = (I[k].lo - O[k]) / Dd[k], c = (I[k].hi - O[k]) / Dd[k];
+    if (a > c) std::swap(a, c);
+    lo = std::fmax(lo, a), hi = std::fmin(hi, c);
+    if (lo > hi) return false;
+  }
+  return true;
+}
+
+}  // namespace
+
 RayFace Oracle::Impl::rayFace(int face, Vec3 o, Vec3 d, Range tr) {
   RayFace out;
   const Surface* S = h >= 0 ? faceSurface(face) : nullptr;
   if (!S) return out;
+  // The broad phase: a line missing the face's box meets nothing of it (nor is the face API's face made).
+  cadgeom::Box3 box;
+  if (faceBox(face, box) && !segmentMeets(box, o, d, tr)) {
+    out.status = Status::ok;
+    return out;
+  }
   // The face API's tolerance for the face (its own, widened by its edges'), in 3D.
   double info[8];
   if (cg_face_info(h, face, 0, info) != 0) return out;
   const double tol = info[0];
   const cadgeom::SurfaceDomain D = S->domain();
   const LineIntersection li = intersectLine(*S, o, d, tr, D.u, D.v, tol);
+  if (met && (!li.crossings.empty() || !li.tangencies.empty() || !li.overlaps.empty() ||
+    li.status != Status::ok)) met->push_back(face);
   if (li.status != Status::ok && li.status != Status::noConvergence) {
     out.status = li.status;
     return out;
@@ -378,18 +468,27 @@ ShellSide Oracle::shellSide(int shell, int face, double eps) {
     out.why = "no such shell or face";
     return out;
   }
-  // A face of the shell with its loops against its sense: the rays can't be counted (each face measured once).
+  // A face with its loops against its sense, its region in doubt: the rays can't be counted where they meet its
+  // surface, nor the point taken from inside it. Only those faces are measured (each once), not the whole shell: a
+  // measure is a quadrature, the rays' cost many times over on a large free-form shell.
   Impl& I = *impl_;
+  std::vector<int> met{face};
+  struct Log {
+    Impl& I;
+    ~Log() { I.met = nullptr; }
+  } log{I};
+  I.met = &met;
+  ShellSide out = I.shellSide(shell, face, eps);
+  I.met = nullptr;
   if (I.loopsAgainst.empty()) I.loopsAgainst.assign(I.model.faces(), 2);
-  for (int f : I.shellFaces(shell)) {
+  for (int f : met) {
     if (I.loopsAgainst[f] == 2) I.loopsAgainst[f] = (this->face(f).flags & flagOrientation) ? 1 : 0;
     if (I.loopsAgainst[f] == 1) {
-      ShellSide out;
-      out.why = "a face of the shell has its loops against its sense";
+      out.side = ShellSide::unknown, out.why = "a face the rays meet has its loops against its sense";
       return out;
     }
   }
-  return I.shellSide(shell, face, eps);
+  return out;
 }
 
 std::vector<int> Oracle::nesting(int body) { return ok() ? impl_->nesting(body) : std::vector<int>{}; }
