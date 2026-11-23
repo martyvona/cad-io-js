@@ -9,7 +9,7 @@ import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
 import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
-import { orientResult } from './orient.ts';
+import { orientResult, shellsOriented } from './orient.ts';
 import { openEdgesCount } from './open-edges.ts';
 import { notManifoldMessage, reported, shellDefects, shellsManifold } from './manifold.ts';
 import type { Diagnostic } from './scene.ts';
@@ -166,13 +166,15 @@ export class FallbackTessellator implements Tessellator {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
     const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
-    const tidy = (r: TessellationResult) => {
+    const healed = shellsOriented(req.analysis);
+    const tidy = (r: TessellationResult, t: Tessellator | string) => {
       if (!model) return r;
       const j = this.join ? joinResult(model, r, req.linearDeflection) : r;
       const f = this.fill ? fillResult(model, j, req.linearDeflection) : j;
-      return this.orient ? orientResult(model, f, req.linearDeflection) : f;
+      return this.orient ? orientResult(model, f, req.linearDeflection, healed
+        ? { backend: typeof t === 'string' ? t : `${t.info.name} ${t.info.version}` } : undefined) : f;
     };
-    const run = (t: Tessellator) => t.tessellate(ask, onProgress).then(tidy).catch((e: unknown) =>
+    const run = (t: Tessellator) => t.tessellate(ask, onProgress).then((r) => tidy(r, t)).catch((e: unknown) =>
       e instanceof Error ? e : new Error(String(e)));
     const a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
@@ -194,7 +196,7 @@ export class FallbackTessellator implements Tessellator {
       const swapped = [...want].filter((x) => meshedB.has(x) && !badB.has(x)).sort((x, y) => x - y);
       if (swapped.length) {
         const composed = composeResults(model, a, b, new Set(swapped));
-        const c = tidy(composed);
+        const c = tidy(composed, `${this.primary.info.name} with faces from ${this.fallback.info.name}`);
         const vc = judgeResult(c, model, D);
         if (compareVerdicts(vc, va) < 0 && compareVerdicts(vc, vb) <= 0) {
           const n = swapped.length, ids = swapped.slice(0, 10).map((x) => `#${x}`).join(', ')

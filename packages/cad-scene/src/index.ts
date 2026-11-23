@@ -7,15 +7,17 @@ export { identity, multiply, scaling, Y_UP_METRES, yUpFrame, LENGTH_UNITS, type 
   type PartInstance } from './walk.ts';
 export { badFaces, compareVerdicts, FallbackTessellator, judgeResult, type Verdict } from './fallback.ts';
 export { areaOracle, type AreaOracle, type FaceArea, modelFaceArea, OFF_SURFACE, ORACLE_DENSITY, ORACLE_DISAGREE,
-  ORACLE_RELATIVE, oracleAreas, oracleMeasures, setAreaOracle, TS_AREA_ORACLE, type OracleArea, type OracleFlag, type OracleOptions, type OracleResult, type OracleSurface, type OracleUnsupported,
-  trustedArea } from './area-oracle.ts';
+  ORACLE_RELATIVE, oracleAreas, oracleMeasures, setAreaOracle, TS_AREA_ORACLE, type OracleArea, type OracleFlag,
+  type OracleOptions, type OracleResult, type OracleSurface, type OracleUnsupported, trustedArea }
+  from './area-oracle.ts';
 export { edgeUsers, openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMessage } from './open-edges.ts';
 export { notManifoldCount, notManifoldDiagnostic, notManifoldMessage, reported, shellDefects, shellsManifold,
   type ShellDefects } from './manifold.ts';
 export { composeResults } from './compose.ts';
 export { failedMessage, FILL_WIDTH, filledMessage, fillFaces, fillResult, type Filled } from './fill.ts';
 export { JOIN_CORNER, JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
-export { orientResult, type Turned, turnedMessage, wrongShells } from './orient.ts';
+export { againstHealedMessage, orientResult, shellsOriented, type Turned, turnedMessage, wrongShells }
+  from './orient.ts';
 export { tessellateScene, toMesh, type TessellateOptions, type TessellateResult } from './tessellate.ts';
 export { DEFAULT_MESH_PROFILE, MESH_PROFILE_NAMES, MESH_PROFILES, meshDeflections, meshProfileOf, type Deflections,
   type MeshProfile } from './profiles.ts';

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type BrepData, BrepBuilder } from 'cad-brep';
+import { type BrepData, BrepBuilder, writeAnalysis } from 'cad-brep';
 import { box } from '../../cad-brep/test/models.ts';
 import { quads } from './meshes.ts';
-import { FallbackTessellator, orientResult, tessellateScene, turnedMessage, wrongShells, type Scene,
-  type TessellationResult, type Tessellator } from '../src/index.ts';
+import { againstHealedMessage, FallbackTessellator, orientResult, shellsOriented, tessellateScene, turnedMessage,
+  wrongShells, type Scene, type TessellationResult, type Tessellator } from '../src/index.ts';
 
 /**
  * A 4 mm box with a 1 mm void (faces 21-26 and 1021-1026): the void's shell used as `voidSense` says (false: facing
@@ -188,4 +188,34 @@ test('tessellateScene and the fallback orient (orient: false opts out)', async (
     assert.equal(volume(res, inVoid), orient ? -1 : 1);
     assert.equal(res.diagnostics.some((x) => x.message === message), orient);
   }
+});
+
+test('a healed model whose shells healing oriented: a mesh turned is the backend\'s doing, said as such', async () => {
+  // The model's shells as healing recorded them (analysis shell rows, facing found by the volume); the backend's mesh
+  // of the void facing into the material all the same.
+  const d = model(true), r = quads(d);
+  const head = { analysis: { model: new Array(8).fill(0), uncertainty: [1e-6] } };
+  const analysis = writeAnalysis({ ...head, shell: { volume: [64, 0, 1, 0], facing: [1, 1], facingFrom: [1, 1],
+    turned: [0, 0] } });
+  assert.ok(shellsOriented(analysis) && shellsOriented(new Uint8Array(analysis.buffer)));
+  assert.ok(!shellsOriented(undefined) && !shellsOriented(writeAnalysis(head)));
+  const w = wrongShells(d, r, 0.1), message = againstHealedMessage(w, 'fake 1');
+  assert.match(message, /^1 shell of solids meshed by fake 1 facing into the material, against the healed model's /);
+  const o = orientResult(d, r, 0.1, { backend: 'fake 1' });
+  assert.equal(volume(o, inVoid), -1);
+  assert.deepEqual(o.diagnostics, [{ severity: 'warning', message }]);
+  // tessellateScene names its backend; the fallback the tessellator that meshed it.
+  const s: Scene = { unit: 'millimetre', components: [], roots: [], materials: [], layers: [], overrides: [],
+    properties: {}, diagnostics: [], parts: [{ name: 'p', sources: [{ format: 'step', id: 7 }], properties: {},
+      origin: [0, 0, 0], lods: [], brep: { format: 'step', model: d, analysis } }] };
+  const b = backend(quads(d));
+  const out = await tessellateScene(s, b, { linearDeflection: 0.1 });
+  assert.deepEqual(out.diagnostics.map((x) => x.message),
+    [againstHealedMessage(w, `${b.info.name} ${b.info.version}`)]);
+  const t = new FallbackTessellator(backend(quads(d)), backend(quads(d)));
+  await t.init();
+  const res = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer), linearDeflection: 0.1,
+    angularDeflection: 0.5, analysis: new Uint8Array(analysis.buffer) });
+  assert.ok(res.diagnostics.some((x) => x.message === message.replace('fake 1', `${b.info.name} ${b.info.version}`)),
+    JSON.stringify(res.diagnostics));
 });

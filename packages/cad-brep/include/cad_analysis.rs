@@ -11,12 +11,12 @@
 #[cfg(not(target_endian = "little"))]
 compile_error!("cad-brep buffers are little-endian");
 
-pub const MAGIC: &[u8; 4] = b"CBA5";
-pub const HEADER_BYTES: usize = 472;
-pub const COLUMN_COUNT: usize = 58;
+pub const MAGIC: &[u8; 4] = b"CBA6";
+pub const HEADER_BYTES: usize = 488;
+pub const COLUMN_COUNT: usize = 60;
 
 /// Each column's element type, in buffer order: b u8, i i32, u u32, f f64.
-const TYPES: &[u8; COLUMN_COUNT] = b"uffifiibfbfbfiibfbffbfiibifibfffbibffbbbffiiiiibfffbbufuuu";
+const TYPES: &[u8; COLUMN_COUNT] = b"uffifiibfbfbfiibfbffbfiibifibfffbibffbbbbffiiiiibfffbbbufuuu";
 
 const fn bytes(k: usize) -> usize {
     match TYPES[k] {
@@ -244,63 +244,69 @@ impl Analysis {
     /// `face.areaFrom`: 1 per row.
     pub fn face_area_from(&self) -> &[u8] { self.slice(37) }
 
+    /// `face.turned`: 1 per row.
+    pub fn face_turned(&self) -> &[u8] { self.slice(38) }
+
     /// `surface.uClosed`: 1 per row.
-    pub fn surface_u_closed(&self) -> &[u8] { self.slice(38) }
+    pub fn surface_u_closed(&self) -> &[u8] { self.slice(39) }
 
     /// `surface.vClosed`: 1 per row.
-    pub fn surface_v_closed(&self) -> &[u8] { self.slice(39) }
+    pub fn surface_v_closed(&self) -> &[u8] { self.slice(40) }
 
     /// `surface.uPeriod`: 1 per row.
-    pub fn surface_u_period(&self) -> &[f64] { self.slice(40) }
+    pub fn surface_u_period(&self) -> &[f64] { self.slice(41) }
 
     /// `surface.vPeriod`: 1 per row.
-    pub fn surface_v_period(&self) -> &[f64] { self.slice(41) }
+    pub fn surface_v_period(&self) -> &[f64] { self.slice(42) }
 
     /// `surface.first`: 1 per row.
-    pub fn surface_first(&self) -> &[i32] { self.slice(42) }
+    pub fn surface_first(&self) -> &[i32] { self.slice(43) }
 
     /// `surface.count`: 1 per row.
-    pub fn surface_count(&self) -> &[i32] { self.slice(43) }
+    pub fn surface_count(&self) -> &[i32] { self.slice(44) }
 
     /// `continuity.edge`: 1 per row.
-    pub fn continuity_edge(&self) -> &[i32] { self.slice(44) }
+    pub fn continuity_edge(&self) -> &[i32] { self.slice(45) }
 
     /// `continuity.a`: 1 per row.
-    pub fn continuity_a(&self) -> &[i32] { self.slice(45) }
+    pub fn continuity_a(&self) -> &[i32] { self.slice(46) }
 
     /// `continuity.b`: 1 per row.
-    pub fn continuity_b(&self) -> &[i32] { self.slice(46) }
+    pub fn continuity_b(&self) -> &[i32] { self.slice(47) }
 
     /// `continuity.class`: 1 per row.
-    pub fn continuity_class(&self) -> &[u8] { self.slice(47) }
+    pub fn continuity_class(&self) -> &[u8] { self.slice(48) }
 
     /// `continuity.angle`: 1 per row.
-    pub fn continuity_angle(&self) -> &[f64] { self.slice(48) }
+    pub fn continuity_angle(&self) -> &[f64] { self.slice(49) }
 
     /// `continuity.angleError`: 1 per row.
-    pub fn continuity_angle_error(&self) -> &[f64] { self.slice(49) }
+    pub fn continuity_angle_error(&self) -> &[f64] { self.slice(50) }
 
     /// `shell.volume`: 2 per row.
-    pub fn shell_volume(&self) -> &[f64] { self.slice(50) }
+    pub fn shell_volume(&self) -> &[f64] { self.slice(51) }
 
     /// `shell.facing`: 1 per row.
-    pub fn shell_facing(&self) -> &[u8] { self.slice(51) }
+    pub fn shell_facing(&self) -> &[u8] { self.slice(52) }
 
     /// `shell.facingFrom`: 1 per row.
-    pub fn shell_facing_from(&self) -> &[u8] { self.slice(52) }
+    pub fn shell_facing_from(&self) -> &[u8] { self.slice(53) }
+
+    /// `shell.turned`: 1 per row.
+    pub fn shell_turned(&self) -> &[u8] { self.slice(54) }
 
     /// `healing.fixes`: 1 per row.
-    pub fn healing_fixes(&self) -> &[u32] { self.slice(53) }
+    pub fn healing_fixes(&self) -> &[u32] { self.slice(55) }
 
     /// `healing.pcurveFitTolerance`: 1 per row.
-    pub fn healing_pcurve_fit_tolerance(&self) -> &[f64] { self.slice(54) }
+    pub fn healing_pcurve_fit_tolerance(&self) -> &[f64] { self.slice(56) }
 
     /// `healing.version`: 1 per row.
-    pub fn healing_version(&self) -> &[u32] { self.slice(55) }
+    pub fn healing_version(&self) -> &[u32] { self.slice(57) }
 
     /// `healing.sourceCurves`: 1 per row.
-    pub fn healing_source_curves(&self) -> &[u32] { self.slice(56) }
+    pub fn healing_source_curves(&self) -> &[u32] { self.slice(58) }
 
     /// `healing.strayPoles`: 1 per row.
-    pub fn healing_stray_poles(&self) -> &[u32] { self.slice(57) }
+    pub fn healing_stray_poles(&self) -> &[u32] { self.slice(59) }
 }

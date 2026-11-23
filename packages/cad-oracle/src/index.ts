@@ -345,3 +345,4 @@ export class Oracle {
 }
 export { AREA_ORACLE_ID, areaOracle, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, type JudgedArea, type ModelLike }
   from './judge.ts';
+export { type ShellModel, shellVolumes, type ShellVolume } from './shells.ts';
