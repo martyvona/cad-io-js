@@ -17,7 +17,7 @@
 import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, FACING, FACING_FROM, faceOutlines, LOOP_KIND,
   modelHash, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
-import { init as initOracle, Oracle } from 'cad-oracle';
+import { type FaceMeasure, init as initOracle, JUDGE_REL_TOL, Oracle } from 'cad-oracle';
 import { RayShellSide } from 'cad-oracle/shell-side';
 import type { Brep, Diagnostic, Scene, SourceId, Vec3 } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
@@ -115,8 +115,12 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       + `an edge twice the same way, left as built: ${x.why}` });
     // Faces whose loops run against their sense, where their neighbours agree with the loops, flipped first: a
     // shell's volume and sides are by its faces' senses.
+    progress('orientShells: faces');
+    // (At judging's relTol, which the shells step's volumes take: the measures are kept for it, but for the faces
+    // flipped here.)
+    const measured = new Map<number, FaceMeasure>();
     const fs = (() => {
-      using o = new Oracle(om, healed.buffer);
+      using o = new Oracle(om, healed.buffer, { relTol: JUDGE_REL_TOL });
       using g2 = new Geometry(geom, new Uint8Array(healed.buffer));
       // (Only where the face has area enough for its loops' sign to mean something: more than 4 x its error and
       // than its perimeter times the part's tolerance. A sliver's signed sum is rounding: the bicycle's #2757 has
@@ -124,6 +128,7 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       const tol = tolerances(healed).part;
       return faceSenses(healed, (f) => {
         const m = o.face(f);
+        measured.set(f, m);
         // (Its only flag, but for a projected boundary: where its loops wind a torus's minor circle (`winds`), or the
         // face has another caveat, the loops' signed sum doesn't say which way they run. LMP1 #172807's three such
         // tori flipped turned every backend's mesh of the shell inside out.)
@@ -144,6 +149,7 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
         ? 'face\'s' : 'faces\''} sense flipped to their loops' (the loops ran against it, the neighbours agreeing with `
         + `the loops; ${fs.inClosed.length} in closed shells, ${fs.inSheets.length} in sheets): ${list(flipped)}` });
       healed = flipSenses(healed, flipped);
+      for (const f of flipped) measured.delete(f);
     }
     if (fs.alone.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.alone.length} `
       + `${fs.alone.length === 1 ? 'face' : 'faces'} whose loops run against their sense left as built (no neighbour `
@@ -157,8 +163,9 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
     if (fs.disputed.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.disputed.length} `
       + `${fs.disputed.length === 1 ? 'face' : 'faces'} whose loops run against their sense left as built (a neighbour `
       + `uses a shared edge the same way): ${list(fs.disputed)}` });
-    using sides = new RayShellSide(om, { checkSecondRay: true });
-    const v = shellVerdicts(healed, om, sides);
+    progress('orientShells: shells');
+    using sides = new RayShellSide(om, { checkSecondRay: true, relTol: JUDGE_REL_TOL });
+    const v = shellVerdicts(healed, om, sides, (f) => measured.get(f));
     diagnostics.push(...v.diagnostics);
     const wrong = v.verdicts.filter((x) => x.wrong);
     shells = { verdicts: v.verdicts, flipped, turnedFaces, ...(perm ? { perm } : {}) };

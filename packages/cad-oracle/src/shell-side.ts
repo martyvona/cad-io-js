@@ -39,14 +39,18 @@ export interface ShellSide {
 export class RayShellSide implements ShellSide {
   private readonly oracles = new Map<ArrayBuffer, Oracle>();
   private readonly module: OracleModule;
-  private readonly opts: { checkSecondRay?: boolean };
+  private readonly opts: { checkSecondRay?: boolean; relTol?: number };
 
-  constructor(module: OracleModule, opts: { checkSecondRay?: boolean } = {}) {
+  /**
+   * `relTol` the oracles' (Options' relTol): shellSide measures the faces the rays meet for their orientation flag, at
+   * the native default (1e-10) slow on some free-form faces (minutes), at judging's (JUDGE_REL_TOL) not.
+   */
+  constructor(module: OracleModule, opts: { checkSecondRay?: boolean; relTol?: number } = {}) {
     this.module = module, this.opts = opts;
   }
 
   /** A RayShellSide on the default module (init()). */
-  static async create(opts: { checkSecondRay?: boolean } = {}): Promise<RayShellSide> {
+  static async create(opts: { checkSecondRay?: boolean; relTol?: number } = {}): Promise<RayShellSide> {
     return new RayShellSide(await init(), opts);
   }
 

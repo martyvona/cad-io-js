@@ -218,6 +218,10 @@ test('faces: a face whose loops run against its sense flipped where its neighbou
   assert.equal(h.model.face.sameSense[0], cube().finish().face.sameSense[0]);
   assert.deepEqual(volumes(h.model), [1]);
   const a = openAnalysis(new Uint8Array(h.analysis!.buffer));
+  // The shells step measured the flipped face again (the faces step's measure, taken before the flip, is flagged):
+  // the volume known, the facing found by it and point classification both.
+  assert.ok(Math.abs(a.shell.volume[0]! - 1) < 1e-9, `${a.shell.volume[0]}`);
+  assert.deepEqual([...a.shell.facingFrom], [3]);
   assert.deepEqual([...a.face.turned], [1, 0, 0, 0, 0, 0]);
   // Healing again with orientShells off: the source back.
   const off = await healPart(h.model, { fixes: { orientShells: false } }, geom, undefined, h.analysis);

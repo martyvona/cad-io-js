@@ -1,9 +1,9 @@
 // A closed shell's signed volume from its faces' exact geometry (the divergence theorem: the sum over its faces of
-// (p - c) . n / 3, faceMoments at degree 1 about its box's centre c), with an error estimate, for orienting shells
+// (p - c) . n / 3, faceFlux about its box's centre c), with an error estimate, for orienting shells
 // (cad-heal's orientShells): positive, the shell faces out of what it encloses; negative, into it. Unknown where it
 // can't be sure of the sign. Beside it, a ShellSide's answer (point classification: shell-side.ts's RayShellSide).
 
-import { type Estimate, Oracle, type OracleModule, trusted } from './index.ts';
+import { type Estimate, type FaceMeasure, Oracle, type OracleModule, trusted } from './index.ts';
 import { JUDGE_REL_TOL, type ModelLike } from './judge.ts';
 // (A type only: shell-side.ts imports this module.)
 import type { ShellSide } from './shell-side.ts';
@@ -50,10 +50,11 @@ export interface ShellModel extends ModelLike {
  * |V| > 4 x its error; and `sides`' answer (none given: 'unknown'). The error is the moments' quadrature errors
  * plus, per face, its boundary's bound (mm^2: FaceMeasure.boundary) times the largest distance from the centre / 3
  * (a boundary moved sweeps at most that area, each point of it at most that far from c). The quadrature's tolerance
- * `relTol`, by default judging's (JUDGE_REL_TOL).
+ * `relTol`, by default judging's (JUDGE_REL_TOL). `faces`: a face row's measure already taken on this model at that
+ * relTol (an Oracle's `face`), reused instead of measured again; undefined where it hasn't one.
  */
 export function shellVolumes(module: OracleModule, model: ShellModel, opts: { sides?: ShellSide; eps?: number;
-  relTol?: number } = {}): ShellVolume[] {
+  relTol?: number; faces?: (face: number) => FaceMeasure | undefined } = {}): ShellVolume[] {
   const sides = opts.sides, out: ShellVolume[] = [];
   const shells: number[] = [];
   for (let b = 0; b < model.body.kind.length; b++) {
@@ -96,12 +97,10 @@ export function shellVolumes(module: OracleModule, model: ShellModel, opts: { si
     if (model.shell.kind[s] !== CLOSED) why = 'the shell isn\'t closed';
     for (const f of faces) {
       if (why) break;
-      const m = o.face(f);
+      const m = opts.faces?.(f) ?? o.face(f);
       if (!trusted(m, FACE_RELATIVE)) { why = `face row ${f}'s area isn't trusted`; break; }
-      const deg1 = o.faceMoments(f, { center: c, degree: 1 }).slice(1);
       const ok = (e: Estimate) => e.status === 'ok' && Number.isFinite(e.value) && Number.isFinite(e.error);
-      // (Degree 1: x, y, z by exponent, descending; each against its own component of n.)
-      const parts = [deg1[0]!.n[0], deg1[1]!.n[1], deg1[2]!.n[2]];
+      const parts = o.faceFlux(f, c);
       if (!parts.every(ok)) { why = `face row ${f}'s moments failed`; break; }
       volume += parts.reduce((a, e) => a + e.value, 0) / 3;
       error += parts.reduce((a, e) => a + e.error, 0) / 3 + (m.boundary > 0 ? m.boundary * reach / 3 : 0);
