@@ -664,6 +664,36 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
   return false;
 }
 
+/**
+ * The signed area the boundary's loops enclose together, or loop `loop`'s alone (signedArea2's rule over its pieces,
+ * joints' segments among them), its error the quadratures' plus the chords' rounding.
+ */
+Estimate boundaryArea(const Boundary& bd, int loop) {
+  Estimate total{0, 0, Status::ok};
+  double scale = 0;
+  for (size_t k = 0; k < bd.pieces.size(); k++) {
+    if (loop >= 0 && bd.loopOf[k] != loop) continue;
+    const LoopPiece& piece = bd.pieces[k];
+    const Vec2 s = pieceStart(piece), e = pieceEnd(piece), next = pieceStart(bd.pieces[bd.next[k]]);
+    scale = std::max({scale, std::fabs(s.x), std::fabs(s.y), std::fabs(e.x), std::fabs(e.y)});
+    total.value += 0.5 * cross(e, next);
+    if (straight(*piece.curve, piece.range)) {
+      total.value += 0.5 * cross(s, e);
+      continue;
+    }
+    Estimate q = quadrature::integrate([&](double t) {
+      P2 e2 = at(*piece.curve, t);
+      return 0.5 * cross(e2.p, e2.d1);
+    }, piece.range.lo, piece.range.hi, 0, 1e-13);
+    total.value += piece.reversed ? -q.value : q.value;
+    total.error += q.error;
+    if (q.status != Status::ok) total.status = q.status;
+  }
+  // (Each term's rounding, about scale^2 eps, over two per piece.)
+  total.error += 4 * static_cast<double>(bd.pieces.size()) * scale * scale * 2.3e-16;
+  return total;
+}
+
 enum class RayResult { in, out, retry, none };
 
 /**
@@ -714,14 +744,46 @@ RayResult cast(const Boundary& bd, Vec2 p, Vec2 dir, double L, const Periods& pe
         }
         // At a piece's end the loop goes on in its neighbour (the same piece, a period on, for a band): p must be on
         // the same side of both, else the ray passes through a corner and decides nothing.
+        // Where the ray meets the piece, on the piece as given (its box the unshifted one).
+        const Vec2 meet = c.p - d;
+        auto small = [&](int j) {
+          const Bbox& b = bd.boxes[j];
+          return b.x0 >= meet.x - tol && b.x1 <= meet.x + tol && b.y0 >= meet.y - tol && b.y1 <= meet.y + tol;
+        };
         double speed = len(at(*piece.curve, c.tb).d1);
         bool atLo = std::fabs(c.tb - piece.range.lo) * speed <= tol;
         bool atHi = std::fabs(c.tb - piece.range.hi) * speed <= tol;
+        // (Near both ends, a piece no longer than tol: its nearer end.)
+        if (atLo && atHi) {
+          atLo = c.tb - piece.range.lo <= piece.range.hi - c.tb;
+          atHi = !atLo;
+        }
         if (atLo || atHi) {
-          bool travelStart = atLo != piece.reversed;
-          const LoopPiece& nb = bd.pieces[travelStart ? bd.prev[k] : bd.next[k]];
-          double joint = travelStart != nb.reversed ? nb.range.hi : nb.range.lo;  // the neighbour's end at the joint
-          double here = cross(travel(piece, c.tb), p - c.p), there = cross(travel(nb, joint), p - c.p);
+          // The pieces arriving at the joint and leaving it, past any lying all within tol of where the ray meets
+          // it (at the joint: a spike's tip of short pieces, met within tol off its end, is the arc in and the line
+          // out, not the short pieces between); every piece that near, nothing to tell. (Near the meeting, not short:
+          // at a tolerance larger than a loop's pieces, a chain of them runs on past it.)
+          const bool travelStart = atLo != piece.reversed;
+          const int n = static_cast<int>(bd.pieces.size());
+          int in = travelStart ? bd.prev[k] : static_cast<int>(k), out = travelStart ? static_cast<int>(k) : bd.next[k];
+          int steps = 0;
+          while (small(in) && steps++ < n) in = bd.prev[in];
+          while (small(out) && steps++ < 2 * n) out = bd.next[out];
+          if (small(in) || small(out)) {
+            // Every piece of the loop near the meeting, the loop all within a box 2 tol across: p, farther than tol
+            // from it (else on), is outside what it encloses, out past an outer loop (its area positive), in past a
+            // hole (negative); unsure, nothing to tell.
+            const Estimate area = boundaryArea(bd, bd.loopOf[k]);
+            const bool sure = area.status == Status::ok && std::fabs(area.value) > area.error;
+            mets.push_back({s, !sure ? RayResult::retry : area.value > 0 ? RayResult::out : RayResult::in, {0, 0}});
+            continue;
+          }
+          const LoopPiece& a = bd.pieces[in];
+          const LoopPiece& b = bd.pieces[out];
+          // (Where travel along each ends and starts: the joint.)
+          const double ta = in == static_cast<int>(k) ? c.tb : a.reversed ? a.range.lo : a.range.hi;
+          const double tb = out == static_cast<int>(k) ? c.tb : b.reversed ? b.range.hi : b.range.lo;
+          double here = cross(travel(a, ta), p - c.p), there = cross(travel(b, tb), p - c.p);
           if ((here > 0) != (there > 0) || here == 0 || there == 0) {
             mets.push_back({s, RayResult::retry, {0, 0}});
             continue;
@@ -775,7 +837,7 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
   double reach = 2 * (std::max(all.x1 - all.x0, all.y1 - all.y0) + len(p - Vec2{all.x0, all.y0})) + 1;
   // Directions: up and down in v unless it's periodic (then one period), then u, then slanted ones.
   const double pi = 3.14159265358979323846;
-  bool hit = false;
+  bool hit = false, missed = false;
   for (int k = 0; k < 24; k++) {
     double angle = pi / 2 + k * 0.7389;  // a fixed irrational-ish turn per try
     Vec2 dir{std::cos(angle), std::sin(angle)};
@@ -811,13 +873,25 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
     RayResult r = cast(bd, p, dir, L, per, tol);
     // A ray meeting nothing says nothing: one period along a band's loops runs parallel to them, and a polar cap's
     // region is unbounded in (u, v) toward its pole. Another direction meets the boundary.
-    if (r == RayResult::none) continue;
+    if (r == RayResult::none) {
+      missed = true;
+      continue;
+    }
     hit = true;
     if (r == RayResult::retry) continue;
     return r == RayResult::in ? Side::in : Side::out;
   }
   // No ray met anything: nothing bounds p.
   if (!hit) return Side::out;
+  // Not periodic, a ray meeting nothing puts p in the region unbounded in (u, v) (a region reaching a pole line is
+  // closed along it, so a ray from inside meets that), though every ray meeting the boundary decided nothing (a far
+  // point whose ray passes a small face within tol): out where the loops bound a region (their signed area positive,
+  // the outer counterclockwise), in where they bound its complement (negative: holes alone), unsettled where the sign
+  // is within its error.
+  if (missed && per.u == 0 && per.v == 0) {
+    const Estimate a = boundaryArea(bd, -1);
+    if (a.status == Status::ok && std::fabs(a.value) > a.error) return a.value > 0 ? Side::out : Side::in;
+  }
   status = Status::noConvergence;
   return Side::out;
 }
