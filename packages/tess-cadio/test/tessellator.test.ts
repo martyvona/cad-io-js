@@ -168,9 +168,9 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
     assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
     // bsplineApexHole's at 1e-3 mm and 0.1 rad: refused, none in a pole's fan (kept: past the deflection, the
-    // default would fail the face, maxDeviationFactor; its fan folding there, failFoldedFans too).
+    // default would fail the face, maxDeviationFactor).
     const keeping = new CadioTessellator();
-    await keeping.init({ maxDeviationFactor: 0, failFoldedFans: false });
+    await keeping.init({ maxDeviationFactor: 0 });
     const ro = await keeping.tessellate({ ...req('cube'), data: new Uint8Array(bsplineApexHole().finish().buffer),
       linearDeflection: 1e-3, angularDeflection: 0.1 });
     const o = ro.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
@@ -182,12 +182,11 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
 test('init({maxDeviationFactor}): a face left farther from its surface than that x the deflection fails; 0 never',
   { skip }, async () => {
     // bsplineApexHole at 1e-3 mm and 0.1 rad keeps refused triangles: a factor of 1e-6 fails its face (the failed
-    // faces' diagnostic, no triangles for it), 0 keeps it as meshed (its apex's fan folding there: failFoldedFans
-    // off).
+    // faces' diagnostic, no triangles for it), 0 keeps it as meshed.
     const data = new Uint8Array(bsplineApexHole().finish().buffer);
     const run = async (factor: number) => {
       const t = new CadioTessellator();
-      await t.init({ maxDeviationFactor: factor, failFoldedFans: false });
+      await t.init({ maxDeviationFactor: factor });
       return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
     };
     const strict = await run(1e-6), never = await run(0);
@@ -617,21 +616,23 @@ test('a face bounded by holes only (sphereBelt\'s belt between two circles) said
   assert.equal((await said(new Uint8Array(MODELS.cube().finish().buffer))).length, 0);
 });
 
-test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over itself fails, said so; off, meshed',
-  { skip }, async () => {
-  // (bsplineApexHole at 1e-3 mm and 0.1 rad: its apex's fan folds, 2 edges there used twice the same way welded.)
-  const data = new Uint8Array(bsplineApexHole().finish().buffer);
-  const run = async (failFoldedFans?: boolean) => {
-    const t = new CadioTessellator();
-    await t.init({ maxDeviationFactor: 0, ...(failFoldedFans === undefined ? {} : { failFoldedFans }) });
-    return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
-  };
-  const byDefault = failedCauses(await run()), off = await run(false);
-  assert.equal(byDefault.size, 1);
-  assert.match([...byDefault.values()][0]!,
-    /^noConvergence: a pole's fan folds over itself: \d+ edges? used twice the same way$/);
-  assert.equal(failedCauses(off).size, 0);
-  assert.ok(off.indices.length > 0);
+test('an apex\'s fan consistent along its chain: bsplineApexHole meshed by default (failFoldedFans on), '
+  + 'its triangles at the apex manifold', { skip }, async () => {
+  // (bsplineApexHole at 1e-3 mm and 0.1 rad: its apex's fan folded, 2 edges used twice the same way welded; either
+  // its far ends' corners left out or its triangles each against the mesher's use of their ring segment mends it.)
+  const t = new CadioTessellator();
+  await t.init({ maxDeviationFactor: 0 });
+  const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bsplineApexHole().finish().buffer),
+    linearDeflection: 1e-3, angularDeflection: 0.1 });
+  assert.equal(failedCauses(r).size, 0);
+  const key = (i: number) => [0, 1, 2].map((c) => r.positions[3 * i + c]).join(',');
+  const used = new Map<string, number>();
+  for (let k = 0; k < r.indices.length; k += 3) for (let i = 0; i < 3; i++) {
+    const e = key(r.indices[k + i]!) + '>' + key(r.indices[k + (i + 1) % 3]!);
+    used.set(e, (used.get(e) ?? 0) + 1);
+  }
+  assert.ok(r.indices.length > 0);
+  assert.deepEqual([...used].filter(([, n]) => n > 1), []);
 });
 
 test('init({capFloor, capMultiple, capCeiling}): a face past max(floor, multiple x its expected triangles) fails, '

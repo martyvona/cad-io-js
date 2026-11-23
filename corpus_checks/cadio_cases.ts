@@ -3,12 +3,13 @@
 // skipped, said so. Usage: node --max-old-space-size=12000 corpus_checks/cadio_cases.ts
 import fs from 'node:fs';
 import path from 'node:path';
-import { MESH_PROFILES } from '../packages/cad-scene/src/index.ts';
+import { MESH_PROFILES, type TessellationResult } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { CadioTessellator } from '../packages/tess-cadio/src/index.ts';
 import { failedCauses } from './cadio_causes.ts';
 
-interface Case { file: string; part: number; faces: number[]; why: string }
+// `needles`: also none of the faces' triangles past an aspect (its longest side over its altitude) of 1000.
+interface Case { file: string; part: number; faces: number[]; why: string; needles?: boolean }
 const root = path.join(import.meta.dirname, '..', 'test_corpus');
 const CASES: Case[] = [
   // A pole's ring inside an arc that, one span at the start (its two ends labelled with the edges before them), the
@@ -31,6 +32,15 @@ const CASES: Case[] = [
     why: 'a turned sliver\'s apex collapsed' },
   { file: 'models/onshape/LMP1.step', part: 172440, faces: [1041915], why: 'a turned sliver\'s apex collapsed' },
   { file: 'models/onshape/LMP1.step', part: 172482, faces: [1046237, 1046289], why: 'a flip and a collapse' },
+  // Poles' fans folding once welded (PartOptions::failFoldedFans fails them), at an apex with a curve through it: a fan
+  // whose triangles' directions by their normals disagree made consistent along its chain, each against the mesher's
+  // use of its ring segment (a cone's far ends on generators through its apex; a torus's corners a degree apart);
+  // at an apex a far end's corner under 1e-3 rad from that end about it left out (a needle else).
+  { file: 'third_party/nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/'
+    + 'nist_ctc_02_asme1_rc.stp', part: 20754, faces: [14052, 14104, 14156, 14208, 20640, 20651],
+    why: 'a cone apex\'s fans made consistent, no needles', needles: true },
+  { file: 'models/onshape/LMP1.step', part: 173466, faces: [1091324, 1091325, 1091329, 1091330],
+    why: 'a torus apex\'s fans made consistent' },
   // The same face meshed only if no more is judged on those points than the output's own turn: the angle on them
   // (a thin triangle's tilt, steeper as refinement thins it) took it to the point cap, the turn against any one
   // corner's normal left one turned.
@@ -51,6 +61,21 @@ const CASES: Case[] = [
   { file: 'third_party/gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp', part: 43110, faces: [23796, 23984],
     why: 'an end span\'s split past the near-end drop, then frozen' },
 ];
+
+// A face's triangles past an aspect of 1000 in a result.
+function needles(r: TessellationResult, face: number): number {
+  let n = 0;
+  for (const f of r.faces) if (f.entityId === face) for (let k = f.start; k < f.start + f.count; k += 3) {
+    const p = [0, 1, 2].map((q) => [0, 1, 2].map((c) => r.positions[3 * r.indices[k + q]! + c]!));
+    const e = [0, 1, 2].map((q) => p[(q + 1) % 3]!.map((x, i) => x - p[q]![i]!));
+    const [u, v] = [e[0]!, e[2]!.map((x) => -x)] as [number[], number[]];
+    const area = Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
+      u[0]! * v[1]! - u[1]! * v[0]!) / 2;
+    const long = Math.max(...e.map((x) => Math.hypot(...x)));
+    if (!(long * long / (2 * area) <= 1000)) n++;
+  }
+  return n;
+}
 
 const t = new CadioTessellator();
 await t.init();
@@ -73,10 +98,13 @@ for (const [file, cases] of byFile) {
     }
     const r = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(part.brep!.model.buffer),
       origin: part.origin, ...MESH_PROFILES.medium });
-    const failed = failedCauses(r), still = c.faces.filter((f) => failed.has(f));
+    const failed = failedCauses(r), still = c.faces.filter((f) => failed.has(f)).map((f) => `#${f} ${failed.get(f)}`);
+    if (c.needles) {
+      for (const f of c.faces) if (!failed.has(f) && needles(r, f)) still.push(`#${f} ${needles(r, f)} needles`);
+    }
     if (still.length) bad++;
     console.log(`${still.length ? 'FAIL' : 'ok  '} ${file} #${c.part} (${c.why}): ` +
-      (still.length ? still.map((f) => `#${f} ${failed.get(f)}`).join('; ') : `${c.faces.length} faces meshed`));
+      (still.length ? still.join('; ') : `${c.faces.length} faces meshed`));
   }
 }
 process.exitCode = bad ? 1 : 0;
