@@ -14,7 +14,7 @@ import { applyCustomBackground, applyTheme, customBackground, hexColour, onSyste
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
-import { faceCausesOf, showProblems } from './problems.ts';
+import { count, faceCausesOf, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
@@ -120,6 +120,11 @@ export interface Ui {
   empty(): void;
   /** Says something in the status line. */
   say(text: string, error?: boolean): void;
+  /**
+   * What an operation that finished has to say beyond the status line, in a modal with a list of `items` (not in the
+   * browser check's plain ?check pages); resolves when it's closed. Never the console.
+   */
+  notice(title: string, intro: string, items?: readonly string[], error?: boolean): Promise<void>;
   /**
    * Whether Copy link to this view spells out the settings whose defaults depend on the device (its Include device
    * defaults: the meshing profile and the edge style), even where they're this device's.
@@ -246,13 +251,25 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (problemsDialog) void showDialog({ title: `Could not open ${what}`, error: true, body: [message],
       buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   };
+  /**
+   * What an operation that finished has to say beyond the status line (export's warnings, what Mesh again didn't find
+   * again, replay's divergences...), in a modal, a list scrolling on its own; never in the console. Gated as the
+   * problems dialog (?check pages: only with ?check=dialogs). Resolves when it's closed (at once where not shown).
+   */
+  const notice = async (title: string, intro: string, items: readonly string[] = [], error = false):
+    Promise<void> => {
+    if (!problemsDialog) return;
+    await showDialog({ title, error, body: [intro, ...(items.length ? [items.map((i) => [i])] : [])],
+      buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+  };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
   // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
   // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
   // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
   // their part's mesh); what never arrives (a node gone, or a selected face, edge or curve of a part that fails this
-  // time) is reported in the status line, its paths in the console. The new tree is expanded as the last was, and
-  // scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks in it.
+  // time) is counted in the status line, its paths in a modal once done (notice). The new tree is expanded as the
+  // last was, and scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks
+  // in it.
   let restore: { overrides: PathOverride[]; lost: string[]; selected: string[]; expanded: string[];
     top?: { path: string; offset: number } } | undefined;
   const restoreNodes = () => {
@@ -358,7 +375,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const author = typeof m?.properties.author === 'string' ? ` (${m.properties.author})` : '';
     return showAbout(m && s ? { rows: [['File', m.name + author],
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
-      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched } : undefined,
+      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched,
+    problems: () => void showProblems(m.name, m.diagnostics ?? []) } : undefined,
     updates, () => void loadDemo());
   };
   const loadDemo = async () => {
@@ -402,7 +420,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const size = r.chunks.reduce((n, c) => n + (typeof c === 'string' ? new Blob([c]).size : c.length), 0);
       const warnings = [...edits?.warnings ?? [], ...r.diagnostics.filter((d) => d.severity !== 'info')
         .map((d) => d.message)];
-      if (warnings.length) console.warn('export:', warnings);
       let bin = '';
       if (r.bin) {
         // (A second click, for the save dialog of its .bin.)
@@ -418,7 +435,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       }
       const amount = size < 1e6 ? `${Math.max(1, Math.round(size / 1e3))} KB` : `${(size / 1e6).toFixed(1)} MB`;
       say(`${target.how === 'saved' ? 'exported' : 'downloaded'} ${name}${bin}, ${amount}` +
-        (warnings.length ? `; ${warnings.length} warnings (in the console): ${warnings[0]}` : ''), warnings.length > 0);
+        (warnings.length ? `; ${count(warnings.length, 'warning')}: ${warnings[0]}` : ''), warnings.length > 0);
+      if (warnings.length) void notice(`Exported ${name}: ${count(warnings.length, 'warning')}`, 'What couldn\'t be '
+        + 'written as the view shows it, and the exporter\'s warnings:', warnings);
     } catch (e) {
       fail(e);
       // The import worker lost with the page's meshes (Viewer.exportModel): the model made again as it was.
@@ -446,11 +465,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (!keep) restore = undefined;
       // Mesh again: the import worker's scene meshed again in place where it can, else the file loaded again.
       let inPlace = false;
+      // (Why Mesh again loaded the file again instead, said once it's done.)
+      let fellBack = '';
       if (keep) {
         try {
           inPlace = await viewer.meshAgain();
         } catch (e) {
-          console.warn('meshing again from the models failed; loading the file again:', e);
+          fellBack = (e as Error).message;
           gen = viewer.nextLoad();
         }
       }
@@ -478,18 +499,26 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       // (Nothing said of meshing for a model with nothing to mesh: a glTF's, a STEP file's tessellated geometry.)
       const parts = m.parts?.total ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
         (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
-      const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
+      const problems = problemCounts(m.diagnostics ?? []);
+      const errors = (m.diagnostics ?? []).some((d) => d.severity === 'error');
       const counts = [];
       if (lost.overrides.length) {
         counts.push(`${lost.overrides.length} appearance override${lost.overrides.length === 1 ? '' : 's'}`);
       }
       if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
-      const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
+      const notRestored = counts.length ? `; ${counts.join(' and ')} not found again` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
-        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored + changed, !!changed);
-      if (problems) console.warn(m.diagnostics);
-      if (problems && problemsDialog) void showProblems(src.name, m.diagnostics ?? []);
-      if (notRestored) console.warn('meshed again, not found again:', lost);
+        (problems ? `; ${problems} (details from the About box)` : '') + notRestored + changed, !!changed);
+      // Then the modals, one after another: the problems dialog by itself for errors only (warnings are only counted
+      // here, and listed from About), what Mesh again didn't find again, and why it loaded the file again.
+      const modals: (() => Promise<void>)[] = [];
+      if (errors && problemsDialog) modals.push(() => showProblems(src.name, m.diagnostics ?? []));
+      if (notRestored) modals.push(() => notice(`${src.name}: not found again`, 'Meshed again, these weren\'t found '
+        + 'in the new meshes (such as the faces of a part that failed this time), so they were let go:',
+      [...lost.overrides.map((p) => `appearance override: ${p}`), ...lost.selected.map((p) => `selected: ${p}`)]));
+      if (fellBack) modals.push(() => notice(`${src.name}: loaded again`, 'Meshing again from the models already '
+        + `read failed, so the file was read and meshed again: ${fellBack}`));
+      void modals.reduce((p, f) => p.then(f), Promise.resolve());
       const box = visibleBox(viewer.display);
       const r: Record<string, unknown> = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts,
         stats: s, box: [box.min.toArray(), box.max.toArray()],
@@ -499,7 +528,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       hooks.onEvent?.({ type: 'loaded', report: r });
       return r;
     } catch (e) {
-      console.error(e);
       failed(what, (e as Error).message);
       report({ error: (e as Error).message });
       hooks.onEvent?.({ type: 'loaded', report: { error: (e as Error).message } });
@@ -1185,6 +1213,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       report({ empty: true });
     },
     say,
+    notice,
     gui,
     get onEvent() { return hooks.onEvent; },
     set onEvent(f) { hooks.onEvent = f; },

@@ -2020,55 +2020,237 @@ await check('sections', async () => {
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
-// The problems dialog (problems.ts): a file with errors, once meshed, shows them in a modal (only with
-// ?check=dialogs among the check's pages), a row per error and none for its warnings; OK closes it. A face that fails
-// to mesh is an error too. A file with warnings alone, one without either, and the plain ?check pages, show none.
+// The problems dialog (problems.ts): a file with errors, once meshed, shows them in a modal (only with ?check=dialogs
+// among the check's pages), a list of its errors and one of its warnings, each scrolling on its own, "None." for a
+// kind it hasn't, a Copy button for each kind, disabled for one without ids; OK closes it. A face that fails to mesh is
+// an error too. A file with warnings alone, one without either, and the plain ?check pages, show none by themselves.
+// The status line counts each kind ("2 errors, 1 warning (details from the About box)"; nothing for none); About's
+// errors/warnings link shows the same dialog at any time. Nothing goes to the console.
 await check('problems dialog', async () => {
+  const first = `globalThis.consoleSaid = [];
+    for (const k of ['log', 'info', 'warn', 'error']) {
+      const f = console[k];
+      console[k] = (...a) => { consoleSaid.push(k + ': ' + String(a[0]).slice(0, 80)); f.apply(console, a); };
+    }`;
   const look = `(async () => { await cadViewer.ready; await cadViewer.idle();
     await new Promise((r) => setTimeout(r, 200));
-    const d = document.querySelector('dialog.cv-dialog');
+    const dialogs = () => [...document.querySelectorAll('dialog.cv-dialog')];
+    const read = (d) => {
+      const list = (kind) => {
+        const box = d.querySelector('.table.' + kind);
+        return { rows: [...box.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent)),
+          none: box.querySelector('p.none')?.textContent ?? null, scrolls: getComputedStyle(box).overflowY,
+          heading: box.previousElementSibling?.textContent ?? null };
+      };
+      const button = (label) => [...d.querySelectorAll('button')].find((b) => b.textContent === label);
+      return { title: d.querySelector('h2')?.textContent ?? null, error: d.classList.contains('error'),
+        errors: list('errors'), warnings: list('warnings'),
+        copyErrors: button('Copy error IDs')?.disabled ?? null,
+        copyWarnings: button('Copy warning IDs')?.disabled ?? null };
+    };
+    const close = async (d) => {
+      d.querySelector('button.primary').click();
+      // (Removed once it has closed: waited for, up to 5 s, as it can take longer than a frame or two under load.)
+      for (let t = 0; t < 100 && d.isConnected; t++) await new Promise((r) => setTimeout(r, 50));
+      return !d.isConnected;
+    };
     const diagnostics = viewer.model?.diagnostics ?? [];
-    const out = { open: !!d?.open, title: d?.querySelector('h2')?.textContent ?? null,
-      rows: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) : [],
-      messages: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[1].textContent) : [],
+    const auto = dialogs()[0];
+    const out = { open: !!auto?.open, auto: auto ? read(auto) : null,
       warnings: diagnostics.filter((x) => x.severity === 'warning').length,
-      errors: diagnostics.filter((x) => x.severity === 'error').length };
-    d?.querySelector('button.primary')?.click();
-    // (Removed once it has closed: waited for, up to 5 s, as it can take longer than a frame or two under load.)
-    for (let t = 0; t < 100 && document.querySelector('dialog.cv-dialog'); t++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    return { ...out, closed: !document.querySelector('dialog.cv-dialog') };
+      errors: diagnostics.filter((x) => x.severity === 'error').length,
+      status: document.getElementById('status').textContent };
+    out.closed = auto ? await close(auto) : true;
+    // About's link: the same dialog, over About.
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    await new Promise((r) => setTimeout(r, 100));
+    const about = dialogs()[0];
+    const link = [...about.querySelectorAll('a')].find((a) => a.textContent === 'errors/warnings');
+    out.link = !!link;
+    link?.click();
+    await new Promise((r) => setTimeout(r, 100));
+    const fromAbout = dialogs()[1];
+    out.fromAbout = fromAbout ? read(fromAbout) : null;
+    if (fromAbout) out.fromAboutClosed = await close(fromAbout);
+    out.aboutStill = about.open;
+    await close(about);
+    out.console = consoleSaid;
+    return out;
   })()`;
-  type Seen = { open: boolean; title: string | null; rows: string[]; messages: string[]; warnings: number;
-    errors: number; closed: boolean };
-  const broken = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
-  const clean = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
-  const warned = (await page(`?url=${encodeURIComponent('/content/warned.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
+  type List = { rows: string[][]; none: string | null; scrolls: string; heading: string | null };
+  type Read = { title: string | null; error: boolean; errors: List; warnings: List; copyErrors: boolean | null;
+    copyWarnings: boolean | null };
+  type Seen = { open: boolean; auto: Read | null; warnings: number; errors: number; status: string; closed: boolean;
+    link: boolean; fromAbout: Read | null; fromAboutClosed?: boolean; aboutStill: boolean; console: string[] };
+  const see = async (file: string, dialogs = true) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}`
+    + `&check${dialogs ? '=dialogs' : ''}`, look, { first }) as { after: Seen }).after;
+  const broken = await see('broken.stp'), clean = await see('as1.stp'), warned = await see('warned.stp');
   // (OCCT fails a face of it, meshes ten over their area and leaves an edge open; SMLib, the fallback, meshes those
   // ten but leaves out three, one the face OCCT fails: the per-face fallback's mix, OCCT's mesh with SMLib's ten,
   // still without that face and open along an edge between the two.)
-  const face = (await page(`?url=${encodeURIComponent('/content/face-failed.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
-  const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
+  const face = await see('face-failed.stp'), quiet = await see('broken.stp', false);
   const j = JSON.stringify({ broken, clean, warned, face, quiet });
-  expect(broken.errors > 0 && broken.warnings > 0 && broken.open && broken.rows.length === Math.min(broken.errors,
-    500) && broken.title === `broken.stp: ${broken.errors} error${broken.errors === 1 ? '' : 's'}` &&
-    broken.rows.every((r) => r.startsWith('error')) && broken.closed, `a file with errors: ${j}`);
-  expect(clean.errors + clean.warnings === 0 && !clean.open, `a file without: ${j}`);
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const counts = (s: Seen) => [s.errors ? plural(s.errors, 'error') : '', s.warnings ? plural(s.warnings, 'warning')
+    : ''].filter(Boolean).join(', ');
+  // The dialog as it should be for a page's diagnostics, however it was opened.
+  const shown = (s: Seen, r: Read | null, name: string) => !!r && r.title === `${name}: ${counts(s) ||
+    'no errors or warnings'}` && r.error === s.errors > 0 && r.errors.rows.length === s.errors
+    && r.warnings.rows.length === s.warnings && r.errors.rows.every((x) => x[0]!.startsWith('error'))
+    && r.warnings.rows.every((x) => x[0]!.startsWith('warning'))
+    && r.errors.none === (s.errors ? null : 'None.') && r.warnings.none === (s.warnings ? null : 'None.')
+    && r.errors.heading === `Errors (${s.errors})` && r.warnings.heading === `Warnings (${s.warnings})`
+    && r.errors.scrolls === 'auto' && r.warnings.scrolls === 'auto'
+    && r.copyErrors === !r.errors.rows.some((x) => /#\d/.test(x[0]!))
+    && r.copyWarnings === !r.warnings.rows.some((x) => /#\d/.test(x[0]!));
+  const said = (s: Seen) => counts(s) ? s.status.endsWith(`; ${counts(s)} (details from the About box)`)
+    : !/error|warning|About/.test(s.status);
+  for (const [name, s] of [['broken.stp', broken], ['as1.stp', clean], ['warned.stp', warned],
+    ['face-failed.stp', face], ['broken.stp', quiet]] as const) {
+    expect(said(s), `${name}'s status line: ${s.status}`);
+    expect(s.link && shown(s, s.fromAbout, name) && !!s.fromAboutClosed && s.aboutStill,
+      `${name} from About: ${JSON.stringify(s.fromAbout)}`);
+    expect(s.console.length === 0, `${name}: nothing in the console: ${JSON.stringify(s.console)}`);
+  }
+  expect(broken.errors > 0 && broken.warnings > 0 && broken.open && shown(broken, broken.auto, 'broken.stp')
+    && !broken.auto!.copyErrors && broken.closed, `a file with errors: ${j}`);
+  expect(clean.errors + clean.warnings === 0 && !clean.open && !!clean.fromAbout?.copyErrors
+    && !!clean.fromAbout.copyWarnings, `a file without: ${j}`);
   expect(warned.warnings > 0 && warned.errors === 0 && !warned.open, `a file with warnings alone: ${j}`);
-  expect(face.errors === 2 && face.open && face.title === 'face-failed.stp: 2 errors' &&
-    face.rows.join() === 'error #10,error #10' && face.messages.join('|') === '1 faces failed to mesh: #18168|1 '
-    + 'edges along which the meshes of the faces they join don\'t meet: the mesh is open there', `a face failed: ${j}`);
-  expect(quiet.errors > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
+  expect(face.errors === 2 && face.open && !!face.auto?.title?.startsWith('face-failed.stp: 2 errors')
+    && face.auto.errors.rows.map((r) => r[0]).join() === 'error #10,error #10'
+    && face.auto.errors.rows.map((r) => r[1]).join('|') === '1 faces failed to mesh: #18168|1 edges along which the '
+    + 'meshes of the faces they join don\'t meet: the mesh is open there', `a face failed: ${j}`);
+  expect(quiet.errors > 0 && !quiet.open, `none by itself in plain ?check pages: ${j}`);
   return undefined;
 });
-// STEP ids (step-ids.ts): the problems dialog's Copy IDs copies its rows' ids (the clipboard stubbed), the dialog
-// staying open; Select by ID (Selection) reads what's typed in its dialog: a part's id selects every placement, a
-// face's turns the tree's detail on and selects its face nodes, anything else is said; the details panel lists the
+// What an operation has to say beyond the status line goes in a modal once it's done (ui.ts's notice, ?check=dialogs
+// here), never the console: a model that can't be opened (its error dialog), what Mesh again didn't find again (each
+// path), Mesh again falling back to loading the file again (why), an export's warnings (each), a replay's divergences
+// (each, from Replay recording...).
+await check('operation notices', async () => {
+  const first = `globalThis.consoleSaid = [];
+    for (const k of ['log', 'info', 'warn', 'error']) {
+      const f = console[k];
+      console[k] = (...a) => { consoleSaid.push(k + ': ' + String(a[0]).slice(0, 80)); f.apply(console, a); };
+    }`;
+  const r = await page('?check=dialogs', `(async () => {
+    await cadViewer.ready;
+    const until = async (f, what) => {
+      for (const end = Date.now() + 60000; Date.now() < end;) {
+        const v = f();
+        if (v) return v;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      throw new Error('timed out waiting for ' + what + ' (status: ' + document.getElementById('status').textContent
+        + ')');
+    };
+    const status = () => document.getElementById('status').textContent;
+    // The open dialog: its title, rows and whether it's an error, then OK.
+    const answer = async (what) => {
+      const d = await until(() => document.querySelector('dialog.cv-dialog[open]'), what);
+      const seen = { title: d.querySelector('h2').textContent, text: d.textContent,
+        error: d.classList.contains('error'), rows: [...d.querySelectorAll('tr')].map((r) => r.textContent) };
+      d.querySelector('button.primary').click();
+      await until(() => !d.isConnected, 'the dialog to close');
+      return seen;
+    };
+    const none = () => !document.querySelector('dialog.cv-dialog');
+    const out = {};
+    // Not opened.
+    void ui.openUrl('/content/no-such-model.stp');
+    out.notOpened = await answer('the error dialog');
+    await ui.opened();
+    await ui.openUrl('/content/as1.stp');
+    await cadViewer.idle();
+    out.cleanLoad = none();
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    const meshAgain = async () => {
+      const again = viewer.nextLoad();
+      button('Mesh again').$button.click();
+      await until(() => viewer.nextLoad() !== again, 'Mesh again to start');
+      await ui.opened();
+      await cadViewer.idle();
+    };
+    // A selection not found again.
+    const nodes = viewer.nodes;
+    const part = nodes.nodes.find((n) => n.kind === 'part');
+    const lostPath = nodes.pathOf(part.id);
+    ui.select([part.id]);
+    const proto = Object.getPrototypeOf(viewer.nodes), find = proto.find;
+    proto.find = function (p) { return p === lostPath ? undefined : find.call(this, p); };
+    try {
+      await meshAgain();
+    } finally {
+      proto.find = find;
+    }
+    out.lostStatus = status();
+    out.lost = await answer('the not found again dialog');
+    // Mesh again loading the file again.
+    const meshAgainFn = viewer.meshAgain;
+    viewer.meshAgain = async () => { throw new Error('the models are gone (planted)'); };
+    try {
+      await meshAgain();
+    } finally {
+      viewer.meshAgain = meshAgainFn;
+    }
+    out.fellBack = await answer('the loaded again dialog');
+    // An export's warnings: a part's override with triangle edges, the view's look applied.
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async () => {},
+      close: async () => {} }) });
+    ui.setOverride(part.id, { triangleEdges: true });
+    const exp = button('Export...');
+    const done = exp.getValue().call(exp.object);
+    const d = await until(() => document.querySelector('dialog.cv-dialog[open]'), 'the export dialog');
+    const s = d.querySelector('select[data-key=format]');
+    s.value = 'threejs';
+    s.dispatchEvent(new Event('change'));
+    const box = d.querySelector('input[data-key=shown]');
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    d.querySelector('button.primary').click();
+    await done;
+    out.exportStatus = status();
+    out.exported = await answer('the export warnings');
+    ui.setOverride(part.id, {});
+    // A replay with a divergence: the recording's end said another meshing than the replay's.
+    cadViewer.record(true);
+    ui.select([part.id]);
+    const rec = cadViewer.record(false);
+    const end = rec.events.findLast((e) => e.type === 'state');
+    out.recorded = !!end?.state?.meshing;
+    if (out.recorded) end.state.meshing.linearDeflection = 0.3;
+    window.showOpenFilePicker = async () => [{ getFile: async () => new File([JSON.stringify(rec)],
+      'recording.json') }];
+    [...document.querySelectorAll('.lil-gui .controller')].find((c) => c.textContent.trim() === 'Replay recording...')
+      .querySelector('button').click();
+    out.replayed = await answer('the divergences');
+    out.replayStatus = status();
+    out.console = consoleSaid;
+    return out;
+  })()`, { first }) as { after: Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const a = r.after, j = JSON.stringify(a);
+  expect(!a.error, `the page: ${a.error}`);
+  expect(a.notOpened?.error && a.notOpened.title === 'Could not open /content/no-such-model.stp', `not opened: ${j}`);
+  expect(a.cleanLoad, `no dialog for a clean load: ${j}`);
+  expect(/; 1 selected not found again$/.test(a.lostStatus) && a.lost?.title === 'as1.stp: not found again'
+    && a.lost.rows.length === 1 && /^selected: as1\/.+/.test(a.lost.rows[0]), `not found again: ${j}`);
+  expect(a.fellBack?.title === 'as1.stp: loaded again' && a.fellBack.text.includes('the models are gone (planted)')
+    && !a.fellBack.error, `loaded again: ${j}`);
+  expect(/; 1 warning: triangle edges aren't written/.test(a.exportStatus) && a.exported?.title === 'Exported '
+    + 'as1.json: 1 warning' && a.exported.rows.join() === "triangle edges aren't written: the formats have no such "
+    + 'setting', `export warnings: ${j}`);
+  const n = a.replayed?.rows.length ?? 0;
+  expect(a.recorded && n > 0 && a.replayStatus.endsWith(`; ${n} divergence${n === 1 ? '' : 's'}`)
+    && a.replayed.title === `Replay: ${n} divergence${n === 1 ? '' : 's'}` && a.replayed.error
+    && a.replayed.rows.some((x: string) => x.startsWith('the end: meshing is')),
+  `replay divergences: ${j}`);
+  expect(a.console?.length === 0, `nothing in the console: ${JSON.stringify(a.console)}`);
+  return undefined;
+});
+// STEP ids (step-ids.ts): the problems dialog's Copy error IDs copies its errors' ids (the clipboard stubbed), the
+// dialog staying open; Select by ID (Selection) reads what's typed in its dialog: a part's id selects every placement,
+// a face's turns the tree's detail on and selects its face nodes, anything else is said; the details panel lists the
 // selection's ids, cut short past about 50 characters.
 await check('step ids', async () => {
   const copy = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, `(async () => {
@@ -2076,8 +2258,8 @@ await check('step ids', async () => {
     let copied; navigator.clipboard.writeText = async (t) => { copied = t; };
     await new Promise((r) => setTimeout(r, 200));
     const d = document.querySelector('dialog.cv-dialog');
-    const b = [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy IDs');
-    const rows = [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent);
+    const b = [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy error IDs');
+    const rows = [...d.querySelectorAll('.table.errors tr')].map((r) => r.cells[0].textContent);
     b.click();
     await new Promise((r) => setTimeout(r, 100));
     const out = { copied, label: b.textContent, open: d.open, rows };
@@ -2911,7 +3093,7 @@ await check('mesh again', async () => {
   expect(JSON.stringify(tb!.top) === JSON.stringify(ta!.top), `the tree's top row kept: ${JSON.stringify(a.tree)}`);
   const l = a.lost;
   // (Meshed again in place: the overrides stay on their nodes, never looked for by path; a selection is.)
-  expect(/; 1 selected not found again \(in the console\)$/.test(l.status) &&
+  expect(/; 1 selected not found again$/.test(l.status) &&
     l.notRestored?.overrides.length === 0 && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
   return undefined;
@@ -3324,7 +3506,8 @@ await check('go to a face', async () => {
     await cadViewer.idle();
     const text = () => document.getElementById('status').textContent;
     const d = document.querySelector('dialog.cv-dialog');
-    const rows = d ? [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent)) : [];
+    const rows = d ? [...d.querySelectorAll('.table.errors tr')].map((r) => [...r.cells].map((c) => c.textContent))
+      : [];
     d?.querySelector('button.primary')?.click();
     await cadViewer.idle();
     const nodes = viewer.nodes, sel = ui.selected();
@@ -4075,7 +4258,8 @@ await check('model details', async () => {
   const row = (r: Shown, l: string) => r.rows.find(([k]) => k === l)?.[1];
   expect(a.file === 'as1-authored.stp (Ann B)' && p.file === 'as1.stp' && b.file === 'bare.json',
     `the author after the name: ${j}`);
-  expect(a.lead === 'Current model (details):' && a.title === 'Model Details', `the link and title: ${j}`);
+  expect(a.lead === 'Current model (details, errors/warnings):' && a.title === 'Model Details',
+    `the link and title: ${j}`);
   expect(row(a, 'Format') === 'step' && row(a, 'Name') === 'Open CASCADE Shape Model' &&
     row(a, 'Time stamp') === '2017-03-30T11:06:14' && row(a, 'Author') === 'Ann B' &&
     row(a, 'Authors') === 'Ann B\nnone' && row(a, 'Organizations') === 'Open CASCADE' &&

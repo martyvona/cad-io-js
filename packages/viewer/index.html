@@ -132,7 +132,8 @@
     #status, #details { transition: opacity 0.6s; }
     #status.faded, #details.faded { opacity: 0; }
     #status.error { color: var(--error-fg); }
-    /* While a load or Mesh again is under way (ui.ts): a spinner before the text, so a long wait doesn't look stalled. */
+    /* While a load or Mesh again is under way (ui.ts): a spinner before the text, so a long wait doesn't look
+       stalled. */
     #status.busy::before {
       content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: -1px;
       border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
@@ -197,6 +198,11 @@
     .cv-dialog p { margin: 0 0 8px; }
     .cv-dialog .table { max-height: 50vh; overflow: auto; margin: 0 0 10px; }
     .cv-dialog table { border-collapse: collapse; }
+    /* The problems dialog's two lists (problems.ts), each scrolling on its own. */
+    .cv-dialog h3 { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+    .cv-dialog .table.errors, .cv-dialog .table.warnings { max-height: 28vh; }
+    .cv-dialog .table p.none { margin: 0; opacity: 0.7; }
+    .cv-dialog .table.errors td:first-child, .cv-dialog .table.warnings td:first-child { white-space: nowrap; }
     .cv-dialog td { padding: 1px 12px 1px 0; vertical-align: top; }
     .cv-dialog td + td {
       font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all;

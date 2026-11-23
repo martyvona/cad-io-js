@@ -483,9 +483,10 @@ function addRecordingControls(ui: Ui, api: CadViewer, recorder: Recorder): void 
         signal: stopping.signal });
       if (r.aborted === 'stopped') return ui.say(replayed(r));
       if (r.aborted) return ui.say('replay stopped: the recorded model wasn\'t opened', true);
-      if (r.divergences.length) console.warn('replay:', r.divergences);
-      ui.say(`${replayed(r)}; ${r.divergences.length ? `${r.divergences.length} ` +
-        'divergences (in the console)' : 'as recorded'}`, r.divergences.length > 0);
+      const n = r.divergences.length;
+      ui.say(`${replayed(r)}; ${n ? `${n} divergence${n === 1 ? '' : 's'}` : 'as recorded'}`, n > 0);
+      if (n) void ui.notice(`Replay: ${n} divergence${n === 1 ? '' : 's'}`, 'Where the replay didn\'t go as '
+        + 'recorded:', r.divergences, true);
     } catch (e) {
       ui.say(`replay: ${(e as Error).message}`, true);
     } finally {

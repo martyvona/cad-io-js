@@ -1,30 +1,36 @@
-// The errors of loading or meshing a model again (the importer's and the meshing's: parts that failed to build or mesh,
-// or timed out, and faces that failed to mesh), shown in a modal once meshing is done, with each failed face's cause
-// where its backend said one (tess-cadio's by-cause diagnostic, an info: tess-cadio/causes); warnings only in the
-// status line's count and the console.
+// The errors and warnings of loading or meshing a model again (the importer's and the meshing's: parts that failed to
+// build or mesh, or timed out, faces that failed to mesh; OCCT's messages, shells turned over, ...), in a modal with a
+// list of each: shown once meshing is done when there are errors, and from About at any time; each failed face's cause
+// where its backend said one (tess-cadio's by-cause diagnostic, an info: tess-cadio/causes). Never in the console.
 
 import type { Diagnostic } from 'cad-scene';
 import { CAUSES_HEAD, failedCauses } from 'tess-cadio/causes';
 import { showDialog } from './dialog.ts';
 import { formatIds } from './step-ids.ts';
 
-/** At most this many listed in the dialog (all of them in the console). */
-export const MAX_LISTED = 500;
+/** `n` of a thing, plural unless one: `3 warnings`, `1 error`. */
+export const count = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`;
 
-const errorsOf = (diagnostics: readonly Diagnostic[]) => diagnostics.filter((d) => d.severity === 'error');
+/** What the dialog lists, each kind in a list of its own. */
+export type Problem = 'error' | 'warning';
+
+const ofKind = (diagnostics: readonly Diagnostic[], kind: Problem) => diagnostics.filter((d) => d.severity === kind);
+
+/** How many errors and warnings, as the status line and the dialog's title say them: '' for none. */
+export function problemCounts(diagnostics: readonly Diagnostic[]): string {
+  const e = ofKind(diagnostics, 'error').length, w = ofKind(diagnostics, 'warning').length;
+  return [e ? count(e, 'error') : '', w ? count(w, 'warning') : ''].filter(Boolean).join(', ');
+}
 
 /**
- * The errors among diagnostics, in the order met, as rows: where, the message, and where any listed has one, a
- * third column: a failed-faces error's causes (faceCausesOf), each with its faces, else empty.
+ * The diagnostics of one kind, in the order met, as rows: where, the message, and where any listed has one, a third
+ * column: a failed-faces error's causes (faceCausesOf), each with its faces, else empty.
  */
-export function problemRows(diagnostics: readonly Diagnostic[], max = MAX_LISTED):
-  { rows: string[][]; errors: number; more: number } {
-  const errors = errorsOf(diagnostics);
-  const listed = errors.slice(0, max);
+export function problemRows(diagnostics: readonly Diagnostic[], kind: Problem = 'error'): string[][] {
+  const listed = ofKind(diagnostics, kind);
   const causes = listed.map((d) => causesText(diagnostics, d));
-  const rows = listed.map((d, i) => [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message,
+  return listed.map((d, i) => [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message,
     ...(causes.some(Boolean) ? [causes[i]!] : [])]);
-  return { rows, errors: errors.length, more: Math.max(0, errors.length - max) };
 }
 
 /** Each failed face's cause, by its STEP id, as its backend said them (tess-cadio's; none for other backends). */
@@ -45,9 +51,9 @@ function causesText(diagnostics: readonly Diagnostic[], error: Diagnostic): stri
   return [...by].map(([cause, ids]) => `${cause} (${ids.map((i) => `#${i}`).join(', ')})`).join('; ');
 }
 
-/** The STEP ids the errors came from, each once, in the rows' order (what Copy IDs copies). */
-export function problemIds(diagnostics: readonly Diagnostic[]): number[] {
-  return [...new Set(errorsOf(diagnostics).flatMap((d) => d.source ? [d.source.id] : []))];
+/** The STEP ids diagnostics of one kind came from, each once, in the rows' order (what its Copy button copies). */
+export function problemIds(diagnostics: readonly Diagnostic[], kind: Problem = 'error'): number[] {
+  return [...new Set(ofKind(diagnostics, kind).flatMap((d) => d.source ? [d.source.id] : []))];
 }
 
 /** Text to the clipboard where the page may write it (a secure context), else shown in a prompt to copy. */
@@ -62,23 +68,51 @@ export async function copyText(text: string, what: string): Promise<boolean> {
   return false;
 }
 
-const count = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`;
-
-/** Shows a model's errors in a modal, if it has any; resolves when it's closed (at once if none). */
+/**
+ * Shows a model's errors and warnings in a modal (a load's once meshed, when it has errors; About's link at any time):
+ * a list of each, scrolling on its own, or "None."; a Copy button for each kind's ids. Resolves when it's closed.
+ */
 export async function showProblems(name: string, diagnostics: readonly Diagnostic[]): Promise<void> {
-  const { rows, errors, more } = problemRows(diagnostics);
-  const ids = problemIds(diagnostics);
-  if (!rows.length) return;
-  await showDialog({ title: `${name}: ${count(errors, 'error')}`, error: true,
-    body: ['From reading the file, healing it and meshing it; #n is the STEP instance (the part\'s shape ' +
-      'representation, or the entity itself) it came from; Copy IDs copies them, for Selection\'s Select by ID. They ' +
-      'are in the console, with any warnings.', rows,
-      ...(more ? [`And ${more} more, in the console.`] : [])],
-    buttons: [{ label: 'OK', value: 'ok', primary: true }, { label: 'Copy IDs', value: 'copy', disabled: !ids.length,
+  const section = (kind: Problem, heading: string) => {
+    const rows = problemRows(diagnostics, kind);
+    const h = document.createElement('h3');
+    h.textContent = `${heading} (${rows.length})`;
+    const box = document.createElement('div');
+    box.className = `table ${kind}s`;
+    if (rows.length) {
+      const table = document.createElement('table');
+      for (const cells of rows) {
+        const row = table.insertRow();
+        for (const c of cells) row.insertCell().textContent = c;
+      }
+      box.append(table);
+    } else {
+      const p = document.createElement('p');
+      p.className = 'none';
+      p.textContent = 'None.';
+      box.append(p);
+    }
+    const div = document.createElement('div');
+    div.append(h, box);
+    return div;
+  };
+  const copy = (kind: Problem, label: string) => {
+    const ids = problemIds(diagnostics, kind);
+    return { label, value: `copy-${kind}s`, disabled: !ids.length,
       // The ids, as Selection's Select by ID reads them; the dialog stays open.
-      action: (b) => void copyText(formatIds(ids), 'The STEP ids:').then((copied) => {
+      action: (b: HTMLButtonElement) => void copyText(formatIds(ids), 'The STEP ids:').then((copied) => {
         if (!copied) return;
         b.textContent = `Copied ${count(ids.length, 'ID')}`;
-        setTimeout(() => { b.textContent = 'Copy IDs'; }, 2000);
-      }) }] });
+        setTimeout(() => { b.textContent = label; }, 2000);
+      }) };
+  };
+  const errors = ofKind(diagnostics, 'error').length;
+  await showDialog({ title: `${name}: ${problemCounts(diagnostics) || 'no errors or warnings'}`, error: errors > 0,
+    body: ['From reading the file, healing it and meshing it; #n is the STEP instance (the part\'s shape ' +
+      'representation, or the entity itself) it came from; the Copy buttons copy them, for Selection\'s Select by ID.',
+    section('error', 'Errors'), section('warning', 'Warnings')],
+    // (Drawn right to left from the primary: Copy error IDs, Copy warning IDs, OK.)
+    buttons: [{ label: 'OK', value: 'ok', primary: true }, copy('warning', 'Copy warning IDs'),
+      copy('error', 'Copy error IDs')] });
 }
+
