@@ -448,6 +448,26 @@ TEST_CASE("classify2: one closed polyline curve (straight between corners, as a 
   CHECK(side({1e-4, 0.8}) == Side::in);
   CHECK(side({0.5, 0.5}) == Side::in);
   CHECK(side({-1e-4, 0.8}) == Side::out);
+  // From far off no ray meets it: out by the loop's signed area, its integral span by span between the breaks (over
+  // the corners at once it doesn't converge, the sign unsure); run the other way, a hole alone: in.
+  CHECK(side({1000, 1000}) == Side::out);
+  Loop2 back;
+  back.pieces.push_back({&square, {0, 4}, true});
+  Status st;
+  CHECK(classify2({back}, {1000, 1000}, {}, tol, st) == Side::in);
+  CHECK(st == Status::ok);
+  // A triangle whose side from (0, 0) is a B-spline along a line through the origin: x y' - y x' is 0 all along it,
+  // so its integral is met only to an absolute tolerance (a relative one never is).
+  BSpline q;
+  q.degree = 2;
+  q.dim = 2;
+  q.knots = {0, 0, 0, 1, 1, 1};
+  q.poles = {0, 0, 0.5, 0.5, 1, 1};
+  Spline2 diag(q);
+  std::vector<Loop2> tri{Loop2{{{line({0, 0}, {1, 0}), {0, 1}, false}, {line({1, 0}, {1, 1}), {0, 1}, false},
+    {&diag, {0, 1}, true}}}};
+  CHECK(classify2(tri, {1000, 1000}, {}, tol, st) == Side::out);
+  CHECK(st == Status::ok);
   CHECK(side({0.5, 1.2}) == Side::out);
 }
 
@@ -967,13 +987,21 @@ TEST_CASE("classify2: a loop of pieces each shorter than the tolerance: its join
   CHECK(classify2(face, {2, 0.5}, Periods{0, 0, {}, {}}, 0.3, st) == Side::out);
 }
 
-TEST_CASE("classify2: a point no ray meets anything from is out") {
+TEST_CASE("classify2: a point no ray meets anything from: out of a region, in past a hole alone") {
   // A unit square 1000 away subtends a milliradian: none of the rays' directions meets it.
   std::vector<Loop2> far{polygon({{1000, 1000}, {1001, 1000}, {1001, 1001}, {1000, 1001}})};
   Status st;
   CHECK(classify2(far, {0, 0}, {}, 1e-9, st) == Side::out);
   CHECK(st == Status::ok);
   CHECK(classify2(far, {1000.5, 1000.5}, {}, 1e-9, st) == Side::in);
+  // The square as a hole alone: its complement, unbounded, the far point in it (by the loop's signed area, negative).
+  std::vector<Loop2> hole{polygon({{1000, 1000}, {1000, 1001}, {1001, 1001}, {1001, 1000}})};
+  CHECK(classify2(hole, {0, 0}, {}, 1e-9, st) == Side::in);
+  CHECK(st == Status::ok);
+  CHECK(classify2(hole, {1000.5, 1000.5}, {}, 1e-9, st) == Side::out);
+  // (Periodic, as was: out, settled.)
+  CHECK(classify2(hole, {0, 0}, Periods{1e6, 0, {}, {}}, 1e-9, st) == Side::out);
+  CHECK(st == Status::ok);
 }
 
 TEST_CASE("classify2 of many points: each point's single answer, the boxes and fine polylines made once for all") {
