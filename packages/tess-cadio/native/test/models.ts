@@ -1346,6 +1346,49 @@ export function knotAtEnd(): BrepBuilder {
   return b;
 }
 
+/**
+ * A ball of radius 2 (axis z) with a flat at x = 1.2 (the bicycle's #1486 kind), its sphere face and its plane face
+ * sharing the circle there (radius 1.6, about x: a loop that doesn't wind round the sphere's period), no p-curves, a
+ * closed shell: the sphere face the ball less its cap (its loop a hole, clockwise about its normal in (u, v)), or
+ * with `cap` the cap beyond the flat, the solid the cap. `flatUse` 'same' has the flat use the circle the sphere's
+ * way (the two faces not oriented alike), 'none' leaves the flat out (the sphere a sheet alone): either way the
+ * sphere's loop direction isn't to be trusted; so too with 'flippedCap', the flat replaced by the cap as a face of
+ * the same sphere using the circle the other way but its sense reversed.
+ */
+export function ballWithFlat(cap = false, flatUse: 'other' | 'same' | 'none' | 'flippedCap' = 'other'): BrepBuilder {
+  const b = new BrepBuilder();
+  const h = 1.2, r = Math.sqrt(4 - h * h);
+  const X = { origin: [h, 0, 0], axis: [1, 0, 0], xDir: [0, 1, 0] };
+  const circle = b.addCurve({ kind: 'circle', position: X, radius: r });
+  const v = b.addVertex({ point: [h, r, 0] });
+  const edge = b.addEdge({ curve: circle, start: v, end: v, sameSense: true, range: [0, 2 * Math.PI] });
+  // (The circle counterclockwise about +x: the flat's outer loop where its normal is +x (the ball behind it), the
+  // sphere's cap's where the solid is the cap; reversed in the other face.)
+  const sphere = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 2 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'unknown', sense: true,
+      coedges: [{ edge, orientation: cap ? 'forward' as const : 'reversed' as const }] }] });
+  if (flatUse === 'none') {
+    sheet(b, sphere);
+    return b;
+  }
+  if (flatUse === 'flippedCap') {
+    // (The cap a face of the same sphere, the circle its loop the other way, but its sense against the surface's:
+    // across the circle, where the two meet smoothly, their normals opposite.)
+    const capFace = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 2 }), sameSense: false,
+      loops: [{ kind: 'edge', bound: 'unknown', sense: true, coedges: [{ edge, orientation: 'forward' as const }] }] });
+    const shell = b.addShell({ kind: 'open', faces: [{ face: sphere, sense: true }, { face: capFace, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    return b;
+  }
+  const other = (flatUse === 'other') !== cap;
+  const flat = b.addFace({ surface: b.addSurface({ kind: 'plane', position: X }),
+    sameSense: !cap, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge, orientation: other ? 'forward' as const : 'reversed' as const }] }] });
+  const shell = b.addShell({ kind: 'closed', faces: [{ face: sphere, sense: true }, { face: flat, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
 /** The plane z = 0 bounded by two circles (radius 1, about x = -2 and 2) as holes: clockwise, no outer loop. */
 export function planeHoleOnly(): BrepBuilder {
   const b = new BrepBuilder();
@@ -2277,7 +2320,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall, wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
-  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
+  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true),
+  sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
@@ -2285,7 +2329,10 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   fineProjection, knotAtEnd, kinkAtEnd: () => kinkAtEnd(), kinkAtEndPlain: () => kinkAtEnd(0), cornerFold,
   sphereBelt: () => sphereBelt(3, 1, true), sphereBeltInward: () => sphereBelt(3, 1, false),
   sphereBeltEven: () => sphereBelt(3, 2, true), sphereBeltEvenInward: () => sphereBelt(3, 2, false),
-  planeHoleOnly, cornerFoldTightAgainst, skewPatch, roof: () => roof(), roofJunction: () => roof(0, 1, true),
+  planeHoleOnly, cornerFoldTightAgainst, skewPatch, ballWithFlat: () => ballWithFlat(),
+  ballWithFlatCap: () => ballWithFlat(true), ballAlone: () => ballWithFlat(false, 'none'),
+  ballFlatSameWay: () => ballWithFlat(false, 'same'),
+  ballFlippedCap: () => ballWithFlat(false, 'flippedCap'), roof: () => roof(), roofJunction: () => roof(0, 1, true),
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
