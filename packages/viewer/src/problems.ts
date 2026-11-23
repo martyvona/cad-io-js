@@ -6,7 +6,8 @@
 import type { Diagnostic } from 'cad-scene';
 import { CAUSES_HEAD, failedCauses } from 'tess-cadio/causes';
 import { showDialog } from './dialog.ts';
-import { formatIds } from './step-ids.ts';
+import type { NodeModel } from './model.ts';
+import { formatIds, nodeStepIds } from './step-ids.ts';
 
 /** `n` of a thing, plural unless one: `3 warnings`, `1 error`. */
 export const count = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`;
@@ -31,6 +32,73 @@ export function problemRows(diagnostics: readonly Diagnostic[], kind: Problem = 
   const causes = listed.map((d) => causesText(diagnostics, d));
   return listed.map((d, i) => [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message,
     ...(causes.some(Boolean) ? [causes[i]!] : [])]);
+}
+
+/** Whether a sorted array holds a value. */
+function holds(sorted: Uint32Array, v: number): boolean {
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sorted[mid]! < v) lo = mid + 1;
+    else hi = mid;
+  }
+  return sorted[lo] === v;
+}
+
+/**
+ * The diagnostics pertaining to a node (its context menu's errors and warnings), in order, infos among them (a failed
+ * face's cause): an assembly's own (its occurrence's and component's STEP ids) and those of everything below it; a
+ * part's own (its placement's, product's and shape representation's) and those of everything in its B-rep model (its
+ * faces', edges', vertices', curves', ... ids: `idsOf`, by part index, sorted: step-ids.ts's modelIds, where the page
+ * holds the model) or its mesh's faces; a face's own, and its part's that name it (`#id`: failed faces); an edges,
+ * curves or points node none. A top node's include the file's own too: those no node covers (no STEP source, or one
+ * outside every part and assembly: a unit, a style, a reference beyond the file).
+ */
+export function itemDiagnostics(model: NodeModel, id: number, diagnostics: readonly Diagnostic[],
+  idsOf: (part: number) => Uint32Array | undefined): Diagnostic[] {
+  const n = model.nodes[id]!;
+  const step = (d: Diagnostic) => d.source?.format === 'step' ? d.source.id : undefined;
+  if (n.face) {
+    const face = n.face.source, own = new Set(nodeStepIds(model, n.parent));
+    if (!nodeStepIds(model, id).length) return [];
+    const named = new RegExp(`#${face}(?!\\d)`);
+    return diagnostics.filter((d) => {
+      const s = step(d);
+      return s === face || s !== undefined && own.has(s) && named.test(d.message);
+    });
+  }
+  if (n.kind !== 'assembly' && n.kind !== 'part') return [];
+  // Whether an id is under a node: its own and its descendants', its parts' models' and meshes' faces'.
+  const covers = (top: number) => {
+    const ids = new Set<number>(), parts = new Set<number>();
+    const walk = (k: number) => {
+      const m = model.nodes[k]!;
+      for (const i of nodeStepIds(model, k)) ids.add(i);
+      if (m.kind !== 'part') {
+        for (const c of m.children ?? []) walk(c);
+        return;
+      }
+      parts.add(m.object!.userData.part as number);
+      if (!m.object!.userData.stepFaces) return;
+      m.object!.traverse((o) => {
+        for (const key of ['faces', 'failedFaces']) {
+          for (const f of (o.userData[key] as number[] | undefined) ?? []) ids.add(f);
+        }
+      });
+    };
+    walk(top);
+    return (i: number) => ids.has(i) || [...parts].some((p) => {
+      const a = idsOf(p);
+      return !!a && holds(a, i);
+    });
+  };
+  const inside = covers(id);
+  const top = n.parent < 0;
+  const anywhere = top ? model.roots.map(covers) : [];
+  return diagnostics.filter((d) => {
+    const s = step(d);
+    return s === undefined ? top : inside(s) || top && !anywhere.some((f) => f(s));
+  });
 }
 
 /** Each failed face's cause, by its STEP id, as its backend said them (tess-cadio's; none for other backends). */
@@ -69,10 +137,12 @@ export async function copyText(text: string, what: string): Promise<boolean> {
 }
 
 /**
- * Shows a model's errors and warnings in a modal (a load's once meshed, when it has errors; About's link at any time):
+ * Shows a model's errors and warnings in a modal (a load's once meshed, when it has errors; About's link at any time),
+ * or with `item` (a node in words, `nut_1 and everything in it`: its context menu) those pertaining to it
+ * (itemDiagnostics):
  * a list of each, scrolling on its own, or "None."; a Copy button for each kind's ids. Resolves when it's closed.
  */
-export async function showProblems(name: string, diagnostics: readonly Diagnostic[]): Promise<void> {
+export async function showProblems(name: string, diagnostics: readonly Diagnostic[], item?: string): Promise<void> {
   const section = (kind: Problem, heading: string) => {
     const rows = problemRows(diagnostics, kind);
     const h = document.createElement('h3');
@@ -108,7 +178,8 @@ export async function showProblems(name: string, diagnostics: readonly Diagnosti
   };
   const errors = ofKind(diagnostics, 'error').length;
   await showDialog({ title: `${name}: ${problemCounts(diagnostics) || 'no errors or warnings'}`, error: errors > 0,
-    body: ['From reading the file, healing it and meshing it; #n is the STEP instance (the part\'s shape ' +
+    body: [`${item ? `Those of ${item}, f` : 'F'}rom reading the file, healing it and meshing ` +
+      'it; #n is the STEP instance (the part\'s shape ' +
       'representation, or the entity itself) it came from; the Copy buttons copy them, for Selection\'s Select by ID.',
     section('error', 'Errors'), section('warning', 'Warnings')],
     // (Drawn right to left from the primary: Copy error IDs, Copy warning IDs, OK.)

@@ -13,8 +13,8 @@ import { documentActivity, onReactivated, UpdateCheck, updateText } from './upda
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl, showBusy, showDialog } from './dialog.ts';
-import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
-import { count, faceCausesOf, problemCounts, showProblems } from './problems.ts';
+import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
+import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
@@ -24,7 +24,7 @@ import { HEAL_FIXES } from 'cad-heal/options';
 import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSettings }
   from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
-import { TreePanel } from './tree-panel.ts';
+import { nodeLabel, TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
 import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
@@ -891,9 +891,18 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // node is in it with others; Override Appearance... on the node alone. At once, recorded node by node, the open panel
   // following. Then Selection's actions: Select parent and Select children on the same nodes as Hide, the rest as
   // their buttons.
-  const nodeMenu = (id: number, x: number, y: number) => {
-    const nodes = viewer.nodes;
+  // A node's menu (the tree's row's, or the view's for what was clicked: `header` then, the node as its row shows it).
+  const nodeMenu = (id: number, x: number, y: number, header = false) => {
+    const nodes = viewer.nodes, graph = viewer.graph;
     if (!nodes) return;
+    // Its errors and warnings, and everything's in it (problems.ts's itemDiagnostics): an item only if there are any.
+    const mine = graph ? itemDiagnostics(nodes, id, viewer.model?.diagnostics ?? [], (part) => {
+      const m = graph.modelOf(part);
+      return m && modelIds(m);
+    }) : [];
+    const errors = mine.filter((d) => d.severity === 'error').length;
+    const warnings = mine.filter((d) => d.severity === 'warning').length;
+    const name = nodes.nodes[id]!.name;
     const targets = selected.length > 1 && selected.includes(id) ? [...selected] : [id];
     const each = (o: (t: number) => AppearanceOverride) => {
       const list = targets.map((t) => [t, o(t)] as const);
@@ -915,7 +924,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Select all', action: () => ui.selectAll() },
       { label: 'Invert selection', action: () => ui.invertSelection() },
       { label: 'Select by ID...', action: () => void selectById() },
-    ]);
+      ...(errors + warnings ? [{ label: `${count(errors, 'Error')}, ${count(warnings, 'Warning')}...`,
+        divider: true, action: () => void showProblems(name, mine, nodes.nodes[id]!.face ? name
+          : `${name} and everything in it`) }] : []),
+    ], header ? nodeLabel(nodes, id) : undefined);
   };
   viewer.onModel = (nodes) => {
     // Save... saves the file of the model shown (a load that fails before showing its model leaves the last one).
@@ -962,7 +974,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes || !panel) return;
     const id = picked(nodes, panel, hit);
     panel.setFocus(id);
-    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY);
+    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY, true);
   };
   viewer.onPick = (hit, keys) => {
     const nodes = viewer.nodes;

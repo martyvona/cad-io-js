@@ -2242,6 +2242,150 @@ await check('model ownership', async () => {
   expect(same(a.exported) && a.faces > 0, `an export of STEP's exact geometry, the models back: ${j}`);
   return undefined;
 });
+// A node's errors and warnings in its context menu (problems.ts's itemDiagnostics): "N Errors, M Warnings..." where it
+// has any, opening the problems dialog with those alone. A node's are its own STEP ids' and everything's below it: an
+// assembly's and its descendants', a part's and its B-rep model's entities' (the model the page holds); a face's own
+// and its part's that name it; a top node's also the file's own, which no node covers. Checked against each
+// diagnostic's owners found here by brute force. The view's menu (a right-click on the 3D view) starts with a header
+// naming what was clicked as its tree row does (its icon and name); the tree's has none.
+await check('item errors and warnings', async () => {
+  const look = (face: boolean) => `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const m = viewer.nodes, graph = viewer.graph, diagnostics = viewer.model.diagnostics;
+    if (${face}) { ui.setTree({ detail: true }); for (const n of [...m.nodes]) m.children(n.id); }
+    // The ids each node holds, found here: its own (step-ids' sources, a face's source), a part's model's.
+    const ownIds = (n) => {
+      if (n.face) return graph.scene.parts[n.face.part] && m.nodes[n.parent].object.userData.stepFaces
+        ? [n.face.source] : [];
+      const own = n.object?.userData.sources ?? [];
+      if (n.kind !== 'part') return own;
+      const faces = [];
+      n.object.traverse((o) => faces.push(...(o.userData.faces ?? []), ...(o.userData.failedFaces ?? [])));
+      // (The model's ids read here from its tables, the page holding it once meshed.)
+      const model = graph.modelOf(n.object.userData.part), held = [];
+      for (const t of Object.values(model ?? {})) if (t?.id instanceof Uint32Array) held.push(...t.id);
+      if (model?.copy) held.push(...model.copy.source);
+      return [...own, ...held, ...faces];
+    };
+    const structure = m.nodes.filter((n) => !n.dead && (n.kind === 'assembly' || n.kind === 'part' || n.face));
+    const holders = (d) => d.source?.format !== 'step' ? [] : structure.filter((n) => ownIds(n).includes(d.source.id));
+    const under = (k, top) => { for (let p = k; p >= 0; p = m.nodes[p].parent) if (p === top) return true;
+      return false; };
+    const expected = (n) => diagnostics.filter((d) => {
+      if (d.severity !== 'error' && d.severity !== 'warning') return false;
+      if (n.face) return d.source?.format === 'step' && (d.source.id === n.face.source
+        || (m.nodes[n.parent].object.userData.sources ?? []).includes(d.source.id)
+        && new RegExp('#' + n.face.source + '(?!\\\\d)').test(d.message));
+      const hs = holders(d);
+      // (A face's id is its part's too.)
+      return hs.some((h) => !h.face && under(h.id, n.id)) || n.parent < 0 && hs.filter((h) => !h.face).length === 0;
+    });
+    const items = () => [...document.querySelectorAll('.cv-menu button')].map((b) => b.textContent);
+    const close = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const label = (e, w) => e + ' Error' + (e === 1 ? '' : 's') + ', ' + w + ' Warning' + (w === 1 ? '' : 's') + '...';
+    const out = { nodes: [], counts: { errors: diagnostics.filter((d) => d.severity === 'error').length,
+      warnings: diagnostics.filter((d) => d.severity === 'warning').length },
+      sources: diagnostics.map((d) => d.severity[0] + (d.source ? d.source.format + '#' + d.source.id : '')) };
+    for (const n of structure) {
+      ui.panel().onContextMenu(n.id, 100, 100);
+      await frame();
+      const got = items().find((t) => / Errors?, \\d+ Warnings?\\.\\.\\.$/.test(t)) ?? null;
+      const header = !!document.querySelector('.cv-menu-header');
+      const ex = expected(n);
+      const e = ex.filter((d) => d.severity === 'error').length, w = ex.length - e;
+      const want = e + w ? label(e, w) : null;
+      const entry = { path: m.pathOf(n.id), kind: n.kind, got, want, header };
+      if (got) {
+        [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === got).click();
+        const d = await (async () => { for (let t = 0; t < 100; t++) { const x = document.querySelector(
+          'dialog.cv-dialog[open]'); if (x) return x; await frame(); } })();
+        entry.dialog = { title: d.querySelector('h2').textContent,
+          errors: d.querySelectorAll('.table.errors tr').length, warnings: d.querySelectorAll('.table.warnings tr')
+            .length, intro: d.querySelector('p').textContent.slice(0, 60),
+          sources: [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) };
+        d.querySelector('button.primary').click();
+        for (let t = 0; t < 100 && d.isConnected; t++) await frame();
+      } else close();
+      await frame();
+      out.nodes.push(entry);
+    }
+    // The view's menu: a right-click over a part.
+    const canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    let spot;
+    for (let i = 1; i < 10 && !spot; i++) for (let j = 1; j < 10 && !spot; j++) {
+      const path = cadViewer.pickAt(i / 10, j / 10)?.path;
+      if (path) spot = { x: rect.left + i / 10 * rect.width, y: rect.top + j / 10 * rect.height, id: m.find(path) };
+    }
+    if (spot) {
+      const send = (type, o) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+        isPrimary: true, pointerType: 'mouse', clientX: spot.x, clientY: spot.y, ...o }));
+      send('pointerdown', { button: 2, buttons: 2 });
+      send('pointerup', { button: 2, buttons: 0 });
+      await frame();
+      const h = document.querySelector('.cv-menu-header');
+      const row = document.querySelector('#tree .tree-row[data-id="' + spot.id + '"] .tree-content');
+      out.view = { id: spot.id, header: h ? { icon: h.querySelector('.tree-icon')?.outerHTML,
+        name: h.querySelector('.tree-name')?.textContent, first: h === document.querySelector('.cv-menu')
+          .firstElementChild } : null, rowIcon: row?.querySelector('.tree-icon')?.outerHTML ?? null,
+        name: m.nodes[spot.id].name, focused: document.querySelector('.cv-menu button') === document.activeElement };
+      close();
+    }
+    return out;
+  })()`;
+  type Entry = { path: string; kind: string; got: string | null; want: string | null; header: boolean;
+    dialog?: { title: string; errors: number; warnings: number; intro: string; sources: string[] } };
+  type Seen = { nodes: Entry[]; counts: { errors: number; warnings: number }; sources: string[];
+    view?: { id: number; header: { icon?: string; name?: string; first: boolean } | null; rowIcon: string | null;
+      name: string; focused: boolean } };
+  const see = async (file: string, face: boolean) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}`
+    + '&check', look(face)) as { after: Seen }).after;
+  for (const [file, face] of [['broken.stp', false], ['face-failed.stp', true], ['as1.stp', false],
+    ['warned.stp', false]] as const) {
+    const a = await see(file, face), j = JSON.stringify(a);
+    const name = (e: Entry) => e.path.split('/').at(-1)!.replace(/^face#/, 'face #');
+    for (const e of a.nodes) {
+      expect(e.got === e.want && !e.header, `${file} ${e.path}: ${e.got} for ${e.want}: ${j}`);
+      if (!e.got) continue;
+      const [, ne, nw] = e.got.match(/^(\d+) Errors?, (\d+) Warnings?/)!.map(Number);
+      expect(!!e.dialog && e.dialog.errors === ne && e.dialog.warnings === nw && e.dialog.title.startsWith(`${
+        name(e)}: `) && e.dialog.intro.startsWith(`Those of ${name(e)}${e.kind === 'face' ? ', from'
+        : ' and everything in it'}`),
+      `${file} ${e.path}'s dialog: ${JSON.stringify(e)}`);
+    }
+    // The top nodes hold every error and warning; a file without has no item anywhere.
+    const tops = a.nodes.filter((e) => !e.path.includes('/'));
+    expect(tops.every((e) => e.want === (a.counts.errors + a.counts.warnings ? `${a.counts.errors} Error${
+      a.counts.errors === 1 ? '' : 's'}, ${a.counts.warnings} Warning${a.counts.warnings === 1 ? '' : 's'}...`
+      : null)), `${file}: the top nodes hold them all: ${j}`);
+    if (file === 'broken.stp') {
+      // (Some below the top, not all: a part's of its own.) Its warning at #69, an EDGE_CURVE in the B-rep of the
+      // part whose shape representation is #62 (its error's source), is each placement's of that part, and their
+      // parents'.
+      expect(a.nodes.some((e) => e.kind === 'part' && e.got) && a.nodes.some((e) => !e.got), `${file}: ${j}`);
+      const holding = a.nodes.filter((e) => e.dialog?.sources.includes('warning #69')).map((e) => e.path);
+      const parts = a.nodes.filter((e) => e.kind === 'part' && e.dialog?.sources.includes('error #62'))
+        .map((e) => e.path);
+      expect(parts.length > 0 && parts.every((p) => holding.includes(p)) && holding.every((h) => parts.some((p) =>
+        p === h || p.startsWith(`${h}/`))), `${file}: #69 its part's: ${JSON.stringify({ holding, parts })}`);
+    }
+    if (file === 'warned.stp') {
+      // Its one warning, at an instance of its own outside every part: the file's, the top nodes' alone.
+      expect(a.counts.errors === 0 && a.counts.warnings === 1 && a.nodes.every((e) => !e.got === e.path.includes('/')),
+        `${file}: the file's own, the top's: ${j}`);
+    }
+    if (file === 'face-failed.stp') {
+      // (The failed face the error names; others the fallback's warnings name.)
+      const f = a.nodes.filter((e) => e.kind === 'face' && e.got?.startsWith('1 Error'));
+      expect(f.length === 1 && f[0]!.path.endsWith('/face#18168'), `${file}: the failed face's: ${JSON.stringify(f)}`);
+    }
+    const v = a.view;
+    expect(!!v && !!v.header && v.header.first && v.header.name === v.name && !!v.rowIcon
+      && v.header.icon === v.rowIcon && v.focused, `${file}: the view's menu's header: ${JSON.stringify(v)}`);
+  }
+  return undefined;
+});
 // What an operation has to say beyond the status line goes in a modal once it's done (ui.ts's notice, ?check=dialogs
 // here), never the console: a model that can't be opened (its error dialog), what Mesh again didn't find again (each
 // path), Mesh again falling back to loading the file again (why), an export's warnings (each), a replay's divergences

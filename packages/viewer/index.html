@@ -172,6 +172,13 @@
     }
     .cv-menu button:hover, .cv-menu button:focus { background: var(--button-hover); outline: none; }
     .cv-menu button.divider { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
+    /* The view's menu's header: what was clicked, as its tree row shows it (tree-panel.ts's nodeLabel). */
+    .cv-menu-header {
+      display: flex; align-items: center; gap: 4px; max-width: 320px; padding: 2px 14px 6px; margin-bottom: 4px;
+      border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap;
+    }
+    .cv-menu-header .tree-name { overflow: hidden; text-overflow: ellipsis; }
+    .cv-menu-header.failed { color: var(--failed-fg); }
     /* Modal dialogs (dialog.ts). */
     .cv-dialog {
       max-width: min(560px, calc(100% - 32px)); padding: 16px 20px; color: var(--panel-fg); background: var(--panel-bg);
