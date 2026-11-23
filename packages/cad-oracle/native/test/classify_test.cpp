@@ -14,6 +14,7 @@
 #include "cad_geom/curve.h"
 #include "cad_geom/model.h"
 #include "cad_geom/surface.h"
+#include "cad_geom/tolerance.h"
 #include "cad_oracle/oracle.h"
 #include "check.h"
 
@@ -169,6 +170,64 @@ TEST_CASE("rayFace: across closed shells far to far an even count, through a con
   CHECK(usable > 0.8 * lines);
   CHECK(convexLines > 20);
   CHECK(edgeLines >= 4);
+}
+
+TEST_CASE("rayFace's face boxes: a line half the tolerance outside a box's edge still seen, axis lines through") {
+  // (The broad phase skips a face whose box a line misses: its box is widened past the tolerance, and a line with
+  // components of zero is within a slab or not.)
+  int bad = 0, cases = 0;
+  const char* convex[] = {"box", "cylinder", "cone", "bsplineCylinder", "bsplineSphere", "revolutionSphere"};
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    if (std::strcmp(ref.variant, "s1") != 0 && std::strcmp(ref.variant, "s1e3") != 0) continue;
+    const Model m(ref.data, ref.size);
+    if (!allClosed(m)) continue;
+    Oracle oracle(ref.data, ref.size);
+    REQUIRE(oracle.ok());
+    Vec3 lo, hi;
+    modelBox(m, lo, hi);
+    const Vec3 mid = 0.5 * (lo + hi), size = hi - lo;
+    const double L = 10 * cadgeom::norm(size);
+    bool isConvex = false;
+    for (const char* n : convex) isConvex = isConvex || std::strcmp(ref.name, n) == 0;
+    if (isConvex) {
+      for (int k = 0; k < 3; k++) {
+        Vec3 d{0, 0, 0}, o = mid;
+        (k == 0 ? d.x : k == 1 ? d.y : d.z) = 2 * L;
+        (k == 0 ? o.x : k == 1 ? o.y : o.z) -= L;
+        // (Off the middle a little, clear of a revolution's axis and the box's seams.)
+        o = o + 0.01 * Vec3{k == 0 ? 0 : size.x, k == 1 ? 0 : size.y, k == 2 ? 0 : size.z};
+        const Count c = across(oracle, shellFaces(m)[0], o, d);
+        cases++;
+        if (c.crossings != 2 && bad++ < 20)
+          std::printf("  %s %s: an axis line %d through the middle crossed %d times\n", ref.name, ref.variant, k,
+            c.crossings);
+      }
+    }
+    if (std::strcmp(ref.name, "box") == 0) {
+      // Each edge's middle moved out of the box by half its faces' least tolerance, along the box's diagonal from
+      // its middle, and a line through it along the edge's normal plane: within the tolerance of both faces.
+      for (int e = 0; e < m.edges(); e++) {
+        const Vec3 a = m.vertexPoint(m.edgeStart(e)), b = m.vertexPoint(m.edgeEnd(e)), p = 0.5 * (a + b);
+        const cadgeom::Tolerances tols(m);
+        double tol = INFINITY;
+        for (int f = 0; f < m.faces(); f++) tol = std::fmin(tol, tols.face(f));
+        Vec3 out = p - mid;
+        const Vec3 t = (1 / cadgeom::norm(b - a)) * (b - a);
+        out = out - cadgeom::dot(out, t) * t;
+        out = (0.5 * tol / cadgeom::norm(out)) * out;
+        const Vec3 q = p + out, dir = cadgeom::cross(t, out);
+        const Vec3 o = q - (L / cadgeom::norm(dir)) * dir, d = (2 * L / cadgeom::norm(dir)) * dir;
+        bool seen = false;
+        for (int f = 0; f < m.faces(); f++) seen = seen || !oracle.rayFace(f, o, d, {0, 1}).hits.empty();
+        cases++;
+        if (!seen && bad++ < 20)
+          std::printf("  %s %s: a line %g outside edge %d's middle met no face\n", ref.name, ref.variant, 0.5 * tol, e);
+      }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(cases >= 20);
 }
 
 TEST_CASE("rayFace: rows out of range invalid") {

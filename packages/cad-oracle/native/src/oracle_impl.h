@@ -74,8 +74,18 @@ struct Oracle::Impl {
    * false where none is.
    */
   bool interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n);
+  /**
+   * A box holding the face, widened by twice its tolerance and its edges' (where rayFace could find a hit or a
+   * contact within them): its surface's bound over its domain where that's finite, else (a plane, cylinder, cone or
+   * extrusion, linear in v along each u, so the face lies within the box of its boundary and of where a ruling ends
+   * off it, a cone's apex) its edges', vertices' and apex's boxes; false where there's none (another surface
+   * unbounded, a face without loops, an edge without a bound).
+   */
+  bool faceBox(int face, cadgeom::Box3& box);
   /** Per face, 1 where its measure is flagged orientation, 0 where not, 2 not yet measured (Oracle::shellSide's). */
   std::vector<uint8_t> loopsAgainst;
+  /** Where set, rayFace adds each face whose surface the line meets (in its loops or not) to it. */
+  std::vector<int>* met = nullptr;
   /** interiorPoint's grid over a (u, v) box. */
   bool gridPoint(int face, const Surface& surface, double ulo, double uhi, double vlo, double vhi, cadgeom::Vec2& uv,
     Vec3& p, Vec3& n);
@@ -83,6 +93,9 @@ struct Oracle::Impl {
 private:
   std::vector<std::unique_ptr<Surface>> faceSurfaces_;
   std::vector<uint8_t> faceSurfaceMade_;
+  /** faceBox's: per face 0 not yet made, 1 boxed, 2 none. */
+  std::vector<cadgeom::Box3> faceBoxes_;
+  std::vector<uint8_t> faceBoxMade_;
   std::vector<std::unique_ptr<Curve>> curves_;
   std::vector<uint8_t> made_;
   std::vector<Estimate> lengths_;
