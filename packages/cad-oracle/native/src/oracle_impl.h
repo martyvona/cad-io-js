@@ -74,6 +74,8 @@ struct Oracle::Impl {
    * false where none is.
    */
   bool interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n);
+  /** Per face, 1 where its measure is flagged orientation, 0 where not, 2 not yet measured (Oracle::shellSide's). */
+  std::vector<uint8_t> loopsAgainst;
   /** interiorPoint's grid over a (u, v) box. */
   bool gridPoint(int face, const Surface& surface, double ulo, double uhi, double vlo, double vhi, cadgeom::Vec2& uv,
     Vec3& p, Vec3& n);
