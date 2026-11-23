@@ -3,9 +3,9 @@
 // = -int_{v0}^{v} F(u, t) dt, F the integrand at the surface's point with its area vector n = S_u x S_v turned by the
 // face's sense, by a composite Gauss-Legendre rule (smooth in v, so the outer quadrature can converge through it) whose
 // panels are doubled per span until H at the loops' samples settles (inner.h). The area, |n|, rides along as one more
-// component: on a sphere, and a revolution closed by two poles, the result is known modulo the integral over the whole
-// surface (closed.h, swept.h, free.h), and the area, which lies in [0, whole), says which multiple; every component
-// takes the same.
+// component: on a sphere, a torus with a loop winding u, and a revolution closed by two poles, the result is known
+// modulo the integral over the whole surface (closed.h, swept.h, free.h), and the area, which lies in [0, whole), says
+// which multiple; every component takes the same.
 
 #include <algorithm>
 #include <array>
@@ -136,7 +136,7 @@ std::vector<Estimate> Oracle::Impl::integral(int f, const Integrand& g) {
     const ClosedTotals T = closedIntegral(face, A, options.relTol);
     std::vector<double> value(K);
     for (int c = 0; c < K; c++) value[c] = sense * T.value[c];
-    if (sphere) {
+    if (sphere || (torus && T.windsU)) {
       std::vector<Estimate> w;
       whole(m, w);
       const double j = std::floor(value[k] / w[k].value + 1e-12);

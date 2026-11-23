@@ -153,7 +153,7 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
     const size_t n = runs.size();
     // Per run: u and v at its ends (u the limit along the run at a pole), v unwrapped on a torus.
     std::vector<double> uA(n), uB(n), vA(n), vB(n);
-    double vRef = NAN;
+    double vRef = NAN, uPrev = NAN, windU = 0;
     for (size_t i = 0; i < n; i++) {
       const Run& r = runs[i];
       bool south = false;
@@ -173,17 +173,21 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
       if (r.tb < r.ta) std::reverse(br.begin(), br.end());
       // A torus's v along the run, unwrapped from where the loop is: (t, v) sorted by t, for the integrand's lookups.
       std::vector<std::pair<double, double>> table;
-      auto rawV = [&](double t) {
+      auto rawUv = [&](double t, double& u) {
         CurvePoint q;
         r.curve->eval(t, 1, q);
-        double u, v, du, dv;
+        double v, du, dv;
         E.uv(E.local(q.p), E.dir(q.d1), u, v, du, dv);
         return v;
       };
       if (torus) {
         for (size_t k = 0; k + 1 < br.size(); k++) {
           for (int j = k == 0 ? 0 : 1; j <= kUnwrapSamples; j++) {
-            const double t = br[k] + (br[k + 1] - br[k]) * j / kUnwrapSamples, raw = rawV(t);
+            double u;
+            const double t = br[k] + (br[k + 1] - br[k]) * j / kUnwrapSamples, raw = rawUv(t, u);
+            // (Across each joint too: the samples include each run's ends, so they go round the whole loop.)
+            if (std::isfinite(uPrev)) windU += wrapAngle(u - uPrev);
+            uPrev = u;
             vRef = std::isfinite(vRef) ? raw + kTwoPi * std::round((vRef - raw) / kTwoPi) : raw;
             table.push_back({t, vRef});
           }
@@ -262,6 +266,7 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
       }
     }
     if (torus && std::fabs(windV) > M_PI) T.flags |= flagWinds;
+    if (torus && std::fabs(windU) > M_PI) T.windsU = true;
   }
   T.offSurface = offMax / std::fmax(norm(hi - lo), 1e-300);
   if (T.offSurface > kOffSurface) T.flags |= flagOffSurface;
@@ -324,6 +329,10 @@ FaceMeasure Oracle::Impl::closedForm(int f) {
   if (E.kind == CBR_SURFACE_SPHERE) {
     area = std::fmod(std::fmod(area, whole) + whole, whole);
     if (area > whole / 2 * (1 + 1e-9)) m.flags |= flagSphereSide;
+  } else if (T.windsU) {
+    // A loop a turn of v off the others: the area is the face's modulo the whole torus (the loops bound a region
+    // whichever way they run, so never against the sense).
+    area = std::fmod(std::fmod(area, whole) + whole, whole);
   } else if (area < 0) {
     m.flags |= flagOrientation;
     area = -area;
