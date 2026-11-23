@@ -70,8 +70,8 @@ struct Oracle::Impl {
   bool shellBox(int shell, Vec3& lo, Vec3& hi);
   /**
    * A point well inside the face: of a grid over its loops' (u, v) box (its surface's domain where it has none), the
-   * one nearest the box's middle that the face API classifies in at 100 times the face's tolerance, else at 10 times;
-   * false where none is.
+   * one nearest the box's middle that the face API classifies in (at the face's tolerance, else the first of 10 and 100
+   * times it that's settled) and not on at 100 times it, else at 10 times; false where none is.
    */
   bool interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n);
   /**
