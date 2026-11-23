@@ -3103,3 +3103,43 @@ TEST_CASE("countExpected: a face's triangles as its own size metric expects them
     std::printf("  skewPatch: expected %.4f, closed form %.4f\n", skewGot, skewWant);
   CHECK(std::fabs(skewGot - skewWant) <= 0.05 * skewWant);
 }
+
+TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected triangles), at most capCeiling; a face "
+  "past it fails, its cap and expected count said") {
+  // (The band at 0.001: its expected count in closed form, 176.6 (countExpected's test).)
+  cadgeom::Model band = load("band");
+  REQUIRE(band.ok());
+  PartOptions o = options(0.001, 0.26);
+  o.capFloor = 100, o.capMultiple = 2;
+  PartMesher a(band, o);
+  const double want = 2 * M_PI * 2 * 5 / (std::sqrt(6 * 0.001 * 2) * std::sqrt(57.0)) / (std::sqrt(3.0) / 4);
+  if (!(std::fabs(a.face(0).capExpected - want) <= 0.1 * want))
+    std::printf("  band: expected %.1f before meshing, closed form %.1f\n", a.face(0).capExpected, want);
+  CHECK(std::fabs(a.face(0).capExpected - want) <= 0.1 * want);
+  CHECK(std::fabs(a.face(0).cap - 2 * a.face(0).capExpected) <= 1e-9 * a.face(0).cap);
+  o.capCeiling = 150;
+  PartMesher ceilinged(band, o);
+  CHECK_EQ(ceilinged.face(0).cap, 150.0);
+  o.capCeiling = 1e7, o.capMultiple = 0.01;
+  PartMesher floored(band, o);
+  CHECK_EQ(floored.face(0).cap, 100.0);  // (the floor)
+  // bumpPatch at 0.001 meshes some 33,000 triangles against about 4,500 expected: capped at 1 x expected, it fails.
+  cadgeom::Model bump = load("bumpPatch");
+  REQUIRE(bump.ok());
+  PartOptions c = options(0.001, 0.26);
+  c.capFloor = 1000, c.capMultiple = 1;
+  PartMesher pc(bump, c);
+  const FaceMesh& fm = pc.face(0);
+  CHECK(fm.status == cadgeom::Status::noConvergence);
+  CHECK(fm.capped);
+  char want2[96];
+  std::snprintf(want2, sizeof want2, "(its cap %.0f: %.0f expected)", fm.cap, fm.capExpected);
+  if (fm.cause.find(want2) == std::string::npos) std::printf("  bumpPatch: %s\n", fm.cause.c_str());
+  CHECK(fm.cause.find(want2) != std::string::npos);
+  CHECK(fm.cap > 1000);
+  // The defaults: the face meshes, its cap the floor's 200,000 (about 4,500 x 64 is more).
+  PartMesher pd(bump, options(0.001, 0.26));
+  CHECK(pd.face(0).status == cadgeom::Status::ok);
+  const double byRule = std::max(200000.0, 64 * pd.face(0).capExpected);
+  CHECK_EQ(pd.face(0).cap, byRule);
+}
