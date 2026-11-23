@@ -1,4 +1,4 @@
-// Exporting the model (File's Export...), in the import worker, which holds the scene as it was imported and meshed
+// Exporting the model (File's Export...), in the model worker, which holds the scene as it was imported and meshed
 // (model-load.ts), B-rep models included (STEP writes them): its export view at the deflections it was meshed with,
 // through the library's exporters, as stepconv
 // writes them (packages/cli, its FORMATS), the same options and defaults. With `shown`, the viewer's hiding and opacity
@@ -21,7 +21,7 @@ export interface Exported {
 
 /**
  * A scene written as asked (`draco`: the Draco encoder's module settings, as a bundled worker needs); with `pause`,
- * awaited now and then as it's made (the import worker's heartbeat goes out then: Viewer.exportModel), the exporters'
+ * awaited now and then as it's made (the model worker's heartbeat goes out then: Viewer.exportModel), the exporters'
  * own work between pauses a part or a piece of the file at a time (Draco's and meshopt's encoding not paused).
  */
 export async function exportModel(scene: Scene, deflections: Deflections, r: ExportRequest,

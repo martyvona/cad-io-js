@@ -94,7 +94,7 @@ export interface GltfOptions {
   draco?: Record<string, unknown>;
   /**
    * Called (and awaited) now and then while the document is made, a placed part at a time, so the thread can do
-   * other things meanwhile (the viewer's import worker: its heartbeat). The encoders' own work doesn't pause.
+   * other things meanwhile (the viewer's model worker: its heartbeat). The encoders' own work doesn't pause.
    */
   pause?: () => Promise<void>;
 }

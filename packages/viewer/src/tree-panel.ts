@@ -41,6 +41,22 @@ export function overrideText(o: AppearanceOverride): string {
     ? 'triangle edges on' : o.triangleEdges === false ? 'triangle edges off' : ''].filter(Boolean).join('; ');
 }
 
+/** A node's icon as its row shows it: its kind's, or broken where it failed to mesh. */
+function iconHtml(model: NodeModel, id: number): string {
+  const failure = model.failure(id);
+  return `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
+    : ICONS[model.nodes[id]!.kind]}</span>`;
+}
+
+/** A node as its row shows it, its icon and its name (the view's context menu's header). */
+export function nodeLabel(model: NodeModel, id: number): HTMLElement {
+  const el = document.createElement('div');
+  el.innerHTML = `${iconHtml(model, id)}<span class="tree-name"></span>`;
+  el.lastElementChild!.textContent = model.nodes[id]!.name;
+  el.classList.toggle('failed', model.failure(id) !== undefined);
+  return el;
+}
+
 export class TreePanel {
   readonly model: NodeModel;
   private readonly view: TreeView;
@@ -72,8 +88,7 @@ export class TreePanel {
         const n = model.nodes[num(id)]!;
         // Failed to mesh, wholly or partly: red, with a broken icon (before, partly had the icon only).
         const failure = model.failure(n.id);
-        content.innerHTML = `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
-          : ICONS[n.kind]}</span><span class="tree-name"></span>`;
+        content.innerHTML = `${iconHtml(model, n.id)}<span class="tree-name"></span>`;
         content.lastElementChild!.textContent = n.name;
         const own = model.ownOverride(n.id);
         if (own) content.insertAdjacentHTML('beforeend', `<span class="tree-override">${own.hidden ? EYE_OFF_ICON

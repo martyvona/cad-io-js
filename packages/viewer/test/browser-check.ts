@@ -772,7 +772,7 @@ await check('picks on caps', async () => {
   return undefined;
 });
 // Edges found off the page's thread: a GLB of meshes without edges (the user's VW, from Onshape) loads with every
-// part's edges found in the import worker, the page's longest task no longer than the scene graph's own building
+// part's edges found in the model worker, the page's longest task no longer than the scene graph's own building
 // (finding them on the page made it more than twice as long).
 const vwGlb = path.join(repo, 'test_corpus/models/onshape/VW-medium-uncompressed.glb.glb');
 if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
@@ -813,7 +813,7 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
   return undefined;
 });
-// A STEP file's import says its phases in the status line as the import worker reaches them ("importing" alone for the
+// A STEP file's import says its phases in the status line as the model worker reaches them ("importing" alone for the
 // seconds a large file takes): reading, its structure, the parts by percent, assembling.
 await check('import phases', async () => {
   const r = await page('?check', `(async () => {
@@ -2020,55 +2020,499 @@ await check('sections', async () => {
   expect(a.glError === 0, `WebGL error: ${j}`);
   return undefined;
 });
-// The problems dialog (problems.ts): a file with errors, once meshed, shows them in a modal (only with
-// ?check=dialogs among the check's pages), a row per error and none for its warnings; OK closes it. A face that fails
-// to mesh is an error too. A file with warnings alone, one without either, and the plain ?check pages, show none.
+// The problems dialog (problems.ts): a file with errors, once meshed, shows them in a modal (only with ?check=dialogs
+// among the check's pages), a list of its errors and one of its warnings, each scrolling on its own, "None." for a
+// kind it hasn't, a Copy button for each kind, disabled for one without ids; OK closes it. A face that fails to mesh is
+// an error too. A file with warnings alone, one without either, and the plain ?check pages, show none by themselves.
+// The status line counts each kind ("2 errors, 1 warning (details from the About box)"; nothing for none); About's
+// errors/warnings link shows the same dialog at any time. Nothing goes to the console.
 await check('problems dialog', async () => {
+  const first = `globalThis.consoleSaid = [];
+    for (const k of ['log', 'info', 'warn', 'error']) {
+      const f = console[k];
+      console[k] = (...a) => { consoleSaid.push(k + ': ' + String(a[0]).slice(0, 80)); f.apply(console, a); };
+    }`;
   const look = `(async () => { await cadViewer.ready; await cadViewer.idle();
     await new Promise((r) => setTimeout(r, 200));
-    const d = document.querySelector('dialog.cv-dialog');
+    const dialogs = () => [...document.querySelectorAll('dialog.cv-dialog')];
+    const read = (d) => {
+      const list = (kind) => {
+        const box = d.querySelector('.table.' + kind);
+        return { rows: [...box.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent)),
+          none: box.querySelector('p.none')?.textContent ?? null, scrolls: getComputedStyle(box).overflowY,
+          heading: box.previousElementSibling?.textContent ?? null };
+      };
+      const button = (label) => [...d.querySelectorAll('button')].find((b) => b.textContent === label);
+      return { title: d.querySelector('h2')?.textContent ?? null, error: d.classList.contains('error'),
+        errors: list('errors'), warnings: list('warnings'),
+        copyErrors: button('Copy error IDs')?.disabled ?? null,
+        copyWarnings: button('Copy warning IDs')?.disabled ?? null };
+    };
+    const close = async (d) => {
+      d.querySelector('button.primary').click();
+      // (Removed once it has closed: waited for, up to 5 s, as it can take longer than a frame or two under load.)
+      for (let t = 0; t < 100 && d.isConnected; t++) await new Promise((r) => setTimeout(r, 50));
+      return !d.isConnected;
+    };
     const diagnostics = viewer.model?.diagnostics ?? [];
-    const out = { open: !!d?.open, title: d?.querySelector('h2')?.textContent ?? null,
-      rows: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) : [],
-      messages: d ? [...d.querySelectorAll('tr')].map((r) => r.cells[1].textContent) : [],
+    const auto = dialogs()[0];
+    const out = { open: !!auto?.open, auto: auto ? read(auto) : null,
       warnings: diagnostics.filter((x) => x.severity === 'warning').length,
-      errors: diagnostics.filter((x) => x.severity === 'error').length };
-    d?.querySelector('button.primary')?.click();
-    // (Removed once it has closed: waited for, up to 5 s, as it can take longer than a frame or two under load.)
-    for (let t = 0; t < 100 && document.querySelector('dialog.cv-dialog'); t++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    return { ...out, closed: !document.querySelector('dialog.cv-dialog') };
+      errors: diagnostics.filter((x) => x.severity === 'error').length,
+      status: document.getElementById('status').textContent };
+    out.closed = auto ? await close(auto) : true;
+    // About's link: the same dialog, over About.
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    await new Promise((r) => setTimeout(r, 100));
+    const about = dialogs()[0];
+    const link = [...about.querySelectorAll('a')].find((a) => a.textContent === 'errors/warnings');
+    out.link = !!link;
+    link?.click();
+    await new Promise((r) => setTimeout(r, 100));
+    const fromAbout = dialogs()[1];
+    out.fromAbout = fromAbout ? read(fromAbout) : null;
+    if (fromAbout) out.fromAboutClosed = await close(fromAbout);
+    out.aboutStill = about.open;
+    await close(about);
+    out.console = consoleSaid;
+    return out;
   })()`;
-  type Seen = { open: boolean; title: string | null; rows: string[]; messages: string[]; warnings: number;
-    errors: number; closed: boolean };
-  const broken = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
-  const clean = (await page(`?url=${encodeURIComponent('/content/as1.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
-  const warned = (await page(`?url=${encodeURIComponent('/content/warned.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
+  type List = { rows: string[][]; none: string | null; scrolls: string; heading: string | null };
+  type Read = { title: string | null; error: boolean; errors: List; warnings: List; copyErrors: boolean | null;
+    copyWarnings: boolean | null };
+  type Seen = { open: boolean; auto: Read | null; warnings: number; errors: number; status: string; closed: boolean;
+    link: boolean; fromAbout: Read | null; fromAboutClosed?: boolean; aboutStill: boolean; console: string[] };
+  const see = async (file: string, dialogs = true) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}`
+    + `&check${dialogs ? '=dialogs' : ''}`, look, { first }) as { after: Seen }).after;
+  const broken = await see('broken.stp'), clean = await see('as1.stp'), warned = await see('warned.stp');
   // (OCCT fails a face of it, meshes ten over their area and leaves an edge open; SMLib, the fallback, meshes those
   // ten but leaves out three, one the face OCCT fails: the per-face fallback's mix, OCCT's mesh with SMLib's ten,
   // still without that face and open along an edge between the two.)
-  const face = (await page(`?url=${encodeURIComponent('/content/face-failed.stp')}&check=dialogs`, look) as
-    { after: Seen }).after;
-  const quiet = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check`, look) as { after: Seen }).after;
+  const face = await see('face-failed.stp'), quiet = await see('broken.stp', false);
   const j = JSON.stringify({ broken, clean, warned, face, quiet });
-  expect(broken.errors > 0 && broken.warnings > 0 && broken.open && broken.rows.length === Math.min(broken.errors,
-    500) && broken.title === `broken.stp: ${broken.errors} error${broken.errors === 1 ? '' : 's'}` &&
-    broken.rows.every((r) => r.startsWith('error')) && broken.closed, `a file with errors: ${j}`);
-  expect(clean.errors + clean.warnings === 0 && !clean.open, `a file without: ${j}`);
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const counts = (s: Seen) => [s.errors ? plural(s.errors, 'error') : '', s.warnings ? plural(s.warnings, 'warning')
+    : ''].filter(Boolean).join(', ');
+  // The dialog as it should be for a page's diagnostics, however it was opened.
+  const shown = (s: Seen, r: Read | null, name: string) => !!r && r.title === `${name}: ${counts(s) ||
+    'no errors or warnings'}` && r.error === s.errors > 0 && r.errors.rows.length === s.errors
+    && r.warnings.rows.length === s.warnings && r.errors.rows.every((x) => x[0]!.startsWith('error'))
+    && r.warnings.rows.every((x) => x[0]!.startsWith('warning'))
+    && r.errors.none === (s.errors ? null : 'None.') && r.warnings.none === (s.warnings ? null : 'None.')
+    && r.errors.heading === `Errors (${s.errors})` && r.warnings.heading === `Warnings (${s.warnings})`
+    && r.errors.scrolls === 'auto' && r.warnings.scrolls === 'auto'
+    && r.copyErrors === !r.errors.rows.some((x) => /#\d/.test(x[0]!))
+    && r.copyWarnings === !r.warnings.rows.some((x) => /#\d/.test(x[0]!));
+  const said = (s: Seen) => counts(s) ? s.status.endsWith(`; ${counts(s)} (details from the About box)`)
+    : !/error|warning|About/.test(s.status);
+  for (const [name, s] of [['broken.stp', broken], ['as1.stp', clean], ['warned.stp', warned],
+    ['face-failed.stp', face], ['broken.stp', quiet]] as const) {
+    expect(said(s), `${name}'s status line: ${s.status}`);
+    expect(s.link && shown(s, s.fromAbout, name) && !!s.fromAboutClosed && s.aboutStill,
+      `${name} from About: ${JSON.stringify(s.fromAbout)}`);
+    expect(s.console.length === 0, `${name}: nothing in the console: ${JSON.stringify(s.console)}`);
+  }
+  expect(broken.errors > 0 && broken.warnings > 0 && broken.open && shown(broken, broken.auto, 'broken.stp')
+    && !broken.auto!.copyErrors && broken.closed, `a file with errors: ${j}`);
+  expect(clean.errors + clean.warnings === 0 && !clean.open && !!clean.fromAbout?.copyErrors
+    && !!clean.fromAbout.copyWarnings, `a file without: ${j}`);
   expect(warned.warnings > 0 && warned.errors === 0 && !warned.open, `a file with warnings alone: ${j}`);
-  expect(face.errors === 2 && face.open && face.title === 'face-failed.stp: 2 errors' &&
-    face.rows.join() === 'error #10,error #10' && face.messages.join('|') === '1 faces failed to mesh: #18168|1 '
-    + 'edges along which the meshes of the faces they join don\'t meet: the mesh is open there', `a face failed: ${j}`);
-  expect(quiet.errors > 0 && !quiet.open, `none in plain ?check pages: ${j}`);
+  expect(face.errors === 2 && face.open && !!face.auto?.title?.startsWith('face-failed.stp: 2 errors')
+    && face.auto.errors.rows.map((r) => r[0]).join() === 'error #10,error #10'
+    && face.auto.errors.rows.map((r) => r[1]).join('|') === '1 faces failed to mesh: #18168|1 edges along which the '
+    + 'meshes of the faces they join don\'t meet: the mesh is open there', `a face failed: ${j}`);
+  expect(quiet.errors > 0 && !quiet.open, `none by itself in plain ?check pages: ${j}`);
   return undefined;
 });
-// STEP ids (step-ids.ts): the problems dialog's Copy IDs copies its rows' ids (the clipboard stubbed), the dialog
-// staying open; Select by ID (Selection) reads what's typed in its dialog: a part's id selects every placement, a
-// face's turns the tree's detail on and selects its face nodes, anything else is said; the details panel lists the
+// Who holds the B-rep models (model-load.ts's handOver): the page, each placed part's handed over with its mesh event,
+// never waiting for the end, the same bytes the worker had; lent back for Mesh again and returned part by part (each
+// as its mesh message comes); a Mesh again cancelled by another while its mesh events are on their way (held back here
+// until the second has started) loses none, the second meshing in place; lent for an export, STEP's exact geometry
+// written from them, and back with its answer.
+await check('model ownership', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const graph = () => viewer.graph;
+    const breps = () => [...graph().placements.keys()].filter((i) => graph().scene.parts[i].brep).sort((a, b) => a - b);
+    // Each placed part's model as the page holds it: its bytes summed (or null where it isn't held).
+    const held = () => breps().map((i) => { const m = graph().modelOf(i);
+      return m ? new Uint8Array(m.buffer).reduce((a, x) => (a * 31 + x) >>> 0, 0) : null; });
+    const out = { first: held(), parts: breps().length };
+    // The worker's messages counted as they come (and, while 'holding', kept back to deliver later).
+    const worker = viewer.modelWorker(), deliver = worker.onmessage;
+    let meshes = 0, done = false, holding = false;
+    const kept = [];
+    worker.onmessage = (e) => {
+      if (holding) return void kept.push(e);
+      if (e.data.type === 'mesh') meshes++;
+      if (e.data.type === 'done') done = true;
+      deliver(e);
+    };
+    // Each model's arrival: the mesh messages come by then, and whether the end had.
+    const proto = Object.getPrototypeOf(graph()), hold = proto.holdModel;
+    const arrivals = [];
+    proto.holdModel = function (part, buffer) {
+      arrivals.push({ meshes, done });
+      return hold.call(this, part, buffer);
+    };
+    const reset = () => { meshes = 0; done = false; return arrivals.splice(0); };
+    const until = async (f) => {
+      for (let t = 0; t < 1500 && !f(); t++) await new Promise((res) => setTimeout(res, 20));
+    };
+    reset();
+    // A load whose messages are held back, then delivered at once: its meshes come before the page has shown its
+    // scene (taken then, once it has).
+    holding = true;
+    const loading = cadViewer.load('/content/as1.stp');
+    await until(() => kept.filter((e) => e.data.type === 'mesh').length >= 2);
+    holding = false;
+    for (const e of kept.splice(0)) worker.onmessage(e);
+    await loading;
+    await cadViewer.idle();
+    out.arrivals = reset();
+    out.loaded = held();
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // Mesh again: lent, and back part by part; in place (the same scene graph: not the file loaded again, which would
+    // hand every model over afresh).
+    const before = graph();
+    let again = viewer.nextLoad();
+    button('Mesh again').$button.click();
+    await until(() => viewer.nextLoad() !== again);
+    await ui.opened();
+    await cadViewer.idle();
+    out.againArrivals = reset();
+    out.again = held();
+    // Twice: the first's messages held back until the second has started, then delivered (stale by then).
+    holding = true;
+    again = viewer.nextLoad();
+    const t0 = performance.now();
+    button('Mesh again').$button.click();
+    await until(() => kept.filter((e) => e.data.type === 'mesh').length >= 2);
+    out.stale = kept.filter((e) => e.data.type === 'mesh').length;
+    button('Mesh again').$button.click();
+    // (Released once the second has begun: the first's run is over, its listener gone.)
+    await until(() => viewer.nextLoad() > again + 1);
+    await new Promise((res) => setTimeout(res, 50));
+    holding = false;
+    for (const e of kept.splice(0)) worker.onmessage(e);
+    await until(() => viewer.nextLoad() > again + 1 && !viewer.loading);
+    await ui.opened();
+    await cadViewer.idle();
+    out.twice = held();
+    out.inPlace = graph() === before;
+    // (Not waiting out CANCEL_WAIT_MS, 10 s: the worker took the cancel.)
+    out.twiceSeconds = (performance.now() - t0) / 1000;
+    reset();
+    // An export of STEP with its exact geometry: written from the models, which come back.
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async (d) => {
+      out.written = await new Blob([d]).text(); }, close: async () => {} }) });
+    const exp = button('Export...');
+    const exporting = exp.getValue().call(exp.object);
+    let d;
+    for (let i = 0; i < 300 && !(d = document.querySelector('dialog.cv-dialog')); i++) {
+      await new Promise((res) => requestAnimationFrame(res));
+    }
+    const s = d.querySelector('select[data-key=format]');
+    s.value = 'step';
+    s.dispatchEvent(new Event('change'));
+    d.querySelector('button.primary').click();
+    await exporting;
+    out.exported = held();
+    out.faces = (out.written?.match(/ADVANCED_FACE\\(/g) ?? []).length;
+    delete out.written;
+    proto.holdModel = hold;
+    worker.onmessage = deliver;
+    return out;
+  })()`) as { after: { first: (number | null)[]; parts: number; arrivals: { meshes: number; done: boolean }[];
+    loaded: (number | null)[]; againArrivals: { meshes: number; done: boolean }[]; again: (number | null)[];
+    stale: number; twice: (number | null)[]; inPlace: boolean; twiceSeconds: number; exported: (number | null)[];
+    faces: number } };
+  const a = r.after, j = JSON.stringify(a);
+  const all = (h: (number | null)[]) => h.length === a.parts && h.every((x) => x !== null);
+  const same = (h: (number | null)[]) => JSON.stringify(h) === JSON.stringify(a.first);
+  expect(a.parts > 1 && all(a.first) && same(a.loaded), `every placed part's model with the page: ${j}`);
+  // (A load's held back come, with its end, before the page has shown its scene: taken once it has.)
+  expect(a.arrivals.length === a.parts && a.arrivals[0]!.meshes >= 2,
+    `a load's, those before its scene was shown too: ${j}`);
+  expect(a.againArrivals.length === a.parts && a.againArrivals.every((x, k) => x.meshes === k + 1 && !x.done)
+    && same(a.again), `Mesh again: lent, back part by part as each mesh comes, the same bytes: ${j}`);
+  expect(a.stale >= 2 && same(a.twice) && a.inPlace && a.twiceSeconds < 8, `Mesh again twice, the first's meshes `
+    + `stale: none lost, in place, the cancel taken: ${j}`);
+  expect(same(a.exported) && a.faces > 0, `an export of STEP's exact geometry, the models back: ${j}`);
+  return undefined;
+});
+// A node's errors and warnings in its context menu (problems.ts's itemDiagnostics): "N Errors, M Warnings..." where it
+// has any, opening the problems dialog with those alone. A node's are its own STEP ids' and everything's below it: an
+// assembly's and its descendants', a part's and its B-rep model's entities' (the model the page holds); a face's own
+// and its part's that name it; a top node's also the file's own, which no node covers. Checked against each
+// diagnostic's owners found here by brute force. The view's menu (a right-click on the 3D view) starts with a header
+// naming what was clicked as its tree row does (its icon and name); the tree's has none.
+await check('item errors and warnings', async () => {
+  const look = (face: boolean) => `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const m = viewer.nodes, graph = viewer.graph, diagnostics = viewer.model.diagnostics;
+    if (${face}) { ui.setTree({ detail: true }); for (const n of [...m.nodes]) m.children(n.id); }
+    // The ids each node holds, found here: its own (step-ids' sources, a face's source), a part's model's.
+    const ownIds = (n) => {
+      if (n.face) return graph.scene.parts[n.face.part] && m.nodes[n.parent].object.userData.stepFaces
+        ? [n.face.source] : [];
+      const own = n.object?.userData.sources ?? [];
+      if (n.kind !== 'part') return own;
+      const faces = [];
+      n.object.traverse((o) => faces.push(...(o.userData.faces ?? []), ...(o.userData.failedFaces ?? [])));
+      // (The model's ids read here from its tables, the page holding it once meshed.)
+      const model = graph.modelOf(n.object.userData.part), held = [];
+      for (const t of Object.values(model ?? {})) if (t?.id instanceof Uint32Array) held.push(...t.id);
+      if (model?.copy) held.push(...model.copy.source);
+      return [...own, ...held, ...faces];
+    };
+    const structure = m.nodes.filter((n) => !n.dead && (n.kind === 'assembly' || n.kind === 'part' || n.face));
+    const holders = (d) => d.source?.format !== 'step' ? [] : structure.filter((n) => ownIds(n).includes(d.source.id));
+    const under = (k, top) => { for (let p = k; p >= 0; p = m.nodes[p].parent) if (p === top) return true;
+      return false; };
+    const expected = (n) => diagnostics.filter((d) => {
+      if (d.severity !== 'error' && d.severity !== 'warning') return false;
+      if (n.face) return d.source?.format === 'step' && (d.source.id === n.face.source
+        || (m.nodes[n.parent].object.userData.sources ?? []).includes(d.source.id)
+        && new RegExp('#' + n.face.source + '(?!\\\\d)').test(d.message));
+      const hs = holders(d);
+      // (A face's id is its part's too.)
+      return hs.some((h) => !h.face && under(h.id, n.id)) || n.parent < 0 && hs.filter((h) => !h.face).length === 0;
+    });
+    const items = () => [...document.querySelectorAll('.cv-menu button')].map((b) => b.textContent);
+    const close = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const label = (e, w) => e + ' Error' + (e === 1 ? '' : 's') + ', ' + w + ' Warning' + (w === 1 ? '' : 's') + '...';
+    const out = { nodes: [], counts: { errors: diagnostics.filter((d) => d.severity === 'error').length,
+      warnings: diagnostics.filter((d) => d.severity === 'warning').length },
+      sources: diagnostics.map((d) => d.severity[0] + (d.source ? d.source.format + '#' + d.source.id : '')) };
+    for (const n of structure) {
+      ui.panel().onContextMenu(n.id, 100, 100);
+      await frame();
+      const got = items().find((t) => / Errors?, \\d+ Warnings?\\.\\.\\.$/.test(t)) ?? null;
+      const header = !!document.querySelector('.cv-menu-header');
+      const ex = expected(n);
+      const e = ex.filter((d) => d.severity === 'error').length, w = ex.length - e;
+      const want = e + w ? label(e, w) : null;
+      const entry = { path: m.pathOf(n.id), kind: n.kind, got, want, header };
+      if (got) {
+        [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === got).click();
+        const d = await (async () => { for (let t = 0; t < 100; t++) { const x = document.querySelector(
+          'dialog.cv-dialog[open]'); if (x) return x; await frame(); } })();
+        entry.dialog = { title: d.querySelector('h2').textContent,
+          errors: d.querySelectorAll('.table.errors tr').length, warnings: d.querySelectorAll('.table.warnings tr')
+            .length, intro: d.querySelector('p').textContent.slice(0, 60),
+          sources: [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent) };
+        d.querySelector('button.primary').click();
+        for (let t = 0; t < 100 && d.isConnected; t++) await frame();
+      } else close();
+      await frame();
+      out.nodes.push(entry);
+    }
+    // The view's menu: a right-click over a part.
+    const canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    let spot;
+    for (let i = 1; i < 10 && !spot; i++) for (let j = 1; j < 10 && !spot; j++) {
+      const path = cadViewer.pickAt(i / 10, j / 10)?.path;
+      if (path) spot = { x: rect.left + i / 10 * rect.width, y: rect.top + j / 10 * rect.height, id: m.find(path) };
+    }
+    if (spot) {
+      const send = (type, o) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+        isPrimary: true, pointerType: 'mouse', clientX: spot.x, clientY: spot.y, ...o }));
+      send('pointerdown', { button: 2, buttons: 2 });
+      send('pointerup', { button: 2, buttons: 0 });
+      await frame();
+      const h = document.querySelector('.cv-menu-header');
+      const row = document.querySelector('#tree .tree-row[data-id="' + spot.id + '"] .tree-content');
+      out.view = { id: spot.id, header: h ? { icon: h.querySelector('.tree-icon')?.outerHTML,
+        name: h.querySelector('.tree-name')?.textContent, first: h === document.querySelector('.cv-menu')
+          .firstElementChild } : null, rowIcon: row?.querySelector('.tree-icon')?.outerHTML ?? null,
+        name: m.nodes[spot.id].name, focused: document.querySelector('.cv-menu button') === document.activeElement };
+      close();
+    }
+    return out;
+  })()`;
+  type Entry = { path: string; kind: string; got: string | null; want: string | null; header: boolean;
+    dialog?: { title: string; errors: number; warnings: number; intro: string; sources: string[] } };
+  type Seen = { nodes: Entry[]; counts: { errors: number; warnings: number }; sources: string[];
+    view?: { id: number; header: { icon?: string; name?: string; first: boolean } | null; rowIcon: string | null;
+      name: string; focused: boolean } };
+  const see = async (file: string, face: boolean) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}`
+    + '&check', look(face)) as { after: Seen }).after;
+  for (const [file, face] of [['broken.stp', false], ['face-failed.stp', true], ['as1.stp', false],
+    ['warned.stp', false]] as const) {
+    const a = await see(file, face), j = JSON.stringify(a);
+    const name = (e: Entry) => e.path.split('/').at(-1)!.replace(/^face#/, 'face #');
+    for (const e of a.nodes) {
+      expect(e.got === e.want && !e.header, `${file} ${e.path}: ${e.got} for ${e.want}: ${j}`);
+      if (!e.got) continue;
+      const [, ne, nw] = e.got.match(/^(\d+) Errors?, (\d+) Warnings?/)!.map(Number);
+      expect(!!e.dialog && e.dialog.errors === ne && e.dialog.warnings === nw && e.dialog.title.startsWith(`${
+        name(e)}: `) && e.dialog.intro.startsWith(`Those of ${name(e)}${e.kind === 'face' ? ', from'
+        : ' and everything in it'}`),
+      `${file} ${e.path}'s dialog: ${JSON.stringify(e)}`);
+    }
+    // The top nodes hold every error and warning; a file without has no item anywhere.
+    const tops = a.nodes.filter((e) => !e.path.includes('/'));
+    expect(tops.every((e) => e.want === (a.counts.errors + a.counts.warnings ? `${a.counts.errors} Error${
+      a.counts.errors === 1 ? '' : 's'}, ${a.counts.warnings} Warning${a.counts.warnings === 1 ? '' : 's'}...`
+      : null)), `${file}: the top nodes hold them all: ${j}`);
+    if (file === 'broken.stp') {
+      // (Some below the top, not all: a part's of its own.) Its warning at #69, an EDGE_CURVE in the B-rep of the
+      // part whose shape representation is #62 (its error's source), is each placement's of that part, and their
+      // parents'.
+      expect(a.nodes.some((e) => e.kind === 'part' && e.got) && a.nodes.some((e) => !e.got), `${file}: ${j}`);
+      const holding = a.nodes.filter((e) => e.dialog?.sources.includes('warning #69')).map((e) => e.path);
+      const parts = a.nodes.filter((e) => e.kind === 'part' && e.dialog?.sources.includes('error #62'))
+        .map((e) => e.path);
+      expect(parts.length > 0 && parts.every((p) => holding.includes(p)) && holding.every((h) => parts.some((p) =>
+        p === h || p.startsWith(`${h}/`))), `${file}: #69 its part's: ${JSON.stringify({ holding, parts })}`);
+    }
+    if (file === 'warned.stp') {
+      // Its one warning, at an instance of its own outside every part: the file's, the top nodes' alone.
+      expect(a.counts.errors === 0 && a.counts.warnings === 1 && a.nodes.every((e) => !e.got === e.path.includes('/')),
+        `${file}: the file's own, the top's: ${j}`);
+    }
+    if (file === 'face-failed.stp') {
+      // (The failed face the error names; others the fallback's warnings name.)
+      const f = a.nodes.filter((e) => e.kind === 'face' && e.got?.startsWith('1 Error'));
+      expect(f.length === 1 && f[0]!.path.endsWith('/face#18168'), `${file}: the failed face's: ${JSON.stringify(f)}`);
+    }
+    const v = a.view;
+    expect(!!v && !!v.header && v.header.first && v.header.name === v.name && !!v.rowIcon
+      && v.header.icon === v.rowIcon && v.focused, `${file}: the view's menu's header: ${JSON.stringify(v)}`);
+  }
+  return undefined;
+});
+// What an operation has to say beyond the status line goes in a modal once it's done (ui.ts's notice, ?check=dialogs
+// here), never the console: a model that can't be opened (its error dialog), what Mesh again didn't find again (each
+// path), Mesh again falling back to loading the file again (why), an export's warnings (each), a replay's divergences
+// (each, from Replay recording...).
+await check('operation notices', async () => {
+  const first = `globalThis.consoleSaid = [];
+    for (const k of ['log', 'info', 'warn', 'error']) {
+      const f = console[k];
+      console[k] = (...a) => { consoleSaid.push(k + ': ' + String(a[0]).slice(0, 80)); f.apply(console, a); };
+    }`;
+  const r = await page('?check=dialogs', `(async () => {
+    await cadViewer.ready;
+    const until = async (f, what) => {
+      for (const end = Date.now() + 60000; Date.now() < end;) {
+        const v = f();
+        if (v) return v;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      throw new Error('timed out waiting for ' + what + ' (status: ' + document.getElementById('status').textContent
+        + ')');
+    };
+    const status = () => document.getElementById('status').textContent;
+    // The open dialog: its title, rows and whether it's an error, then OK.
+    const answer = async (what) => {
+      const d = await until(() => document.querySelector('dialog.cv-dialog[open]'), what);
+      const seen = { title: d.querySelector('h2').textContent, text: d.textContent,
+        error: d.classList.contains('error'), rows: [...d.querySelectorAll('tr')].map((r) => r.textContent) };
+      d.querySelector('button.primary').click();
+      await until(() => !d.isConnected, 'the dialog to close');
+      return seen;
+    };
+    const none = () => !document.querySelector('dialog.cv-dialog');
+    const out = {};
+    // Not opened.
+    void ui.openUrl('/content/no-such-model.stp');
+    out.notOpened = await answer('the error dialog');
+    await ui.opened();
+    await ui.openUrl('/content/as1.stp');
+    await cadViewer.idle();
+    out.cleanLoad = none();
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    const meshAgain = async () => {
+      const again = viewer.nextLoad();
+      button('Mesh again').$button.click();
+      await until(() => viewer.nextLoad() !== again, 'Mesh again to start');
+      await ui.opened();
+      await cadViewer.idle();
+    };
+    // A selection not found again.
+    const nodes = viewer.nodes;
+    const part = nodes.nodes.find((n) => n.kind === 'part');
+    const lostPath = nodes.pathOf(part.id);
+    ui.select([part.id]);
+    const proto = Object.getPrototypeOf(viewer.nodes), find = proto.find;
+    proto.find = function (p) { return p === lostPath ? undefined : find.call(this, p); };
+    try {
+      await meshAgain();
+    } finally {
+      proto.find = find;
+    }
+    out.lostStatus = status();
+    out.lost = await answer('the not found again dialog');
+    // Mesh again loading the file again.
+    const meshAgainFn = viewer.meshAgain;
+    viewer.meshAgain = async () => { throw new Error('the models are gone (planted)'); };
+    try {
+      await meshAgain();
+    } finally {
+      viewer.meshAgain = meshAgainFn;
+    }
+    out.fellBack = await answer('the loaded again dialog');
+    // An export's warnings: a part's override with triangle edges, the view's look applied.
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async () => {},
+      close: async () => {} }) });
+    ui.setOverride(part.id, { triangleEdges: true });
+    const exp = button('Export...');
+    const done = exp.getValue().call(exp.object);
+    const d = await until(() => document.querySelector('dialog.cv-dialog[open]'), 'the export dialog');
+    const s = d.querySelector('select[data-key=format]');
+    s.value = 'threejs';
+    s.dispatchEvent(new Event('change'));
+    const box = d.querySelector('input[data-key=shown]');
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    d.querySelector('button.primary').click();
+    await done;
+    out.exportStatus = status();
+    out.exported = await answer('the export warnings');
+    ui.setOverride(part.id, {});
+    // A replay with a divergence: the recording's end said another meshing than the replay's.
+    cadViewer.record(true);
+    ui.select([part.id]);
+    const rec = cadViewer.record(false);
+    const end = rec.events.findLast((e) => e.type === 'state');
+    out.recorded = !!end?.state?.meshing;
+    if (out.recorded) end.state.meshing.linearDeflection = 0.3;
+    window.showOpenFilePicker = async () => [{ getFile: async () => new File([JSON.stringify(rec)],
+      'recording.json') }];
+    [...document.querySelectorAll('.lil-gui .controller')].find((c) => c.textContent.trim() === 'Replay recording...')
+      .querySelector('button').click();
+    out.replayed = await answer('the divergences');
+    out.replayStatus = status();
+    out.console = consoleSaid;
+    return out;
+  })()`, { first }) as { after: Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const a = r.after, j = JSON.stringify(a);
+  expect(!a.error, `the page: ${a.error}`);
+  expect(a.notOpened?.error && a.notOpened.title === 'Could not open /content/no-such-model.stp', `not opened: ${j}`);
+  expect(a.cleanLoad, `no dialog for a clean load: ${j}`);
+  expect(/; 1 selected not found again$/.test(a.lostStatus) && a.lost?.title === 'as1.stp: not found again'
+    && a.lost.rows.length === 1 && /^selected: as1\/.+/.test(a.lost.rows[0]), `not found again: ${j}`);
+  expect(a.fellBack?.title === 'as1.stp: loaded again' && a.fellBack.text.includes('the models are gone (planted)')
+    && !a.fellBack.error, `loaded again: ${j}`);
+  expect(/; 1 warning: triangle edges aren't written/.test(a.exportStatus) && a.exported?.title === 'Exported '
+    + 'as1.json: 1 warning' && a.exported.rows.join() === "triangle edges aren't written: the formats have no such "
+    + 'setting', `export warnings: ${j}`);
+  const n = a.replayed?.rows.length ?? 0;
+  expect(a.recorded && n > 0 && a.replayStatus.endsWith(`; ${n} divergence${n === 1 ? '' : 's'}`)
+    && a.replayed.title === `Replay: ${n} divergence${n === 1 ? '' : 's'}` && a.replayed.error
+    && a.replayed.rows.some((x: string) => x.startsWith('the end: meshing is')),
+  `replay divergences: ${j}`);
+  expect(a.console?.length === 0, `nothing in the console: ${JSON.stringify(a.console)}`);
+  return undefined;
+});
+// STEP ids (step-ids.ts): the problems dialog's Copy error IDs copies its errors' ids (the clipboard stubbed), the
+// dialog staying open; Select by ID (Selection) reads what's typed in its dialog: a part's id selects every placement,
+// a face's turns the tree's detail on and selects its face nodes, anything else is said; the details panel lists the
 // selection's ids, cut short past about 50 characters.
 await check('step ids', async () => {
   const copy = (await page(`?url=${encodeURIComponent('/content/broken.stp')}&check=dialogs`, `(async () => {
@@ -2076,8 +2520,8 @@ await check('step ids', async () => {
     let copied; navigator.clipboard.writeText = async (t) => { copied = t; };
     await new Promise((r) => setTimeout(r, 200));
     const d = document.querySelector('dialog.cv-dialog');
-    const b = [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy IDs');
-    const rows = [...d.querySelectorAll('tr')].map((r) => r.cells[0].textContent);
+    const b = [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy error IDs');
+    const rows = [...d.querySelectorAll('.table.errors tr')].map((r) => r.cells[0].textContent);
     b.click();
     await new Promise((r) => setTimeout(r, 100));
     const out = { copied, label: b.textContent, open: d.open, rows };
@@ -2718,7 +3162,7 @@ await check('phone', async () => {
   expect(t.wide === 390 - 40 + 1, `a width too wide for the window, capped (and its border): ${JSON.stringify(t)}`);
   return undefined;
 });
-// The import worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
+// The model worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
 // controls closed at first; Zoom selected in View, enabled only with a selection; Mesh again (at another deflection,
 // the cache off) keeps the camera, a cut, what's hidden and what's selected, the tree's expansion (detail
 // on, all expanded but one assembly) and the row at its top (scrolled partway), and meshes anew; meshed again
@@ -2889,7 +3333,7 @@ await check('mesh again', async () => {
   const j = JSON.stringify(a);
   expect(a.allClosed, `folders closed at first: ${j}`);
   expect(a.disabledEmpty && a.enabledSelected && a.zoomAfter, `zoom selected: ${j}`);
-  expect(/^occt\+smlib /.test(a.backend ?? '') && !a.pageTessellation, `the import worker: ${j}`);
+  expect(/^occt\+smlib /.test(a.backend ?? '') && !a.pageTessellation, `the model worker: ${j}`);
   expect(a.triangles[0]! > 0 && a.triangles[1]! > 0 && a.triangles[0] !== a.triangles[1], `meshed anew: ${j}`);
   const kept = ['camera', 'cut', 'hidden', 'selected'] as const;
   for (const k of kept) {
@@ -2911,7 +3355,7 @@ await check('mesh again', async () => {
   expect(JSON.stringify(tb!.top) === JSON.stringify(ta!.top), `the tree's top row kept: ${JSON.stringify(a.tree)}`);
   const l = a.lost;
   // (Meshed again in place: the overrides stay on their nodes, never looked for by path; a selection is.)
-  expect(/; 1 selected not found again \(in the console\)$/.test(l.status) &&
+  expect(/; 1 selected not found again$/.test(l.status) &&
     l.notRestored?.overrides.length === 0 && l.notRestored?.selected.join() === l.paths[1],
     `not found again: ${JSON.stringify(l)}`);
   return undefined;
@@ -2973,7 +3417,7 @@ await check('heal B-reps', async () => {
 });
 
 // Mesh again with other healing heals again in place: no question, the file not fetched again, the same scene (the
-// import worker's models healed again from their analyses' source values), the view and the selection kept; unticked,
+// model worker's models healed again from their analyses' source values), the view and the selection kept; unticked,
 // the models put back as imported, but heal.stp's stray pole, which stays moved, said kept; ticked again, healed as at
 // first. The page keeps no copy of the file: the source has its size and SHA-256 only. Recorded and replayed in
 // another page: the same end, nothing diverging.
@@ -3073,7 +3517,7 @@ await check('re-heal in place', async () => {
   return undefined;
 });
 
-// Mesh again's fallback (the import worker can't mesh in place: here its meshAgain made to reject, as when the worker
+// Mesh again's fallback (the model worker can't mesh in place: here its meshAgain made to reject, as when the worker
 // lost the model) after the file changed on the server (a line more): the file fetched again once, loaded as it is
 // now, said in the status line, its size the new one; the view kept.
 await check('reload changed file', async () => {
@@ -3325,7 +3769,8 @@ await check('go to a face', async () => {
     await cadViewer.idle();
     const text = () => document.getElementById('status').textContent;
     const d = document.querySelector('dialog.cv-dialog');
-    const rows = d ? [...d.querySelectorAll('tr')].map((r) => [...r.cells].map((c) => c.textContent)) : [];
+    const rows = d ? [...d.querySelectorAll('.table.errors tr')].map((r) => [...r.cells].map((c) => c.textContent))
+      : [];
     d?.querySelector('button.primary')?.click();
     await cadViewer.idle();
     const nodes = viewer.nodes, sel = ui.selected();
@@ -3372,7 +3817,7 @@ await check('go to a face', async () => {
   expect(p.status.includes('profile: not one of coarse, medium, fine, custom: best'), `profile= naming none: ${q}`);
   return undefined;
 });
-// Mesh again from the import worker's models, in place: no import (the same tree and scene graph, no "importing" in
+// Mesh again from the model worker's models, in place: no import (the same tree and scene graph, no "importing" in
 // the status line, "meshing again" there), each part keeping its mesh until its new one comes (never fewer parts
 // meshed while it goes), meshed anew (fine: more triangles); then with a millisecond's timeout (the cache off), the
 // parts that fail shown as a load shows them: as1 has no tessellation of its own, so their faces' outlines from the
@@ -3832,6 +4277,42 @@ await check('tree scrolls sideways', async () => {
   expect(!a.wide.overflow && a.wide.clipped === 0 && a.wide.widths === 1 && a.wide.fill, `wide: ${j}`);
   return undefined;
 });
+// The status line stays while a load is under way, however long it says nothing new (a file held back here; a slow
+// part's meshing alike), a spinner before its text, and fades 5 s after the load ends, the spinner gone.
+await check('status kept while loading', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const status = document.getElementById('status');
+    const faded = () => status.classList.contains('faded');
+    const fetch0 = window.fetch;
+    window.fetch = async (...a) => (await wait(6500), fetch0(...a));
+    const t = performance.now();
+    const loaded = cadViewer.load('/content/as1.stp');
+    await wait(6000);
+    const spinner = () => getComputedStyle(status, '::before').animationName;
+    const out = { during: faded(), text: status.textContent, busy: status.classList.contains('busy'),
+      spinning: spinner() };
+    await loaded;
+    window.fetch = fetch0;
+    out.ended = faded();
+    out.busyAfter = status.classList.contains('busy');
+    out.spinningAfter = spinner();
+    out.seconds = (performance.now() - t) / 1000;
+    await wait(5600);
+    out.after = faded();
+    return out;
+  })()`);
+  const j = JSON.stringify(r.after);
+  const o = r.after as { during: boolean; text: string; busy: boolean; spinning: string; ended: boolean;
+    busyAfter: boolean; spinningAfter: string; after: boolean };
+  expect(!o.during && /loading/.test(o.text), `shown while the file is held back: ${j}`);
+  expect(!o.ended && o.after, `faded 5 s after the load: ${j}`);
+  expect(o.busy && o.spinning === 'status-spin' && !o.busyAfter && o.spinningAfter === 'none',
+    `a spinner while loading, none after: ${j}`);
+  return undefined;
+});
 // The status line fades 5 s after it last changed, and comes back when it changes; the details too, but only while
 // nothing is selected. Select all (Selection) selects what a click could at the pick level, leaving out what's hidden.
 await check('auto hide and select all', async () => {
@@ -4040,7 +4521,8 @@ await check('model details', async () => {
   const row = (r: Shown, l: string) => r.rows.find(([k]) => k === l)?.[1];
   expect(a.file === 'as1-authored.stp (Ann B)' && p.file === 'as1.stp' && b.file === 'bare.json',
     `the author after the name: ${j}`);
-  expect(a.lead === 'Current model (details):' && a.title === 'Model Details', `the link and title: ${j}`);
+  expect(a.lead === 'Current model (details, errors/warnings):' && a.title === 'Model Details',
+    `the link and title: ${j}`);
   expect(row(a, 'Format') === 'step' && row(a, 'Name') === 'Open CASCADE Shape Model' &&
     row(a, 'Time stamp') === '2017-03-30T11:06:14' && row(a, 'Author') === 'Ann B' &&
     row(a, 'Authors') === 'Ann B\nnone' && row(a, 'Organizations') === 'Open CASCADE' &&
@@ -6004,7 +6486,7 @@ await check('screenshot', async () => {
 // (the link's click stubbed) with the same bytes; a load that fails before showing its model leaves the last one's file
 // to save; the next model shown, its file.
 // Export...: the dialog, each format with its options, the save dialog asked with the name and type, the file made in
-// the import worker and written: GLB with Draco and with meshopt (their encoders in the browser), .gltf embedded and
+// the model worker and written: GLB with Draco and with meshopt (their encoders in the browser), .gltf embedded and
 // with its .bin saved after (a second dialog), three.js JSON with edges, 3MF; the viewer's hiding applied when asked;
 // the choices remembered; Cancel saving nothing; disabled with no model.
 // Another version on the server (update-check.ts), never polled: nothing fetched at load; version.json fetched as it
@@ -6303,7 +6785,7 @@ await check('export', async () => {
   expect(a.stepIn.inch && a.stepIn.warning === '' && a.stepDefault, `STEP in inches, then its default: ${j}`);
   return undefined;
 });
-// The import worker lost during an export (detected by its heartbeat, the model made again): the export's message
+// The model worker lost during an export (detected by its heartbeat, the model made again): the export's message
 // swallowed, its meshes handed away all the same (as a dead worker keeps them), the silence allowed 1.5 s: the watchdog
 // says so, an error dialog, the worker stopped, and the model loaded and meshed again as it was, its view and overrides
 // kept, its meshes back (no detached attributes), the controls' meshing as they were.
@@ -6318,7 +6800,7 @@ await check('export: the worker lost', async () => {
     const triangles = viewer.stats().triangles;
     // The controls changed without meshing again: the model's own settings used for the rebuild, these back after.
     ui.setMeshing({ profile: 'custom', linearDeflection: 0.7 });
-    const worker = viewer.importer();
+    const worker = viewer.modelWorker();
     const post = worker.postMessage.bind(worker);
     worker.postMessage = (msg, transfer) => msg.type === 'export' ? new MessageChannel().port1.postMessage(msg, transfer)
       : post(msg, transfer);
@@ -6345,19 +6827,22 @@ await check('export: the worker lost', async () => {
       for (const at of [...Object.values(g.attributes), ...(g.index ? [g.index] : [])]) {
         if (at.array?.buffer && at.array.buffer.byteLength === 0) detached++;
       } });
+    // (Every placed B-rep part's model with the page again, from the new load.)
+    const breps = [...viewer.graph.placements.keys()].filter((i) => viewer.graph.scene.parts[i].brep);
+    const held = breps.length > 0 && breps.every((i) => viewer.graph.modelOf(i)?.face.id.length > 0);
     return { errorDialog, status, stopped, again: viewer.stats().triangles === triangles, newModel: ui.panel().model !== m0,
-      overrides: JSON.stringify(cadViewer.state().hidden) === overrides, detached,
+      overrides: JSON.stringify(cadViewer.state().hidden) === overrides, detached, held,
       controls: viewer.settings.linearDeflection, meshedWith: viewer.model.meshedWith.linearDeflection,
       pick: !!cadViewer.pickAt(0.5, 0.5) };
   })()`) as { after: { errorDialog: string[]; status: string; stopped: boolean; again: boolean; newModel: boolean;
-    overrides: boolean; detached: number; controls: number; meshedWith: number; pick: boolean } };
+    overrides: boolean; detached: number; controls: number; meshedWith: number; pick: boolean; held: boolean } };
   const a = r.after, j = JSON.stringify(a);
-  expect(a.errorDialog.length === 1 && /the import worker stopped \(nothing from it for \d s\)/.test(
+  expect(a.errorDialog.length === 1 && /the model worker stopped \(nothing from it for \d s\)/.test(
     a.errorDialog[0]!) && /loaded and meshed again/.test(a.errorDialog[0]!), `the error said: ${j}`);
   // (Whatever format was remembered from the checks before.)
   expect(/exporting as1\.\w+\.\.\. \| loading as1\.stp\.\.\./.test(a.status) && a.stopped,
     `the worker stopped, loading again: ${j}`);
-  expect(a.newModel && a.again && a.overrides && a.detached === 0 && a.pick, `made again: ${j}`);
+  expect(a.newModel && a.again && a.overrides && a.detached === 0 && a.pick && a.held, `made again: ${j}`);
   expect(a.controls === 0.7 && a.meshedWith !== 0.7, `meshed as it was, the controls back: ${j}`);
   return undefined;
 });
