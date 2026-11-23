@@ -104,6 +104,7 @@ interface CadioExports {
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
   _tc_set_fail_folded_fans: Fn;
+  _tc_set_fan_rules: Fn;
   _tc_set_analysis: Fn;
   _tc_set_max_points: Fn;
   _tc_set_cap: Fn;
@@ -180,6 +181,12 @@ export interface CadioInitOptions {
    */
   failFoldedFans?: boolean;
   /**
+   * The rules against such folds (part.h's PartOptions::consistentFans, apexCorners); default true each. False, for
+   * tests and measuring, leaves a pole's fans as their normals choose them, or an apex's needle corners in.
+   */
+  consistentFans?: boolean;
+  apexCorners?: boolean;
+  /**
    * Steiner points per face at most (part.h's PartOptions::maxPointsPerFace), in place of each face's cap below: a
    * refinement that reaches it stops there, the face failed (failCapped). For tests and tuning; default none.
    */
@@ -226,6 +233,7 @@ export class CadioTessellator implements Tessellator {
   private failCapped = true;
   private failTurnedOver = true;
   private failFoldedFans = true;
+  private fanRules: [number, number] = [1, 1];
   private maxPoints = 0;
   private cap: [number, number, number] = [0, 0, 0];
   private minAngle = -1;
@@ -247,6 +255,7 @@ export class CadioTessellator implements Tessellator {
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.failFoldedFans = opts.failFoldedFans ?? true;
+    this.fanRules = [opts.consistentFans ?? true ? 1 : 0, opts.apexCorners ?? true ? 1 : 0];
     this.maxPoints = opts.maxPointsPerFace ?? 0;
     this.cap = [opts.capFloor ?? 0, opts.capMultiple ?? 0, opts.capCeiling ?? 0];
     this.minAngle = opts.minAngle ?? -1;
@@ -308,6 +317,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);
+    m._tc_set_fan_rules(...this.fanRules);
     m._tc_set_max_points(this.maxPoints);
     m._tc_set_cap(...this.cap);
     // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)

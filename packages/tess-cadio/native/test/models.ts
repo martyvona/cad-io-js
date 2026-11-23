@@ -465,6 +465,39 @@ export function bumpPatch(half = false): BrepBuilder {
 }
 
 /**
+ * A sine sheet: a bicubic B-spline on uniform clamped knots over [0, l]^2, its poles a grid a quarter of the
+ * wavelength w apart at height a sin(2 pi x / w) sin(2 pi y / w) (a smoothed egg crate, its boundary at z = 0 where l
+ * is a multiple of w), bounded by its four sides as lines with p-curves. Delaunay refinement over so regular a grid
+ * puts a refused triangle's circumcentre on a vertex already there.
+ */
+export function sineSheet(l = 20, w = 5, a = 0.5): BrepBuilder {
+  const b = new BrepBuilder();
+  const n = Math.round(4 * l / w) + 1, spans = n - 3;
+  const poles = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => {
+    const x = i * w / 4, y = j * w / 4;
+    return [x, y, a * Math.sin(2 * Math.PI * x / w) * Math.sin(2 * Math.PI * y / w)];
+  }));
+  const knots = Array.from({ length: spans + 1 }, (_, k) => k);
+  const mults = knots.map((k) => (k === 0 || k === spans ? 4 : 1));
+  const s = b.addSurface({ kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: knots, vKnots: knots,
+    uMultiplicities: mults, vMultiplicities: mults, poles, uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const corners = [[0, 0, 0], [l, 0, 0], [l, l, 0], [0, l, 0]], uv = [[0, 0], [spans, 0], [spans, spans], [0, spans]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = [0, 1, 2, 3].map((k) => {
+    const p = corners[k]!, q = corners[(k + 1) % 4]!;
+    const line = b.addCurve({ kind: 'line', point: p, direction: q.map((x, i) => (x - p[i]!) / l), magnitude: 1 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, l] });
+    const [c0, c1] = [uv[k]!, uv[(k + 1) % 4]!];
+    const pcurve = b.addCurve({ kind: 'line', point: c0, direction: [(c1[0]! - c0[0]!) / spans,
+      (c1[1]! - c0[1]!) / spans], magnitude: spans / l });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
  * A roof: a ruled B-spline (degree 1 both ways, a simple knot at u = 1/2: C0 there) over x = 10 u, y = 4 v, its ridge
  * z = h at u = 1/2 between two planes (h 2: 21.8 degrees up and down, normals 43.6 apart): one crease along v. The
  * face is u in [u0, u1], v in [0, 1]; its sides along u are each one edge (a polyline through the ridge, degree 1
@@ -1310,6 +1343,49 @@ export function knotAtEnd(): BrepBuilder {
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true,
       coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
+  return b;
+}
+
+/**
+ * A ball of radius 2 (axis z) with a flat at x = 1.2 (the bicycle's #1486 kind), its sphere face and its plane face
+ * sharing the circle there (radius 1.6, about x: a loop that doesn't wind round the sphere's period), no p-curves, a
+ * closed shell: the sphere face the ball less its cap (its loop a hole, clockwise about its normal in (u, v)), or
+ * with `cap` the cap beyond the flat, the solid the cap. `flatUse` 'same' has the flat use the circle the sphere's
+ * way (the two faces not oriented alike), 'none' leaves the flat out (the sphere a sheet alone): either way the
+ * sphere's loop direction isn't to be trusted; so too with 'flippedCap', the flat replaced by the cap as a face of
+ * the same sphere using the circle the other way but its sense reversed.
+ */
+export function ballWithFlat(cap = false, flatUse: 'other' | 'same' | 'none' | 'flippedCap' = 'other'): BrepBuilder {
+  const b = new BrepBuilder();
+  const h = 1.2, r = Math.sqrt(4 - h * h);
+  const X = { origin: [h, 0, 0], axis: [1, 0, 0], xDir: [0, 1, 0] };
+  const circle = b.addCurve({ kind: 'circle', position: X, radius: r });
+  const v = b.addVertex({ point: [h, r, 0] });
+  const edge = b.addEdge({ curve: circle, start: v, end: v, sameSense: true, range: [0, 2 * Math.PI] });
+  // (The circle counterclockwise about +x: the flat's outer loop where its normal is +x (the ball behind it), the
+  // sphere's cap's where the solid is the cap; reversed in the other face.)
+  const sphere = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 2 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'unknown', sense: true,
+      coedges: [{ edge, orientation: cap ? 'forward' as const : 'reversed' as const }] }] });
+  if (flatUse === 'none') {
+    sheet(b, sphere);
+    return b;
+  }
+  if (flatUse === 'flippedCap') {
+    // (The cap a face of the same sphere, the circle its loop the other way, but its sense against the surface's:
+    // across the circle, where the two meet smoothly, their normals opposite.)
+    const capFace = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 2 }), sameSense: false,
+      loops: [{ kind: 'edge', bound: 'unknown', sense: true, coedges: [{ edge, orientation: 'forward' as const }] }] });
+    const shell = b.addShell({ kind: 'open', faces: [{ face: sphere, sense: true }, { face: capFace, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    return b;
+  }
+  const other = (flatUse === 'other') !== cap;
+  const flat = b.addFace({ surface: b.addSurface({ kind: 'plane', position: X }),
+    sameSense: !cap, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge, orientation: other ? 'forward' as const : 'reversed' as const }] }] });
+  const shell = b.addShell({ kind: 'closed', faces: [{ face: sphere, sense: true }, { face: flat, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
   return b;
 }
 
@@ -2244,7 +2320,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall, wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
-  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
+  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true),
+  sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
@@ -2252,7 +2329,10 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   fineProjection, knotAtEnd, kinkAtEnd: () => kinkAtEnd(), kinkAtEndPlain: () => kinkAtEnd(0), cornerFold,
   sphereBelt: () => sphereBelt(3, 1, true), sphereBeltInward: () => sphereBelt(3, 1, false),
   sphereBeltEven: () => sphereBelt(3, 2, true), sphereBeltEvenInward: () => sphereBelt(3, 2, false),
-  planeHoleOnly, cornerFoldTightAgainst, skewPatch, roof: () => roof(), roofJunction: () => roof(0, 1, true),
+  planeHoleOnly, cornerFoldTightAgainst, skewPatch, ballWithFlat: () => ballWithFlat(),
+  ballWithFlatCap: () => ballWithFlat(true), ballAlone: () => ballWithFlat(false, 'none'),
+  ballFlatSameWay: () => ballWithFlat(false, 'same'),
+  ballFlippedCap: () => ballWithFlat(false, 'flippedCap'), roof: () => roof(), roofJunction: () => roof(0, 1, true),
   roofNear: () => roof(0, 0.52), roofBeyond: () => roof(0, 0.5),
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),

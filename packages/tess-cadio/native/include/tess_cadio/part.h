@@ -84,6 +84,12 @@ struct PartOptions {
    * triangles there.
    */
   bool failFoldedFans = true;
+  /**
+   * Two rules against such folds, each on by default (off for tests and measuring): `consistentFans`, a fan whose
+   * triangles' directions by their normals disagree has every one against the mesher's use of its ring segment;
+   * `apexCorners`, at an apex a far end's corner under 1e-3 rad about it from that end is left out (a needle else).
+   */
+  bool consistentFans = true, apexCorners = true;
   /** The model's analysis buffer, if given (EdgeOptions::analysis: healed p-curves, tolerances past repair). */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
