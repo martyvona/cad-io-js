@@ -772,7 +772,7 @@ await check('picks on caps', async () => {
   return undefined;
 });
 // Edges found off the page's thread: a GLB of meshes without edges (the user's VW, from Onshape) loads with every
-// part's edges found in the import worker, the page's longest task no longer than the scene graph's own building
+// part's edges found in the model worker, the page's longest task no longer than the scene graph's own building
 // (finding them on the page made it more than twice as long).
 const vwGlb = path.join(repo, 'test_corpus/models/onshape/VW-medium-uncompressed.glb.glb');
 if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
@@ -813,7 +813,7 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
   expect(a.longest < 450, `a long task on the page: ${JSON.stringify(a)}`);
   return undefined;
 });
-// A STEP file's import says its phases in the status line as the import worker reaches them ("importing" alone for the
+// A STEP file's import says its phases in the status line as the model worker reaches them ("importing" alone for the
 // seconds a large file takes): reading, its structure, the parts by percent, assembling.
 await check('import phases', async () => {
   const r = await page('?check', `(async () => {
@@ -2900,7 +2900,7 @@ await check('phone', async () => {
   expect(t.wide === 390 - 40 + 1, `a width too wide for the window, capped (and its border): ${JSON.stringify(t)}`);
   return undefined;
 });
-// The import worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
+// The model worker, the only way STEP files load (the page has no tessellation of its own); every folder of the
 // controls closed at first; Zoom selected in View, enabled only with a selection; Mesh again (at another deflection,
 // the cache off) keeps the camera, a cut, what's hidden and what's selected, the tree's expansion (detail
 // on, all expanded but one assembly) and the row at its top (scrolled partway), and meshes anew; meshed again
@@ -3071,7 +3071,7 @@ await check('mesh again', async () => {
   const j = JSON.stringify(a);
   expect(a.allClosed, `folders closed at first: ${j}`);
   expect(a.disabledEmpty && a.enabledSelected && a.zoomAfter, `zoom selected: ${j}`);
-  expect(/^occt\+smlib /.test(a.backend ?? '') && !a.pageTessellation, `the import worker: ${j}`);
+  expect(/^occt\+smlib /.test(a.backend ?? '') && !a.pageTessellation, `the model worker: ${j}`);
   expect(a.triangles[0]! > 0 && a.triangles[1]! > 0 && a.triangles[0] !== a.triangles[1], `meshed anew: ${j}`);
   const kept = ['camera', 'cut', 'hidden', 'selected'] as const;
   for (const k of kept) {
@@ -3154,7 +3154,7 @@ await check('heal B-reps', async () => {
 });
 
 // Mesh again with other healing heals again in place: no question, the file not fetched again, the same scene (the
-// import worker's models healed again from their analyses' source values), the view and the selection kept; unticked,
+// model worker's models healed again from their analyses' source values), the view and the selection kept; unticked,
 // the models put back as imported, but heal.stp's stray pole, which stays moved, said kept; ticked again, healed as at
 // first. The page keeps no copy of the file: the source has its size and SHA-256 only. Recorded and replayed in
 // another page: the same end, nothing diverging.
@@ -3254,7 +3254,7 @@ await check('re-heal in place', async () => {
   return undefined;
 });
 
-// Mesh again's fallback (the import worker can't mesh in place: here its meshAgain made to reject, as when the worker
+// Mesh again's fallback (the model worker can't mesh in place: here its meshAgain made to reject, as when the worker
 // lost the model) after the file changed on the server (a line more): the file fetched again once, loaded as it is
 // now, said in the status line, its size the new one; the view kept.
 await check('reload changed file', async () => {
@@ -3554,7 +3554,7 @@ await check('go to a face', async () => {
   expect(p.status.includes('profile: not one of coarse, medium, fine, custom: best'), `profile= naming none: ${q}`);
   return undefined;
 });
-// Mesh again from the import worker's models, in place: no import (the same tree and scene graph, no "importing" in
+// Mesh again from the model worker's models, in place: no import (the same tree and scene graph, no "importing" in
 // the status line, "meshing again" there), each part keeping its mesh until its new one comes (never fewer parts
 // meshed while it goes), meshed anew (fine: more triangles); then with a millisecond's timeout (the cache off), the
 // parts that fail shown as a load shows them: as1 has no tessellation of its own, so their faces' outlines from the
@@ -6223,7 +6223,7 @@ await check('screenshot', async () => {
 // (the link's click stubbed) with the same bytes; a load that fails before showing its model leaves the last one's file
 // to save; the next model shown, its file.
 // Export...: the dialog, each format with its options, the save dialog asked with the name and type, the file made in
-// the import worker and written: GLB with Draco and with meshopt (their encoders in the browser), .gltf embedded and
+// the model worker and written: GLB with Draco and with meshopt (their encoders in the browser), .gltf embedded and
 // with its .bin saved after (a second dialog), three.js JSON with edges, 3MF; the viewer's hiding applied when asked;
 // the choices remembered; Cancel saving nothing; disabled with no model.
 // Another version on the server (update-check.ts), never polled: nothing fetched at load; version.json fetched as it
@@ -6522,7 +6522,7 @@ await check('export', async () => {
   expect(a.stepIn.inch && a.stepIn.warning === '' && a.stepDefault, `STEP in inches, then its default: ${j}`);
   return undefined;
 });
-// The import worker lost during an export (detected by its heartbeat, the model made again): the export's message
+// The model worker lost during an export (detected by its heartbeat, the model made again): the export's message
 // swallowed, its meshes handed away all the same (as a dead worker keeps them), the silence allowed 1.5 s: the watchdog
 // says so, an error dialog, the worker stopped, and the model loaded and meshed again as it was, its view and overrides
 // kept, its meshes back (no detached attributes), the controls' meshing as they were.
@@ -6537,7 +6537,7 @@ await check('export: the worker lost', async () => {
     const triangles = viewer.stats().triangles;
     // The controls changed without meshing again: the model's own settings used for the rebuild, these back after.
     ui.setMeshing({ profile: 'custom', linearDeflection: 0.7 });
-    const worker = viewer.importer();
+    const worker = viewer.modelWorker();
     const post = worker.postMessage.bind(worker);
     worker.postMessage = (msg, transfer) => msg.type === 'export' ? new MessageChannel().port1.postMessage(msg, transfer)
       : post(msg, transfer);
@@ -6571,7 +6571,7 @@ await check('export: the worker lost', async () => {
   })()`) as { after: { errorDialog: string[]; status: string; stopped: boolean; again: boolean; newModel: boolean;
     overrides: boolean; detached: number; controls: number; meshedWith: number; pick: boolean } };
   const a = r.after, j = JSON.stringify(a);
-  expect(a.errorDialog.length === 1 && /the import worker stopped \(nothing from it for \d s\)/.test(
+  expect(a.errorDialog.length === 1 && /the model worker stopped \(nothing from it for \d s\)/.test(
     a.errorDialog[0]!) && /loaded and meshed again/.test(a.errorDialog[0]!), `the error said: ${j}`);
   // (Whatever format was remembered from the checks before.)
   expect(/exporting as1\.\w+\.\.\. \| loading as1\.stp\.\.\./.test(a.status) && a.stopped,

@@ -1,6 +1,6 @@
 // Tessellation for our loader: a pool of Web Workers running OCCT, truck, SMLib or our own tessellator (tess-cadio)
 // (the viewer's own worker entry, tess-worker.ts, so Vite bundles the backends), behind the IndexedDB cache by
-// default (never for tess-cadio's debugging switch, whose meshes the cache can't tell apart); in the import worker (its
+// default (never for tess-cadio's debugging switch, whose meshes the cache can't tell apart); in the model worker (its
 // workers nested in it). With a fallback backend, a second pool and cache, for the parts the first fails (cad-scene's
 // FallbackTessellator). The pools are made when first needed and kept for later files; changing a backend, the
 // cache or the workers' count makes new ones. Cancelling (a new file while one is meshing) terminates the workers,
@@ -164,7 +164,7 @@ export class Tessellation {
 
   /**
    * A tessellator for the settings, ready (its workers started), with `workers` workers (the page's workerCount: this
-   * runs in the import worker, which can't see the screen); `pool` the backend's, whose workers also heal.
+   * runs in the model worker, which can't see the screen); `pool` the backend's, whose workers also heal.
    */
   async get(s: TessellationSettings, workers: number): Promise<{ tess: Tessellator; workers: number;
     pool: Pick<PoolTessellator, 'run'> }> {

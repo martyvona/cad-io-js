@@ -92,7 +92,7 @@ export class SceneGraph implements Looks {
    * it holds for meshes that arrive later.
    */
   private readonly looks = new Map<PartInstance, PlacementLook>();
-  /** Each part's mesh drawn, as addMesh was given it (lent to the import worker to export: viewer.ts). */
+  /** Each part's mesh drawn, as addMesh was given it (lent to the model worker to export: viewer.ts). */
   readonly meshes = new Map<number, Mesh>();
   /** The objects addMesh made for each part, one per placement (replaced by its next mesh). */
   private readonly made = new Map<number, THREE.Object3D[]>();
@@ -174,7 +174,7 @@ export class SceneGraph implements Looks {
   }
 
   /**
-   * A part's edges found from its mesh's triangles (edges.ts, in the import worker: model-load.ts), as segments in
+   * A part's edges found from its mesh's triangles (edges.ts, in the model worker: model-load.ts), as segments in
    * the mesh's coordinates, added to each placement of its mesh (in place of any found before). Nothing if the part
    * has no mesh with triangles now. Returns the objects they were added to.
    */

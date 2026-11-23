@@ -289,9 +289,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let screenshotControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   /**
-   * The model meshed again, the view kept (Mesh again): from the import worker's models in place (healed again there
+   * The model meshed again, the view kept (Mesh again): from the model worker's models in place (healed again there
    * where the healing changed), or by loading the file again where the worker hasn't them; `as` the settings to mesh
-   * with instead of the controls' (a model lost with the import worker, made again as it was: the controls back
+   * with instead of the controls' (a model lost with the model worker, made again as it was: the controls back
    * after).
    */
   const meshAgain = async (as?: Partial<TessellationSettings>) => {
@@ -407,7 +407,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (!target) return;
       say(`exporting ${name}...`);
       const edits = shown ? shownEdits(graph.scene, nodes, graph) : undefined;
-      // (The page blocked meanwhile: its meshes are lent to the import worker, Viewer.exportModel.)
+      // (The page blocked meanwhile: its meshes are lent to the model worker, Viewer.exportModel.)
       const done = showBusy(`Exporting ${name}`, 'The view is paused until the file is made.');
       let r;
       try {
@@ -440,7 +440,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
         + 'written as the view shows it, and the exporter\'s warnings:', warnings);
     } catch (e) {
       fail(e);
-      // The import worker lost with the page's meshes (Viewer.exportModel): the model made again as it was.
+      // The model worker lost with the page's meshes (Viewer.exportModel): the model made again as it was.
       // (The error dialog says so; the status line then follows the load.)
       if (e instanceof WorkerLost) void meshAgain(viewer.model?.meshedWith);
     }
@@ -463,7 +463,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       let gen = viewer.nextLoad();
       last = src;
       if (!keep) restore = undefined;
-      // Mesh again: the import worker's scene meshed again in place where it can, else the file loaded again.
+      // Mesh again: the model worker's scene meshed again in place where it can, else the file loaded again.
       let inPlace = false;
       // (Why Mesh again loaded the file again instead, said once it's done.)
       let fellBack = '';
@@ -616,7 +616,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
   } }, 'save').name('Save original...').disable();
   // The model exported: a format and its options (export-dialog.ts), where to save it asked at once (the dialog's click
-  // lets the page open the save dialog), then made in the import worker (export-model.ts) and written; a .gltf with its
+  // lets the page open the save dialog), then made in the model worker (export-model.ts) and written; a .gltf with its
   // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();

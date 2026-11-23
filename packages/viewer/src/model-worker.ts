@@ -1,4 +1,4 @@
-// The import worker: models imported and meshed off the page's thread (docs/viewer.md), by loadModelIn
+// The model worker: models imported and meshed off the page's thread (docs/viewer.md), by loadModelIn
 // (model-load.ts), its tessellation pool's workers nested in this one. Draco's decoder (for glTF) is given its
 // WebAssembly by URL, as Vite bundles it. One load at a time; a newer one (or a cancel) stops the last's meshing (and
 // the next load starts a new pool, as after clearing the cache from the page). Messages in: load, remesh (the last
@@ -14,7 +14,7 @@ import { exportModel, type Exported } from './export-model.ts';
 import { loadModelIn, meshBuffers, meshModelIn, type ModelEvent, type ModelInput } from './model-load.ts';
 import { Tessellation, wantedOf, type TessellationSettings } from './tessellation.ts';
 
-export type ToImportWorker =
+export type ToModelWorker =
   | { type: 'load'; load: number; input?: ModelInput; settings: TessellationSettings; workers: number }
   /** The last load's scene meshed again (its mesh events and end under `load`); an error if there's none. */
   | { type: 'remesh'; load: number; settings: TessellationSettings; workers: number }
@@ -23,15 +23,15 @@ export type ToImportWorker =
   | { type: 'export'; id: number; request: ExportRequest; meshes: [number, Mesh][] };
 
 /** Each export's answer, with the lent meshes handed back. */
-export type FromImportWorker = ((ModelEvent | { type: 'error'; message: string }) & { load: number })
+export type FromModelWorker = ((ModelEvent | { type: 'error'; message: string }) & { load: number })
   | { type: 'exported'; id: number; result: Exported; meshes: [number, Mesh][] }
   /** The export still going (Viewer.exportModel's watchdog: none for a while, the worker's lost). */
   | { type: 'beat'; id: number }
   | { type: 'export-error'; id: number; message: string; meshes: [number, Mesh][] };
 
 const scope = globalThis as unknown as {
-  postMessage(msg: FromImportWorker, transfer?: Transferable[]): void;
-  onmessage: ((e: MessageEvent<ToImportWorker>) => void) | null;
+  postMessage(msg: FromModelWorker, transfer?: Transferable[]): void;
+  onmessage: ((e: MessageEvent<ToModelWorker>) => void) | null;
 };
 
 /** How often an export says it's still going (ms). */

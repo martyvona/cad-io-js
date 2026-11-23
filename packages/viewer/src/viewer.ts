@@ -5,7 +5,7 @@
 //     scene graph, scene-graph.ts, in the world's millimetres and Z up whatever the format: the importers convert)
 //
 // One model at a time; loading another replaces it, and cancels the meshing of the last if it's still going. Every
-// format is imported (and STEP meshed) in a worker (import-worker.ts), through the library's importers into the scene
+// format is imported (and STEP meshed) in a worker (model-worker.ts), through the library's importers into the scene
 // model (one path for every format). Zoom all, zoom selected and the views fly the camera there, eased over a second;
 // zooming while a model loads doesn't (load-fit.ts).
 
@@ -32,7 +32,7 @@ import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
-import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
+import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
 import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
@@ -44,7 +44,7 @@ import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type De
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
 
 /**
- * An export ended without its meshes coming back: the import worker died, hung or failed outside the export
+ * An export ended without its meshes coming back: the model worker died, hung or failed outside the export
  * (Viewer.exportModel). The page's meshes are gone with them; the model must be loaded again (ui.ts does).
  */
 export class WorkerLost extends Error {
@@ -54,12 +54,12 @@ export class WorkerLost extends Error {
 /** The default for Viewer.exportSilenceMs (ms). */
 export const EXPORT_SILENCE_MS = 60_000;
 
-/** A mesh's typed arrays (lent to the import worker to export, and taken back: Viewer.exportModel). */
+/** A mesh's typed arrays (lent to the model worker to export, and taken back: Viewer.exportModel). */
 const MESH_ARRAYS = ['positions', 'normals', 'indices', 'edgePositions', 'curvePositions', 'points',
   'faceOutlinePositions'] as const;
 
-/** The import worker's messages about a load. */
-type LoadMessage = Exclude<FromImportWorker, { type: 'exported' | 'export-error' | 'beat' }>;
+/** The model worker's messages about a load. */
+type LoadMessage = Exclude<FromModelWorker, { type: 'exported' | 'export-error' | 'beat' }>;
 
 export interface ModelInfo {
   name: string;
@@ -225,7 +225,7 @@ export class Viewer {
   }
   private readonly container: HTMLElement;
   private worker?: Worker;
-  private readonly importListeners = new Map<number, (m: LoadMessage) => void>();
+  private readonly loadListeners = new Map<number, (m: LoadMessage) => void>();
   private abortLoad?: () => void;
   private readonly composer: Composer;
   /** The section planes and their caps. */
@@ -746,9 +746,9 @@ export class Viewer {
     return new THREE.Box3().setFromObject(this.display);
   }
 
-  /** Empties the tessellation cache (IndexedDB, the import worker's, whose next load opens it afresh). */
+  /** Empties the tessellation cache (IndexedDB, the model worker's, whose next load opens it afresh). */
   async clearCache(): Promise<void> {
-    this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
+    this.worker?.postMessage({ type: 'cancel' } satisfies ToModelWorker);
     await clearCache();
   }
 
@@ -787,7 +787,7 @@ export class Viewer {
     const gen = ++this.generation;
     if (this.meshing) {
       // Stop the last load's meshing (wherever it runs), and end its events.
-      this.worker?.postMessage({ type: 'cancel' } satisfies ToImportWorker);
+      this.worker?.postMessage({ type: 'cancel' } satisfies ToModelWorker);
       this.meshing = false;
       this.abortLoad?.();
     }
@@ -820,19 +820,19 @@ export class Viewer {
   }
 
   /**
-   * A load's (or a mesh again's) events, from the import worker; they end with 'done', an error, or a newer load
+   * A load's (or a mesh again's) events, from the model worker; they end with 'done', an error, or a newer load
    * (`abortLoad`).
    */
-  private events(gen: number, msg: ToImportWorker, transfer: Transferable[] = []): AsyncIterable<ModelEvent> {
+  private events(gen: number, msg: ToModelWorker, transfer: Transferable[] = []): AsyncIterable<ModelEvent> {
     const queue: ModelEvent[] = [];
     let wake: (() => void) | undefined;
     let error: Error | undefined;
     const push = (e: ModelEvent) => { queue.push(e); wake?.(); };
     const fail = (e: Error) => { error = e; wake?.(); };
     this.abortLoad = () => wake?.();
-    this.importListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
-    this.importer().postMessage(msg, transfer);
-    const listeners = this.importListeners;
+    this.loadListeners.set(gen, (m) => (m.type === 'error' ? fail(new Error(m.message)) : push(m)));
+    this.modelWorker().postMessage(msg, transfer);
+    const listeners = this.loadListeners;
     const latest = () => gen === this.generation;
     return { async *[Symbol.asyncIterator]() {
       try {
@@ -853,8 +853,8 @@ export class Viewer {
     } };
   }
 
-  /** Exports waiting for the import worker's answer, by their number. */
-  private readonly exports = new Map<number, (m: Extract<FromImportWorker, { type: 'exported' | 'export-error' }>)
+  /** Exports waiting for the model worker's answer, by their number. */
+  private readonly exports = new Map<number, (m: Extract<FromModelWorker, { type: 'exported' | 'export-error' }>)
     => void>();
   private exportCount = 0;
   /** Each export's last beat from the worker (performance.now). */
@@ -868,7 +868,7 @@ export class Viewer {
   lastExportSilence = 0;
 
   /**
-   * The model exported by the import worker (export-model.ts), as it was imported and meshed: the files' pieces. The
+   * The model exported by the model worker (export-model.ts), as it was imported and meshed: the files' pieces. The
    * worker handed its meshes' buffers to the page as they came (no copies), so the page lends them back for the export
    * (also the worker keeping copies, or the page copying them over), and they come back with the files: meanwhile the
    * page has no meshes on the CPU (picking, caps and the like would find none), so the caller blocks the page
@@ -890,14 +890,14 @@ export class Viewer {
         if (silence <= this.exportSilenceMs) return;
         end();
         this.loseWorker();
-        reject(new WorkerLost(`the import worker stopped (nothing from it for ${Math.round(silence / 1000)} s)`));
+        reject(new WorkerLost(`the model worker stopped (nothing from it for ${Math.round(silence / 1000)} s)`));
       }, 250);
       const end = () => {
         clearInterval(watch);
         this.exports.delete(id);
         this.beats.delete(id);
       };
-      const worker = this.importer();
+      const worker = this.modelWorker();
       this.exports.set(id, (m) => {
         this.beat(id);
         end();
@@ -910,7 +910,7 @@ export class Viewer {
         if (m.type === 'exported') resolve(m.result);
         else reject(new Error(m.message));
       });
-      worker.postMessage({ type: 'export', id, request, meshes } satisfies ToImportWorker, buffers);
+      worker.postMessage({ type: 'export', id, request, meshes } satisfies ToModelWorker, buffers);
     });
   }
 
@@ -922,11 +922,11 @@ export class Viewer {
     this.beats.set(id, now);
   }
 
-  /** The import worker given up on (lost in an export: Viewer.exportModel): stopped; the next load starts another. */
+  /** The model worker given up on (lost in an export: Viewer.exportModel): stopped; the next load starts another. */
   private loseWorker(): void {
     this.worker?.terminate();
     this.worker = undefined;
-    for (const [id, l] of [...this.exports]) l({ type: 'export-error', id, message: 'the import worker stopped',
+    for (const [id, l] of [...this.exports]) l({ type: 'export-error', id, message: 'the model worker stopped',
       meshes: [] });
   }
 
@@ -963,22 +963,22 @@ export class Viewer {
     });
   }
 
-  /** The import worker, started when first needed and kept for later files. */
-  private importer(): Worker {
+  /** The model worker, started when first needed and kept for later files. */
+  private modelWorker(): Worker {
     if (!this.worker) {
-      const w = new Worker(new URL('./import-worker.ts', import.meta.url), { type: 'module' });
-      w.onmessage = (e: MessageEvent<FromImportWorker>) => {
+      const w = new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<FromModelWorker>) => {
         const m = e.data;
         if (m.type === 'beat') return this.beat(m.id);
         if (m.type === 'exported' || m.type === 'export-error') return this.exports.get(m.id)?.(m);
-        this.importListeners.get(m.load)?.(m);
+        this.loadListeners.get(m.load)?.(m);
       };
       w.onerror = (e) => {
         e.preventDefault();
-        for (const l of this.importListeners.values()) l({ type: 'error', message: e.message || 'the import worker '
+        for (const l of this.loadListeners.values()) l({ type: 'error', message: e.message || 'the model worker '
           + 'failed', load: -1 });
         // (The lent meshes lost with it: the page's stay without their arrays, so a model should be loaded again.)
-        for (const [id, l] of this.exports) l({ type: 'export-error', id, message: e.message || 'the import worker '
+        for (const [id, l] of this.exports) l({ type: 'export-error', id, message: e.message || 'the model worker '
           + 'failed', meshes: [] });
       };
       this.worker = w;
@@ -998,7 +998,7 @@ export class Viewer {
     const input = await modelInput(src, format);
     delete src.bytes;
     if (gen !== this.generation) return;
-    // What it's meshed with: the settings now, which the import worker is given.
+    // What it's meshed with: the settings now, which the model worker is given.
     const meshedWith = meshedWithOf(this.settings);
     // (The deflection the worker meshes with, in mm: faces are judged by it against their measures.)
     const meshedAt = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
@@ -1023,7 +1023,7 @@ export class Viewer {
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
-      const msg: ToImportWorker = { type: 'load', load: gen, input, settings: { ...this.settings },
+      const msg: ToModelWorker = { type: 'load', load: gen, input, settings: { ...this.settings },
         workers: workerCount(this.device) };
       for await (const ev of this.events(gen, msg, [input.bytes.buffer as ArrayBuffer,
         ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
@@ -1122,7 +1122,7 @@ export class Viewer {
   }
 
   /**
-   * The model meshed again with the settings now, in place, from the import worker's scene (its B-rep models: no
+   * The model meshed again with the settings now, in place, from the model worker's scene (its B-rep models: no
    * import): each part keeps its mesh until its new one comes; one that fails is then shown as a load shows it (the
    * file's own level, else its faces' outlines, else nothing). The view stays. Resolves true once every part is meshed
    * or has failed (or a newer load replaced it); false, having done nothing, where it can't (no model shown whole):
@@ -1135,7 +1135,7 @@ export class Viewer {
     const gen = ++this.generation;
     this.shown = gen;
     if (this.meshing) {
-      this.worker.postMessage({ type: 'cancel' } satisfies ToImportWorker);
+      this.worker.postMessage({ type: 'cancel' } satisfies ToModelWorker);
       this.meshing = false;
       this.abortLoad?.();
     }
@@ -1152,7 +1152,7 @@ export class Viewer {
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
-      const msg: ToImportWorker = { type: 'remesh', load: gen, settings: { ...this.settings },
+      const msg: ToModelWorker = { type: 'remesh', load: gen, settings: { ...this.settings },
         workers: workerCount(this.device) };
       for await (const ev of this.events(gen, msg)) {
         if (gen !== this.generation) return true;

@@ -13,7 +13,7 @@ import type { ModelInput } from './model-load.ts';
 
 /**
  * A model's file: where it's read from (a local File, or a URL), its size and SHA-256 as it loaded, and where the files
- * it names (a .gltf's .bin) are found. Its bytes only while it's being loaded: they go to the import worker (moved, not
+ * it names (a .gltf's .bin) are found. Its bytes only while it's being loaded: they go to the model worker (moved, not
  * copied), and are read again from the file or URL when needed (readAgain).
  */
 export interface Source {
@@ -28,7 +28,7 @@ export interface Source {
   url?: string;
   /** Local files given with it, by name (a .gltf's .bin), read when it's loaded. */
   siblings?: Map<string, Blob>;
-  /** Its bytes, from its reading until they're handed to the import worker (then detached). */
+  /** Its bytes, from its reading until they're handed to the model worker (then detached). */
   bytes?: ArrayBuffer;
 }
 
@@ -126,7 +126,7 @@ export async function readAgain(src: Source): Promise<{ bytes: ArrayBuffer; same
 }
 
 /**
- * What the import worker is given for a model: its bytes (the source's own, to be transferred: the source keeps none),
+ * What the model worker is given for a model: its bytes (the source's own, to be transferred: the source keeps none),
  * and for a .gltf the buffers it names by URI (not data URIs, which it holds), from the local files given with it
  * (by the URI's last segment) or beside its URL. Images aren't fetched: textures aren't read. Throws if a buffer
  * can't be found, or the source has no bytes (read it again first).

@@ -1,4 +1,4 @@
-// Loading a model as a stream of events (docs/viewer.md), in the import worker (import-worker.ts, so the page
+// Loading a model as a stream of events (docs/viewer.md), in the model worker (model-worker.ts, so the page
 // never waits on parsing). Every format goes through the library's importers into the scene model (one path; three.js's
 // loaders dropped): STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import).
 // The scene comes first, without its parts' B-rep models and outlines (an outline is a function, which can't cross
@@ -85,7 +85,7 @@ export type ModelEvent =
 export const PROGRESS_MS = 200;
 
 /**
- * The scene without its parts' B-rep models and outline functions (the import worker meshes; the page needs neither):
+ * The scene without its parts' B-rep models and outline functions (the model worker meshes; the page needs neither):
  * what can be posted to another thread.
  */
 export function postable(scene: Scene): Scene {
