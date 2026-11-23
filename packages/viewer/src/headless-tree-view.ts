@@ -9,7 +9,7 @@
 // rows scroll in and out of view.
 
 import { createTree, hotkeysCoreFeature, selectionFeature, syncDataLoaderFeature, type FeatureImplementation,
-  type ItemInstance, type TreeInstance } from '@headless-tree/core';
+  type HotkeyConfig, type ItemInstance, type TreeInstance } from '@headless-tree/core';
 import type { TreeView, TreeViewOptions } from './tree-view.ts';
 
 const ROOT = '\u0000root';
@@ -67,6 +67,8 @@ export class HeadlessTreeView implements TreeView {
   private readonly spacer = document.createElement('div');
   private readonly rows: HTMLElement[] = [];
   private selected: readonly string[] = [];
+  /** The focus cleared (focus(undefined)): the library, focused on nothing, would outline the first row. */
+  private unfocused = false;
   private scheduled = false;
   /** The widest row drawn so far (pixels). */
   private width = 0;
@@ -94,6 +96,26 @@ export class HeadlessTreeView implements TreeView {
         this.schedule();
       },
       features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature, clickSelectsOnly],
+      // The arrows move the focus through the tree's structure, not its rows (the library's, replaced): up and down
+      // to the previous and next sibling, past the first to the parent, past the last to the next sibling of the
+      // nearest ancestor that has one; right to the first child, unfolding the node; left to the parent. (Right and
+      // left would otherwise scroll the tree sideways. Each entry whole: the library matches keys against ours alone.)
+      hotkeys: {
+        focusPreviousItem: this.arrow('ArrowUp', (id) => this.sibling(id, -1) ?? data.parent(id)),
+        focusNextItem: this.arrow('ArrowDown', (id) => {
+          for (let a: string | undefined = id; a !== undefined; a = data.parent(a)) {
+            const next = this.sibling(a, 1);
+            if (next !== undefined) return next;
+          }
+          return undefined;
+        }),
+        expandOrDown: this.arrow('ArrowRight', (id) => {
+          const first = data.hasChildren(id) ? data.children(id)[0] : undefined;
+          if (first !== undefined) this.expand([id]);
+          return first;
+        }),
+        collapseOrUp: this.arrow('ArrowLeft', (id) => data.parent(id)),
+      },
     });
     this.tree.setMounted(true);
     this.tree.rebuildTree();
@@ -101,6 +123,32 @@ export class HeadlessTreeView implements TreeView {
     this.scroller.addEventListener('scroll', () => this.schedule());
     new ResizeObserver(() => this.schedule()).observe(this.scroller);
     this.draw();
+  }
+
+  /** An arrow key's hotkey: the focus moved by `to` (step), held down to repeat, the page's default prevented. */
+  private arrow(key: string, to: (id: string) => string | undefined): HotkeyConfig<string> {
+    return { hotkey: key, canRepeat: true, preventDefault: true, handler: (_e, tree) => this.step(tree, to) };
+  }
+
+  /** A node's sibling `by` places along (-1 the previous), or none. */
+  private sibling(id: string, by: number): string | undefined {
+    const p = this.opts.data.parent(id);
+    const list = p === undefined ? this.opts.data.roots() : this.opts.data.children(p);
+    const i = list.indexOf(id);
+    return i < 0 ? undefined : list[i + by];
+  }
+
+  /**
+   * An arrow key: the focus moved to `to(focused)`, if anything. None with the focus cleared (focus(undefined));
+   * focused on nothing yet, the library's focus is its first row, as drawn.
+   */
+  private step(tree: TreeInstance<string>, to: (id: string) => string | undefined): void {
+    const focused = tree.getState().focusedItem;
+    if (focused === null && this.unfocused) return;
+    const target = to(focused ?? tree.getFocusedItem().getId());
+    if (target === undefined) return;
+    tree.getItemInstance(target).setFocused();
+    tree.updateDomFocus();
   }
 
   /** The scroller's height for the rows now (drawing sets it too, but only at the next frame). */
@@ -166,7 +214,8 @@ export class HeadlessTreeView implements TreeView {
       el.style.paddingLeft = `${item.getItemMeta().level * INDENT}px`;
       applyProps(el, item.getProps());
       el.classList.toggle('selected', item.isSelected());
-      el.classList.toggle('focused', item.isFocused());
+      el.classList.toggle('focused', item.isFocused() && !(this.unfocused &&
+        this.tree.getState().focusedItem === null));
       el.dataset.id = item.getId();
       const exp = el.firstElementChild as HTMLElement;
       exp.className = `tree-expander${item.isFolder() ? (item.isExpanded() ? ' open' : ' closed') : ''}`;
@@ -193,9 +242,10 @@ export class HeadlessTreeView implements TreeView {
     this.schedule();
   }
 
-  focus(id: string): void {
-    // (Through setState, which draws again.)
-    this.tree.applySubStateUpdate('focusedItem', id);
+  focus(id: string | undefined): void {
+    // (Through setState, which draws again. Clicks and keys focus a row again, so the flag needs no reset.)
+    this.unfocused = id === undefined;
+    this.tree.applySubStateUpdate('focusedItem', id ?? null);
   }
 
   setSelection(ids: readonly string[]): void {

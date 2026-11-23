@@ -3,6 +3,7 @@
 // override of its own, and a context menu on a row (right-click, or a long press on a touch screen, where browsers may
 // not send one: iOS).
 
+import { LONG_PRESS_MS } from './context-menu.ts';
 import { HeadlessTreeView } from './headless-tree-view.ts';
 import type { AppearanceOverride, Kind, NodeModel } from './model.ts';
 import type { TreeView } from './tree-view.ts';
@@ -39,9 +40,6 @@ export function overrideText(o: AppearanceOverride): string {
     ? `opacity ${o.alpha ?? 1}` : o.transparent === false ? "the file's opacity" : '', o.triangleEdges === true
     ? 'triangle edges on' : o.triangleEdges === false ? 'triangle edges off' : ''].filter(Boolean).join('; ');
 }
-
-/** How long a touch stays on a row, unmoved, to open its context menu (ms). */
-const LONG_PRESS_MS = 550;
 
 export class TreePanel {
   readonly model: NodeModel;
@@ -145,6 +143,15 @@ export class TreePanel {
     this.selection = [...ids];
     this.view.setSelection(ids.map(String));
     if (ids.length && reveal) this.view.reveal(ids.map(String));
+  }
+
+  /**
+   * Moves the tree's focus (the outlined row) to a node, its branches unfolded and its row scrolled into view, the
+   * selection left as it is; undefined: no row outlined (a click in the view on nothing).
+   */
+  setFocus(id: number | undefined): void {
+    if (id !== undefined) this.view.reveal(String(id));
+    this.view.focus(id === undefined ? undefined : String(id));
   }
 
   /** The expanded nodes. */

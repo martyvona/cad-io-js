@@ -30,6 +30,7 @@ import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bi
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
+import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromImportWorker, ToImportWorker } from './import-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
@@ -275,6 +276,11 @@ export class Viewer {
   /** A click or tap that didn't move the view: what's under it (or nothing), and the keys held. */
   /** A click or tap on the view (where, in client coordinates), and what's under it. */
   onPick?: (hit: Pick | undefined, keys: { add: boolean; clientX: number; clientY: number }) => void;
+  /**
+   * A context menu asked for on the view (a right-click that didn't move it, or a long press with a finger): what's
+   * under it (or nothing), and where (client coordinates).
+   */
+  onContextPick?: (hit: Pick | undefined, at: { clientX: number; clientY: number }) => void;
   /** Whether a world point is cut away (by the section planes): not pickable. */
   clipped?: (p: THREE.Vector3) => boolean;
 
@@ -347,21 +353,49 @@ export class Viewer {
       }, { passive: true });
     }
 
-    // A click or tap: one pointer, down and up within a few pixels and a moment, so not a drag of the view.
+    // A click or tap: one pointer, down and up within a few pixels and a moment, so not a drag of the view. A context
+    // menu: the right button down and up within a few pixels (a right-drag pans), or one finger held still for
+    // LONG_PRESS_MS (its lift then no tap).
     const canvas = this.renderer.domElement;
     const down = new Map<number, { x: number; y: number; t: number }>();
     let many = false;
+    let press: { timer: ReturnType<typeof setTimeout>; id: number; fired: boolean } | undefined;
+    const stopPress = () => {
+      if (press) clearTimeout(press.timer);
+      press = undefined;
+    };
+    const contextPick = (x: number, y: number) => {
+      if (this.gnomonTarget(x, y, true)) return;
+      this.onContextPick?.(this.pickAt(x, y), { clientX: x, clientY: y });
+    };
     canvas.addEventListener('pointerdown', (e) => {
       down.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
       if (down.size > 1) many = true;
+      stopPress();
+      if (e.pointerType === 'touch' && !many) {
+        const { clientX: x, clientY: y } = e;
+        press = { id: e.pointerId, fired: false, timer: setTimeout(() => {
+          if (press) press.fired = true;
+          contextPick(x, y);
+        }, LONG_PRESS_MS) };
+      }
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const d = down.get(e.pointerId);
+      if (press && !press.fired && press.id === e.pointerId && d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) {
+        stopPress();
+      }
     });
     canvas.addEventListener('pointerup', (e) => {
       const d = down.get(e.pointerId);
       down.delete(e.pointerId);
       const single = !many;
       if (!down.size) many = false;
-      if (!d || !single || e.button > 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 ||
-        performance.now() - d.t > 600) return;
+      const pressed = press?.id === e.pointerId && press.fired;
+      if (press?.id === e.pointerId) stopPress();
+      if (!d || !single || pressed || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return;
+      if (e.button === 2 && e.pointerType === 'mouse') return contextPick(e.clientX, e.clientY);
+      if (e.button > 0 || performance.now() - d.t > 600) return;
       // On the gnomon: its view (or nothing, if the view is that already), not a pick.
       const target = this.gnomonTarget(e.clientX, e.clientY, e.pointerType === 'touch');
       if (target) {
@@ -375,7 +409,10 @@ export class Viewer {
       this.onPick?.(this.pickAt(e.clientX, e.clientY), { add: e.ctrlKey || e.metaKey || e.shiftKey,
         clientX: e.clientX, clientY: e.clientY });
     });
-    canvas.addEventListener('pointercancel', (e) => down.delete(e.pointerId));
+    canvas.addEventListener('pointercancel', (e) => {
+      down.delete(e.pointerId);
+      if (press?.id === e.pointerId) stopPress();
+    });
     // A hand over the gnomon's targets.
     canvas.addEventListener('pointermove', (e) => {
       if (e.buttons) return;
