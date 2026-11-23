@@ -2,11 +2,12 @@
 // never waits on parsing). Every format goes through the library's importers into the scene model (one path; three.js's
 // loaders dropped): STEP (step-import), glTF and GLB (gltf-import), three.js JSON (threejs-import), 3MF (3mf-import).
 // The scene comes first, without its parts' B-rep models and outlines (an outline is a function, which can't cross
-// to another thread; only meshing, here, needs either), its mesh parts' levels with it; then, with Heal B-reps, the
-// models healed (cad-heal) in the tessellation pool's workers, several at once, its progress as the import's healing
-// phase; then each placed brep part's mesh as tessellation delivers it (the buffers transferable); then the end, with
-// healing's and the tessellation's diagnostics and what meshed it.
+// to another thread), its mesh parts' levels with it; then, with Heal B-reps, the models healed (cad-heal) in the
+// tessellation pool's workers, several at once, its progress as the import's healing phase; then each placed brep
+// part's mesh as tessellation delivers it, with its B-rep model handed over to the page (the buffers transferred:
+// handOver below); then the end, with healing's and the tessellation's diagnostics and what meshed it.
 
+import { faceOutlines, openBrep } from 'cad-brep';
 import { chooseLod, partInstances, tessellateScene, type Brep, type Diagnostic, type LodWanted,
   type Measures, type Mesh, type Scene, type SceneBounds } from 'cad-scene';
 import { healScene, poolHealer } from 'cad-heal';
@@ -72,10 +73,12 @@ export type ModelEvent =
   /** The scene, and how many of its parts' edges are to be found (edges events follow, one each). */
   | { type: 'scene'; scene: Scene; edgeParts: number }
   /**
-   * A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them; and
-   * edges found from its triangles where the backend gave none (edges.ts).
+   * A part meshed, with its measures (Part.measures) where the backend gave them: the page's scene lacks them; edges
+   * found from its triangles where the backend gave none (edges.ts); and its B-rep model's buffer, handed over to the
+   * page (handOver), meshed or failed.
    */
-  | { type: 'mesh'; part: number; mesh: Mesh | undefined; measures?: Measures; foundEdges?: Float32Array }
+  | { type: 'mesh'; part: number; mesh: Mesh | undefined; measures?: Measures; foundEdges?: Float32Array;
+    model: ArrayBuffer }
   /** Edges found from a part's level from the file, which has none of its own (edges.ts): segments. */
   | { type: 'edges'; part: number; positions: Float32Array }
   /** The end; `bounds` the model's sphere made again from the meshes (tessellateScene), where it changed. */
@@ -91,6 +94,76 @@ export const PROGRESS_MS = 200;
 export function postable(scene: Scene): Scene {
   return { ...scene, parts: scene.parts.map((p) => (p.brep ? { ...p, brep: { format: p.brep.format,
     model: undefined as never } } : p)) };
+}
+
+// Who holds each part's B-rep model. The page owns them at rest: each goes to it with its part's mesh event (handOver),
+// meshed or failed, once meshing is done with it; the worker borrows them back (takeBack) for what needs them, Mesh
+// again (healing first) and export. One copy, moved, never copied: while the page holds a model, the worker's part has
+// a stand-in that throws on any use (lentModel), so nothing here reads a model it doesn't hold. Models of parts never
+// meshed (not placed) stay here.
+
+/** The stand-ins of models with the page. */
+const lentModels = new WeakSet<object>();
+
+/** A stand-in for a part's model while the page holds it: any use throws. */
+function lentModel(part: number): Brep['model'] {
+  const m = new Proxy({}, { get(_t, key) {
+    throw new Error(`part ${part}'s B-rep model is with the page (reading ${String(key)}): borrow it back first`);
+  } });
+  lentModels.add(m);
+  return m as Brep['model'];
+}
+
+/** Whether a part's model is with the page. */
+export const isLent = (scene: Scene, part: number) => {
+  const m = scene.parts[part]?.brep?.model;
+  return !!m && lentModels.has(m);
+};
+
+/** A part's model handed to the page: its buffer, to transfer; the part left with a stand-in (lentModel). */
+export function handOver(scene: Scene, part: number): ArrayBuffer {
+  const brep = scene.parts[part]!.brep!;
+  if (lentModels.has(brep.model)) throw new Error(`part ${part}'s B-rep model is with the page already`);
+  const buffer = brep.model.buffer;
+  brep.model = lentModel(part);
+  return buffer;
+}
+
+/**
+ * Models back from the page, by part (their buffers, transferred): opened again, each part's outlines made from it
+ * (the closure the import made held the old views).
+ */
+export function takeBack(scene: Scene, models: readonly (readonly [number, ArrayBuffer])[]): void {
+  for (const [part, buffer] of models) {
+    const p = scene.parts[part];
+    if (!p?.brep || !lentModels.has(p.brep.model)) throw new Error(`part ${part}'s B-rep model wasn't lent`);
+    const model = openBrep(buffer), origin = p.origin;
+    p.brep.model = model;
+    p.brep.outline = ({ faces: only, ...o }) => faceOutlines(model, origin, o, only);
+  }
+}
+
+/** Throws unless the worker holds the models of these parts (a caller that didn't take them back first). */
+export function needModels(scene: Scene, parts: readonly number[]): void {
+  const lent = parts.filter((i) => isLent(scene, i));
+  if (lent.length) throw new Error(`${lent.length} parts' B-rep models are with the page (part ${lent[0]}...)`);
+}
+
+/**
+ * Each part's model its own buffer (copied where parts share one), as each is transferred alone (a transfer detaches
+ * the buffer for every view of it).
+ */
+export function ownBuffers(scene: Scene): void {
+  const seen = new Set<ArrayBuffer>();
+  for (const p of scene.parts) {
+    if (!p.brep) continue;
+    if (seen.has(p.brep.model.buffer)) {
+      const model = openBrep(p.brep.model.buffer.slice(0)), origin = p.origin;
+      p.brep.model = model;
+      if (p.brep.outline) p.brep.outline = ({ faces: only, ...o }) => faceOutlines(model, origin, o, only);
+    }
+    seen.add(p.brep.model.buffer);
+  }
 }
 
 /** A mesh with triangles and no edges of its own (as the scene graph draws them): its edges are to be found. */
@@ -158,6 +231,7 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
   };
   const scene = await importTaken(source, gltf, { onProgress, heal: { heal: false } });
   if (cancelled()) return;
+  ownBuffers(scene);
   // (Kept by the caller, to export later: the meshes go into its parts' levels as they're made.)
   keep?.(scene);
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
@@ -188,6 +262,7 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
   tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
   cancelled: () => boolean, before: Promise<unknown> = Promise.resolve()): Promise<void> {
   const brep = meshable(scene);
+  needModels(scene, brep);
   if (!brep.length) {
     await before;
     if (!cancelled()) emit({ type: 'done', diagnostics: [] });
@@ -206,8 +281,10 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
       const measures = scene.parts[part]!.measures;
       // (A backend that gives no edges, truck: found here, with the mesh.)
       const found = mesh && needsEdges(mesh) ? edgesOf(mesh) : undefined;
-      emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}), ...(found ? { foundEdges: found } : {}) },
-        [...meshBuffers(mesh), ...(found ? [found.buffer as ArrayBuffer] : [])]);
+      // (Meshing's last use of the part's model is over: it goes to the page with the mesh.)
+      const model = handOver(scene, part);
+      emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}), ...(found ? { foundEdges: found } : {}),
+        model }, [...meshBuffers(mesh), ...(found ? [found.buffer as ArrayBuffer] : []), model]);
     } });
   await before;
   if (cancelled()) return;

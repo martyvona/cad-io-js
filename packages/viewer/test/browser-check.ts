@@ -2124,6 +2124,124 @@ await check('problems dialog', async () => {
   expect(quiet.errors > 0 && !quiet.open, `none by itself in plain ?check pages: ${j}`);
   return undefined;
 });
+// Who holds the B-rep models (model-load.ts's handOver): the page, each placed part's handed over with its mesh event,
+// never waiting for the end, the same bytes the worker had; lent back for Mesh again and returned part by part (each
+// as its mesh message comes); a Mesh again cancelled by another while its mesh events are on their way (held back here
+// until the second has started) loses none, the second meshing in place; lent for an export, STEP's exact geometry
+// written from them, and back with its answer.
+await check('model ownership', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const graph = () => viewer.graph;
+    const breps = () => [...graph().placements.keys()].filter((i) => graph().scene.parts[i].brep).sort((a, b) => a - b);
+    // Each placed part's model as the page holds it: its bytes summed (or null where it isn't held).
+    const held = () => breps().map((i) => { const m = graph().modelOf(i);
+      return m ? new Uint8Array(m.buffer).reduce((a, x) => (a * 31 + x) >>> 0, 0) : null; });
+    const out = { first: held(), parts: breps().length };
+    // The worker's messages counted as they come (and, while 'holding', kept back to deliver later).
+    const worker = viewer.modelWorker(), deliver = worker.onmessage;
+    let meshes = 0, done = false, holding = false;
+    const kept = [];
+    worker.onmessage = (e) => {
+      if (holding) return void kept.push(e);
+      if (e.data.type === 'mesh') meshes++;
+      if (e.data.type === 'done') done = true;
+      deliver(e);
+    };
+    // Each model's arrival: the mesh messages come by then, and whether the end had.
+    const proto = Object.getPrototypeOf(graph()), hold = proto.holdModel;
+    const arrivals = [];
+    proto.holdModel = function (part, buffer) {
+      arrivals.push({ meshes, done });
+      return hold.call(this, part, buffer);
+    };
+    const reset = () => { meshes = 0; done = false; return arrivals.splice(0); };
+    const until = async (f) => {
+      for (let t = 0; t < 1500 && !f(); t++) await new Promise((res) => setTimeout(res, 20));
+    };
+    reset();
+    // A load whose messages are held back, then delivered at once: its meshes come before the page has shown its
+    // scene (taken then, once it has).
+    holding = true;
+    const loading = cadViewer.load('/content/as1.stp');
+    await until(() => kept.filter((e) => e.data.type === 'mesh').length >= 2);
+    holding = false;
+    for (const e of kept.splice(0)) worker.onmessage(e);
+    await loading;
+    await cadViewer.idle();
+    out.arrivals = reset();
+    out.loaded = held();
+    const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // Mesh again: lent, and back part by part; in place (the same scene graph: not the file loaded again, which would
+    // hand every model over afresh).
+    const before = graph();
+    let again = viewer.nextLoad();
+    button('Mesh again').$button.click();
+    await until(() => viewer.nextLoad() !== again);
+    await ui.opened();
+    await cadViewer.idle();
+    out.againArrivals = reset();
+    out.again = held();
+    // Twice: the first's messages held back until the second has started, then delivered (stale by then).
+    holding = true;
+    again = viewer.nextLoad();
+    const t0 = performance.now();
+    button('Mesh again').$button.click();
+    await until(() => kept.filter((e) => e.data.type === 'mesh').length >= 2);
+    out.stale = kept.filter((e) => e.data.type === 'mesh').length;
+    button('Mesh again').$button.click();
+    // (Released once the second has begun: the first's run is over, its listener gone.)
+    await until(() => viewer.nextLoad() > again + 1);
+    await new Promise((res) => setTimeout(res, 50));
+    holding = false;
+    for (const e of kept.splice(0)) worker.onmessage(e);
+    await until(() => viewer.nextLoad() > again + 1 && !viewer.loading);
+    await ui.opened();
+    await cadViewer.idle();
+    out.twice = held();
+    out.inPlace = graph() === before;
+    // (Not waiting out CANCEL_WAIT_MS, 10 s: the worker took the cancel.)
+    out.twiceSeconds = (performance.now() - t0) / 1000;
+    reset();
+    // An export of STEP with its exact geometry: written from the models, which come back.
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async (d) => {
+      out.written = await new Blob([d]).text(); }, close: async () => {} }) });
+    const exp = button('Export...');
+    const exporting = exp.getValue().call(exp.object);
+    let d;
+    for (let i = 0; i < 300 && !(d = document.querySelector('dialog.cv-dialog')); i++) {
+      await new Promise((res) => requestAnimationFrame(res));
+    }
+    const s = d.querySelector('select[data-key=format]');
+    s.value = 'step';
+    s.dispatchEvent(new Event('change'));
+    d.querySelector('button.primary').click();
+    await exporting;
+    out.exported = held();
+    out.faces = (out.written?.match(/ADVANCED_FACE\\(/g) ?? []).length;
+    delete out.written;
+    proto.holdModel = hold;
+    worker.onmessage = deliver;
+    return out;
+  })()`) as { after: { first: (number | null)[]; parts: number; arrivals: { meshes: number; done: boolean }[];
+    loaded: (number | null)[]; againArrivals: { meshes: number; done: boolean }[]; again: (number | null)[];
+    stale: number; twice: (number | null)[]; inPlace: boolean; twiceSeconds: number; exported: (number | null)[];
+    faces: number } };
+  const a = r.after, j = JSON.stringify(a);
+  const all = (h: (number | null)[]) => h.length === a.parts && h.every((x) => x !== null);
+  const same = (h: (number | null)[]) => JSON.stringify(h) === JSON.stringify(a.first);
+  expect(a.parts > 1 && all(a.first) && same(a.loaded), `every placed part's model with the page: ${j}`);
+  // (A load's held back come, with its end, before the page has shown its scene: taken once it has.)
+  expect(a.arrivals.length === a.parts && a.arrivals[0]!.meshes >= 2,
+    `a load's, those before its scene was shown too: ${j}`);
+  expect(a.againArrivals.length === a.parts && a.againArrivals.every((x, k) => x.meshes === k + 1 && !x.done)
+    && same(a.again), `Mesh again: lent, back part by part as each mesh comes, the same bytes: ${j}`);
+  expect(a.stale >= 2 && same(a.twice) && a.inPlace && a.twiceSeconds < 8, `Mesh again twice, the first's meshes `
+    + `stale: none lost, in place, the cancel taken: ${j}`);
+  expect(same(a.exported) && a.faces > 0, `an export of STEP's exact geometry, the models back: ${j}`);
+  return undefined;
+});
 // What an operation has to say beyond the status line goes in a modal once it's done (ui.ts's notice, ?check=dialogs
 // here), never the console: a model that can't be opened (its error dialog), what Mesh again didn't find again (each
 // path), Mesh again falling back to loading the file again (why), an export's warnings (each), a replay's divergences
@@ -6564,19 +6682,22 @@ await check('export: the worker lost', async () => {
       for (const at of [...Object.values(g.attributes), ...(g.index ? [g.index] : [])]) {
         if (at.array?.buffer && at.array.buffer.byteLength === 0) detached++;
       } });
+    // (Every placed B-rep part's model with the page again, from the new load.)
+    const breps = [...viewer.graph.placements.keys()].filter((i) => viewer.graph.scene.parts[i].brep);
+    const held = breps.length > 0 && breps.every((i) => viewer.graph.modelOf(i)?.face.id.length > 0);
     return { errorDialog, status, stopped, again: viewer.stats().triangles === triangles, newModel: ui.panel().model !== m0,
-      overrides: JSON.stringify(cadViewer.state().hidden) === overrides, detached,
+      overrides: JSON.stringify(cadViewer.state().hidden) === overrides, detached, held,
       controls: viewer.settings.linearDeflection, meshedWith: viewer.model.meshedWith.linearDeflection,
       pick: !!cadViewer.pickAt(0.5, 0.5) };
   })()`) as { after: { errorDialog: string[]; status: string; stopped: boolean; again: boolean; newModel: boolean;
-    overrides: boolean; detached: number; controls: number; meshedWith: number; pick: boolean } };
+    overrides: boolean; detached: number; controls: number; meshedWith: number; pick: boolean; held: boolean } };
   const a = r.after, j = JSON.stringify(a);
   expect(a.errorDialog.length === 1 && /the model worker stopped \(nothing from it for \d s\)/.test(
     a.errorDialog[0]!) && /loaded and meshed again/.test(a.errorDialog[0]!), `the error said: ${j}`);
   // (Whatever format was remembered from the checks before.)
   expect(/exporting as1\.\w+\.\.\. \| loading as1\.stp\.\.\./.test(a.status) && a.stopped,
     `the worker stopped, loading again: ${j}`);
-  expect(a.newModel && a.again && a.overrides && a.detached === 0 && a.pick, `made again: ${j}`);
+  expect(a.newModel && a.again && a.overrides && a.detached === 0 && a.pick && a.held, `made again: ${j}`);
   expect(a.controls === 0.7 && a.meshedWith !== 0.7, `meshed as it was, the controls back: ${j}`);
   return undefined;
 });

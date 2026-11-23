@@ -17,6 +17,7 @@
 // materials: a hidden face's triangles get a geometry group of their own with an invisible material, a transparent
 // face's or placement's a material at that opacity.
 
+import { openBrep, type BrepData } from 'cad-brep';
 import * as THREE from 'three';
 import { biasTowardCamera } from './depth-bias.ts';
 import { faceFailures, instances, partInstances, placedName, stretchWords, type FaceFailure, type Mat4, type Measures,
@@ -84,6 +85,11 @@ export class SceneGraph implements Looks {
   readonly scene: Scene;
   /** Each part's placements, by part index. */
   readonly placements = new Map<number, Placement[]>();
+  /**
+   * The parts' B-rep models the page holds, by part (model-load.ts's handOver: each with its part's mesh, whether it
+   * meshed or failed); absent while lent to the model worker (Mesh again, export) or not yet handed over.
+   */
+  private readonly models = new Map<number, BrepData>();
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
@@ -99,6 +105,23 @@ export class SceneGraph implements Looks {
 
   private readonly shininess: number;
   private readonly specular: number;
+
+  /** A part's B-rep model, where the page holds it now (see `models`). */
+  modelOf(part: number): BrepData | undefined {
+    return this.models.get(part);
+  }
+
+  /** A part's model handed over by the model worker (its buffer, transferred). */
+  holdModel(part: number, buffer: ArrayBuffer): void {
+    this.models.set(part, openBrep(buffer));
+  }
+
+  /** Every model the page holds, lent to the model worker: their buffers by part, to transfer; none held after. */
+  lendModels(): [number, ArrayBuffer][] {
+    const out = [...this.models].map(([part, m]): [number, ArrayBuffer] => [part, m.buffer]);
+    this.models.clear();
+    return out;
+  }
 
   constructor(scene: Scene, name: string, shininess = DEFAULT_RENDER.shininess, specular = DEFAULT_RENDER.specular) {
     this.scene = scene;

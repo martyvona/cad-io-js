@@ -59,7 +59,10 @@ const MESH_ARRAYS = ['positions', 'normals', 'indices', 'edgePositions', 'curveP
   'faceOutlinePositions'] as const;
 
 /** The model worker's messages about a load. */
-type LoadMessage = Exclude<FromModelWorker, { type: 'exported' | 'export-error' | 'beat' }>;
+type LoadMessage = Exclude<FromModelWorker, { type: 'exported' | 'export-error' | 'beat' | 'cancelled' }>;
+
+/** How long to wait for the model worker to take a cancel before going on without (ms): it may be lost. */
+const CANCEL_WAIT_MS = 10_000;
 
 export interface ModelInfo {
   name: string;
@@ -748,7 +751,7 @@ export class Viewer {
 
   /** Empties the tessellation cache (IndexedDB, the model worker's, whose next load opens it afresh). */
   async clearCache(): Promise<void> {
-    this.worker?.postMessage({ type: 'cancel' } satisfies ToModelWorker);
+    this.cancelRun();
     await clearCache();
   }
 
@@ -787,7 +790,7 @@ export class Viewer {
     const gen = ++this.generation;
     if (this.meshing) {
       // Stop the last load's meshing (wherever it runs), and end its events.
-      this.worker?.postMessage({ type: 'cancel' } satisfies ToModelWorker);
+      this.cancelRun();
       this.meshing = false;
       this.abortLoad?.();
     }
@@ -853,6 +856,44 @@ export class Viewer {
     } };
   }
 
+  /**
+   * Which scene graph each load's (or Mesh again's) models go to, by its number, and models that came before the page
+   * knew (a load's scene event still being shown). A part's model is taken as its mesh event arrives, whether or not
+   * its run is still the latest: the worker gave it up, so one dropped (a Mesh again cancelled by another) would be
+   * lost, and the next Mesh again would find it missing.
+   */
+  private readonly modelsTo = new Map<number, SceneGraph>();
+  private readonly modelsEarly = new Map<number, [number, ArrayBuffer][]>();
+
+  /** Cancels sent to the model worker and not yet taken, by number. */
+  private readonly cancels = new Map<number, () => void>();
+  private cancelCount = 0;
+  /**
+   * Settles once the model worker has taken the last cancel (or after CANCEL_WAIT_MS): the models the cancelled run
+   * handed over have all come by then (the worker's messages keep their order), and no more will. What lends the
+   * models back waits for it: one lent before would leave those still on their way out.
+   */
+  private quiet: Promise<void> = Promise.resolve();
+
+  /** Stops the model worker's meshing (a load's or Mesh again's), its models' handing over with it. */
+  private cancelRun(): void {
+    if (!this.worker) return;
+    const id = ++this.cancelCount;
+    this.worker.postMessage({ type: 'cancel', id } satisfies ToModelWorker);
+    this.quiet = new Promise<void>((r) => {
+      const end = () => { this.cancels.delete(id); r(); };
+      this.cancels.set(id, end);
+      setTimeout(end, CANCEL_WAIT_MS);
+    });
+  }
+
+  /** A load's (or Mesh again's) models go to `graph`: those already come, and those to come. */
+  private modelsFor(gen: number, graph: SceneGraph): void {
+    this.modelsTo.set(gen, graph);
+    for (const [part, b] of this.modelsEarly.get(gen) ?? []) graph.holdModel(part, b);
+    this.modelsEarly.delete(gen);
+  }
+
   /** Exports waiting for the model worker's answer, by their number. */
   private readonly exports = new Map<number, (m: Extract<FromModelWorker, { type: 'exported' | 'export-error' }>)
     => void>();
@@ -874,9 +915,18 @@ export class Viewer {
    * page has no meshes on the CPU (picking, caps and the like would find none), so the caller blocks the page
    * (showBusy). Rejects when nothing's loaded there, or the exporter fails; the meshes come back either way.
    */
-  exportModel(request: ExportRequest): Promise<Exported> {
+  async exportModel(request: ExportRequest): Promise<Exported> {
+    // (A cancelled run's models all come first, as for Mesh again.)
+    await this.quiet;
+    return this.exportNow(request);
+  }
+
+  private exportNow(request: ExportRequest): Promise<Exported> {
     const id = ++this.exportCount;
-    const meshes = [...this.graph?.meshes ?? []];
+    const graph = this.graph;
+    const meshes = [...graph?.meshes ?? []];
+    // (The B-rep models too, for STEP's exact geometry: handed back with the answer.)
+    const models = graph?.lendModels() ?? [];
     const buffers = [...new Set(meshes.flatMap(([, m]) => MESH_ARRAYS.flatMap((k) => {
       const a = m[k] as ArrayBufferView | undefined;
       return a && a.buffer instanceof ArrayBuffer && a.buffer.byteLength ? [a.buffer] : [];
@@ -901,6 +951,7 @@ export class Viewer {
       this.exports.set(id, (m) => {
         this.beat(id);
         end();
+        for (const [part, b] of m.models) graph?.holdModel(part, b);
         if (m.meshes.length || !meshes.length) this.takeBack(meshes, m.meshes);
         else {
           // (Answered without the meshes: an error the worker didn't catch. They're lost with it.)
@@ -910,7 +961,8 @@ export class Viewer {
         if (m.type === 'exported') resolve(m.result);
         else reject(new Error(m.message));
       });
-      worker.postMessage({ type: 'export', id, request, meshes } satisfies ToModelWorker, buffers);
+      worker.postMessage({ type: 'export', id, request, meshes, models } satisfies ToModelWorker,
+        [...buffers, ...models.map(([, b]) => b)]);
     });
   }
 
@@ -927,7 +979,7 @@ export class Viewer {
     this.worker?.terminate();
     this.worker = undefined;
     for (const [id, l] of [...this.exports]) l({ type: 'export-error', id, message: 'the model worker stopped',
-      meshes: [] });
+      meshes: [], models: [] });
   }
 
   /**
@@ -970,7 +1022,13 @@ export class Viewer {
       w.onmessage = (e: MessageEvent<FromModelWorker>) => {
         const m = e.data;
         if (m.type === 'beat') return this.beat(m.id);
+        if (m.type === 'cancelled') return this.cancels.get(m.id)?.();
         if (m.type === 'exported' || m.type === 'export-error') return this.exports.get(m.id)?.(m);
+        if (m.type === 'mesh') {
+          const graph = this.modelsTo.get(m.load);
+          if (graph) graph.holdModel(m.part, m.model);
+          else this.modelsEarly.set(m.load, [...this.modelsEarly.get(m.load) ?? [], [m.part, m.model]]);
+        }
         this.loadListeners.get(m.load)?.(m);
       };
       w.onerror = (e) => {
@@ -979,7 +1037,7 @@ export class Viewer {
           + 'failed', load: -1 });
         // (The lent meshes lost with it: the page's stay without their arrays, so a model should be loaded again.)
         for (const [id, l] of this.exports) l({ type: 'export-error', id, message: e.message || 'the model worker '
-          + 'failed', meshes: [] });
+          + 'failed', meshes: [], models: [] });
       };
       this.worker = w;
     }
@@ -987,6 +1045,9 @@ export class Viewer {
   }
 
   private async loadModel(src: Source, format: Format, gen: number, keep: boolean): Promise<void> {
+    // (Another scene: the last's models, and any still coming, are dropped with it.)
+    this.modelsTo.clear();
+    this.modelsEarly.clear();
     const mb = src.size / 1e6;
     const importing = `${src.name}: importing${mb >= 1 ? ` ${Math.round(mb)} MB` : ''}`;
     this.onStatus?.(`${importing}...`);
@@ -1037,6 +1098,7 @@ export class Viewer {
         if (ev.type === 'scene') {
           const scene = ev.scene;
           graph = new SceneGraph(scene, src.name, this.render.shininess, this.render.specular);
+          this.modelsFor(gen, graph);
           const brep = scene.parts.flatMap((p, i) => p.brep && graph!.placements.has(i) ? [i] : []);
           model = { name: src.name, format, properties: scene.properties,
             stretched: describeStretched(scene),
@@ -1135,10 +1197,13 @@ export class Viewer {
     const gen = ++this.generation;
     this.shown = gen;
     if (this.meshing) {
-      this.worker.postMessage({ type: 'cancel' } satisfies ToModelWorker);
+      this.cancelRun();
       this.meshing = false;
       this.abortLoad?.();
     }
+    // (Every model the last run handed over come first: those it lends back are all there are.)
+    await this.quiet;
+    if (gen !== this.generation) return true;
     model.meshedWith = meshedWithOf(this.settings);
     const wanted = wantedOf(this.settings);
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
@@ -1152,9 +1217,12 @@ export class Viewer {
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
+      // (The models the page holds lent back, each returned with its part's mesh.)
+      this.modelsFor(gen, graph);
+      const models = graph.lendModels();
       const msg: ToModelWorker = { type: 'remesh', load: gen, settings: { ...this.settings },
-        workers: workerCount(this.device) };
-      for await (const ev of this.events(gen, msg)) {
+        workers: workerCount(this.device), models };
+      for await (const ev of this.events(gen, msg, models.map(([, b]) => b))) {
         if (gen !== this.generation) return true;
         if (ev.type === 'importing') {
           // Healing again, with other settings.
