@@ -61,6 +61,12 @@ export interface TessellationSettings {
    * failing face's triangles can be seen (and no fallback meshes it); its meshes never cached.
    */
   keepFailing: boolean;
+  /**
+   * tess-cadio's most triangles a face may take (init's capCeiling), or its own default (10M): set by the page from its
+   * device for each load (capCeilingOf), never in the address or a recording. Meshes are cached under the request, not
+   * this, which is the same for every load in one browser.
+   */
+  capCeiling?: number;
 }
 
 /** The fixes as cad-heal has them by default. */
@@ -156,6 +162,14 @@ export function workerCount(device: DeviceClass, cores = navigator.hardwareConcu
   return Math.max(1, Math.min(cores - 1, device === 'desktop' ? 8 : 3));
 }
 
+/** tess-cadio's ceiling on a face's triangles on phones and tablets (they have less memory); desktops its own. */
+export const MOBILE_CAP_CEILING = 2e6;
+
+/** The capCeiling the device asks, or none for tess-cadio's default. */
+export function capCeilingOf(device: DeviceClass): number | undefined {
+  return device === 'desktop' ? undefined : MOBILE_CAP_CEILING;
+}
+
 export class Tessellation {
   private current?: { key: string; tess: Tessellator; pool: PoolTessellator; caches: CachedTessellator[];
     debug: boolean };
@@ -172,16 +186,18 @@ export class Tessellation {
     const timeout = s.timeout ?? DEFAULT_TIMEOUT;
     const fallback = fallbackOf(s);
     const debug = keepsFailing(s);
-    const key = `${s.backend}:${fallback ?? 'none'}:${s.cache}:${workers}:${timeout}:${debug}`;
+    const key = `${s.backend}:${fallback ?? 'none'}:${s.cache}:${workers}:${timeout}:${debug}:${s.capCeiling ?? ''}`;
     if (this.current?.key !== key) {
       this.dispose();
       const store = s.cache ? new IndexedDbStore({ name: CACHE_NAME }) : undefined;
       const caches: CachedTessellator[] = [];
       const make = (b: Backend) => {
         const kept = debug && b === 'cadio';
+        const options = b !== 'cadio' ? undefined : { ...(kept ? KEEP_FAILING : {}),
+          ...(s.capCeiling !== undefined ? { capCeiling: s.capCeiling } : {}) };
         const pool = new PoolTessellator(
           () => webWorkerHandle(new Worker(new URL('./tess-worker.ts', import.meta.url), { type: 'module' })),
-          { backend: { ...BACKENDS[b], ...(kept ? { options: { ...KEEP_FAILING } } : {}) }, workers,
+          { backend: { ...BACKENDS[b], ...(options && Object.keys(options).length ? { options } : {}) }, workers,
             timeoutMs: Math.max(0, timeout) * 1000 });
         // (Every backend here takes models, which StepTessellator passes through, adding the open-edge error and the
         // oracle's areas; OCCT's STEP route would get them written as STEP. After the cache, which keys on the model.)

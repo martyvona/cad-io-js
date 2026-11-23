@@ -37,7 +37,7 @@ import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
 import type { ImportProgress } from 'step-import';
-import { clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
+import { capCeilingOf, clearCache, defaultSettings, deflectionsOf, wantedOf, workerCount, type TessellationSettings }
   from './tessellation.ts';
 import { classifyDevice, DEVICE_PROFILES, deviceOverride, deviceSignals, type DeviceClass } from './device.ts';
 import { axisView, Gnomon, sameTurn, TOUCH_REACH, type GnomonTarget } from './gnomon.ts';
@@ -986,8 +986,8 @@ export class Viewer {
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
-      const msg: ToImportWorker = { type: 'load', load: gen, input, settings: { ...this.settings },
-        workers: workerCount(this.device) };
+      const msg: ToImportWorker = { type: 'load', load: gen, input, settings: { ...this.settings,
+        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device) };
       for await (const ev of this.events(gen, msg, [input.bytes.buffer as ArrayBuffer,
         ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
         if (gen !== this.generation) return;
@@ -1115,8 +1115,8 @@ export class Viewer {
     let ended: Extract<ModelEvent, { type: 'done' }> | undefined;
     this.meshing = true;
     try {
-      const msg: ToImportWorker = { type: 'remesh', load: gen, settings: { ...this.settings },
-        workers: workerCount(this.device) };
+      const msg: ToImportWorker = { type: 'remesh', load: gen, settings: { ...this.settings,
+        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device) };
       for await (const ev of this.events(gen, msg)) {
         if (gen !== this.generation) return true;
         if (ev.type === 'importing') {
