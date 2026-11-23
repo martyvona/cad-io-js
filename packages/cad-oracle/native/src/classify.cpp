@@ -319,7 +319,7 @@ bool Oracle::Impl::gridPoint(int face, const Surface& surface, double ulo, doubl
   cadgeom::Vec2& uv, Vec3& p, Vec3& n) {
   const Surface* S = &surface;
   if (!std::isfinite(ulo) || !std::isfinite(uhi) || !std::isfinite(vlo) || !std::isfinite(vhi)) return false;
-  // A 17 x 17 grid, its points nearest the middle first, classified in at 100 and then 10 times the tolerance.
+  // A 17 x 17 grid, its points nearest the middle first.
   std::vector<cadgeom::Vec2> grid;
   for (int a = 0; a <= 16; a++)
     for (int b = 0; b <= 16; b++)
@@ -332,14 +332,28 @@ bool Oracle::Impl::gridPoint(int face, const Surface& surface, double ulo, doubl
   });
   std::vector<double> uvs(2 * grid.size());
   for (size_t i = 0; i < grid.size(); i++) uvs[2 * i] = grid[i].x, uvs[2 * i + 1] = grid[i].y;
-  std::vector<uint8_t> sides(grid.size()), st(grid.size());
+  // In at the face's tolerance, and well inside: not on at 100, else 10, times it (on is a distance test, sound at any
+  // tolerance; classifying at one that large isn't: a joint's pieces near the meeting there span whole sides, and
+  // points off the face came out in). In judged at the face's tolerance where that's settled, else at the first of 10
+  // and 100 times it that is (loops with gaps wider than the tolerance, invalidModel there, bridged at a larger one).
+  const int32_t count = static_cast<int32_t>(grid.size());
+  const double ks[3] = {1, 10, 100};
+  std::vector<uint8_t> sides[3], st[3];
   std::vector<double> tolUv(grid.size());
-  for (double k : {100.0, 10.0}) {
-    if (cg_face_classify(h, face, uvs.data(), static_cast<int32_t>(grid.size()), k * tols.face(face), sides.data(),
-          st.data(), tolUv.data()) != 0)
+  for (int j = 0; j < 3; j++) {
+    sides[j].resize(grid.size()), st[j].resize(grid.size());
+    if (cg_face_classify(h, face, uvs.data(), count, ks[j] * tols.face(face), sides[j].data(), st[j].data(),
+          tolUv.data()) != 0)
       return false;
+  }
+  auto in = [&](size_t i) {
+    for (int j = 0; j < 3; j++)
+      if (st[j][i] == 0) return sides[j][i] == 0;
+    return false;
+  };
+  for (int j : {2, 1}) {
     for (size_t i = 0; i < grid.size(); i++) {
-      if (sides[i] != 0 || st[i] != 0) continue;
+      if (!in(i) || sides[j][i] == 2) continue;
       cadgeom::SurfacePoint q;
       Vec3 nn;
       if (S->eval(grid[i].x, grid[i].y, 0, q) != Status::ok || S->normal(grid[i].x, grid[i].y, nn) != Status::ok)
