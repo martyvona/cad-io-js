@@ -3143,3 +3143,13 @@ TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected trian
   const double byRule = std::max(200000.0, 64 * pd.face(0).capExpected);
   CHECK_EQ(pd.face(0).cap, byRule);
 }
+
+TEST_CASE("A refused triangle whose circumcentre lands at a vertex already there is broken at its centroid") {
+  // (sineSheet's 40 mm square at 0.1 mm: refinement over its regular grid puts refused triangles' circumcentres on
+  // vertices there; left final, 37 of them stayed refused, the L 200 mm sheet's past its deflection.)
+  cadgeom::Model m = load("sineSheet40");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  CHECK_EQ(pm.face(0).rejected.size(), size_t(0));
+}

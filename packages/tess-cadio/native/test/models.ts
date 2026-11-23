@@ -465,6 +465,39 @@ export function bumpPatch(half = false): BrepBuilder {
 }
 
 /**
+ * A sine sheet: a bicubic B-spline on uniform clamped knots over [0, l]^2, its poles a grid a quarter of the
+ * wavelength w apart at height a sin(2 pi x / w) sin(2 pi y / w) (a smoothed egg crate, its boundary at z = 0 where l
+ * is a multiple of w), bounded by its four sides as lines with p-curves. Delaunay refinement over so regular a grid
+ * puts a refused triangle's circumcentre on a vertex already there.
+ */
+export function sineSheet(l = 20, w = 5, a = 0.5): BrepBuilder {
+  const b = new BrepBuilder();
+  const n = Math.round(4 * l / w) + 1, spans = n - 3;
+  const poles = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => {
+    const x = i * w / 4, y = j * w / 4;
+    return [x, y, a * Math.sin(2 * Math.PI * x / w) * Math.sin(2 * Math.PI * y / w)];
+  }));
+  const knots = Array.from({ length: spans + 1 }, (_, k) => k);
+  const mults = knots.map((k) => (k === 0 || k === spans ? 4 : 1));
+  const s = b.addSurface({ kind: 'bspline', uDegree: 3, vDegree: 3, uKnots: knots, vKnots: knots,
+    uMultiplicities: mults, vMultiplicities: mults, poles, uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const corners = [[0, 0, 0], [l, 0, 0], [l, l, 0], [0, l, 0]], uv = [[0, 0], [spans, 0], [spans, spans], [0, spans]];
+  const vs = corners.map((point) => b.addVertex({ point }));
+  const coedges = [0, 1, 2, 3].map((k) => {
+    const p = corners[k]!, q = corners[(k + 1) % 4]!;
+    const line = b.addCurve({ kind: 'line', point: p, direction: q.map((x, i) => (x - p[i]!) / l), magnitude: 1 });
+    const edge = b.addEdge({ curve: line, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: [0, l] });
+    const [c0, c1] = [uv[k]!, uv[(k + 1) % 4]!];
+    const pcurve = b.addCurve({ kind: 'line', point: c0, direction: [(c1[0]! - c0[0]!) / spans,
+      (c1[1]! - c0[1]!) / spans], magnitude: spans / l });
+    return { edge, orientation: 'forward' as const, pcurve };
+  });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
  * A roof: a ruled B-spline (degree 1 both ways, a simple knot at u = 1/2: C0 there) over x = 10 u, y = 4 v, its ridge
  * z = h at u = 1/2 between two planes (h 2: 21.8 degrees up and down, normals 43.6 apart): one crease along v. The
  * face is u in [u0, u1], v in [0, 1]; its sides along u are each one edge (a polyline through the ridge, degree 1
@@ -2244,7 +2277,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall, wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
-  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
+  bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true), sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
   tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),

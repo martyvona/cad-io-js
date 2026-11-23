@@ -319,16 +319,19 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     // Too near a vertex of where it lands (a tenth of the triangle's shortest edge, or of a unit in the metric if
     // that's shorter): no improvement, the triangle final. Relative, since angles and the caller's criteria ask for
     // triangles below the metric's size (they end by meeting them, by the fixed boundary's limits, or by maxPoints).
+    bool nearVertex = false;
     if (placed) {
       double floor = 0.1 * std::min(1.0, l[s]);
       for (int32_t w : T.tris()[at].v)
-        if (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor) placed = false;
+        if (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor) placed = false, nearVertex = true;
     }
     // A triangle only a much shorter segment stands in the way of (each one it encroached shorter in the metric than
     // its longest edge over kShortSegment) is broken from inside instead, at its centroid where that's clear:
     // splitting such a segment, once a round, would leave the triangle as it is for many rounds (arm's half cylinder:
-    // fans of slivers 28 mm long over a fixed arc's 1.5 mm segments).
-    if ((!placed || f < 0.05) && !encroached.empty()) {
+    // fans of slivers 28 mm long over a fixed arc's 1.5 mm segments). So is one whose candidate lands on a vertex
+    // already there (a regular grid's cocircular points, a sine sheet's: else final, refused, its face past the
+    // deflection).
+    if ((!placed || f < 0.05) && (!encroached.empty() || nearVertex)) {
       double longest = std::max({l[0], l[1], l[2]});
       bool shortOnly = true;
       for (uint64_t k : encroached) {

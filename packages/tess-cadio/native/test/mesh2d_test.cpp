@@ -1057,8 +1057,8 @@ TEST_CASE("the same mesh on every target: a refined, rotating-metric mesh's bits
   } field;
   Mesh2 m = mesh2(square(30, 1), field, {1000000, 0.35});
   REQUIRE(m.status == cadgeom::Status::ok);
-  CHECK_EQ(m.points.size(), 997u);
-  CHECK_EQ(meshHash(m), 0x454d21b3fc7a1ce2ull);
+  CHECK_EQ(m.points.size(), 995u);
+  CHECK_EQ(meshHash(m), 0x11f81b948a24dedaull);
 }
 
 namespace {
@@ -1134,8 +1134,9 @@ TEST_CASE("a triangle only much shorter segments stand in the way of: broken at 
     // Pinned (the same on every target): both ways in are taken, a candidate refused and one placed within 5% of the
     // centroid (which counts as refused): without the second, at 64, 4 broken and 953 refused; and a centroid too near
     // a corner refused too, as any placement is (at 16, 166 refused without that).
-    CHECK_EQ(fine.brokenInside, n == 64 ? 17 : 4);
-    CHECK_EQ(fine.refused, n == 64 ? 695 : 169);
+    // (refused counts the triangles left final, Mesh2Detail::refused: more where the mesh is finer.)
+    CHECK_EQ(fine.brokenInside, n == 64 ? 18 : 4);
+    CHECK_EQ(fine.refused, n == 64 ? 777 : 169);
     // No point the mesher added encroaches a boundary segment (inside its diametral circle in the metric).
     int encroaching = 0;
     for (size_t i = d.points.size(); i < m.points.size(); i++)
