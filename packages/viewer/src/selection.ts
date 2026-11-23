@@ -189,8 +189,11 @@ export class Highlighter {
   private readonly overlays: THREE.Mesh[] = [];
   private readonly tints = [new Map<THREE.Material, THREE.Material>(), new Map<THREE.Material, THREE.Material>()];
   private readonly colors = [new THREE.Color(0xff9a2e), new THREE.Color(0x59c1ff)];
+  // A tint over the face, writing no depth: pulled toward the camera, it would otherwise hide what's drawn after it at
+  // the face's own depth (triangle-edges.ts's wireframes).
   private readonly overlayMaterials = this.colors.map((color) => new THREE.MeshBasicMaterial({ color,
-    transparent: true, opacity: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    transparent: true, opacity: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    depthWrite: false }));
 
   private tint(m: THREE.Material, which: number): THREE.Material {
     if (!m.visible) return m;

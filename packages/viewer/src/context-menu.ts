@@ -4,8 +4,13 @@
 
 export interface MenuItem {
   label: string;
+  /** A line above it, starting a group. */
+  divider?: boolean;
   action: () => void;
 }
+
+/** How long a finger stays down, unmoved, to open a context menu (a tree row's, the view's), in ms. */
+export const LONG_PRESS_MS = 550;
 
 let open: { close(): void } | undefined;
 
@@ -36,6 +41,7 @@ export function showMenu(x: number, y: number, items: readonly MenuItem[]): void
     b.type = 'button';
     b.setAttribute('role', 'menuitem');
     b.textContent = item.label;
+    if (item.divider) b.classList.add('divider');
     b.addEventListener('click', () => {
       close();
       item.action();
