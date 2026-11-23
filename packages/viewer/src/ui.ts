@@ -220,7 +220,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const hooks: { onEvent?: (e: UiEvent) => void } = {};
   const statusShown = autoHide(status);
   // Opens under way (a load, Mesh again): the status line stays while there are any (meshing can go quiet for longer
-  // than HIDE_AFTER on one slow part), fading only after the last ends.
+  // than HIDE_AFTER on one slow part), with a spinner (its `busy` class), fading only after the last ends.
   let opens = 0;
   const say = (text: string, error = false) => {
     if (text !== status.textContent) statusShown(opens > 0);
@@ -432,7 +432,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     Promise<Record<string, unknown>> => (opening = opened(get, what, keep));
   const opened = async (get: () => Promise<Source | undefined>, what: string, keep: boolean):
     Promise<Record<string, unknown>> => {
-    opens++;
+    if (opens++ === 0) status.classList.add('busy');
     try {
       say(`loading ${what}...`);
       const src = await get();
@@ -505,7 +505,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       hooks.onEvent?.({ type: 'loaded', report: { error: (e as Error).message } });
       return { error: (e as Error).message };
     } finally {
-      if (--opens === 0) statusShown();
+      if (--opens === 0) {
+        status.classList.remove('busy');
+        statusShown();
+      }
     }
   };
   const openFiles = (files: File[], read?: Source) => files.length ? (hooks.onEvent?.({ type: 'load', files }),

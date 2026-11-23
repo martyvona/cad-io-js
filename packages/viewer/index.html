@@ -132,6 +132,14 @@
     #status, #details { transition: opacity 0.6s; }
     #status.faded, #details.faded { opacity: 0; }
     #status.error { color: var(--error-fg); }
+    /* While a load or Mesh again is under way (ui.ts): a spinner before the text, so a long wait doesn't look stalled. */
+    #status.busy::before {
+      content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: -1px;
+      border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+      animation: status-spin 0.8s linear infinite;
+    }
+    @keyframes status-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { #status.busy::before { animation-duration: 3s; } }
     .tree-scroller:focus { outline: none; }
     .tree-row { cursor: default; user-select: none; -webkit-user-select: none; }
     .tree-row.selected { background: var(--row-selected); }

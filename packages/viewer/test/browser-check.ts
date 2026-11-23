@@ -3832,7 +3832,7 @@ await check('tree scrolls sideways', async () => {
   return undefined;
 });
 // The status line stays while a load is under way, however long it says nothing new (a file held back here; a slow
-// part's meshing alike), and fades 5 s after the load ends.
+// part's meshing alike), a spinner before its text, and fades 5 s after the load ends, the spinner gone.
 await check('status kept while loading', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
@@ -3845,19 +3845,26 @@ await check('status kept while loading', async () => {
     const t = performance.now();
     const loaded = cadViewer.load('/content/as1.stp');
     await wait(6000);
-    const out = { during: faded(), text: status.textContent };
+    const spinner = () => getComputedStyle(status, '::before').animationName;
+    const out = { during: faded(), text: status.textContent, busy: status.classList.contains('busy'),
+      spinning: spinner() };
     await loaded;
     window.fetch = fetch0;
     out.ended = faded();
+    out.busyAfter = status.classList.contains('busy');
+    out.spinningAfter = spinner();
     out.seconds = (performance.now() - t) / 1000;
     await wait(5600);
     out.after = faded();
     return out;
   })()`);
   const j = JSON.stringify(r.after);
-  const o = r.after as { during: boolean; text: string; ended: boolean; after: boolean };
+  const o = r.after as { during: boolean; text: string; busy: boolean; spinning: string; ended: boolean;
+    busyAfter: boolean; spinningAfter: string; after: boolean };
   expect(!o.during && /loading/.test(o.text), `shown while the file is held back: ${j}`);
   expect(!o.ended && o.after, `faded 5 s after the load: ${j}`);
+  expect(o.busy && o.spinning === 'status-spin' && !o.busyAfter && o.spinningAfter === 'none',
+    `a spinner while loading, none after: ${j}`);
   return undefined;
 });
 // The status line fades 5 s after it last changed, and comes back when it changes; the details too, but only while
