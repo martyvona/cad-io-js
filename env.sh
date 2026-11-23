@@ -208,6 +208,13 @@ else
 fi
 _sj_report warning c++ "$(_sj_have c++ --version)" "" "optional: native occt_overlay/test/table_test.cpp" ||
   _sj_fix_pkg c++ "xcode-select --install" g++ gcc-c++
+# The native tests' time limit per test binary (cad-geom's native/test/run.sh): timeout, else coreutils' gtimeout,
+# as Homebrew names it; macOS ships neither, and without them the tests run with no limit.
+if command -v timeout >/dev/null 2>&1; then _sj_timeout=$(_sj_version timeout --version)
+else _sj_timeout=$(_sj_have gtimeout --version)
+fi
+_sj_report warning timeout "$_sj_timeout" "" "optional: a time limit per native test binary (build.sh test)" ||
+  _sj_fix_pkg timeout "brew install coreutils    # gtimeout" coreutils coreutils
 
 # Documents: scripts/md2pdf.sh converts Markdown to PDF with Typst, which scripts/fetch-typst.sh fetches (pinned,
 # with the Typst packages it uses) into third_party/typst/; md2pdf.sh fetches it on first use.
@@ -251,7 +258,7 @@ fi
 
 _sj_status=$((_sj_errors > 0))
 unset -f _sj_version _sj_ge _sj_fix _sj_fix_pkg _sj_report _sj_have _sj_rust_fix
-unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emcc _sj_emv _sj_rust _sj_repo _sj_py _sj_typst
+unset _sj_os _sj_pkg _sj_errors _sj_warnings _sj_fixes _sj_emcc _sj_emv _sj_rust _sj_repo _sj_py _sj_typst _sj_timeout
 if [ $_sj_sourced = 1 ]; then
   unset _sj_sourced
   return $_sj_status 2>/dev/null || true
