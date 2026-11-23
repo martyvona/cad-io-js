@@ -17,7 +17,7 @@ import type { TessellationResult, Tessellator } from './tessellator.ts';
 import { ORACLE_DISAGREE } from './area-oracle.ts';
 import { fillResult } from './fill.ts';
 import { joinResult } from './join.ts';
-import { orientResult } from './orient.ts';
+import { orientResult, shellsOriented } from './orient.ts';
 
 export interface TessellateOptions {
   /** The meshing profile (profiles.ts), default DEFAULT_MESH_PROFILE; the deflections below replace its values. */
@@ -237,7 +237,8 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       });
       if (join) r = joinResult(brep.model, r, linearDeflection);
       if (fill) r = fillResult(brep.model, r, linearDeflection);
-      if (opts.orient ?? true) r = orientResult(brep.model, r, linearDeflection);
+      if (opts.orient ?? true) r = orientResult(brep.model, r, linearDeflection, shellsOriented(brep.analysis)
+        ? { backend: r.backend ?? backend } : undefined);
       if ((join || fill) && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
       by = r.backend ?? backend;
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);

@@ -14,9 +14,11 @@
 // error by how far they grew (fix/growth.ts). Parts heal one at a time here, or in parallel through a PartHealer (a
 // worker pool's, tess-workers). The geometry is cad-geom's (its WebAssembly module, `init`).
 
-import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, faceOutlines, LOOP_KIND, modelHash,
-  PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
+import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, FACING, FACING_FROM, faceOutlines, LOOP_KIND,
+  modelHash, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
+import { init as initOracle, Oracle } from 'cad-oracle';
+import { RayShellSide } from 'cad-oracle/shell-side';
 import type { Brep, Diagnostic, Scene, SourceId, Vec3 } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
 import { compactCurves } from './compact.ts';
@@ -24,6 +26,8 @@ import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
 import { isError } from './fix/growth.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
+import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
+  './fix/shells.ts';
 import { fixesMask, fixesOn, HEAL_VERSION, type HealOptions, PCURVE_FIT_TOLERANCE } from './options.ts';
 
 export { FIX_ALIASES, FIXES_OFF_BY_DEFAULT, fixesMask, fixesNamed, fixesOn, HEAL_BY_DEFAULT, HEAL_FIXES, HEAL_VERSION,
@@ -82,18 +86,100 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   if (kept) diagnostics.push(keptPoles(kept));
   const moved = fixes.has('strayPole') ? movePoles(given, pre, diagnostics) : 0;
   const fixed = pre.finish(), edit = new ModelEdit(fixed);
-  const g = new Geometry(module ?? await init(), new Uint8Array(fixed.buffer));
+  const geom = module ?? await init(), g = new Geometry(geom, new Uint8Array(fixed.buffer));
   let curves;
   try {
     curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, fit);
   } finally {
     g.dispose();
   }
+  let healed = compactCurves(edit.finish(), sourceCurves);
+  // Shells facing into their material turned, last: the curves' fixes made on the faces as the source oriented them.
+  let shells: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] } | undefined;
+  if (fixes.has('orientShells')) {
+    progress('orientShells');
+    const om = await initOracle();
+    // Faces turned whole where a shell uses an edge twice the same way, first: the faces then agree.
+    const lt = loopTurns(healed), turnedFaces = [...lt.turn.values()].flat();
+    let perm: Int32Array | undefined;
+    const sid = (s: number) => healed.shell.id[s] ? `#${healed.shell.id[s]}` : `row ${s}`;
+    if (turnedFaces.length) {
+      const t = turnFaces(healed, new Set(turnedFaces));
+      diagnostics.push({ severity: 'warning', message: `orientShells: ${turnedFaces.length} ${turnedFaces.length === 1
+        ? 'face' : 'faces'} of ${lt.turn.size} ${lt.turn.size === 1 ? 'shell' : 'shells'} turned to agree with their `
+        + `shells' other faces (an edge used twice the same way): ${[...lt.turn.keys()].slice(0, 10).map(sid)
+          .join(', ')}${lt.turn.size > 10 ? ', ...' : ''}` });
+      healed = t.model, perm = t.perm;
+    }
+    for (const x of lt.left) diagnostics.push({ severity: 'info', message: `orientShells: shell ${sid(x.shell)} uses `
+      + `an edge twice the same way, left as built: ${x.why}` });
+    // Faces whose loops run against their sense, where their neighbours agree with the loops, flipped first: a
+    // shell's volume and sides are by its faces' senses.
+    const fs = (() => {
+      using o = new Oracle(om, healed.buffer);
+      using g2 = new Geometry(geom, new Uint8Array(healed.buffer));
+      // (Only where the face has area enough for its loops' sign to mean something: more than 4 x its error and
+      // than its perimeter times the part's tolerance. A sliver's signed sum is rounding: the bicycle's #2757 has
+      // tori of 1e-14 mm^2 flagged, and flipping them turned OCCT's mesh of the whole shell inside out.)
+      const tol = tolerances(healed).part;
+      return faceSenses(healed, (f) => {
+        const m = o.face(f);
+        // (Its only flag, but for a projected boundary: where its loops wind a torus's minor circle (`winds`), or the
+        // face has another caveat, the loops' signed sum doesn't say which way they run. LMP1 #172807's three such
+        // tori flipped turned every backend's mesh of the shell inside out.)
+        return m.flags.includes('orientation') && m.flags.every((x) => x === 'orientation' || x === 'projectedBoundary')
+          && m.area.status === 'ok' && m.area.value > 4 * m.area.error && m.area.value > m.perimeter.value * tol;
+        // (Confirmed by the loops' 3D winding, independent of the oracle's sum: its flag has been false, on tori whose
+        // loops it integrated a period off.)
+      }, (f) => {
+        const w = loopWinding(g2, healed, f);
+        return w === undefined ? undefined : w === -1;
+      });
+    })();
+    const fid = (f: number) => healed.face.id[f] ? `#${healed.face.id[f]}` : `row ${f}`;
+    const list = (xs: number[]) => `${xs.slice(0, 10).map(fid).join(', ')}${xs.length > 10 ? ', ...' : ''}`;
+    const flipped = [...fs.inClosed, ...fs.inSheets];
+    if (flipped.length) {
+      diagnostics.push({ severity: 'warning', message: `orientShells: ${flipped.length} ${flipped.length === 1
+        ? 'face\'s' : 'faces\''} sense flipped to their loops' (the loops ran against it, the neighbours agreeing with `
+        + `the loops; ${fs.inClosed.length} in closed shells, ${fs.inSheets.length} in sheets): ${list(flipped)}` });
+      healed = flipSenses(healed, flipped);
+    }
+    if (fs.alone.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.alone.length} `
+      + `${fs.alone.length === 1 ? 'face' : 'faces'} whose loops run against their sense left as built (no neighbour `
+      + `to tell which is right): ${list(fs.alone)}` });
+    if (fs.refused.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.refused.length} `
+      + `${fs.refused.length === 1 ? 'face' : 'faces'} whose loops' signed sum runs against their sense left as built `
+      + `(their winding in 3D runs with it): ${list(fs.refused)}` });
+    if (fs.unconfirmed.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.unconfirmed.length} `
+      + `${fs.unconfirmed.length === 1 ? 'face' : 'faces'} whose loops' signed sum runs against their sense left as `
+      + `built (their winding in 3D can't confirm it): ${list(fs.unconfirmed)}` });
+    if (fs.disputed.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.disputed.length} `
+      + `${fs.disputed.length === 1 ? 'face' : 'faces'} whose loops run against their sense left as built (a neighbour `
+      + `uses a shared edge the same way): ${list(fs.disputed)}` });
+    using sides = new RayShellSide(om, { checkSecondRay: true });
+    const v = shellVerdicts(healed, om, sides);
+    diagnostics.push(...v.diagnostics);
+    const wrong = v.verdicts.filter((x) => x.wrong);
+    shells = { verdicts: v.verdicts, flipped, turnedFaces, ...(perm ? { perm } : {}) };
+    if (wrong.length) {
+      const t = turnShells(healed, wrong.map((x) => x.shell));
+      // (Rows: the healed model's row r was the loops step's row t.perm[r], which was the pass's perm of that.)
+      healed = t.model, shells.perm = perm ? t.perm.map((r) => perm[r]!) : t.perm;
+      const name = (s: number) => healed.shell.id[s] ? `#${healed.shell.id[s]}` : `row ${s}`;
+      const by = { both: 'its exact volume and point classification', volume: 'its exact volume',
+        side: 'point classification' };
+      diagnostics.push({ severity: 'warning', message: `orientShells: ${wrong.length} ${wrong.length === 1 ? 'shell'
+        : 'shells'} of solids facing the wrong way turned (${wrong.slice(0, 10).map((x) => `${name(x.shell)}: by `
+        + `${by[x.by!]}${x.by !== 'side' ? `, volume ${x.volume.volume.toPrecision(6)}` : ''}`).join('; ')}`
+        + `${wrong.length > 10 ? '; ...' : ''})` });
+    }
+  }
   progress('the healed model and its analysis');
-  const healed = compactCurves(edit.finish(), sourceCurves);
-  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited;
+  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!shells?.perm
+    || !!shells?.flipped.length || !!shells?.turnedFaces.length;
   const out = await analysisOf(healed, given, edit, curves, { fixes: fixesMask(fixes), fit, sourceCurves,
-    strayPoles: kept + moved });
+    strayPoles: kept + moved }, shells);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
 }
@@ -120,7 +206,8 @@ async function healedBy(model: BrepData, analysis: BrepAnalysis) {
 
 /**
  * A healed model with the source's values its analysis keeps put back (coedges' p-curves and ranges, edges' ranges,
- * tolerances), healing's curve rows then unreferenced dropped: the source but for strayPole's poles.
+ * tolerances), the shells orientShells turned turned back, healing's curve rows then unreferenced dropped: the source
+ * but for strayPole's poles.
  */
 function restored(model: BrepData, a: BrepAnalysis, sourceCurves: number): BrepData {
   const edit = new ModelEdit(model);
@@ -133,7 +220,20 @@ function restored(model: BrepData, a: BrepAnalysis, sourceCurves: number): BrepD
     for (const k of [2 * e, 2 * e + 1]) edit.set('edge', 'range', k, a.edge.givenRange[k]!);
   }
   for (let v = 0; v < rowCount(model, 'vertex'); v++) edit.set('vertex', 'tolerance', v, a.vertex.givenTolerance[v]!);
-  return compactCurves(edit.finish(), sourceCurves);
+  // (The given values are in the turned model's rows, as the analysis is: put back first, then the shells turned back,
+  // which moves them with their rows.)
+  let out = edit.finish();
+  const turned: number[] = [];
+  for (let s = 0; s < analysisRowCount(a, 'shell'); s++) if (a.shell.turned[s]) turned.push(s);
+  if (turned.length) out = turnShells(out, turned).model;
+  const flipped: number[] = [], whole = new Set<number>();
+  for (let f = 0; f < analysisRowCount(a, 'face'); f++) {
+    if (a.face.turned[f]! & 1) flipped.push(f);
+    if (a.face.turned[f]! & 2) whole.add(f);
+  }
+  if (flipped.length) out = flipSenses(out, flipped);
+  if (whole.size) out = turnFaces(out, whole).model;
+  return compactCurves(out, sourceCurves);
 }
 
 /** Whether two models' buffers hold the same bytes. */
@@ -161,8 +261,19 @@ function movePoles(model: BrepData, edit: ModelEdit, diagnostics: Diagnostic[]):
 /** The healed model's analysis: provenance of p-curves and tolerances, the source's tolerances, the deviations
  * measured; the rest not computed (NaN, none). */
 async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, curves: CurvesRecord,
-  how: { fixes: number; fit: number; sourceCurves: number; strayPoles: number }): Promise<BrepAnalysis> {
+  how: { fixes: number; fit: number; sourceCurves: number; strayPoles: number },
+  shells?: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] }):
+  Promise<BrepAnalysis> {
   const nv = rowCount(healed, 'vertex'), ne = rowCount(healed, 'edge'), nc = rowCount(healed, 'coedge');
+  // What's indexed by coedge, in the healed model's rows: turned shells' loops' rows are reversed (perm, new to old,
+  // its own inverse).
+  const perm = shells?.perm;
+  const byRow = <T extends Float64Array | Int32Array | Uint8Array>(x: T, width = 1): T => {
+    if (!perm) return x;
+    const y = x.slice() as T;
+    for (let r = 0; r < nc; r++) for (let w = 0; w < width; w++) y[r * width + w] = x[perm[r]! * width + w]!;
+    return y;
+  };
   const nan = (n: number) => new Float64Array(n).fill(NaN), zero = (n: number) => new Uint8Array(n);
   const from = (table: 'vertex' | 'edge', n: number) => {
     const out = zero(n);
@@ -200,12 +311,46 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
       first: new Int32Array(ne).fill(-1), count: new Int32Array(ne), toleranceFrom: from('edge', ne),
       givenTolerance: source.edge.tolerance, toleranceError: past('edge', ne, start.edge),
       givenRange: source.edge.range },
-    coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: curves.deviation, face, loop,
-      pcurveFrom: curves.pcurveFrom, givenPcurve: source.coedge.pcurve, givenRange: source.coedge.range },
-    trace: traceRows(curves.traces),
+    coedge: { range: nan(2 * nc), rangeFrom: zero(nc), deviation: byRow(curves.deviation), face, loop,
+      pcurveFrom: byRow(curves.pcurveFrom), givenPcurve: byRow(source.coedge.pcurve),
+      givenRange: byRow(source.coedge.range, 2) },
+    // (perm is its own inverse: loops reversed in place, a loop reversed twice back as it was.)
+    trace: traceRows(perm ? curves.traces.map((t) => ({ ...t, coedge: perm[t.coedge]! })) : curves.traces),
+    ...(shells ? { shell: shellRows(healed, shells.verdicts),
+      face: faceRows(healed, shells.flipped, shells.turnedFaces) } : {}),
     healing: { fixes: [how.fixes], pcurveFitTolerance: [how.fit], version: [HEAL_VERSION],
       sourceCurves: [how.sourceCurves], strayPoles: [how.strayPoles] },
   });
+}
+
+/**
+ * The analysis's shell rows (every model shell): the oracle's signed volume and error, how the shell faced as the
+ * source gave it (by the volume's sign or point classification), and whether healing turned it.
+ */
+function shellRows(model: BrepData, verdicts: ShellVerdict[]) {
+  const n = rowCount(model, 'shell'), volume = new Float64Array(2 * n).fill(NaN);
+  const facing = new Uint8Array(n), facingFrom = new Uint8Array(n), turned = new Uint8Array(n);
+  for (const v of verdicts) {
+    const x = v.volume, s = v.shell;
+    volume[2 * s] = x.volume, volume[2 * s + 1] = x.error;
+    const byVolume = x.known ? (x.volume > 0 ? FACING.out : FACING.in) : FACING.unknown;
+    const bySide = x.side === 'outside' ? FACING.out : x.side === 'inside' ? FACING.in : FACING.unknown;
+    facing[s] = byVolume && bySide && byVolume !== bySide ? FACING.unknown : byVolume || bySide;
+    facingFrom[s] = byVolume && bySide ? FACING_FROM.both : byVolume ? FACING_FROM.volume
+      : bySide ? FACING_FROM.classification : FACING_FROM.none;
+    if (v.wrong) turned[s] = 1;
+  }
+  return { volume, facing, facingFrom, turned };
+}
+
+/** The analysis's face rows (every model face): nothing measured, how orientShells turned each face. */
+function faceRows(model: BrepData, flipped: number[], turnedFaces: number[]) {
+  const n = rowCount(model, 'face'), turned = new Uint8Array(n);
+  for (const f of flipped) turned[f]! |= 1;
+  for (const f of turnedFaces) turned[f]! |= 2;
+  return { outerLoop: new Int32Array(n).fill(-1), outerFrom: new Uint8Array(n),
+    uv: new Float64Array(4 * n).fill(NaN), area: new Float64Array(2 * n).fill(NaN), areaFrom: new Uint8Array(n),
+    turned };
 }
 
 /** The analysis's trace rows, in coedge order. */

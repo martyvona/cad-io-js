@@ -12,8 +12,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBA_MAGIC "CBA5"
-#define CBA_HEADER_BYTES 472
+#define CBA_MAGIC "CBA6"
+#define CBA_HEADER_BYTES 488
 
 /* The columns in buffer order: table, column, element type and values per row. */
 enum cba_column {
@@ -55,6 +55,7 @@ enum cba_column {
   CBA_FACE_UV, /* double x 4 */
   CBA_FACE_AREA, /* double x 2 */
   CBA_FACE_AREA_FROM, /* uint8_t x 1 */
+  CBA_FACE_TURNED, /* uint8_t x 1 */
   CBA_SURFACE_U_CLOSED, /* uint8_t x 1 */
   CBA_SURFACE_V_CLOSED, /* uint8_t x 1 */
   CBA_SURFACE_U_PERIOD, /* double x 1 */
@@ -70,6 +71,7 @@ enum cba_column {
   CBA_SHELL_VOLUME, /* double x 2 */
   CBA_SHELL_FACING, /* uint8_t x 1 */
   CBA_SHELL_FACING_FROM, /* uint8_t x 1 */
+  CBA_SHELL_TURNED, /* uint8_t x 1 */
   CBA_HEALING_FIXES, /* uint32_t x 1 */
   CBA_HEALING_PCURVE_FIT_TOLERANCE, /* double x 1 */
   CBA_HEALING_VERSION, /* uint32_t x 1 */
@@ -133,7 +135,7 @@ typedef struct {
 static inline int cba_open(const uint8_t* buf, size_t size, cba_view* views) {
   static const uint8_t bytes[CBA_COLUMN_COUNT] = {
     4, 8, 8, 4, 8, 4, 4, 1, 8, 1, 8, 1, 8, 4, 4, 1, 8, 1, 8, 8, 1, 8, 4, 4, 1, 4, 8, 4, 1, 8, 8, 8, 1, 4, 1, 8, 8, 1, 1,
-    1, 8, 8, 4, 4, 4, 4, 4, 1, 8, 8, 8, 1, 1, 4, 8, 4, 4, 4,
+    1, 1, 8, 8, 4, 4, 4, 4, 4, 1, 8, 8, 8, 1, 1, 1, 4, 8, 4, 4, 4,
   };
   uint32_t n, k;
   if (((uintptr_t)buf & 7) != 0 || size < CBA_HEADER_BYTES || memcmp(buf, CBA_MAGIC, 4) != 0) return -1;

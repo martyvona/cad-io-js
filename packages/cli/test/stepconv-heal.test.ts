@@ -89,7 +89,7 @@ test('stepconv healing usage errors', async () => {
     [['--no-heal', '--heal-off', 'strayPole'], '--no-heal and --heal-off together'],
     [['--heal-off', 'strayPole,nope'], "--heal-off takes fixes from strayPole, pcurveMissingOnPlane, "
       + "pcurveMissingOnElementary, pcurveMissingOnFreeForm, "
-      + "pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance, not 'nope'"],
+      + "pcurveReparam, pcurveReplace, pcurveEnds, edgeTolerance, vertexTolerance, orientShells, not 'nope'"],
     [['--heal-on', ','], "--heal-on takes fixes from"],
     [['--heal-on', 'strayPole', '--heal-off', 'strayPole'], 'strayPole both in --heal-on and --heal-off'],
     [['--no-heal', '--heal-fit', '0.01'], '--no-heal and --heal-fit together'],

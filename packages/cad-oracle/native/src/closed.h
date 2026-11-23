@@ -9,9 +9,10 @@
 // y' - y x' over the squared distance from the axis, which only H zero there keeps integrable); at the other the jump
 // in u is ambiguous by 2 pi, which changes the sum by the integral over the whole sphere, so spheres' results are
 // reduced modulo it (by the area's). A torus's v is unwrapped along each loop against samples of it (H isn't periodic
-// in v); a loop winding v is flagged (flagWinds). A plane's frame is moved to the face's first edge point (closedFace),
-// so a small face far from its plane's origin neither cancels in H nor rounds in its points. The area (area_closed.cpp)
-// and other integrands (integral.cpp) differ only in H.
+// in v), each loop by itself, so where a loop winds u the result is known modulo the whole torus's integral and is
+// reduced modulo it like a sphere's (ClosedTotals::windsU); a loop winding v is flagged (flagWinds). A plane's frame
+// is moved to the face's first edge point (closedFace), so a small face far from its plane's origin neither cancels in
+// H nor rounds in its points. The area (area_closed.cpp) and other integrands (integral.cpp) differ only in H.
 #pragma once
 
 #include <cmath>
@@ -174,6 +175,11 @@ struct ClosedTotals {
   uint32_t flags = 0;
   /** The largest distance of a loop's point from the surface, over the loops' size. */
   double offSurface = 0;
+  /**
+   * A torus's loop winds its u: each loop's v is unwrapped by itself, so such a loop may sit a turn of v off the
+   * others, which moves the result by whole multiples of the whole torus's integral (callers reduce modulo it).
+   */
+  bool windsU = false;
 };
 
 ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, double relTol);

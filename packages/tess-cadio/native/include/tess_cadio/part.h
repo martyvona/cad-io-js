@@ -39,10 +39,16 @@ struct PartOptions {
    */
   double edgeSpacingScale = 1;
   /**
-   * Steiner points per face at most (mesh2d.h's maxPoints): a refinement its criteria can't end (a B-spline's
-   * degenerate corner) stops there, the mesh kept with its refused triangles and noted.
+   * Each face's point cap: refinement stops at max(capFloor, capMultiple x the triangles its own size metric expects
+   * over its domain in (u, v)) triangles, at most capCeiling (FaceMesh::cap; as a mesher's Steiner points, mesh2d.h's
+   * maxPoints, half as many), so an undulating face that needs more isn't failed while a runaway past its own metric
+   * still is (the user's numbers: 200,000, 64 and 10M; 2M on phones and tablets, the caller's ceiling). The expected
+   * count the integral of the criteria's graded grid's sqrt(det M) over the face's domain (SurfaceCriteria::
+   * gridDensity, by rows across its boundary's loops) over sqrt(3) / 4, as countExpected's over its mesh.
+   * maxPointsPerFace, where not negative, the cap itself in Steiner points instead (0: none, the boundary's mesh).
    */
-  int maxPointsPerFace = 100000;
+  int maxPointsPerFace = -1;
+  double capFloor = 200000, capMultiple = 64, capCeiling = 10000000;
   /**
    * The smallest angle refinement aims for in each face's triangles, in radians, in the criteria's metric (mesh2d.h's
    * MeshOptions::minAngle; clamped to [0, kMaxMinAngle], 30 degrees): the triangles' shape, which neither the
@@ -78,6 +84,12 @@ struct PartOptions {
    * triangles there.
    */
   bool failFoldedFans = true;
+  /**
+   * Two rules against such folds, each on by default (off for tests and measuring): `consistentFans`, a fan whose
+   * triangles' directions by their normals disagree has every one against the mesher's use of its ring segment;
+   * `apexCorners`, at an apex a far end's corner under 1e-3 rad about it from that end is left out (a needle else).
+   */
+  bool consistentFans = true, apexCorners = true;
   /** The model's analysis buffer, if given (EdgeOptions::analysis: healed p-curves, tolerances past repair). */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
@@ -228,6 +240,8 @@ struct FaceMesh {
   std::string note;
   /** Whether a seam's side in (u, v) wasn't settled by its neighbours (FaceBoundary's Status::singular), meshed. */
   bool seamUnsettled = false;
+  /** Its point cap in triangles (PartOptions::capFloor and the rest) and the expected count it came from. */
+  double cap = 0, capExpected = 0;
   /** Whether refinement stopped at the point cap (maxPointsPerFace): the face failed, or kept (failCapped false). */
   bool capped = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */

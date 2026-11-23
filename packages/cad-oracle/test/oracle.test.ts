@@ -456,6 +456,68 @@ test('a torus patch across v = pi, and one not across it', { skip }, async () =>
   }
 });
 
+/**
+ * A torus face between two whole parallels at v1 and v2 (each winding u): the band v in [v1, v2] with `up` (v1's
+ * forward, v2's reversed), else the rest, v in [v2, v1 + 2 pi]; its sense `sameSense`.
+ */
+function torusParallels(R: number, r: number, v1: number, v2: number, up: boolean, sameSense = true): BrepData {
+  const b = new BrepBuilder();
+  const s = b.addSurface({ kind: 'torus', majorRadius: R, minorRadius: r, position: { origin: O, axis: Z, xDir: X } });
+  const ring = (v: number) => {
+    const p = b.addVertex({ point: [R + r * Math.cos(v), 0, r * Math.sin(v)] });
+    return b.addEdge({ curve: parallel(b, R + r * Math.cos(v), r * Math.sin(v)), start: p, end: p, sameSense: true,
+      range: [0, 2 * PI] });
+  };
+  const e1 = ring(v1), e2 = ring(v2);
+  b.addFace({ surface: s, sameSense, loops: [
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: e1, orientation: up ? 'forward' : 'reversed' }] },
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: e2, orientation: up ? 'reversed' : 'forward' }] }] });
+  return b.finish();
+}
+
+test('a torus band between two parallels, bounded both ways (each loop\'s v a turn off the other\'s or not)', { skip },
+  async () => {
+    // Over v in [a, b], all of u, n outward (sense true): dA = r (R + r cos v) du dv, n_z = sin v, z = r sin v. Area
+    // 2 pi r [R v + r sin v]; int n_z 2 pi r [-R cos v - r cos^2 v / 2]; int z n_z 2 pi r^2 [R (v/2 - sin 2v / 4) + r
+    // sin^3 v / 3]; the others 0 by symmetry. With sense false, the region is the other one, n turned.
+    const R = 3, r = 1.25;
+    const at = (f: (v: number) => number, a: number, b: number) => 2 * PI * (f(b) - f(a));
+    const area = (v: number) => r * (R * v + r * Math.sin(v));
+    const nz = (v: number) => r * (-R * Math.cos(v) - r * Math.cos(v) ** 2 / 2);
+    const znz = (v: number) => r * r * (R * (v / 2 - Math.sin(2 * v) / 4) + r * Math.sin(v) ** 3 / 3);
+    for (const [v1, v2] of [[0, PI], [PI, 2 * PI], [PI / 3, 2 * PI / 3], [-2, 2.5], [-PI / 2, PI / 2], [2, 3.5]]) {
+      for (const up of [true, false]) {
+        for (const sameSense of [true, false]) {
+          const [a, b] = up === sameSense ? [v1!, v2!] : [v2!, v1! + 2 * PI], sign = sameSense ? 1 : -1;
+          const d = torusParallels(R, r, v1!, v2!, up, sameSense), what = `torus ${v1}..${v2} ${up} ${sameSense}`;
+          near(await measure(d), at(area, a, b), what);
+          nearAll(await moments(d, O, 1), { '000': [0, 0, at(nz, a, b)], '001': [0, 0, at(znz, a, b)] }, sign,
+            R * R * r * r * 2 * PI, what);
+        }
+      }
+    }
+  });
+
+test('a torus patch against its sense (a loop not winding u) is flagged, measured as its loop runs',
+  { skip }, async () => {
+    // Over u in [0, g], v in [a, b], n as the loop runs (outward): n = (cos v cos u, cos v sin u, sin v), dA = r (R + r
+    // cos v) du dv.
+    const R = 3, r = 1, g = 1.3, a = 0.2, b = 1.4, w = (f: (v: number) => number) => f(b) - f(a);
+    const d = torusPatch(R, r, g, a, b);
+    const face = d.face.sameSense as unknown as Uint8Array;
+    face[0] = 0;
+    const m = await measure(d), A = r * g * w((v) => R * v + r * Math.sin(v));
+    assert.deepEqual(m.flags, ['orientation']);
+    assert.ok(Math.abs(m.area.value - A) <= 1e-9 * A, `${m.area.value} vs ${A}`);
+    const c = r * w((v) => R * Math.sin(v) + r * (v / 2 + Math.sin(2 * v) / 4));
+    // (z n too: the whole torus's int n is 0, its int z n_z isn't.)
+    const cz = r * r * w((v) => R * Math.sin(v) ** 2 / 2 - r * Math.cos(v) ** 3 / 3);
+    nearAll(await moments(d, O, 1), { '000': [Math.sin(g) * c, (1 - Math.cos(g)) * c,
+      g * r * w((v) => -R * Math.cos(v) - r * Math.cos(v) ** 2 / 2)], '001': [Math.sin(g) * cz, (1 - Math.cos(g)) * cz,
+      g * r * r * w((v) => R * (v / 2 - Math.sin(2 * v) / 4) + r * Math.sin(v) ** 3 / 3)] }, 1, R * R * r,
+    'reversed patch');
+  });
+
 test('the same areas as today\'s area oracle wherever it trusts a face', { skip }, async () => {
   const module = await init();
   const models: [string, BrepData][] = Object.entries(MODELS).map(([k, f]) => [k, (f as () => BrepBuilder)().finish()]);

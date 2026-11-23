@@ -2,8 +2,9 @@
 // and nesting against how each was built. A box with a box-shaped void: the outer shell's faces outside, the void's
 // inside (facing into the void), the void nested in the outer; a box built inside out and used as built: inside; one
 // built inside out and used reversed: outside; two lumps side by side in one solid: neither holds the other; two
-// crossing: nesting can't tell. With checkSecondRay a second ray agrees. Skipped where the module isn't built
-// (build.sh module).
+// crossing: nesting can't tell; a face's loops against its sense: unknown where a ray meets it; a cone reaching its
+// apex as a pole. With checkSecondRay a second ray agrees.
+// Skipped where the module isn't built (build.sh module).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -107,6 +108,118 @@ test('checkSecondRay: a second ray agrees; the evidence names the point and the 
   // Without a shell: unknown, said why.
   assert.equal(o.classify(7, [0, 0, 0]).side, 'unknown');
 });
+
+test('a face with its loops against its sense: unknown where a ray meets it or it\'s the face, said why; known where '
+  + 'none does', { skip }, async () => {
+  // The cube with one face's sense turned in the buffer, its loop left: the face's measure is flagged orientation, and
+  // a ray through its plane would count its complement. The rays' first direction is (-0.81, -0.51, 0.28).
+  const why = 'a face the rays meet has its loops against its sense';
+  const turned = (f: number) => {
+    const d = MODELS.cube().finish();
+    d.face.sameSense[f] = 0;
+    return d;
+  };
+  // The bottom turned: its own side unknown; every other face's ray climbs away from it.
+  const d = turned(0);
+  using o = new Oracle(await init(), d.buffer);
+  assert.ok(o.face(0).flags.includes('orientation'));
+  assert.equal(o.shellSide(0, 0, 1e-3).why, why);
+  for (const f of [1, 2, 3, 4, 5]) assert.equal(o.shellSide(0, f, 1e-3).side, 'outside', `face ${f}`);
+  // y = 0 turned: the ray from beside x = 1 crosses it within its square, unknown; the one from above the top
+  // meets its plane only beyond its box (x -0.3), outside.
+  const e = turned(2);
+  using p = new Oracle(await init(), e.buffer);
+  const r = p.shellSide(0, 5, 1e-3);
+  assert.equal(r.side, 'unknown');
+  assert.equal(r.why, why);
+  assert.equal(p.shellSide(0, 1, 1e-3).side, 'outside');
+  // The same cube as built: outside.
+  const c = MODELS.cube().finish();
+  using q = new Oracle(await init(), c.buffer);
+  assert.equal(q.shellSide(0, 0, 1e-3).side, 'outside');
+});
+
+/**
+ * A cone's point: the cone from its apex (0, 0, -1), a pole with no vertex there, up to the circle of radius 1 at z
+ * = 0, closed by the disc there.
+ */
+function conePoint(): BrepData {
+  const b = new BrepBuilder();
+  const O: [number, number, number] = [0, 0, 0], Z: [number, number, number] = [0, 0, 1];
+  const X: [number, number, number] = [1, 0, 0];
+  const cone = b.addSurface({ kind: 'cone', radius: 1, semiAngle: Math.PI / 4,
+    position: { origin: O, axis: Z, xDir: X } });
+  const plane = b.addSurface({ kind: 'plane', position: { origin: O, axis: Z, xDir: X } });
+  const p = b.addVertex({ point: [1, 0, 0] });
+  const circle = b.addCurve({ kind: 'circle', radius: 1, position: { origin: O, axis: Z, xDir: X } });
+  const e = b.addEdge({ curve: circle, start: p, end: p, sameSense: true, range: [0, 2 * Math.PI] });
+  const side = b.addFace({ surface: cone, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', coedges: [
+    { edge: e, orientation: 'reversed' }] }] });
+  const top = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', coedges: [
+    { edge: e, orientation: 'forward' }] }] });
+  const shell = b.addShell({ kind: 'closed', faces: [{ face: side, sense: true }, { face: top, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+  return b.finish();
+}
+
+/**
+ * A barrel: a revolution about z of the parabola r = 2 - z^2 / 2 (its parameter unbounded) between its circles at z
+ * = +/-1 (radius 1.5), closed by the discs there; its band bulges to radius 2 at z = 0, outside its circles' box.
+ */
+function barrel(): BrepData {
+  const b = new BrepBuilder();
+  const O: [number, number, number] = [0, 0, 0], Z: [number, number, number] = [0, 0, 1];
+  const X: [number, number, number] = [1, 0, 0];
+  // (Part 42's parabola: origin + f (t^2 x + 2 t y), here (2 - t^2 / 2, 0, t).)
+  const parabola = b.addCurve({ kind: 'parabola', focalDist: 0.5, position: { origin: [2, 0, 0], axis: [0, 1, 0],
+    xDir: [-1, 0, 0] } });
+  const band = b.addSurface({ kind: 'revolution', curve: parabola, axisOrigin: O, axisDirection: Z });
+  const ring = (z: number) => {
+    const p = b.addVertex({ point: [1.5, 0, z] });
+    const c = b.addCurve({ kind: 'circle', radius: 1.5, position: { origin: [0, 0, z], axis: Z, xDir: X } });
+    return b.addEdge({ curve: c, start: p, end: p, sameSense: true, range: [0, 2 * Math.PI] });
+  };
+  const top = ring(1), bottom = ring(-1);
+  const disc = (z: number, edge: number, up: boolean) => b.addFace({ surface: b.addSurface({ kind: 'plane',
+    position: { origin: [0, 0, z], axis: up ? Z : [0, 0, -1], xDir: X } }), sameSense: true, loops: [{ kind: 'edge',
+    bound: 'outer', coedges: [{ edge, orientation: up ? 'forward' : 'reversed' }] }] });
+  const side = b.addFace({ surface: band, sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: top, orientation: 'reversed' }] },
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: bottom, orientation: 'forward' }] }] });
+  const faces = [side, disc(1, top, true), disc(-1, bottom, false)];
+  const shell = b.addShell({ kind: 'closed', faces: faces.map((face) => ({ face, sense: true })) });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+  return b.finish();
+}
+
+test('a revolution bulging past its boundary\'s box (its domain unbounded): a ray meeting the bulge counted', { skip },
+  async () => {
+    const d = barrel();
+    using o = new Oracle(await init(), d.buffer);
+    // (Its band's boundary projected: it has no p-curves.)
+    assert.deepEqual(o.face(0).flags, ['projectedBoundary']);
+    // (The first ray, about (-0.81, -0.51, 0.28), from (-1.6, -0.5, 0) stays past x = -1.5, clear of the circles'
+    // box, and leaves through the bulge.)
+    for (const p of [[-1.6, -0.5, 0], [0, 1.8, 0], [1.3, -1.3, 0.1], [0, 0, 0]] as const) {
+      assert.equal(o.classify(0, [...p]).side, 'inside', `${p}`);
+    }
+    assert.equal(o.classify(0, [0, 2.2, 0]).side, 'outside');
+  });
+
+test('a cone reaching its apex as a pole: a ray meeting it below its circle\'s box still counted', { skip },
+  async () => {
+    const d = conePoint();
+    using o = new Oracle(await init(), d.buffer);
+    // (The model as meant: the lateral area pi r s, unflagged.)
+    const m = o.face(0);
+    assert.deepEqual(m.flags, []);
+    assert.ok(Math.abs(m.area.value - Math.PI * Math.SQRT2) < 1e-9, `${m.area.value}`);
+    // Near the apex, every ray leaves through the cone below z = 0.
+    for (const z of [-0.8, -0.5, -0.2]) assert.equal(o.classify(0, [0, 0, z]).side, 'inside', `z ${z}`);
+    assert.equal(o.classify(0, [0, 0, -1.2]).side, 'outside');
+    assert.equal(o.classify(0, [0.5, 0, -0.8]).side, 'outside');
+    assert.equal(o.shellSide(0, 1, 1e-3).side, 'outside');
+  });
 
 test('a thin wall: an offset deeper than the wall halved until it stays inside', { skip }, async () => {
   // A box 0.004 thick: moved 0.01 into the material from its top or bottom, the point would come out of the other

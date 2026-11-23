@@ -8,6 +8,7 @@
 #include <cad_geom/numerics.h>
 #include <cad_geom/predicates.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -447,6 +448,26 @@ TEST_CASE("classify2: one closed polyline curve (straight between corners, as a 
   CHECK(side({1e-4, 0.8}) == Side::in);
   CHECK(side({0.5, 0.5}) == Side::in);
   CHECK(side({-1e-4, 0.8}) == Side::out);
+  // From far off no ray meets it: out by the loop's signed area, its integral span by span between the breaks (over
+  // the corners at once it doesn't converge, the sign unsure); run the other way, a hole alone: in.
+  CHECK(side({1000, 1000}) == Side::out);
+  Loop2 back;
+  back.pieces.push_back({&square, {0, 4}, true});
+  Status st;
+  CHECK(classify2({back}, {1000, 1000}, {}, tol, st) == Side::in);
+  CHECK(st == Status::ok);
+  // A triangle whose side from (0, 0) is a B-spline along a line through the origin: x y' - y x' is 0 all along it,
+  // so its integral is met only to an absolute tolerance (a relative one never is).
+  BSpline q;
+  q.degree = 2;
+  q.dim = 2;
+  q.knots = {0, 0, 0, 1, 1, 1};
+  q.poles = {0, 0, 0.5, 0.5, 1, 1};
+  Spline2 diag(q);
+  std::vector<Loop2> tri{Loop2{{{line({0, 0}, {1, 0}), {0, 1}, false}, {line({1, 0}, {1, 1}), {0, 1}, false},
+    {&diag, {0, 1}, true}}}};
+  CHECK(classify2(tri, {1000, 1000}, {}, tol, st) == Side::out);
+  CHECK(st == Status::ok);
   CHECK(side({0.5, 1.2}) == Side::out);
 }
 
@@ -809,13 +830,178 @@ TEST_CASE("classify2: on a pole its face's boundary reaches, at any u: the pole 
   CHECK(classify2(face, {5.8, 0.8}, per, 0.0122, st) == Side::in);
 }
 
-TEST_CASE("classify2: a point no ray meets anything from is out") {
+TEST_CASE("classify2: a spindle torus's poles split its periodic v: a face judged within its band") {
+  // bug32239's face #54190: a latitude circle at v = 1.7066 running -u, the torus's poles (its axis crossings) at
+  // 1.5721 and 4.7110. The face is the band from the circle to the nearer pole on its left; a ray past a pole line
+  // is on the other sheet, and its copies of the circle made every point in.
+  const double c = 1.706553780, a = 1.572137161, b = 4.711048146;
+  std::vector<Loop2> face{Loop2{{{line({3 * pi, c}, {pi, c}), {0, 1}, false}}}};
+  Periods per{2 * pi, 2 * pi, {}, {a, b}};
+  Status st;
+  for (double v : {1.6, 1.65, 1.7}) CHECK(classify2(face, {2.857, v}, per, 2e-6, st) == Side::in);
+  for (double v : {1.7076, 2.5, 3.14, 4.6, 5.5, 6.0, 0.5})
+    CHECK(classify2(face, {2.857, v}, per, 2e-6, st) == Side::out);
+}
+
+TEST_CASE("classify2: a ray within tol of a spike's tip of short pieces: the joint the pieces in and out of it") {
+  // Kuka.step #4099's plane face #28100 (its fillets as lines): an arc in along the bottom to a tip at the right, a
+  // piece shorter than the tolerance, a line back out. From far off one ray passes the tip within tol, meeting the
+  // short piece and the line at their joint, both running back the same way, and took p as on their left: in. The
+  // joint is the arc's and the line's: the ray passes outside it, so it decides nothing, and a ray meeting nothing
+  // puts p out.
+  const double r = 50, a0 = std::atan2(-48.779542117, -10.979811969) + 2 * pi,
+    a1 = std::atan2(-48.779542117, 10.979811969) + 2 * pi;
+  keep.push_back(std::make_unique<Arc2>(Vec2{0, 0}, r));
+  const Curve* arc = keep.back().get();
+  std::vector<Loop2> face{Loop2{{{arc, {a0, a1}, false},
+    {line({10.979811969, -48.779542117}, {10.972162462, -48.777484776}), {0, 1}, false},
+    {line({10.972162462, -48.777484776}, {6.427001557, -47.568148347}), {0, 1}, false},
+    {line({6.427001557, -47.568148347}, {-6.427001557, -47.568148347}), {0, 1}, false},
+    {line({-6.427001557, -47.568148347}, {-10.972162462, -48.777484776}), {0, 1}, false},
+    {line({-10.972162462, -48.777484776}, {-10.979811969, -48.779542117}), {0, 1}, false}}}};
+  const Periods per{0, 0, {}, {}};
+  Status st;
+  CHECK(classify2(face, {-109.616439, -179.916579}, per, 0.118037, st) == Side::out);
+  CHECK(st == Status::ok);
+  // (Periodic, a ray meeting nothing says nothing: out, unsettled.)
+  CHECK(classify2(face, {-109.616439, -179.916579}, Periods{1000, 0, {}, {}}, 0.118037, st) == Side::out);
+  CHECK(st == Status::noConvergence);
+  // (A copy a period on: the joint judged on the piece as given, the meeting moved back by the copy's shift.)
+  CHECK(classify2(face, {-109.616439 + 1000, -179.916579}, Periods{1000, 0, {}, {}}, 0.118037, st) == Side::out);
+  CHECK(classify2(face, {1000, -49}, Periods{1000, 0, {}, {}}, 0.118037, st) == Side::in);
+  CHECK(classify2(face, {0, -49}, per, 0.118037, st) == Side::in);
+  CHECK(classify2(face, {0, -100}, per, 0.118037, st) == Side::out);
+  // The same loop run the other way, a hole alone: its complement, unbounded. The far point's one ray meeting it
+  // decides nothing again, the others meet nothing: in by the loops' signed area (negative), not out as for a region.
+  Loop2 hole = face[0];
+  std::reverse(hole.pieces.begin(), hole.pieces.end());
+  for (LoopPiece& piece : hole.pieces) piece.reversed = !piece.reversed;
+  const std::vector<Loop2> rest{hole};
+  CHECK(classify2(rest, {-109.616439, -179.916579}, per, 0.118037, st) == Side::in);
+  CHECK(st == Status::ok);
+  CHECK(classify2(rest, {0, -49}, per, 0.118037, st) == Side::out);
+  CHECK(classify2(rest, {0, -100}, per, 0.118037, st) == Side::in);
+}
+
+TEST_CASE("classify2: a joint's pieces all within tol, or a spike's piece in a half circle: judged by the loop's way") {
+  // A square smaller than the tolerance: every piece at a joint short, nothing to tell there; points just past the
+  // tolerance all round are out. A half circle in to a spike's tip (its tangent there up, at its start down), a short
+  // piece, a line back: the joint's way in is the arc's at the tip.
+  const Periods per{0, 0, {}, {}};
+  Status st;
+  // The square's joints met with every piece near the meeting: p, past tol, is outside what the loop encloses, out
+  // of the square and in where the square is a hole. Periodic, where a ray meeting nothing settles nothing, that
+  // settles all but a ray whose meeting is too far to one side for the far corner to be near (judged by the pieces
+  // then: retried).
+  std::vector<Loop2> tiny{polygon({{0, 0}, {0.05, 0}, {0.05, 0.05}, {0, 0.05}})};
+  std::vector<Loop2> pit{polygon({{0, 0}, {0, 0.05}, {0.05, 0.05}, {0.05, 0}})};
+  for (const Periods& q : {per, Periods{1000, 0, {}, {}}}) {
+    int settled = 0;
+    for (int k = 0; k < 16; k++) {
+      const double a = 0.3 + k * 2 * pi / 16;
+      const Vec2 p{0.025 + 0.2 * std::cos(a), 0.025 + 0.2 * std::sin(a)};
+      for (bool hole : {false, true}) {
+        const Side s = classify2(hole ? pit : tiny, p, q, 0.1, st);
+        if (st != Status::ok) continue;
+        settled++;
+        CHECK(s == (hole ? Side::in : Side::out));
+      }
+    }
+    CHECK(settled >= 30);
+  }
+  // The hole inside a face (the outer loop far off): from below it the first ray, up, meets the hole first, judged
+  // by the hole's own area (negative), not the face's whole boundary (positive).
+  std::vector<Loop2> plate{polygon({{-10, -10}, {10, -10}, {10, 10}, {-10, 10}}), pit[0]};
+  for (const Periods& q : {per, Periods{1000, 0, {}, {}}})
+    for (Vec2 p : {Vec2{0.025, -0.15}, Vec2{0.03, -0.2}, Vec2{0.01, -0.12}}) {
+      CHECK(classify2(plate, p, q, 0.1, st) == Side::in);
+      CHECK(st == Status::ok);
+    }
+  keep.push_back(std::make_unique<Arc2>(Vec2{0, 0}, 1));
+  const Curve* arc = keep.back().get();
+  std::vector<Loop2> half{Loop2{{{arc, {pi, 2 * pi}, false}, {line({1, 0}, {0.99, 0.0005}), {0, 1}, false},
+    {line({0.99, 0.0005}, {-1, 0}), {0, 1}, false}}}};
+  int out = 0, n = 0;
+  for (int k = 0; k < 24; k++) {
+    const double a = k * 2 * pi / 24;
+    for (double d : {0.2, 1.0, 5.0, 40.0}) {
+      const Vec2 p{1 + d * std::cos(a), d * std::sin(a)};
+      if (std::hypot(p.x, p.y) < 1.1) continue;  // (in or near the half disc)
+      n++, out += classify2(half, p, per, 0.08, st) == Side::out;
+    }
+  }
+  CHECK(out == n);
+  CHECK(classify2(half, {0.3, -0.5}, per, 0.08, st) == Side::in);
+  // The way in at the tip, not at the arc's start: a half circle from (0, 2) round the left to (0, 0), arriving +x
+  // (leaving (0, 2) -x), a piece 0.065 on to the tip, a line back up. From (0.125, -0.5) the first ray, up, passes
+  // 0.06 off the tip and 0.125 off the arc: it meets the short piece, all within tol of where it does, and the line;
+  // the arc in (+x) and the line out (up) on either side of it, it decides nothing. Taking the arc's tangent at its
+  // start, p came out in.
+  keep.push_back(std::make_unique<Arc2>(Vec2{0, 1}, 1));
+  const Curve* left = keep.back().get();
+  std::vector<Loop2> cap{Loop2{{{left, {pi / 2, 3 * pi / 2}, false}, {line({0, 0}, {0.065, 0}), {0, 1}, false},
+    {line({0.065, 0}, {0, 2}), {0, 1}, false}}}};
+  // (Periodic too, where a ray meeting nothing settles nothing: the first ray's joint decides.)
+  for (const Periods& q : {per, Periods{1000, 0, {}, {}}})
+    for (Vec2 p : {Vec2{0.125, -0.5}, Vec2{3, 3}, Vec2{-5, 1}}) {
+      CHECK(classify2(cap, p, q, 0.1, st) == Side::out);
+      CHECK(st == Status::ok);
+    }
+  CHECK(classify2(cap, {-0.5, 1}, per, 0.1, st) == Side::in);
+  // The way out likewise, the same loop run the other way (in along the line, the short piece, out round the arc
+  // from its end at the tip, leaving -x): a hole, its complement in.
+  std::vector<Loop2> hole{Loop2{{{line({0, 2}, {0.065, 0}), {0, 1}, false}, {line({0.065, 0}, {0, 0}), {0, 1}, false},
+    {left, {pi / 2, 3 * pi / 2}, true}}}};
+  for (const Periods& q : {per, Periods{1000, 0, {}, {}}})
+    for (Vec2 p : {Vec2{0.125, -0.5}, Vec2{3, 3}, Vec2{-5, 1}}) {
+      CHECK(classify2(hole, p, q, 0.1, st) == Side::in);
+      CHECK(st == Status::ok);
+    }
+  CHECK(classify2(hole, {-0.5, 1}, per, 0.1, st) == Side::out);
+}
+
+TEST_CASE("classify2: a sliver no wider than its tolerance, met past its corner: the piece's nearer end, out") {
+  // bug24055_8MTF-75LS05's plane face #15612, 0.01 by 0.86 at a tolerance of 0.01, its pieces in the model's order
+  // (the top first, leftward, its curve run backwards). A far point's ray passes 0.001 off its top right corner: the
+  // top, within tol of both its ends, was judged at its curve's start (the other corner), and p came out in.
+  const double x0 = 213.96196078, x1 = 213.97196078, y1 = 0.858995138;
+  std::vector<Loop2> face{Loop2{{{line({x0, y1}, {x1, y1}), {0, 1}, true}, {line({x0, y1}, {x0, 0}), {0, 1}, false},
+    {line({x0, 0}, {x1, 0}), {0, 1}, false}, {line({x1, 0}, {x1, y1}), {0, 1}, false}}}};
+  Status st;
+  CHECK(classify2(face, {229.566991, -39.7136494}, Periods{0, 0, {}, {}}, 0.01, st) == Side::out);
+  CHECK(st == Status::ok);
+  CHECK(classify2(face, {213.967, 0.43}, Periods{0, 0, {}, {}}, 0.01, st) == Side::on);
+}
+
+TEST_CASE("classify2: a loop of pieces each shorter than the tolerance: its joints judged past the near ones only") {
+  // A 40-gon of radius 1 at a tolerance of 0.3, its sides 0.16: a joint's pieces all within tol of where a ray meets
+  // it are passed, not every piece shorter than tol (all of them: the centre came out unsettled, so no point in).
+  std::vector<Vec2> pts;
+  for (int k = 0; k < 40; k++) pts.push_back({std::cos(2 * pi * k / 40), std::sin(2 * pi * k / 40)});
+  std::vector<Loop2> face{polygon(pts)};
+  Status st;
+  for (Vec2 p : {Vec2{0, 0}, Vec2{0.3, -0.2}, Vec2{-0.1, 0.5}}) {
+    CHECK(classify2(face, p, Periods{0, 0, {}, {}}, 0.3, st) == Side::in);
+    CHECK(st == Status::ok);
+  }
+  CHECK(classify2(face, {2, 0.5}, Periods{0, 0, {}, {}}, 0.3, st) == Side::out);
+}
+
+TEST_CASE("classify2: a point no ray meets anything from: out of a region, in past a hole alone") {
   // A unit square 1000 away subtends a milliradian: none of the rays' directions meets it.
   std::vector<Loop2> far{polygon({{1000, 1000}, {1001, 1000}, {1001, 1001}, {1000, 1001}})};
   Status st;
   CHECK(classify2(far, {0, 0}, {}, 1e-9, st) == Side::out);
   CHECK(st == Status::ok);
   CHECK(classify2(far, {1000.5, 1000.5}, {}, 1e-9, st) == Side::in);
+  // The square as a hole alone: its complement, unbounded, the far point in it (by the loop's signed area, negative).
+  std::vector<Loop2> hole{polygon({{1000, 1000}, {1000, 1001}, {1001, 1001}, {1001, 1000}})};
+  CHECK(classify2(hole, {0, 0}, {}, 1e-9, st) == Side::in);
+  CHECK(st == Status::ok);
+  CHECK(classify2(hole, {1000.5, 1000.5}, {}, 1e-9, st) == Side::out);
+  // (Periodic, as was: out, settled.)
+  CHECK(classify2(hole, {0, 0}, Periods{1e6, 0, {}, {}}, 1e-9, st) == Side::out);
+  CHECK(st == Status::ok);
 }
 
 TEST_CASE("classify2 of many points: each point's single answer, the boxes and fine polylines made once for all") {

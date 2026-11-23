@@ -3103,3 +3103,103 @@ TEST_CASE("countExpected: a face's triangles as its own size metric expects them
     std::printf("  skewPatch: expected %.4f, closed form %.4f\n", skewGot, skewWant);
   CHECK(std::fabs(skewGot - skewWant) <= 0.05 * skewWant);
 }
+
+TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected triangles), at most capCeiling; a face "
+  "past it fails, its cap and expected count said") {
+  // (The band at 0.001: its expected count in closed form, 176.6 (countExpected's test).)
+  cadgeom::Model band = load("band");
+  REQUIRE(band.ok());
+  PartOptions o = options(0.001, 0.26);
+  o.capFloor = 100, o.capMultiple = 2;
+  PartMesher a(band, o);
+  const double want = 2 * M_PI * 2 * 5 / (std::sqrt(6 * 0.001 * 2) * std::sqrt(57.0)) / (std::sqrt(3.0) / 4);
+  if (!(std::fabs(a.face(0).capExpected - want) <= 0.1 * want))
+    std::printf("  band: expected %.1f before meshing, closed form %.1f\n", a.face(0).capExpected, want);
+  CHECK(std::fabs(a.face(0).capExpected - want) <= 0.1 * want);
+  CHECK(std::fabs(a.face(0).cap - 2 * a.face(0).capExpected) <= 1e-9 * a.face(0).cap);
+  o.capCeiling = 150;
+  PartMesher ceilinged(band, o);
+  CHECK_EQ(ceilinged.face(0).cap, 150.0);
+  o.capCeiling = 1e7, o.capMultiple = 0.01;
+  PartMesher floored(band, o);
+  CHECK_EQ(floored.face(0).cap, 100.0);  // (the floor)
+  // bumpPatch at 0.001 meshes some 33,000 triangles against about 4,500 expected: capped at 1 x expected, it fails.
+  cadgeom::Model bump = load("bumpPatch");
+  REQUIRE(bump.ok());
+  PartOptions c = options(0.001, 0.26);
+  c.capFloor = 1000, c.capMultiple = 1;
+  PartMesher pc(bump, c);
+  const FaceMesh& fm = pc.face(0);
+  CHECK(fm.status == cadgeom::Status::noConvergence);
+  CHECK(fm.capped);
+  char want2[96];
+  std::snprintf(want2, sizeof want2, "(its cap %.0f: %.0f expected)", fm.cap, fm.capExpected);
+  if (fm.cause.find(want2) == std::string::npos) std::printf("  bumpPatch: %s\n", fm.cause.c_str());
+  CHECK(fm.cause.find(want2) != std::string::npos);
+  CHECK(fm.cap > 1000);
+  // The defaults: the face meshes, its cap the floor's 200,000 (about 4,500 x 64 is more).
+  PartMesher pd(bump, options(0.001, 0.26));
+  CHECK(pd.face(0).status == cadgeom::Status::ok);
+  const double byRule = std::max(200000.0, 64 * pd.face(0).capExpected);
+  CHECK_EQ(pd.face(0).cap, byRule);
+}
+
+TEST_CASE("A refused triangle whose circumcentre lands at a vertex already there is broken at its centroid") {
+  // (sineSheet's 40 mm square at 0.1 mm: refinement over its regular grid puts refused triangles' circumcentres on
+  // vertices there; left final, 37 of them stayed refused, the L 200 mm sheet's past its deflection.)
+  cadgeom::Model m = load("sineSheet40");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  CHECK_EQ(pm.face(0).rejected.size(), size_t(0));
+}
+
+TEST_CASE("a sphere face bounded by one plain circle is the side its loop's direction and the face's sense say, not "
+  "the smaller, where it's oriented as its neighbour: ballWithFlat's ball less its cap; ballWithFlatCap's cap; "
+  "with no neighbour or one the other way, its loop's inside") {
+  struct Case {
+    const char* name;
+    bool below;
+    double area;
+  };
+  const double h = 1.2, capArea = 2 * M_PI * 2 * (2 - h), ball = 4 * M_PI * 4 - capArea;
+  for (Case c : {Case{"ballWithFlat", true, ball}, Case{"ballWithFlatCap", false, capArea}}) {
+    cadgeom::Model m = load(c.name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", c.name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    double area = 0;
+    int wrongSide = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      area += 0.5 * cadgeom::norm(cadgeom::cross(q - p, r - p));
+      wrongSide += ((p.x + q.x + r.x) / 3 < h) != c.below;
+    }
+    if (wrongSide || std::fabs(area - c.area) > 0.01 * c.area)
+      std::printf("  %s: area %.3f (want %.3f), %d triangles on the wrong side of the flat\n", c.name, area, c.area,
+        wrongSide);
+    CHECK_EQ(wrongSide, 0);
+    CHECK(std::fabs(area - c.area) <= 0.01 * c.area);
+    CHECK(pm.face(1).status == cadgeom::Status::ok);
+  }
+  // Its orientation not checked against a neighbour's (the flat using the circle the same way, no flat, or the cap a
+  // face of the same sphere its sense reversed, their normals opposite where they meet smoothly): the loop as it has
+  // it, the cap beyond the flat, as before.
+  for (const char* name : {"ballFlatSameWay", "ballAlone", "ballFlippedCap"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    double area = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const Vec3 p = fm.points[fm.triangles[t]], q = fm.points[fm.triangles[t + 1]], r = fm.points[fm.triangles[t + 2]];
+      area += 0.5 * cadgeom::norm(cadgeom::cross(q - p, r - p));
+    }
+    if (std::fabs(area - capArea) > 0.01 * capArea)
+      std::printf("  %s: area %.3f (the cap %.3f)\n", name, area, capArea);
+    CHECK(fm.status == cadgeom::Status::ok);
+    CHECK(std::fabs(area - capArea) <= 0.01 * capArea);
+  }
+}

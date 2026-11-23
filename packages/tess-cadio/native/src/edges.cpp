@@ -1607,6 +1607,68 @@ struct EdgeMesh::Impl {
   }
 
   /**
+   * Whether face f is oriented as the faces beside it, so that its loop's direction can be trusted: some face shares
+   * one of its edges, every one that does uses it the other way, and none meeting it smoothly (their normals at the
+   * edge's middle sample within acos 0.9 of each other's line) faces the other way. An unsewn surface model's
+   * senses can't be checked so (wgehaeuse_surface #71291: no edge shared, its faces' normals against their
+   * neighbours' half the time) and aren't trusted; at a crease the normals tell nothing.
+   */
+  bool orientedAsNeighbours(int f) const {
+    int shared = 0;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) == CBR_LOOP_VERTEX) continue;
+      for (int k = 0; k < m.loopCount(l); k++) {
+        const int c = m.loopFirst(l) + k;
+        const Edge& E = edges[m.coedgeEdge(c)];
+        for (int d : E.coedges) {
+          const int g = coedges[d].face;
+          if (g == f || g < 0) continue;
+          if (m.coedgeOrientation(d) == m.coedgeOrientation(c)) return false;
+          shared++;
+          Vec3 nf, ng;
+          if (!E.s.points.empty() && normalAt(f, E.s.points[E.s.points.size() / 2], nf) &&
+              normalAt(g, E.s.points[E.s.points.size() / 2], ng) && dot(nf, ng) < -0.9)
+            return false;
+        }
+      }
+    }
+    return shared > 0;
+  }
+
+  /** Face f's unit normal by its sense at its surface's foot of p; false where there's none. */
+  bool normalAt(int f, Vec3 p, Vec3& n) const {
+    if (!faces[f].s) return false;
+    const SurfaceInversion r = invert(f, p, nullptr);
+    SurfacePoint q;
+    if (r.status != Status::ok || faces[f].s->eval(r.uv.x, r.uv.y, 1, q) != Status::ok) return false;
+    const Vec3 c = cross(q.du, q.dv);
+    const double l = norm(c);
+    if (!(l > 0)) return false;
+    n = (m.faceSameSense(f) ? 1 / l : -1 / l) * c;
+    return true;
+  }
+
+  /**
+   * Whether the chain is a plain closed curve: each edge's samples in it one run (none used twice, a seam's two sides
+   * or an edge doubling back), every point an edge's sample (none on a pole line, a cut or a vertex loop).
+   */
+  static bool plainLoop(const Chain& c) {
+    std::map<int32_t, int> runs;
+    int32_t prev = -2;
+    for (const BoundaryPoint& p : c.pts) {
+      if (p.kind != BoundaryPoint::edgeSample) return false;
+      if (p.edgeIndex != prev) runs[p.edgeIndex]++;
+      prev = p.edgeIndex;
+    }
+    // (The loop's first run continues its last where both are one edge's.)
+    if (!c.pts.empty() && c.pts.front().edgeIndex == c.pts.back().edgeIndex) runs[c.pts.front().edgeIndex]--;
+    for (const auto& [e, n] : runs)
+      if (n > 1) return false;
+    return true;
+  }
+
+  /**
    * The middle of the widest gap between the spans (each narrower than the period P), taken round the period from
    * lo: where a cut crosses none of them. lo where there are none.
    */
@@ -1845,10 +1907,14 @@ struct EdgeMesh::Impl {
       // Two loops or more, every one a hole (clockwise about the face's normal in (u, v): counterclockwise as given
       // where the face's sense is against its surface's), none winding: a face is connected, so they're holes and the
       // face is its surface's natural extent less them, where it has one (a sphere's pocket wall between two caps,
-      // VW #2446's ten); else it can't be meshed as bounded. One such loop alone is either a hole (a sphere less a
-      // cap) or a loop against a face turned in the source, as a seam use's side can say (againstSense): meshed as
-      // the loop has it, the face's sense, healing's to settle.
-      bool holes = chains.size() >= 2;
+      // VW #2446's ten); else it can't be meshed as bounded. One such loop alone is a hole too where it's a plain
+      // closed curve, no edge in it twice (a seam's two sides) and no point on a pole line or a cut, on a closed
+      // surface (a sphere's or a torus's natural extent: a ball with a flat, the bicycle's #1486: the sphere less
+      // its cap, the loop's direction against the face's sense saying so, its size not); otherwise it is either a
+      // hole or a loop against a face turned in the source, as a seam use's side can say (againstSense): meshed
+      // as the loop has it, the face's sense, healing's to settle.
+      bool holes = chains.size() >= 2 ||
+        (chains.size() == 1 && plainLoop(chains[0]) && orientedAsNeighbours(f));
       std::vector<Range> spans[2];
       for (const Chain& c : chains) {
         double A = 0;
@@ -1865,6 +1931,13 @@ struct EdgeMesh::Impl {
       if (!holes) return;
       F.holesOnly = true;
       makeNatural(f, spans);
+      if (chains.size() == 1 && F.natural != Face::Natural::sphere && F.natural != Face::Natural::torus) {
+        // (A single loop on a surface not closed (no natural extent, or a B-spline's knot rectangle): as the loop has
+        // it, as before. A trimmed B-spline face is its loop's inside whatever the loop's direction says,
+        // wgehaeuse_surface #71291's faces, its rectangle less the loop the wrong side.)
+        F.holesOnly = false;
+        return;
+      }
       if (F.natural == Face::Natural::none) {
         F.status = Status::unsupported;
         F.why = "its edge loops all holes, and its surface has no natural extent to bound them";

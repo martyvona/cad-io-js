@@ -3396,7 +3396,8 @@ await check('heal B-reps', async () => {
     && !a.meshedWith.healFixes.pcurveMissingOnFreeForm, `meshed with healing: ${j}`);
   expect(a.triangles > 0 && a.parts.total === 4 && a.parts.failed === 0, `meshed: ${j}`);
   expect(a.closed && a.fixes.join() === 'strayPole,pcurveMissingOnPlane,pcurveMissingOnElementary,'
-    + 'pcurveMissingOnFreeForm,pcurveReparam,pcurveReplace,pcurveEnds,edgeTolerance,vertexTolerance,Fit (mm)',
+    + 'pcurveMissingOnFreeForm,pcurveReparam,pcurveReplace,pcurveEnds,edgeTolerance,vertexTolerance,orientShells,'
+    + 'Fit (mm)',
     `the fixes and the fit, closed: ${j}`);
   expect(a.off.said.join() === 'strayPole' && !a.off.heal && a.off.triangles > 0,
     `unticked, meshed again as imported in place (the moved pole said kept): ${j}`);

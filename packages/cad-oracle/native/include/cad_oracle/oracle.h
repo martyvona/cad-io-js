@@ -259,7 +259,8 @@ public:
    * The line o + t d, t in tr (finite), against the face: cad-geom's intersectLine on its surface (as the face API
    * closes it in fact) at the face API's tolerance for the face, each contact classified against its loops by the face
    * API (a tangency at that tolerance widened by half its span, so one reaching into the face isn't left out); a
-   * contact outside the face dropped. unsupported where the face has no surface or loops.
+   * contact outside the face dropped. A line missing a box holding the face (widened past the tolerances) meets
+   * nothing of it, ok, and the face API's face isn't made. unsupported where the face has no surface or loops.
    */
   RayFace rayFace(int face, Vec3 o, Vec3 d, cadgeom::Range tr);
   /** A point against a closed shell (row of the shell table), by parity (PointClass). */
@@ -267,7 +268,9 @@ public:
   /**
    * ShellSide for a closed shell's face (rows of the shell and face tables), eps the offset along its normal (at least
    * 10 times the face's tolerance, less taken as that; where that offset meets another face, halved up to four times,
-   * not below it; negative, against the normal).
+   * not below it; negative, against the normal). Unknown where the face, or a face whose surface the rays meet within
+   * its box, has its loops against its sense (its measure flagged orientation): a ray through it would count the
+   * face's complement. Only those faces are measured.
    */
   ShellSide shellSide(int shell, int face, double eps);
   /**
