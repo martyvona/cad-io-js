@@ -3831,6 +3831,35 @@ await check('tree scrolls sideways', async () => {
   expect(!a.wide.overflow && a.wide.clipped === 0 && a.wide.widths === 1 && a.wide.fill, `wide: ${j}`);
   return undefined;
 });
+// The status line stays while a load is under way, however long it says nothing new (a file held back here; a slow
+// part's meshing alike), and fades 5 s after the load ends.
+await check('status kept while loading', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const status = document.getElementById('status');
+    const faded = () => status.classList.contains('faded');
+    const fetch0 = window.fetch;
+    window.fetch = async (...a) => (await wait(6500), fetch0(...a));
+    const t = performance.now();
+    const loaded = cadViewer.load('/content/as1.stp');
+    await wait(6000);
+    const out = { during: faded(), text: status.textContent };
+    await loaded;
+    window.fetch = fetch0;
+    out.ended = faded();
+    out.seconds = (performance.now() - t) / 1000;
+    await wait(5600);
+    out.after = faded();
+    return out;
+  })()`);
+  const j = JSON.stringify(r.after);
+  const o = r.after as { during: boolean; text: string; ended: boolean; after: boolean };
+  expect(!o.during && /loading/.test(o.text), `shown while the file is held back: ${j}`);
+  expect(!o.ended && o.after, `faded 5 s after the load: ${j}`);
+  return undefined;
+});
 // The status line fades 5 s after it last changed, and comes back when it changes; the details too, but only while
 // nothing is selected. Select all (Selection) selects what a click could at the pick level, leaving out what's hidden.
 await check('auto hide and select all', async () => {
