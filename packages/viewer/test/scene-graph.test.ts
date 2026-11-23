@@ -5,7 +5,7 @@ import { identity, multiply, type Mesh } from 'cad-scene';
 import { plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
-import { defaultSettings, fallbackOf, workerCount } from '../src/tessellation.ts';
+import { capCeilingOf, defaultSettings, fallbackOf, workerCount } from '../src/tessellation.ts';
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) < 1e-9);
 
@@ -159,6 +159,13 @@ test('workers: one less than the cores, at most 8, at most 3 on touch devices, a
   assert.equal(workerCount('tablet', 8), 3);
   assert.equal(workerCount('tablet', 2), 1);
   assert.equal(workerCount('desktop', 1), 1);
+});
+
+test("tess-cadio's ceiling on a face's triangles: 2M on phones and tablets, its own default (10M) on desktops", () => {
+  assert.equal(capCeilingOf('phone'), 2e6);
+  assert.equal(capCeilingOf('tablet'), 2e6);
+  assert.equal(capCeilingOf('desktop'), undefined);
+  assert.equal(defaultSettings('medium').capCeiling, undefined);
 });
 
 test('the fallback: SMLib for OCCT by default; none, the backend itself or none given mean none', () => {

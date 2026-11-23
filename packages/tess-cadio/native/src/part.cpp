@@ -268,19 +268,56 @@ struct PartMesher::Impl {
   static double fixedOf(Vec2 p, bool isoU) { return isoU ? p.x : p.y; }
 
   /**
+   * The triangles the criteria's size metric expects over the domain: the integral of its graded grid's sqrt(det M)
+   * (SurfaceCriteria::gridDensity) over the region its loops bound in (u, v) (even-odd), over sqrt(3) / 4. By rows: at
+   * each of kRows heights across the loops' box, the loops' crossings sorted and each inside interval sampled at
+   * kRows points.
+   */
+  static double domainExpected(const Domain2& d, const SurfaceCriteria& c) {
+    constexpr int kRows = 64;
+    double lo[2] = {INFINITY, INFINITY}, hi[2] = {-INFINITY, -INFINITY};
+    for (const auto& l : d.loops)
+      for (int32_t i : l) {
+        const Vec2 p = d.points[i];
+        lo[0] = std::min(lo[0], p.x), hi[0] = std::max(hi[0], p.x);
+        lo[1] = std::min(lo[1], p.y), hi[1] = std::max(hi[1], p.y);
+      }
+    if (!(hi[0] > lo[0]) || !(hi[1] > lo[1])) return 0;
+    const double dy = (hi[1] - lo[1]) / kRows;
+    double metricArea = 0;
+    std::vector<double> xs;
+    for (int r = 0; r < kRows; r++) {
+      const double y = lo[1] + (r + 0.5) * dy;
+      xs.clear();
+      for (const auto& l : d.loops)
+        for (size_t k = 0; k < l.size(); k++) {
+          const Vec2 a = d.points[l[k]], b = d.points[l[(k + 1) % l.size()]];
+          if ((a.y <= y) != (b.y <= y)) xs.push_back(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+        }
+      std::sort(xs.begin(), xs.end());
+      for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+        const double w = (xs[k + 1] - xs[k]) / kRows;
+        for (int j = 0; j < kRows; j++) metricArea += w * dy * c.gridDensity({xs[k] + (j + 0.5) * w, y});
+      }
+    }
+    return metricArea / (std::sqrt(3.0) / 4);
+  }
+
+  /**
    * The ring's free coordinates qs (at offset side x r from the row of pole S) kept where the chain from the boundary
    * point pa through them to pb turns one way about the pole, within the sector pa and pb bound: seen from the pole in
    * the plane across its normal (its limit on the row at the ring's middle; at an apex, which has none, the mean of
    * the surface's normals at the ring's points, about its axis), each kept point a step from the last in
    * the chain's direction (that of its whole turn from pa to pb through them) and short of pb. A point that steps back
-   * or past pb, or by under kTurn, is left out, the fan going straight from its predecessor to the next, all of them
+   * or past pb, or by under kTurn, is left out, the fan going straight from its predecessor to the next (with
+   * `cornersOnly`, an apex's, only a far end's corner, farA's first and farB's last, by under kTurn), all of them
    * perhaps (makeFans keeps them where its loop would be left under three points): where a curve through the pole
    * bends at once, the ring at its floor crosses it in 3D, and a fan triangle on such a point would land on the
    * mesher's side of its ring segment, folding the mesh (PartOptions::failFoldedFans). All of qs where neither gives a
    * direction.
    */
   static std::vector<double> inSector(const Surface& s, const Singularity& S, double side, double r, Vec3 pa, Vec3 pb,
-    const std::vector<double>& qs) {
+    const std::vector<double>& qs, bool cornersOnly = false, bool farA = false, bool farB = false) {
     if (qs.empty()) return qs;
     auto ringUv = [&](double q) { return S.isoU ? Vec2{S.at + side * r, q} : Vec2{q, S.at + side * r}; };
     Vec3 n;
@@ -313,6 +350,20 @@ struct PartMesher::Impl {
     // that's an iso-line, a spindle torus's, LMP1 #173466's #1091324. The ring's pieces turn far more, by the angle.)
     constexpr double kTurn = 1e-3;
     std::vector<double> kept;
+    if (cornersOnly) {
+      // (A far end's corner at next to no turn from that end: the needle's point.)
+      auto turn = [](double a, double b) {
+        double t = b - a;
+        while (t > M_PI) t -= 2 * M_PI;
+        while (t <= -M_PI) t += 2 * M_PI;
+        return std::fabs(t);
+      };
+      const bool dropFront = farA && turn(angle(pa), th.front()) < kTurn;
+      const bool dropBack = farB && turn(th.back(), angle(pb)) < kTurn && (qs.size() > 1 || !dropFront);
+      for (size_t j = 0; j < qs.size(); j++)
+        if (!(j == 0 && dropFront) && !(j + 1 == qs.size() && dropBack)) kept.push_back(qs[j]);
+      return kept;
+    }
     for (size_t j : sectorKeep(angle(pa), th, angle(pb), kTurn)) kept.push_back(qs[j]);
     return kept;
   }
@@ -410,11 +461,13 @@ struct PartMesher::Impl {
         for (int j = 1; j < pieces; j++) qs.push_back(lo + j * piece);
         if (farB) qs.push_back(q1);
         // (Kept where leaving them out would leave the loop under three points: a face as small as the ring.)
-        // (At a smooth pole only: an apex's fans run round a cone, its ring a whole turn and more of its points
-        // needed for the deflection.)
-        if (fan.smooth)
-          if (std::vector<double> in = inSector(s, S, side, r, a.point, b.point, qs); !in.empty() || n - len >= 3)
-            qs = std::move(in);
+        // (At a smooth pole all its points so; at an apex only a far end's corner, there on the line from the apex
+        // through that end (a cone's generator through it): its fans run round a cone, its ring a whole turn and
+        // more of its points needed for the deflection.)
+        if (std::vector<double> in = inSector(s, S, side, r, a.point, b.point, qs, !fan.smooth,
+              farA && o.apexCorners, farB && o.apexCorners);
+            !in.empty() || n - len >= 3)
+          qs = std::move(in);
         fan.chain.push_back(static_cast<int>(out.size()) - 1);
         for (double qj : qs) {
           BoundaryPoint q;
@@ -1222,7 +1275,10 @@ struct PartMesher::Impl {
     for (FaceMesh& fm : faces) {
       if (fm.status != Status::ok || !fm.capped) continue;
       fm.status = Status::noConvergence;
-      fm.cause = "refinement stopped at its point cap, " + std::to_string(fm.triangles.size() / 3) + " triangles";
+      char why[200];
+      std::snprintf(why, sizeof why, "refinement stopped at its point cap, %zu triangles (its cap %.0f: %.0f expected)",
+        fm.triangles.size() / 3, fm.cap, fm.capExpected);
+      fm.cause = why;
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
@@ -1350,7 +1406,11 @@ struct PartMesher::Impl {
     for (size_t k = 0; k < fans.size(); k++)
       for (int j : fans[k].chain) ring[k].push_back(d.loops[fans[k].loop][j]);
     MeshOptions mo;
-    mo.maxPoints = o.maxPointsPerFace;
+    // Its cap: max(floor, k x its expected triangles), at most the ceiling (PartOptions::capFloor), in Steiner points
+    // half as many; maxPointsPerFace, given, instead.
+    out.capExpected = domainExpected(d, *criteria[f]);
+    out.cap = std::min(o.capCeiling, std::max(o.capFloor, o.capMultiple * out.capExpected));
+    mo.maxPoints = o.maxPointsPerFace >= 0 ? o.maxPointsPerFace : static_cast<int>(std::min(out.cap / 2, 1e9));
     mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
     static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
@@ -1654,6 +1714,27 @@ struct PartMesher::Impl {
         std::fabs(norm(nn) - 1) < 1e-9;
       out.normals.push_back(reg ? sense * nn : Vec3{0, 0, 0});
       regular.push_back(reg);
+      // Each fan triangle's direction: counterclockwise about the face's normals at its other corners (in (u, v) an
+      // end's triangle along its row has no area to tell by); but where the fan's triangles disagree, some against
+      // the mesher's use of their ring segment and some along it (corners a degree or two apart about the pole, the
+      // normals' tilt there choosing each, LMP1 #173466's torus), each against that use: a fan consistent along its
+      // chain, as the mesh across its ring needs (PartOptions::failFoldedFans).
+      std::vector<char> byNormals(ring[k].size(), 1), against(ring[k].size(), 0);
+      int agree = 0, disagree = 0;
+      for (size_t j = 0; j + 1 < ring[k].size(); j++) {
+        const int32_t a = ring[k][j], b = ring[k][j + 1];
+        const Vec3 g = cross(out.points[b] - out.points[a], out.points[pole] - out.points[a]);
+        byNormals[j] = dot(g, out.normals[a] + out.normals[b]) >= 0;
+        if (!onCrease.empty()) continue;
+        for (size_t t = 0; t + 2 < out.triangles.size() && !against[j]; t += 3)
+          for (int i = 0; i < 3; i++) {
+            const int32_t x = out.triangles[t + i], y = out.triangles[t + (i + 1) % 3];
+            if (x == a && y == b) against[j] = -1;  // (the fan's (b, a, pole))
+            if (x == b && y == a) against[j] = 1;   // (the fan's (a, b, pole))
+          }
+        if (against[j]) (byNormals[j] == (against[j] > 0) ? agree : disagree)++;
+      }
+      const bool topological = o.consistentFans && agree > 0 && disagree > 0;
       for (size_t j = 0; j + 1 < ring[k].size(); j++) {
         int32_t a = ring[k][j], b = ring[k][j + 1];
         double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);
@@ -1665,10 +1746,8 @@ struct PartMesher::Impl {
           out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth, true))]++;
           refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
         }
-        // Counterclockwise about the face's normals at its other corners (in (u, v) an end's triangle along its row
-        // has no area to tell by).
-        Vec3 g = cross(out.points[b] - out.points[a], out.points[pole] - out.points[a]);
-        if (dot(g, out.normals[a] + out.normals[b]) >= 0) out.triangles.insert(out.triangles.end(), {a, b, pole});
+        const bool forward = topological && against[j] ? against[j] > 0 : byNormals[j] != 0;
+        if (forward) out.triangles.insert(out.triangles.end(), {a, b, pole});
         else out.triangles.insert(out.triangles.end(), {b, a, pole});
       }
     }
