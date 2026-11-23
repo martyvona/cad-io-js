@@ -267,7 +267,8 @@ public:
   /**
    * ShellSide for a closed shell's face (rows of the shell and face tables), eps the offset along its normal (at least
    * 10 times the face's tolerance, less taken as that; where that offset meets another face, halved up to four times,
-   * not below it; negative, against the normal).
+   * not below it; negative, against the normal). Unknown where a face of the shell has its loops against its sense
+   * (its measure flagged orientation): a ray through it would count the face's complement.
    */
   ShellSide shellSide(int shell, int face, double eps);
   /**

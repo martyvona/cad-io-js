@@ -809,6 +809,19 @@ TEST_CASE("classify2: on a pole its face's boundary reaches, at any u: the pole 
   CHECK(classify2(face, {5.8, 0.8}, per, 0.0122, st) == Side::in);
 }
 
+TEST_CASE("classify2: a spindle torus's poles split its periodic v: a face judged within its band") {
+  // bug32239's face #54190: a latitude circle at v = 1.7066 running -u, the torus's poles (its axis crossings) at
+  // 1.5721 and 4.7110. The face is the band from the circle to the nearer pole on its left; a ray past a pole line
+  // is on the other sheet, and its copies of the circle made every point in.
+  const double c = 1.706553780, a = 1.572137161, b = 4.711048146;
+  std::vector<Loop2> face{Loop2{{{line({3 * pi, c}, {pi, c}), {0, 1}, false}}}};
+  Periods per{2 * pi, 2 * pi, {}, {a, b}};
+  Status st;
+  for (double v : {1.6, 1.65, 1.7}) CHECK(classify2(face, {2.857, v}, per, 2e-6, st) == Side::in);
+  for (double v : {1.7076, 2.5, 3.14, 4.6, 5.5, 6.0, 0.5})
+    CHECK(classify2(face, {2.857, v}, per, 2e-6, st) == Side::out);
+}
+
 TEST_CASE("classify2: a point no ray meets anything from is out") {
   // A unit square 1000 away subtends a milliradian: none of the rays' directions meets it.
   std::vector<Loop2> far{polygon({{1000, 1000}, {1001, 1000}, {1001, 1001}, {1000, 1001}})};

@@ -2,8 +2,8 @@
 // and nesting against how each was built. A box with a box-shaped void: the outer shell's faces outside, the void's
 // inside (facing into the void), the void nested in the outer; a box built inside out and used as built: inside; one
 // built inside out and used reversed: outside; two lumps side by side in one solid: neither holds the other; two
-// crossing: nesting can't tell. With checkSecondRay a second ray agrees. Skipped where the module isn't built
-// (build.sh module).
+// crossing: nesting can't tell; a face's loops against its sense: unknown. With checkSecondRay a second ray agrees.
+// Skipped where the module isn't built (build.sh module).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -106,6 +106,24 @@ test('checkSecondRay: a second ray agrees; the evidence names the point and the 
   assert.ok(c.checked && c.ray!.crossings % 2 === 1);
   // Without a shell: unknown, said why.
   assert.equal(o.classify(7, [0, 0, 0]).side, 'unknown');
+});
+
+test('a face with its loops against its sense: every face of its shell unknown, said why', { skip }, async () => {
+  // The cube with its bottom face's sense turned in the buffer, its loop left: the face's measure is flagged
+  // orientation, and a ray through it would count its complement.
+  const d = MODELS.cube().finish();
+  d.face.sameSense[0] = 0;
+  using o = new Oracle(await init(), d.buffer);
+  assert.ok(o.face(0).flags.includes('orientation'));
+  for (const f of shellFaces(d)[0]!) {
+    const r = o.shellSide(0, f, 1e-3);
+    assert.equal(r.side, 'unknown');
+    assert.equal(r.why, 'a face of the shell has its loops against its sense');
+  }
+  // The same cube as built: outside.
+  const e = MODELS.cube().finish();
+  using p = new Oracle(await init(), e.buffer);
+  assert.equal(p.shellSide(0, 0, 1e-3).side, 'outside');
 });
 
 test('a thin wall: an offset deeper than the wall halved until it stays inside', { skip }, async () => {

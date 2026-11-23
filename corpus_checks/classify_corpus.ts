@@ -11,7 +11,7 @@
 // OCCT=1: each face's point moved off it, classified by rays, also against the solid holding the face by OCCT's solid
 // classifier (tess-occt's probe, build-probe.sh: occt_probe_classify_solid, the part built by the native builder,
 // unhealed), ours against one shell, OCCT's against the solid: a root shell's outside OCCT's out and inside its in, a
-// void's the other way round.
+// void's the other way round; EPS_SCALE=k moves the compared points k x eps off their faces instead (ours asked again).
 // Usage: node --max-old-space-size=8192 corpus_checks/classify_corpus.ts <list> [max MB]
 import fs from 'node:fs';
 import { type BrepData, BODY_KIND, rowCount, SHELL_KIND, SURFACE_KIND } from '../packages/cad-brep/src/index.ts';
@@ -27,7 +27,7 @@ interface ProbeModule { HEAPU8: Uint8Array; HEAPF64: Float64Array; _malloc(n: nu
   _occt_probe_build(p: number, n: number): number; _occt_probe_free(): void;
   _occt_probe_classify_solid(q: number, n: number, out: number): void }
 let probe: ProbeModule | undefined;
-const withOcct = process.env.OCCT === '1';
+const withOcct = process.env.OCCT === '1', epsScale = Number(process.env.EPS_SCALE ?? 1);
 const PROBE = path.join(import.meta.dirname, '../packages/tess-occt/dist/occt_probe.mjs');
 const loadProbe = async () => {
   probe = await ((await import(PROBE)) as { default: () => Promise<ProbeModule> }).default();
@@ -157,13 +157,15 @@ export const check: FileCheck<undefined, Result> = {
             const r = o.shellSide(s, f, eps);
             answers.push(r.side);
             tally(R.faceSides, `${r.side} (${SKIND[d.surface.kind[d.face.surface[f]!]!] ?? '?'})`);
-            if (built && r.side !== 'unknown') {
+            // (EPS_SCALE: the comparison's point moved EPS_SCALE x eps instead, ours asked again there.)
+            const rc = epsScale === 1 ? r : o.shellSide(s, f, epsScale * eps);
+            if (built && rc.side !== 'unknown') {
               // OCCT against the solid: for a shell at an even depth (a root, a lump in a void) ours outside is out of
               // the solid there; at an odd one (a void) outside is in the material.
-              const theirs = occtSide(d.face.id[f]!, r.point, 1e-3 * Math.abs(r.eps));
-              const want = (r.side === 'outside') === (depth % 2 === 0) ? 'out' : 'in';
-              tally(R.occt, `ours ${r.side} at depth ${depth}, OCCT ${theirs}: ${theirs === want ? 'agree' : 'differ'}`,
-                `${at} face #${d.face.id[f]}`);
+              const theirs = occtSide(d.face.id[f]!, rc.point, 1e-3 * Math.abs(rc.eps));
+              const want = (rc.side === 'outside') === (depth % 2 === 0) ? 'out' : 'in';
+              const how = theirs === want ? 'agree' : 'differ';
+              tally(R.occt, `ours ${rc.side} at depth ${depth}, OCCT ${theirs}: ${how}`, `${at} face #${d.face.id[f]}`);
             }
             if (r.side === 'unknown') {
               tally(R.unknown, r.why || r.classified.why || '(no reason)', `${at} face #${d.face.id[f]}`);

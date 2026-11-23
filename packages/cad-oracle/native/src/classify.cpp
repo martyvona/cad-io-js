@@ -378,7 +378,18 @@ ShellSide Oracle::shellSide(int shell, int face, double eps) {
     out.why = "no such shell or face";
     return out;
   }
-  return impl_->shellSide(shell, face, eps);
+  // A face of the shell with its loops against its sense: the rays can't be counted (each face measured once).
+  Impl& I = *impl_;
+  if (I.loopsAgainst.empty()) I.loopsAgainst.assign(I.model.faces(), 2);
+  for (int f : I.shellFaces(shell)) {
+    if (I.loopsAgainst[f] == 2) I.loopsAgainst[f] = (this->face(f).flags & flagOrientation) ? 1 : 0;
+    if (I.loopsAgainst[f] == 1) {
+      ShellSide out;
+      out.why = "a face of the shell has its loops against its sense";
+      return out;
+    }
+  }
+  return I.shellSide(shell, face, eps);
 }
 
 std::vector<int> Oracle::nesting(int body) { return ok() ? impl_->nesting(body) : std::vector<int>{}; }

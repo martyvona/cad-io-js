@@ -791,6 +791,23 @@ Side classifyBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol
       // Along the non-periodic direction (or close to it): to beyond the boundary.
       L = reach;
     }
+    // Not past a pole line (just to it, its closures there met): beyond one the surface is another sheet (a cone's
+    // other nappe, a spindle torus's other band, its poles splitting a periodic v), which the boundary there
+    // doesn't bound.
+    auto clip = [&](const std::vector<double>& poles, double o, double d, double period) {
+      if (d == 0) return;
+      for (double c : poles) {
+        double t = (c - o) / d;
+        // (In a periodic direction the nearest copy ahead: t modulo one period along the ray.)
+        if (period > 0) {
+          const double w = period / std::fabs(d);
+          t = std::fmod(std::fmod(t, w) + w, w);
+        }
+        if (t > tol) L = std::min(L, t + tol);
+      }
+    };
+    clip(per.poleV, p.y, dir.y, per.v);
+    clip(per.poleU, p.x, dir.x, per.u);
     RayResult r = cast(bd, p, dir, L, per, tol);
     // A ray meeting nothing says nothing: one period along a band's loops runs parallel to them, and a polar cap's
     // region is unbounded in (u, v) toward its pole. Another direction meets the boundary.

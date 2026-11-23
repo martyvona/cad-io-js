@@ -42,6 +42,9 @@ bool project = true;
 // PartOptions::maxDeviationFactor and maxPointsPerFace for the next calls.
 double deviationFactor = 1.0;
 int maxPoints = PartOptions{}.maxPointsPerFace;
+// PartOptions::capFloor, capMultiple and capCeiling for the next calls.
+double capFloor = PartOptions{}.capFloor, capMultiple = PartOptions{}.capMultiple,
+  capCeiling = PartOptions{}.capCeiling;
 // PartOptions::minAngle for the next calls (radians).
 double minAngle = PartOptions{}.minAngle;
 // PartOptions::countInsertions for the next calls.
@@ -88,8 +91,17 @@ void tc_set_project(int on) { project = on != 0; }
 /** The next calls' PartOptions::maxDeviationFactor (default 1; 0 or less: never). */
 void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
 
-/** The next calls' PartOptions::maxPointsPerFace (default 100,000; under 1: the default). */
-void tc_set_max_points(int points) { maxPoints = points > 0 ? points : PartOptions{}.maxPointsPerFace; }
+/** The next calls' PartOptions::maxPointsPerFace (under 1: each face's cap by capFloor and the rest, the default). */
+void tc_set_max_points(int points) { maxPoints = points > 0 ? points : -1; }
+/**
+ * The next calls' PartOptions::capFloor, capMultiple and capCeiling, triangles (defaults 200,000, 64 and 10M; each
+ * not positive: its default).
+ */
+void tc_set_cap(double floor, double multiple, double ceiling) {
+  const PartOptions d;
+  capFloor = floor > 0 ? floor : d.capFloor, capMultiple = multiple > 0 ? multiple : d.capMultiple;
+  capCeiling = ceiling > 0 ? ceiling : d.capCeiling;
+}
 
 /**
  * The next calls' PartOptions::minAngle in radians (default 10 degrees, at most 30; negative or not finite: the
@@ -156,6 +168,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.projectMissingPcurves = project;
   opts.maxDeviationFactor = deviationFactor;
   opts.maxPointsPerFace = maxPoints;
+  opts.capFloor = capFloor, opts.capMultiple = capMultiple, opts.capCeiling = capCeiling;
   opts.minAngle = minAngle;
   opts.countInsertions = countInsertions;
   opts.countAngles = countAngles;
