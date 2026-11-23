@@ -24,6 +24,7 @@ const SETS: Record<string, HealOptions> = {
   allOn: { fixes: { pcurveMissingOnPlane: true, pcurveMissingOnElementary: true, pcurveMissingOnFreeForm: true } },
   fineFit: { fixes: { pcurveMissingOnFreeForm: true }, pcurveFitTolerance: 1e-4 },
   tolerancesOff: { fixes: { edgeTolerance: false, vertexTolerance: false, pcurveEnds: false } },
+  shellsOff: { fixes: { orientShells: false } },
 };
 const CAP_S = Number(process.env.CAP_S ?? 30), EXAMPLES = 4, plant = process.env.PLANT === '1';
 let maxMB = 1000, module: GeomModule;

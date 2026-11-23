@@ -9,7 +9,12 @@
 //   - cad-oracle: faces whose area it trusts as imported and healed;
 //   - healing's diagnostics: by severity and by message (numbers and ids folded), the parts with a tolerance error;
 //   - the files with the most faces lost or gained per backend, and with the largest change in triangles;
-//   - the faces lost by the mesher's cause healed, and faces failed past repair, where the mesher says (tess-cadio).
+//   - the faces lost by the mesher's cause healed, and faces failed past repair, where the mesher says (tess-cadio);
+//   - shells: how many orientShells turned (the healed analysis's shell rows) and faces it turned (its face rows:
+//     senses flipped to their loops', faces turned whole to agree with their shells), and per backend the shells whose mesh
+//     (joined, as tessellateScene does) faces into the material by orientResult's mesh rule (wrongShells), as imported
+//     and healed (healed: the backend's mesh against the corrected model, which tessellateScene warns of), with the
+//     rule's time.
 // BACKENDS=occt,smlib,cadio picks the meshers (default occt,smlib; cadio: our own tessellator, tess-cadio); HEAL_ON=
 // fixes on beyond the defaults (HEAL_ON=pcurveMissing,pcurveMissingOnPlane: a p-curve for every bare use; an alias,
 // cad-heal's FIX_ALIASES, as its fixes).
@@ -18,9 +23,9 @@
 // Usage: CHILDREN=3 MESH_WORKERS=2 IDLE_MS=0 node --max-old-space-size=8192 corpus_checks/heal_effect.ts
 //   [file-list.txt] [max MB, default 1000]   (IDLE_MS=0: a part's healing tells the runner nothing for minutes)
 import fs from 'node:fs';
-import { MESH_PROFILES, type TessellationRequest, type TessellationResult, failedPart } from
+import { joinResult, MESH_PROFILES, type TessellationRequest, type TessellationResult, failedPart, wrongShells } from
   '../packages/cad-scene/src/index.ts';
-import { openBrep, rowCount } from '../packages/cad-brep/src/index.ts';
+import { analysisRowCount, openBrep, rowCount } from '../packages/cad-brep/src/index.ts';
 import { healImported, importStep } from '../packages/step-import/src/index.ts';
 import { fixesNamed, poolHealer } from '../packages/cad-heal/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -40,6 +45,8 @@ const healOn = Object.fromEntries((process.env.HEAL_ON ?? '').split(',').filter(
   return fixesNamed(f).map((x) => [x, true]);
 }));
 /** BACKENDS=occt,smlib,cadio (default occt,smlib): which meshers. */
+/** The healed shells per backend whose meshes face into the material, all listed up to this many. */
+const INSIDE_EXAMPLES = 60;
 const backends = [...(process.env.BACKENDS ?? 'occt,smlib').split(',') as Backend[],
   ...hybrid ? ['occtHybrid' as const] : []];
 const side = () => ({ parts: 0, failed: 0, faces: 0, triangles: 0, measuresValid: 0, ms: 0 });
@@ -48,10 +55,14 @@ const fresh = () => ({
   slowest: [] as { ms: number; file: string }[], capped: 0,
   mesh: Object.fromEntries(backends.map((b) => [b as string, { before: side(), after: side(), gained: 0, lost: 0,
     partsGained: 0, partsLost: 0, gainedEx: [] as string[], lostEx: [] as string[], lostBy: {} as Tally,
-    pastRepair: { before: 0, after: 0 } }])) as Record<Backend, {
+    pastRepair: { before: 0, after: 0 }, inside: { before: 0, after: 0, ms: 0, ex: [] as string[] } }])) as
+    Record<Backend, {
     before: ReturnType<typeof side>; after: ReturnType<typeof side>; gained: number; lost: number;
     partsGained: number; partsLost: number; gainedEx: string[]; lostEx: string[]; lostBy: Tally;
-    pastRepair: { before: number; after: number } }>,
+    pastRepair: { before: number; after: number }; inside: { before: number; after: number; ms: number;
+      ex: string[] } }>,
+  /** Shells orientShells turned, with examples. */
+  shellsTurned: 0, shellsTurnedEx: [] as string[], facesFlipped: 0, facesTurnedWhole: 0, facesEx: [] as string[],
   trusted: { before: 0, after: 0 },
   /** Per backend and file: faces lost, gained, triangles before and after. */
   perFile: {} as Record<string, Record<string, { lost: number; gained: number; tb: number; ta: number }>>,
@@ -150,11 +161,24 @@ export const check: FileCheck<undefined, Result> = {
       R.parts++;
       R.faces += rowCount(db, 'face');
       const where = `${name} #${pb.sources[0]?.id}`;
+      const an = pa.brep?.analysis;
+      if (an) for (let f = 0; f < analysisRowCount(an, 'face'); f++) {
+        const t = an.face.turned[f]!;
+        if (t & 1) R.facesFlipped++;
+        if (t & 2) R.facesTurnedWhole++;
+        if (t && R.facesEx.length < EXAMPLES) R.facesEx.push(`${where} face #${da.face.id[f]} (${t & 2 ? 'turned whole'
+          : ''}${t === 3 ? ', ' : ''}${t & 1 ? 'sense flipped' : ''})`);
+      }
+      if (an) for (let s = 0; s < analysisRowCount(an, 'shell'); s++) if (an.shell.turned[s]) {
+        R.shellsTurned++;
+        if (R.shellsTurnedEx.length < EXAMPLES) R.shellsTurnedEx.push(`${where} shell #${da.shell.id[s]} (row ${s}, `
+          + `volume ${an.shell.volume[2 * s]!.toPrecision(6)})`);
+      }
       ctx.progress(where);
       // The healed model with its analysis, as tessellateScene sends it to a backend that reads one (tess-cadio: its
       // healed p-curves placed as projected, faces past repair failed).
       const req = (d: typeof db): TessellationRequest => ({ format: 'cad-brep', data: new Uint8Array(d.buffer),
-        origin: pb.origin, linearDeflection: LIN, angularDeflection: ANG, measures: true,
+        origin: pb.origin, linearDeflection: LIN, angularDeflection: ANG, measures: true, edges: true,
         ...d === da && pa.brep?.analysis ? { analysis: new Uint8Array(pa.brep.analysis.buffer) } : {} });
       // The hybrid: the healed model with the p-curves healing added taken out again.
       const lessAdded = () => {
@@ -212,6 +236,15 @@ export const check: FileCheck<undefined, Result> = {
           t.n++;
           if (t.ex.length < 2) t.ex.push(`${where} face #${id}`);
         }
+        // Shells meshed facing into the material by the mesh rule, joined as tessellateScene joins them.
+        for (const [r, d, k2] of [[rb, db, 'before'], [ra, da, 'after']] as const) {
+          if (r instanceof Error || !r.indices.length) continue;
+          const t0 = performance.now(), w = wrongShells(d, joinResult(d, r, LIN), LIN);
+          M.inside.ms += performance.now() - t0, M.inside[k2] += w.length;
+          if (k2 === 'after') for (const x of w) if (M.inside.ex.length < INSIDE_EXAMPLES) {
+            M.inside.ex.push(`${where} shell #${x.id} (row ${x.shell}, mesh volume ${x.volume.toPrecision(6)})`);
+          }
+        }
         for (const c of cb.values()) if (c.includes(PAST_REPAIR)) M.pastRepair.before++;
         for (const c of ca.values()) if (c.includes(PAST_REPAIR)) M.pastRepair.after++;
       }
@@ -246,8 +279,14 @@ function merge(all: Result, r: Result) {
       x.n += t.n, x.ex.push(...t.ex.slice(0, 2 - x.ex.length));
     }
     A.pastRepair.before += B.pastRepair.before, A.pastRepair.after += B.pastRepair.after;
+    A.inside.before += B.inside.before, A.inside.after += B.inside.after, A.inside.ms += B.inside.ms;
+    A.inside.ex.push(...B.inside.ex.slice(0, INSIDE_EXAMPLES - A.inside.ex.length));
   }
   all.trusted.before += r.trusted.before, all.trusted.after += r.trusted.after;
+  all.shellsTurned += r.shellsTurned;
+  all.facesFlipped += r.facesFlipped, all.facesTurnedWhole += r.facesTurnedWhole;
+  all.facesEx.push(...r.facesEx.slice(0, EXAMPLES - all.facesEx.length));
+  all.shellsTurnedEx.push(...r.shellsTurnedEx.slice(0, EXAMPLES - all.shellsTurnedEx.length));
   for (const [b, files] of Object.entries(r.perFile)) Object.assign(all.perFile[b] ??= {}, files);
   for (const [k, v] of Object.entries(r.severity)) all.severity[k] = (all.severity[k] ?? 0) + v;
   for (const [k, v] of Object.entries(r.messages)) {
@@ -290,6 +329,9 @@ if (import.meta.main) {
     const by = Object.entries(M.lostBy).sort((p, q) => q[1].n - p[1].n);
     if (by.length) console.log('  the faces lost, by the mesher\'s cause healed (where it gives one):');
     for (const [k, t] of by) console.log(`    ${String(t.n).padStart(6)}  ${k}  (${t.ex.join('; ')})`);
+    console.log(`  shells meshed facing into the material (the mesh rule, joined): as imported ${M.inside.before}, `
+      + `healed ${M.inside.after} (against the corrected model); the rule's time ${s(M.inside.ms)}`);
+    for (const x of M.inside.ex) console.log(`    healed: ${x}`);
     if (M.pastRepair.before || M.pastRepair.after) {
       console.log(`  faces failed past repair (a tolerance healing grew past its error limit): as imported `
         + `${M.pastRepair.before}, healed ${M.pastRepair.after}`);
@@ -304,6 +346,10 @@ if (import.meta.main) {
       console.log(`    ${x.tb} -> ${x.ta}  ${f}`);
     }
   }
+  console.log(`\norientShells: ${all.shellsTurned} shells turned; faces: ${all.facesFlipped} senses flipped to their `
+    + `loops', ${all.facesTurnedWhole} turned whole to agree with their shells`);
+  for (const x of all.shellsTurnedEx) console.log(`    ${x}`);
+  for (const x of all.facesEx) console.log(`    ${x}`);
   console.log(`\ncad-oracle: faces trusted (1e-6) as imported / healed: ${all.trusted.before} / ${all.trusted.after}`);
   console.log(`\nHealing's diagnostics: ${Object.entries(all.severity).map(([k, v]) => `${v} ${k}s`).join(', ')}`);
   for (const [k, e] of Object.entries(all.messages).sort((a, b) => b[1].n - a[1].n)) {

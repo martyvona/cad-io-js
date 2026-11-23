@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA5';
+export const ANALYSIS_MAGIC = 'CBA6';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -68,10 +68,13 @@ export const ANALYSIS_TABLES = {
   /**
    * `outerLoop` the face's outer loop row (-1: none, as a band's whose loops wind around a period), `outerFrom`
    * PROVENANCE (given where the source labels exactly one); `uv` the (u, v) box of its loops (u lo, u hi, v lo,
-   * v hi); `area` the oracle's value and error estimate (NaN: not computed), `areaFrom` MEASURE_TRUST.
+   * v hi); `area` the oracle's value and error estimate (NaN: not computed), `areaFrom` MEASURE_TRUST; `turned`
+   * how healing's orientShells turned the face, so healing again turns it back, bits: 1 its sense flipped to its
+   * loops' (they ran against it, its neighbours agreeing with them), 2 turned whole to agree with its shell's other
+   * faces (sense flipped, loops reversed: an edge was used twice the same way); 0 neither.
    */
   face: [['outerLoop', 'i32', 1], ['outerFrom', 'u8', 1], ['uv', 'f64', 4], ['area', 'f64', 2],
-    ['areaFrom', 'u8', 1]],
+    ['areaFrom', 'u8', 1], ['turned', 'u8', 1]],
   /**
    * Facts about each surface: `uClosed`, `vClosed` LOGICAL as measured (closed in fact, not as claimed); periods
    * (0: none); its singularities `count` records of 6 reals in `pool.real` from `first`: SINGULARITY kind, isoU
@@ -89,9 +92,11 @@ export const ANALYSIS_TABLES = {
   /**
    * Per model shell: `volume` the oracle's signed volume and error estimate (NaN: open, or not computed), positive
    * where the faces' normals point out of the volume; `facing` FACING, by the volume's sign or point classification,
-   * `facingFrom` how it was found.
+   * `facingFrom` how it was found (both of the model's shell as the source gave it); `turned` 1 where healing turned
+   * the shell's faces (orientShells: each face's sense flipped, its loops' coedge rows reversed in place and their
+   * orientations flipped), so healing again turns them back before putting the source's values back.
    */
-  shell: [['volume', 'f64', 2], ['facing', 'u8', 1], ['facingFrom', 'u8', 1]],
+  shell: [['volume', 'f64', 2], ['facing', 'u8', 1], ['facingFrom', 'u8', 1], ['turned', 'u8', 1]],
   /**
    * One row where the model is a healed one (none otherwise): how it was healed, so healing it again knows what it
    * holds. `fixes` the fixes that ran, a bit per fix in cad-heal's HEAL_FIXES order (bit 0 the first);

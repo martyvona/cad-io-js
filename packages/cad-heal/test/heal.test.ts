@@ -38,7 +38,7 @@ test('progress: each part, each step, and every PROGRESS_EVERY coedges through t
     diagnostics: [] } as unknown as import('cad-scene').Scene;
   await healScene(scene, { progress: (w) => said.push(w) }, await (await import('cad-geom')).init());
   assert.deepEqual(said, ['part 0 of 1', 'part 0 of 1: strayPole', 'part 0 of 1: ranges and vertexTolerance',
-    'part 0 of 1: the healed model and its analysis'],
+    'part 0 of 1: orientShells', 'part 0 of 1: the healed model and its analysis'],
     `fewer than ${PROGRESS_EVERY} coedges: no coedge line`);
 });
 

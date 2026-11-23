@@ -7,7 +7,7 @@
 // orientation. (mesh.ts's orientShells turns closed pieces by the mesh alone: it can't tell a void facing into the
 // material, which encloses positive volume inside another piece.)
 
-import { BODY_KIND, type BrepData } from 'cad-brep';
+import { analysisRowCount, BODY_KIND, type BrepAnalysis, type BrepData, openAnalysis } from 'cad-brep';
 import { weld } from './mesh.ts';
 import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
@@ -107,10 +107,32 @@ export function turnedMessage(turned: readonly Turned[]): string {
 }
 
 /**
+ * Whether healing oriented the model's shells (its analysis's shell rows say how each faced: cad-heal's orientShells),
+ * so a mesh facing otherwise is the backend's doing.
+ */
+export function shellsOriented(analysis: BrepAnalysis | Uint8Array | undefined): boolean {
+  if (!analysis) return false;
+  const a = analysis instanceof Uint8Array ? openAnalysis(analysis) : analysis;
+  for (let s = 0; s < analysisRowCount(a, 'shell'); s++) if (a.shell.facingFrom[s]) return true;
+  return false;
+}
+
+/** The warning for shells a backend meshed facing into the material where healing oriented the model's. */
+export function againstHealedMessage(turned: readonly Turned[], backend: string): string {
+  const n = turned.length, ids = turned.filter((t) => t.id !== null).slice(0, 10).map((t) => `#${t.id}`);
+  return `${n} ${n === 1 ? 'shell' : 'shells'} of solids meshed by ${backend} facing into the material, against the `
+    + `healed model's orientation, turned over in the mesh${ids.length ? `: ${ids.join(', ')}${n > ids.length
+      ? ', ...' : ''}` : ''}`;
+}
+
+/**
  * `r` with the meshes of the shells wrongShells finds turned over (triangles wound the other way, normals negated;
  * a vertex they share with faces not turned copied), and a warning naming them; `r` itself where there are none.
+ * `healed`, where healing oriented the model's shells (shellsOriented): the backend's name, for a warning that its
+ * mesh went against the healed model.
  */
-export function orientResult(d: BrepData, r: TessellationResult, deflection: number): TessellationResult {
+export function orientResult(d: BrepData, r: TessellationResult, deflection: number, healed?: { backend: string }):
+  TessellationResult {
   const turned = wrongShells(d, r, deflection);
   if (!turned.length) return r;
   const ids = new Set<number>();
@@ -144,6 +166,7 @@ export function orientResult(d: BrepData, r: TessellationResult, deflection: num
       for (let j = 0; j < 3; j++) indices[k + j] = copy.get(indices[k + j]!) ?? indices[k + j]!;
     }
   }
-  const note: Diagnostic = { severity: 'warning', message: turnedMessage(turned) };
+  const note: Diagnostic = { severity: 'warning', message: healed ? againstHealedMessage(turned, healed.backend)
+    : turnedMessage(turned) };
   return { ...r, positions, indices, ...(normals ? { normals } : {}), diagnostics: [...r.diagnostics, note] };
 }

@@ -1,9 +1,10 @@
-// areaOracle: the judging area oracle tess-workers' workers set.
+// areaOracle (the judging area oracle tess-workers' workers set) and shellVolumes (shells' exact orientation).
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cube } from '../../cad-brep/test/models.ts';
+import { BrepBuilder } from 'cad-brep';
+import { box, cube, withVoid } from '../../cad-brep/test/models.ts';
 import { bsplineCylinder, line2 } from '../../cad-heal/test/models.ts';
-import { areaOracle, init, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, Oracle } from '../src/index.ts';
+import { areaOracle, init, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, Oracle, shellVolumes } from '../src/index.ts';
 
 const module = await init();
 
@@ -29,4 +30,42 @@ test('areaOracle: the faces trusted at JUDGE_RELATIVE by id, with their errors; 
   assert.equal(areaOracle(module).areas(c).size, 6);
   c.face.id[1] = c.face.id[0]!;
   assert.deepEqual([...areaOracle(module).areas(c).keys()].length, 4);
+});
+
+test('shellVolumes: a solid\'s shells\' signed volumes, the sign known; a void facing in or out by its sign', () => {
+  const [one] = shellVolumes(module, cube().finish());
+  assert.ok(Math.abs(one!.volume - 1) < 1e-12 && one!.known && one!.side === 'unknown', JSON.stringify(one));
+  assert.deepEqual(shellVolumes(module, withVoid().finish()).map((s) => [s.shell, Math.round(s.volume * 1e9) / 1e9,
+    s.known]), [[0, 64, true], [1, -1, true]]);
+  for (const [sense, v] of [[false, -1], [true, 1]] as const) {
+    const b = new BrepBuilder();
+    const outer = box(b, [4, 4, 4]), inner = box(b, [1, 1, 1], [1, 1, 1], 1000);
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: outer, sense: true },
+      { ref: inner, sense }] }) });
+    assert.equal(Math.round(shellVolumes(module, b.finish())[1]!.volume * 1e9) / 1e9, v);
+  }
+  // An open sheet isn't a solid: nothing.
+  assert.deepEqual(shellVolumes(module, bsplineCylinder(line2([1, 0], [0, 1])).finish()), []);
+});
+
+test('shellVolumes: unknown where the shell isn\'t closed or a face\'s area isn\'t trusted; a ShellSide asked', () => {
+  // The cube with a face's loops dropped (an open shell, its kind open): not summed.
+  const d = cube().finish();
+  d.shell.kind[0] = 2;
+  const [open] = shellVolumes(module, d);
+  assert.deepEqual([open!.known, open!.why, open!.volume], [false, 'the shell isn\'t closed', NaN]);
+  // A face whose area isn't trusted within 1e-3 (the B-spline cylinder's circles projected at a tolerance of 0.5, so
+  // its boundary's bound is past it), in a shell taken as a closed solid's: not summed.
+  const c = bsplineCylinder(line2([1, 0], [0, 1])).finish();
+  c.edge.tolerance.fill(0.5);
+  c.body.kind[0] = 1;
+  c.shell.kind[0] = 1;
+  const [cyl] = shellVolumes(module, c);
+  assert.deepEqual([cyl!.known, cyl!.why, cyl!.volume], [false, 'face row 0\'s area isn\'t trusted', NaN]);
+  // A ShellSide's answer, for the shell's first face with loops, at eps.
+  const asked: [number, number, number][] = [];
+  const [s] = shellVolumes(module, cube().finish(), { eps: 0.5, sides: { side: (_m, shell, face, eps) => (asked.push(
+    [shell, face, eps]), { side: 'outside', why: 'ray +x: 1 hit' }) } });
+  assert.deepEqual(asked, [[0, 0, 0.5]]);
+  assert.deepEqual([s!.side, s!.sideWhy], ['outside', 'ray +x: 1 hit']);
 });
