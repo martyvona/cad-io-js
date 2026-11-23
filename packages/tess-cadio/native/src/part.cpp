@@ -464,7 +464,8 @@ struct PartMesher::Impl {
         // (At a smooth pole all its points so; at an apex only a far end's corner, there on the line from the apex
         // through that end (a cone's generator through it): its fans run round a cone, its ring a whole turn and
         // more of its points needed for the deflection.)
-        if (std::vector<double> in = inSector(s, S, side, r, a.point, b.point, qs, !fan.smooth, farA, farB);
+        if (std::vector<double> in = inSector(s, S, side, r, a.point, b.point, qs, !fan.smooth,
+              farA && o.apexCorners, farB && o.apexCorners);
             !in.empty() || n - len >= 3)
           qs = std::move(in);
         fan.chain.push_back(static_cast<int>(out.size()) - 1);
@@ -1733,7 +1734,7 @@ struct PartMesher::Impl {
           }
         if (against[j]) (byNormals[j] == (against[j] > 0) ? agree : disagree)++;
       }
-      const bool topological = agree > 0 && disagree > 0;
+      const bool topological = o.consistentFans && agree > 0 && disagree > 0;
       for (size_t j = 0; j + 1 < ring[k].size(); j++) {
         int32_t a = ring[k][j], b = ring[k][j + 1];
         double qa = freeOf(mesh.points[a], fan.isoU), qb = freeOf(mesh.points[b], fan.isoU);

@@ -635,6 +635,24 @@ test('an apex\'s fan consistent along its chain: bsplineApexHole meshed by defau
   assert.deepEqual([...used].filter(([, n]) => n > 1), []);
 });
 
+test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over itself fails, said so; off, meshed',
+  { skip }, async () => {
+  // (bsplineApexHole at 1e-3 mm and 0.1 rad with both rules against folds off: its apex's fan folds.)
+  const data = new Uint8Array(bsplineApexHole().finish().buffer);
+  const run = async (failFoldedFans?: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ maxDeviationFactor: 0, consistentFans: false, apexCorners: false,
+      ...(failFoldedFans === undefined ? {} : { failFoldedFans }) });
+    return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
+  };
+  const byDefault = failedCauses(await run()), off = await run(false);
+  assert.equal(byDefault.size, 1);
+  assert.match([...byDefault.values()][0]!,
+    /^noConvergence: a pole's fan folds over itself: \d+ edges? used twice the same way$/);
+  assert.equal(failedCauses(off).size, 0);
+  assert.ok(off.indices.length > 0);
+});
+
 test('init({capFloor, capMultiple, capCeiling}): a face past max(floor, multiple x its expected triangles) fails, '
   + 'its cap and expected count in the cause; by the defaults it meshes', { skip }, async () => {
   // (bumpPatch at 1e-3 mm meshes some 33,000 triangles against about 4,500 expected.)

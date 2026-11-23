@@ -59,6 +59,8 @@ bool countExpected = false;
 bool failCapped = true, failTurnedOver = true;
 // PartOptions::failFoldedFans for the next calls.
 bool failFoldedFans = PartOptions{}.failFoldedFans;
+// PartOptions::consistentFans and apexCorners for the next calls.
+bool consistentFans = true, apexCorners = true;
 // PartOptions::analysis for the next calls: the caller's buffer, kept alive by it until set again.
 const uint8_t* analysis = nullptr;
 size_t analysisSize = 0;
@@ -140,6 +142,8 @@ void tc_set_fail_capped(int on) { failCapped = on != 0; }
 void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
 /** Whether the next calls fail a face whose pole's fan folds over itself (PartOptions::failFoldedFans; default 1). */
 void tc_set_fail_folded_fans(int on) { failFoldedFans = on != 0; }
+/** Whether the next calls apply the fold rules (PartOptions::consistentFans, apexCorners; default 1 each). */
+void tc_set_fan_rules(int consistent, int corners) { consistentFans = consistent != 0, apexCorners = corners != 0; }
 
 /**
  * The model's analysis buffer for the next calls (PartOptions::analysis: 8-byte aligned, held by the caller until
@@ -177,6 +181,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
   opts.failFoldedFans = failFoldedFans;
+  opts.consistentFans = consistentFans, opts.apexCorners = apexCorners;
   opts.analysis = analysis, opts.analysisSize = analysisSize;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
