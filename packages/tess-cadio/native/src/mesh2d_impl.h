@@ -10,7 +10,11 @@ namespace tesscadio {
 enum : uint8_t { kThinBoundary = 1, kThinFrozen = 2, kThinFloor = 4 };
 
 struct Mesh2Detail {
-  /** Steiner points refused (encroaching, outside the domain, too near a vertex), the triangles left final. */
+  /**
+   * Triangles left final, each one counted as it is (its every candidate refused: encroaching, outside the domain,
+   * too near a vertex; or its insertion failing): finalTriangles less any made final twice, so it grows with the mesh,
+   * a finer mesh having more however few of them are bad.
+   */
   int refused = 0;
   int finalTriangles = 0;
   /** Refused candidates not moved toward the centroid again, their cavity past mesh2d.cpp's kHalvingCavity. */
