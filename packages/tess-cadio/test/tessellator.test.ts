@@ -633,3 +633,20 @@ test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over 
   assert.equal(failedCauses(off).size, 0);
   assert.ok(off.indices.length > 0);
 });
+
+test('init({capFloor, capMultiple, capCeiling}): a face past max(floor, multiple x its expected triangles) fails, '
+  + 'its cap and expected count in the cause; by the defaults it meshes', { skip }, async () => {
+  // (bumpPatch at 1e-3 mm meshes some 33,000 triangles against about 4,500 expected.)
+  const data = new Uint8Array(bumpPatch().finish().buffer);
+  const run = async (opts: { capFloor?: number; capMultiple?: number; capCeiling?: number }) => {
+    const t = new CadioTessellator();
+    await t.init(opts);
+    return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.26 });
+  };
+  const tight = failedCauses(await run({ capFloor: 1000, capMultiple: 1 }));
+  assert.equal(tight.size, 1);
+  assert.match([...tight.values()][0]!,
+    /^noConvergence: refinement stopped at its point cap, \d+ triangles \(its cap \d+: \d+ expected\)$/);
+  assert.equal(failedCauses(await run({})).size, 0);
+  assert.equal(failedCauses(await run({ capFloor: 1000, capMultiple: 1, capCeiling: 500 })).size, 1);
+});
