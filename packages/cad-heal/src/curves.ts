@@ -217,17 +217,20 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           // bare, as imported (the healed model stores a p-curve only where healing changes the edge: grown, or the
           // mesher's own projection failing; the pcurveMissing fixes make them all), without the grid or a trace (on
           // a large surface the grid is too coarse to bound a correct curve, and every such use was traced: LMP1's).
-          // Not on a closed-form surface, measured exactly.
+          // Not on a closed-form surface, measured exactly. Where that projection measured the curve farther than the
+          // tolerance from the surface, the grid's bound (an upper bound on the distance) can't be within it: traced
+          // without the grid (building a fine one over a large surface is most of the bound's cost).
           if (!closedForm && traceable) {
-            const within = withinAsProjected(tolE);
+            const p = g.projectCoedge(c);
+            const within = withinAsProjected(p, tolE);
             if (within !== undefined) return needs(e, within);
+            if ('offSurface' in p && p.offSurface > tolE) return needs(e, traced(tolE));
           }
           needs(e, curveOffSurface(g, curve, range, surface, tolE, grids,
             closedForm || !traceable ? undefined : () => traced(tolE)));
         };
         /** The curve's distance from the surface by the face API's projection, where that's within tolE; else none. */
-        const withinAsProjected = (tolE: number): number | undefined => {
-          const p = g.projectCoedge(c);
+        const withinAsProjected = (p: ReturnType<Geometry['projectCoedge']>, tolE: number): number | undefined => {
           // (Its fit's error within the edge's tolerance as the pass judges it, which covers the curve's distance from
           // the surface: the face API projects at its own edge tolerance, the same today, so this only guards them
           // drifting apart.)

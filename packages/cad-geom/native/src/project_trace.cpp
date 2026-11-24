@@ -789,9 +789,7 @@ void trace(const Job& job, Pcurve& out) {
       // their cap.)
       double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
       std::function<Vec2(double)> f = [&](double t) { return foot(t); };
-      const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
-        return norm(pointOf(job.s, a) - pointOf(job.s, b));
-      };
+      const std::function<Vec3(Vec2)> in3d = [&](Vec2 uv) { return pointOf(job.s, uv); };
       PcurvePiece best;
       double bestErr = kInf, bestWorstT = NAN, bestLocal = NAN;
       Status bestSt = Status::ok;

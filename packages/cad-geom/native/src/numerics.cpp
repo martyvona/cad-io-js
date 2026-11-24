@@ -49,16 +49,34 @@ void basis(int i, double t, int p, const std::vector<double>& U, double* N) {
   }
 }
 
-void basisDerivs(int i, double t, int p, int n, const std::vector<double>& U, double* ders) {
-  // (Allocation-free up to kStackDegree: this is evaluation's hot path. Not zero-filled: ndu's every entry is written
-  // before it's read, as its lower and upper triangles and diagonal are made; left and right are read at 1..j only
-  // once written; a's rows as A2.3 has them, each read only where the step before wrote it.)
+namespace {
+
+/** basisDerivs's work arrays: fixed at degree P (> 0), else on the stack up to kStackDegree (Scratch). Not
+ * zero-filled: ndu's every entry is written before it's read, as its lower and upper triangles and diagonal are
+ * made; left and right are read at 1..j only once written; a's rows as A2.3 has them, each read only where the step
+ * before wrote it. */
+template <int P> struct BasisWork {
+  double ndu[(P + 1) * (P + 1)], left[P + 1], right[P + 1], a[2 * (P + 1)];
+  explicit BasisWork(int) {}
+};
+template <> struct BasisWork<0> {
   using D = Scratch<double, (kStackDegree + 1) * (kStackDegree + 1)>;
   using E = Scratch<double, kStackDegree + 1>;
   using A = Scratch<double, 2 * (kStackDegree + 1)>;
-  D ndu((p + 1) * (p + 1), D::uninitialized);
-  E left(p + 1, E::uninitialized), right(p + 1, E::uninitialized);
-  A a(2 * (p + 1), A::uninitialized);
+  D nduS;
+  E leftS, rightS;
+  A aS;
+  double *ndu, *left, *right, *a;
+  explicit BasisWork(int p)
+    : nduS((p + 1) * (p + 1), D::uninitialized), leftS(p + 1, E::uninitialized), rightS(p + 1, E::uninitialized),
+      aS(2 * (p + 1), A::uninitialized), ndu(nduS.data()), left(leftS.data()), right(rightS.data()), a(aS.data()) {}
+};
+
+/** A2.3 at degree P (> 0: fixed, so the loops' bounds are constants), or at degree pRun (P = 0). */
+template <int P> void basisDerivsAt(int i, double t, int pRun, int n, const double* U, double* ders) {
+  const int p = P > 0 ? P : pRun;
+  BasisWork<P> w(p);
+  double *ndu = w.ndu, *left = w.left, *right = w.right;
   auto NDU = [&](int r, int c) -> double& { return ndu[r * (p + 1) + c]; };
   NDU(0, 0) = 1;
   for (int j = 1; j <= p; j++) {
@@ -76,8 +94,8 @@ void basisDerivs(int i, double t, int p, int n, const std::vector<double>& U, do
   for (int k = 0; k <= n; k++)
     for (int j = 0; j <= p; j++) ders[k * (p + 1) + j] = k == 0 ? NDU(j, p) : 0;
   for (int r = 0; r <= p; r++) {
-    double* a0 = a.data();
-    double* a1 = a.data() + (p + 1);
+    double* a0 = w.a;
+    double* a1 = w.a + (p + 1);
     a0[0] = 1;
     for (int k = 1; k <= n && k <= p; k++) {
       double d = 0;
@@ -103,6 +121,22 @@ void basisDerivs(int i, double t, int p, int n, const std::vector<double>& U, do
   for (int k = 1; k <= n; k++) {
     for (int j = 0; j <= p; j++) ders[k * (p + 1) + j] *= f;
     f *= p - k;
+  }
+}
+
+} // namespace
+
+void basisDerivs(int i, double t, int p, int n, const std::vector<double>& U, double* ders) {
+  // Evaluation's hot path: the common degrees at fixed size (the same operations in the same order, so the same
+  // bits), the rest allocation-free up to kStackDegree.
+  const double* u = U.data();
+  switch (p) {
+  case 1: return basisDerivsAt<1>(i, t, p, n, u, ders);
+  case 2: return basisDerivsAt<2>(i, t, p, n, u, ders);
+  case 3: return basisDerivsAt<3>(i, t, p, n, u, ders);
+  case 4: return basisDerivsAt<4>(i, t, p, n, u, ders);
+  case 5: return basisDerivsAt<5>(i, t, p, n, u, ders);
+  default: return basisDerivsAt<0>(i, t, p, n, u, ders);
   }
 }
 
