@@ -53,6 +53,8 @@ struct Entry {
   /** Per coedge: its projection at its edge's tolerance (projection()), made on first use; its face, -1 none. */
   std::vector<std::unique_ptr<Projection>> projected;
   std::vector<int32_t> coedgeFace;
+  /** Coedge projections made (projectCoedge's runs that reached projectCurve), for tests and profiles. */
+  int32_t projections = 0;
   /** cg_model_options: the face API projects coedges without p-curves. */
   bool project = true;
   /** The tolerances its edges and faces are judged by (tolerance.h): made once with the model. */
@@ -779,6 +781,7 @@ void projectCoedge(int32_t h, int c, double tol, Projection& out) {
   ends.checkStart = vlo >= 0, ends.checkEnd = vhi >= 0;
   if (vlo >= 0) ends.startKey = key(vlo), ends.startPoint = m.vertexPoint(vlo);
   if (vhi >= 0) ends.endKey = key(vhi), ends.endPoint = m.vertexPoint(vhi);
+  entry(h)->projections++;
   out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), &ends,
     &source);
   out.t0 = t0, out.t1 = t1, out.made = 0;
@@ -1149,6 +1152,9 @@ int32_t cg_face_self(int32_t h, int32_t face, int32_t loop, double tol3d, int32_
   return 0;
 }
 
+/** The coedge projections the model's face API has made (each kept one once, each other tolerance's every call). */
+int32_t cg_model_projections(int32_t h) { return entry(h) ? entry(h)->projections : -1; }
+
 /** Options (bits): 1 the face API doesn't project coedges without p-curves (FACE_NO_PCURVE instead). */
 int32_t cg_model_options(int32_t h, int32_t flags) {
   Entry* e = entry(h);
@@ -1263,16 +1269,17 @@ int32_t cg_face_end_feet(int32_t h, int32_t face, int32_t vertex, double tol) {
 }
 
 /**
- * The coedge's edge curve projected as the face API does (the file's comment), at tol (> 0; else the edge's
- * tolerance, the face API's, kept), into the scratch with the (u, v) at the n parameters t, whether or not the model
- * gives the coedge a p-curve: 0, or why not (a status, a face status).
+ * The coedge's edge curve projected as the face API does (the file's comment), at tol (> 0, else the edge's
+ * tolerance; at the edge's tolerance the face API's projection, made once and kept), into the scratch with the (u, v)
+ * at the n parameters t, whether or not the model gives the coedge a p-curve: 0, or why not (a status, a face status).
  */
 int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t, int32_t n) {
   Entry* e = entry(h);
   if (!e || coedge < 0 || coedge >= e->model.coedges()) return static_cast<int32_t>(Status::invalidModel);
+  const bool kept = !(tol > 0) || tol == edgeTolerance(h, e->model.coedgeEdge(coedge));
   Projection fresh;
-  if (tol > 0) projectCoedge(h, coedge, tol, fresh);
-  const Projection& p = tol > 0 ? fresh : projection(h, coedge);
+  if (!kept) projectCoedge(h, coedge, tol, fresh);
+  const Projection& p = kept ? projection(h, coedge) : fresh;
   if (p.made) return p.made;
   putProjection(p.p, p.twin, p.t0, p.t1, t, n);
   return 0;

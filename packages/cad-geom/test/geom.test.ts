@@ -955,12 +955,13 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   const tilt = 0.5, ellipse = b.addCurve({ kind: 'ellipse', position: { origin: [0, 0, 0],
     axis: [0, -Math.sin(tilt), Math.cos(tilt)], xDir: [0, Math.cos(tilt), Math.sin(tilt)] },
   semiAxis1: 1 / Math.cos(tilt), semiAxis2: 1 });
-  // Unit disks on z = 0 bounded by a closed circle without a p-curve: one on the plane, one 0.001 above it.
+  // Unit disks on z = 0 bounded by a closed circle without a p-curve: one on the plane, one 0.001 above it (its edge's
+  // tolerance 1.5e-5, past the part's 1e-5).
   const plane = b.addSurface({ kind: 'plane', position: axes });
   for (const z of [0, 1e-3]) {
     const v = b.addVertex({ point: [1, 0, z] });
     const c = b.addCurve({ kind: 'circle', position: { ...axes, origin: [0, 0, z] }, radius: 1 });
-    const e = b.addEdge({ curve: c, start: v, end: v, sameSense: true });
+    const e = b.addEdge({ curve: c, start: v, end: v, sameSense: true, ...(z ? { tolerance: 1.5e-5 } : {}) });
     const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
       coedges: [{ edge: e, orientation: 'forward' }] }] });
     b.addItem({ kind: 'face', ref: f });
@@ -1037,6 +1038,16 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   // At a tolerance the gap is within, it's made.
   const c2 = g.projectCoedge(1, 2e-3);
   assert.ok('pieces' in c2 && c2.status === 'ok');
+  // At its edge's tolerance the kept projection, made once; at another (the part's among them), made each call.
+  const made = g.projectionsMade();
+  assert.deepEqual(g.projectCoedge(1, 1.5e-5), c1);
+  assert.deepEqual(g.projectCoedge(1), c1);
+  assert.equal(g.projectionsMade(), made);
+  g.projectCoedge(1, 2e-3);
+  assert.equal(g.projectionsMade(), made + 1);
+  g.projectCoedge(1, 1e-5);
+  g.projectCoedge(1, 1.5e-5 * (1 + 1e-15));
+  assert.equal(g.projectionsMade(), made + 3);
   // Not traced: unchecked. The ellipse's coedge, traced once round: its start the vertex's foot, its end the same a
   // period over.
   assert.deepEqual([c0.endCheck, c0.endAlternatives.map((a) => a.length)], [['unchecked', 'unchecked'], [0, 0]]);

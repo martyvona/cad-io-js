@@ -603,7 +603,7 @@ export class Geometry {
   /**
    * The coedge's edge curve projected onto its face's surface as the face API does (over its edge's parameters, the
    * seam side its use takes), whether or not the model gives it a p-curve: at `tol` where given (> 0), else the
-   * edge's tolerance (the face API's, kept).
+   * edge's tolerance; at the edge's tolerance the face API's own, made once and kept.
    */
   projectCoedge(coedge: number, tol = NaN, samples: ArrayLike<number> = []): Pcurve | { status: FaceStatus } {
     const [s] = this.call('coedge_project', coedge, tol, { f64: samples }, samples.length);
@@ -642,6 +642,11 @@ export class Geometry {
   /** Whether the face API projects coedges without p-curves (on by default; off, their faces are 'noPcurve'). */
   setProjectMissingPcurves(on: boolean): void {
     this.fn('model_options')(this.live(), on ? 0 : 1);
+  }
+
+  /** The coedge projections this model's face API has made: each at its edge's tolerance once, others every call. */
+  projectionsMade(): number {
+    return this.fn('model_projections')(this.live()) as number;
   }
 
   // -- Faces: 2D geometry on a face's loops (geom2d.h; cad_geom_api.cpp says how the loops, periods, pole lines and
