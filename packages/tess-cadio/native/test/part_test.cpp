@@ -980,9 +980,12 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
   // on top of its seams. Projected and not. Radius 1 at z = 0, the apex (0, 0, -1): a point's distance from the
-  // surface |hypot(x, y) - (1 + z)| / sqrt 2. Area pi sqrt 2.
+  // surface |hypot(x, y) - (1 + z)| / sqrt 2. Area pi sqrt 2. coneApexLoop: the apex a loop of its own, an edge with
+  // no curve there, the pole (Turned: on a face whose sense is false, where the face's side wouldn't find it).
+  // seamConeTurned: seamConeBare's loop on a face whose sense is false, meshed as that sense has it, the loop against
+  // it said.
   const double area = M_PI * M_SQRT2;
-  for (const char* name : {"cone", "seamCone", "seamConeBare"})
+  for (const char* name : {"cone", "seamCone", "seamConeBare", "coneApexLoop", "coneApexLoopTurned", "seamConeTurned"})
     for (bool project : {true, false})
       for (double d : {0.05, 0.01}) {
         cadgeom::Model m = load(name);
@@ -994,6 +997,7 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
         if (fm.status != cadgeom::Status::ok)
           std::printf("  %s: status %d %s\n", name, int(fm.status), fm.cause.c_str());
         REQUIRE(fm.status == cadgeom::Status::ok);
+        CHECK_EQ(fm.againstSense, std::strcmp(name, "seamConeTurned") == 0);
         const Vec3 apex{0, 0, -1};
         Stats st = stats(fm, [](Vec3 p) { return std::fabs(std::hypot(p.x, p.y) - (1 + p.z)) * M_SQRT1_2; }, &apex,
           1e-12);

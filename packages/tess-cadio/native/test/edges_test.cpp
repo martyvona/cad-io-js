@@ -865,6 +865,30 @@ TEST_CASE("a seam use by inversion that no neighbour places: Status::singular, n
   CHECK(!valid.againstSense);
 }
 
+TEST_CASE("a seam use no junction places, its given p-curve parameterized otherwise: the copy that p-curve says") {
+  // luneOnSeamPcurves: the seam meridian's p-curve at u = 0, the other's at pi / 2 (each over 0 to 1, so by inversion):
+  // the quarter lune, its area pi; the same with both p-curves a period down (Shifted: the other meridian placed a
+  // period off its own), and with the other meridian in two halves, each meeting the seam's use at a pole (Split).
+  // Singular: Far, the seam's p-curve at 2 pi (the lune the other way round, against the face's sense), as luneOnSeam
+  // without p-curves is; SplitDisagree, the halves' p-curves a period apart.
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  for (const char* name : {"luneOnSeamPcurves", "luneOnSeamPcurvesShifted", "luneSplitPcurves"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeMesh em(m, o);
+    CHECK_EQ(checkEdges(m, em, o, name), 0);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    CHECK(!fb.againstSense);
+    CHECK(std::fabs(meshArea(m, 0, fb, 0.05, 1e-4) - M_PI) < 1e-2);
+  }
+  CHECK(EdgeMesh(load("luneOnSeamPcurvesFar"), o).face(0).status == cadgeom::Status::singular);
+  CHECK(EdgeMesh(load("luneSplitPcurvesDisagree"), o).face(0).status == cadgeom::Status::singular);
+  o.projectMissingPcurves = false;
+  CHECK(EdgeMesh(load("luneOnSeam"), o).face(0).status == cadgeom::Status::singular);
+}
+
 TEST_CASE("a split in an edge's end span kept past the near-end drop (min(tol, d / 10) of the end), toward the span's "
   "other sample; in an end span with no room for one, dropped") {
   // (d = 10 tol: the reach, min(tol, d / 10), and the refinement floor, max(tol, d / 10), the same, so a span past

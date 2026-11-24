@@ -1600,6 +1600,50 @@ struct EdgeMesh::Impl {
         changed = true;
       }
     }
+    // A seam use whose neighbours meet it only at poles (a lune's meridian on the seam between a sphere's poles:
+    // trj4_k1_top-pe #4779's #3088) has no junction to settle its copy. Where it and a placed neighbour have given
+    // p-curves, even ones parameterized otherwise (which only seed inversion), the copy is the one those p-curves put
+    // it at against that neighbour: the source's word, not a guess. The neighbour's whole periods between its p-curve
+    // and its placement, each taken at its mean along the seam's direction; neighbours that disagree leave it
+    // unplaced. Without given p-curves it stays unplaced (singular).
+    auto pcurveMean = [&](int k, int d, double& out) {
+      const Coedge& C = coedges[cs[k]];
+      if (!C.pcurve) return false;
+      const CurveDomain D = C.pcurve->domain();
+      if (!std::isfinite(D.range.lo) || !std::isfinite(D.range.hi)) return false;
+      double sum = 0;
+      for (int i = 0; i <= 8; i++) {
+        CurvePoint q;
+        if (C.pcurve->eval(D.range.lo + (D.range.hi - D.range.lo) * i / 8.0, 0, q) != Status::ok) return false;
+        sum += d ? q.p.y : q.p.x;
+      }
+      out = sum / 9;
+      return std::isfinite(out);
+    };
+    for (int k = 0; k < K; k++) {
+      if (placed[k] || !amb[k]) continue;
+      const int d = coedges[cs[k]].ambiguous[0] ? 0 : 1;
+      const double P = F.period[d];
+      double pk;
+      if (!(P > 0) || !pcurveMean(k, d, pk)) continue;
+      double want = NAN;
+      bool agree = true;
+      for (int j : {(k + K - 1) % K, (k + 1) % K}) {
+        double pj;
+        if (j == k || !placed[j] || amb[j] || !pcurveMean(j, d, pj)) continue;
+        double at = 0;
+        const std::vector<Vec2>& uv = coedges[cs[j]].s.uv;
+        for (Vec2 q : uv) at += (d ? q.y + shift[j].y : q.x + shift[j].x);
+        at /= static_cast<double>(uv.size());
+        const double x = pk + std::round((at - pj) / P) * P;
+        if (std::isnan(want)) want = x;
+        else agree = agree && std::fabs(x - want) <= 1e-9 * P;
+      }
+      if (std::isnan(want) || !agree) continue;
+      const double seamAt = d == 0 ? first(k).x : first(k).y;
+      (d == 0 ? shift[k].x : shift[k].y) = nearest(seamAt, want, P) - seamAt;
+      placed[k] = 1;
+    }
     for (int k = 0; k < K; k++)
       if (!placed[k]) ch.status = Status::singular;
     // Each seam use's side against its direction and the face's sense: the face's other points on its left.
@@ -1663,7 +1707,15 @@ struct EdgeMesh::Impl {
       double delta = std::fmod((x - e) * sg, P);
       if (delta < 0) delta += P;
       if (delta > P - 1e-9 * P) delta = 0;
-      if (delta == 0 && wholeTurn(K - 1, 0)) delta = P;
+      if (delta == 0 && wholeTurn(K - 1, 0)) {
+        delta = P;
+        // Up a seam to the pole and back down it is a whole turn the face's way; where the coedges already turn a
+        // whole period between those two uses (down the seam, round, back up it: the loop runs against the face's
+        // sense, a face turned in the source, trj6_b1-ec #10's #18689), the jump undoes that turn instead of making it
+        // two, and the contradiction is reported as a projected seam use's is (againstSense).
+        const double travel = e - (fr ? b0.y : b0.x);
+        if (std::fabs(travel) > 0.5 * P && travel * sg > 0) sg = -sg, ch.againstSense = true;
+      }
       (fr ? b.y : b.x) = e + sg * delta;
     }
     if (p >= 0 && norm(a - b) > 1e-12) {
@@ -1715,6 +1767,25 @@ struct EdgeMesh::Impl {
       if (a == -2) continue;
       if (a < 0 || (p >= 0 && a != p)) return -1;
       p = a;
+    }
+    return p;
+  }
+
+  /**
+   * The pole a loop's coedges cs lie at where every one's edge has no curve and both its vertices are at that one
+   * pole (a degenerate edge round a cone's apex given no geometry: bug26451's drill points), else -1. Such a loop is
+   * the pole, as a vertex loop at it is; it has no samples to make a chain of.
+   */
+  int curvelessPole(int f, const std::vector<int>& cs) const {
+    int p = -1;
+    for (int c : cs) {
+      const int e = m.coedgeEdge(c);
+      if (m.edgeCurve(e) >= 0) return -1;
+      for (int v : {m.edgeStart(e), m.edgeEnd(e)}) {
+        const int a = v < 0 ? -1 : poleAt(f, m.vertexPoint(v));
+        if (a < 0 || (p >= 0 && a != p)) return -1;
+        p = a;
+      }
     }
     return p;
   }
@@ -2013,6 +2084,10 @@ struct EdgeMesh::Impl {
       }
       std::vector<int> cs = bounding(l);
       if (cs.empty()) continue;
+      if (int p = curvelessPole(f, cs); p >= 0) {
+        poleLoops++, poleSing = p;
+        continue;
+      }
       Chain ch = chain(f, cs);
       F.againstSense = F.againstSense || ch.againstSense;
       if (ch.pts.size() < 2) continue;  // (face() reports it)
@@ -2427,6 +2502,10 @@ struct EdgeMesh::Impl {
         out.interior.push_back(run);
       }
       if (cs.empty()) continue;
+      if (curvelessPole(f, cs) >= 0) {  // (its pole line comes with the cut)
+        atPole++;
+        continue;
+      }
       Chain ch = chain(f, cs);
       if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) {  // (its pole line comes with the cut)
         atPole++;
