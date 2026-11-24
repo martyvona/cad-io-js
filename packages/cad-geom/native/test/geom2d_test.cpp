@@ -843,6 +843,115 @@ TEST_CASE("classify2: a spindle torus's poles split its periodic v: a face judge
     CHECK(classify2(face, {2.857, v}, per, 2e-6, st) == Side::out);
 }
 
+// LMP1 #173136's face #1078959 on a spindle torus (poles at v = a and b): a wedge from the pole line v = b up to
+// v = h, u from u0 to u1 across the seam, its p-curves' ends on the pole line at other u (every u there one point in
+// space), the loop closed along the line between them as the face API closes it: a turn of u in all, so by the loop's
+// sense the other band lies on its left. Its pieces through `map` (u, v) -> plane, reversed where the map turns the
+// plane over; its pole pieces at v = b + nudge, its last a further `up` (a period: the same face).
+namespace lmp {
+const double a = 1.672572179, b = 4.610613128, h = 4.665256867, u0 = 6.202289296, u1 = 0.080896011;
+template <class Map> std::vector<Loop2> wedge(Map map, bool flip, double shift = 0, double nudge = 0, double up = 0) {
+  const double c0 = 3.222488642 + shift, c1 = 3.060696643 + shift, e = b + nudge;
+  std::vector<std::pair<Vec2, Vec2>> sides{{{c0, e}, {u1 + shift, e}}, {{u1 + shift, e}, {u1 + shift, h}},
+    {{u1 + 2 * pi + shift, h}, {u0 + shift, h}}, {{u0 + shift, h}, {u0 + shift, e}}, {{u0 + shift, e}, {c1, e}},
+    {{c1, e + up}, {c0, e + up}}};
+  if (flip) {
+    std::reverse(sides.begin(), sides.end());
+    for (auto& sd : sides) std::swap(sd.first, sd.second);
+  }
+  Loop2 l;
+  for (auto& sd : sides) l.pieces.push_back({line(map(sd.first), map(sd.second)), {0, 1}, false});
+  return {l};
+}
+}  // namespace lmp
+
+TEST_CASE("classify2: a spindle torus's face against one pole line: points in the other band out, rays clipped there") {
+  // Every ray from the other band, clipped at the pole lines, met the closures along b as from inside the face, and
+  // the whole other sheet came out in.
+  using namespace lmp;
+  const std::vector<Vec2> in{{6.28, 4.64}, {0.03, 4.62}, {6.25, 4.655}};
+  const std::vector<Vec2> out{{6.28, 4.0}, {6.28, 3.0}, {6.28, 1.8}, {3, 3}, {0.03, 4.5}, {6.28, -2.0}, {3, 4.64},
+    {6.28, 5.0}, {6.28, 4.68}, {6.28, 4.6 + 2 * pi}};
+  auto id = [](Vec2 p) { return p; };
+  Status st;
+  // The pole lines in any order, any period's copy; the face a period over in u; its pole pieces within tol of b.
+  for (const std::vector<double>& poles : {std::vector<double>{a, b}, {b, a}, {b - 2 * pi, a + 4 * pi}})
+    for (double shift : {0.0, 2 * pi})
+      for (double nudge : {0.0, -0.004, 0.004}) {
+        const std::vector<Loop2> face = wedge(id, false, shift, nudge);
+        Periods per{2 * pi, 2 * pi, {}, poles};
+        for (Vec2 p : in) CHECK(classify2(face, p, per, 0.0057, st) == Side::in);
+        for (Vec2 p : out) CHECK(classify2(face, p, per, 0.0057, st) == Side::out);
+      }
+  // All of it 3 down in v: the other band across v = 0.
+  {
+    const std::vector<Loop2> face = wedge([](Vec2 p) { return Vec2{p.x, p.y - 3}; }, false);
+    Periods per{2 * pi, 2 * pi, {}, {a - 3, b - 3}};
+    for (Vec2 p : in) CHECK(classify2(face, {p.x, p.y - 3}, per, 0.0057, st) == Side::in);
+    for (Vec2 p : out) CHECK(classify2(face, {p.x, p.y - 3}, per, 0.0057, st) == Side::out);
+  }
+  // Mirrored in v (the wedge below the pole line a, the other band (a, b) above it), and with u and v swapped.
+  for (double nudge : {0.0, -0.004, 0.004}) {
+    const std::vector<Loop2> face = wedge([](Vec2 p) { return Vec2{p.x, a + b - p.y}; }, true, 0, nudge);
+    Periods per{2 * pi, 2 * pi, {}, {a, b}};
+    for (Vec2 p : in) CHECK(classify2(face, {p.x, a + b - p.y}, per, 0.0057, st) == Side::in);
+    for (Vec2 p : out) CHECK(classify2(face, {p.x, a + b - p.y}, per, 0.0057, st) == Side::out);
+  }
+  const std::vector<Loop2> face = wedge([](Vec2 p) { return Vec2{p.y, p.x}; }, true);
+  Periods per{2 * pi, 2 * pi, {a, b}, {}};
+  for (Vec2 p : in) CHECK(classify2(face, {p.y, p.x}, per, 0.0057, st) == Side::in);
+  for (Vec2 p : out) CHECK(classify2(face, {p.y, p.x}, per, 0.0057, st) == Side::out);
+}
+
+TEST_CASE("classify2: on a pole line a period over: on where the face reaches the pole, as on the line itself") {
+  // LMP1 #173136's wedge (namespace lmp) reaches the pole line b along its closures, so every u on it is on; points
+  // within tol of b's copies a period either way are on too (compared with the poles as given, they were judged as
+  // points off the line). The other pole line, a, it doesn't reach: out, on any copy.
+  using namespace lmp;
+  auto id = [](Vec2 p) { return p; };
+  Status st;
+  for (double shift : {0.0, 2 * pi, -2 * pi})
+    for (double dv : {0.0, 0.003, -0.003}) {
+      const std::vector<Loop2> face = wedge(id, false);
+      Periods per{2 * pi, 2 * pi, {}, {a, b}};
+      for (double u : {6.28, 3.0, 0.5}) CHECK(classify2(face, {u, b + shift + dv}, per, 0.0057, st) == Side::on);
+      CHECK(classify2(face, {6.28, a + shift + dv}, per, 0.0057, st) == Side::out);
+      // The same in u, the pole lines u = a and b across a periodic u.
+      const std::vector<Loop2> swapped = wedge([](Vec2 p) { return Vec2{p.y, p.x}; }, true);
+      Periods perU{2 * pi, 2 * pi, {a, b}, {}};
+      for (double v : {6.28, 3.0, 0.5}) CHECK(classify2(swapped, {b + shift + dv, v}, perU, 0.0057, st) == Side::on);
+      CHECK(classify2(swapped, {a + shift + dv, 6.28}, perU, 0.0057, st) == Side::out);
+    }
+  // A piece a period over in v: its joints with the others a period apart, not a jump along the pole line between two
+  // copies (closed by a segment, it would cross the whole period). Judged as the wedge.
+  const std::vector<Loop2> face = wedge(id, false, 0, 0, 2 * pi);
+  const std::vector<Loop2> swapped = wedge([](Vec2 p) { return Vec2{p.y, p.x}; }, true, 0, 0, 2 * pi);
+  Periods per{2 * pi, 2 * pi, {}, {a, b}}, perU{2 * pi, 2 * pi, {a, b}, {}};
+  for (Vec2 p : {Vec2{6.28, 4.64}, Vec2{0.03, 4.62}}) {
+    CHECK(classify2(face, p, per, 0.0057, st) == Side::in);
+    CHECK(classify2(swapped, {p.y, p.x}, perU, 0.0057, st) == Side::in);
+  }
+  for (Vec2 p : {Vec2{6.28, 4.0}, Vec2{3, 3}, Vec2{3, 4.64}, Vec2{6.28, 5.0}}) {
+    CHECK(classify2(face, p, per, 0.0057, st) == Side::out);
+    CHECK(classify2(swapped, {p.y, p.x}, perU, 0.0057, st) == Side::out);
+  }
+}
+
+TEST_CASE("classify2: bands by poles across a period: a face reaching two bands, by pieces across a pole line alone") {
+  // Two pole lines at v = 1 and 4 across a period of 2 pi: bands (1, 4) and (4, 1 + 2 pi).
+  const double pv = 2 * pi;
+  Periods per{2 * pi, pv, {}, {1, 4}};
+  Status st;
+  // A triangle across the line v = 4, its apex in the upper band, which only its two slanted sides reach: in there.
+  std::vector<Loop2> tri{Loop2{{{line({1, 3}, {2, 3}), {0, 1}, false}, {line({2, 3}, {1.5, 4.5}), {0, 1}, false},
+    {line({1.5, 4.5}, {1, 3}), {0, 1}, false}}}};
+  CHECK(classify2(tri, {1.5, 3.5}, per, 1e-6, st) == Side::in);
+  CHECK(classify2(tri, {1.5, 4.2}, per, 1e-6, st) == Side::in);
+  CHECK(classify2(tri, {1.5, 4.2 - pv}, per, 1e-6, st) == Side::in);
+  CHECK(classify2(tri, {1.5, 5}, per, 1e-6, st) == Side::out);
+  CHECK(classify2(tri, {3, 3.5}, per, 1e-6, st) == Side::out);
+}
+
 TEST_CASE("classify2: a ray within tol of a spike's tip of short pieces: the joint the pieces in and out of it") {
   // Kuka.step #4099's plane face #28100 (its fillets as lines): an arc in along the bottom to a tip at the right, a
   // piece shorter than the tolerance, a line back out. From far off one ray passes the tip within tol, meeting the
