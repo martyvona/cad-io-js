@@ -81,10 +81,9 @@ struct Domain2 {
    */
   std::vector<uint8_t> frozen;
   /**
-   * Points to start refinement from (a mesh's Steiner points from before), inserted along a Morton curve as
-   * refinement inserts its own (cavities Delaunay in each point's metric) once the boundary is in: Steiner points in
-   * the result, counted toward maxPoints (so past it, those last along the curve are left out). One not finite,
-   * outside the domain or on a vertex is skipped.
+   * Points to start refinement from (a mesh's Steiner points from before), inserted in order as refinement inserts
+   * its own (cavities Delaunay in each point's metric) once the boundary is in: Steiner points in the result, counted
+   * toward maxPoints. One not finite, outside the domain or on a vertex is skipped.
    */
   std::vector<Vec2> seeds;
 };
