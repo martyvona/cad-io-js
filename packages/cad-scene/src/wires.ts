@@ -1,8 +1,9 @@
-// A part's wireframe curves and points (a model's curve and point items: STEP's geometric sets' curves and points),
+// A part's wireframe curves and points (a model's curve and point items, STEP's geometric sets' curves and points, and
+// its wire bodies' edges, STEP's wireframe models),
 // which a tessellation result carries beside its triangles: the ones a result lacks, the fallback's added for them
 // (FallbackTessellator), and what no backend delivered said (tessellateScene).
 
-import { type BrepData, ITEM_KIND } from 'cad-brep';
+import { BODY_KIND, type BrepData, ITEM_KIND } from 'cad-brep';
 import type { TessellationResult } from './tessellator.ts';
 
 /** Ids of the curve and point items a result should carry and doesn't. */
@@ -12,14 +13,25 @@ export interface MissingWires {
 }
 
 /**
- * The model's curve and point items (by id) that `r` has no curve or point for. A result's curves or points with no
- * source (null) are no one item's: as many missing ids as there are such are taken as delivered, since they can't
- * be told apart. Items with no id (0: a model built without one) can't be matched and aren't counted.
+ * The model's curve and point items, and its wire bodies' edges (a curve each: OCCT's, SMLib's and tess-cadio's
+ * results give each edge a polyline of its own, by the edge's id), that `r` has no curve or point for. A result's
+ * curves or points with no source (null) are no one item's: as many missing ids as there are such are taken as
+ * delivered, since they can't be told apart. Items and edges with no id (0: a model built without one) can't be
+ * matched and aren't counted.
  */
 export function missingWires(model: BrepData, r: TessellationResult): MissingWires {
   const want = { curves: [] as number[], points: [] as number[] };
   for (let k = 0; k < model.item.kind.length; k++) {
     const id = model.item.id[k]!;
+    if (model.item.kind[k] === ITEM_KIND.body) {
+      const body = model.item.ref[k]!;
+      if (model.body.kind[body] !== BODY_KIND.wire) continue;
+      for (let j = 0; j < model.body.count[body]!; j++) {
+        const e = model.member.ref[model.body.first[body]! + j]!;
+        if (model.edge.id[e]) want.curves.push(model.edge.id[e]!);
+      }
+      continue;
+    }
     if (!id) continue;
     if (model.item.kind[k] === ITEM_KIND.curve) want.curves.push(id);
     else if (model.item.kind[k] === ITEM_KIND.point) want.points.push(id);

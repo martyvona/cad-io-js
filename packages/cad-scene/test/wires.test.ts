@@ -64,6 +64,23 @@ test('missingWires: the model\'s curve and point items a result has nothing for;
   assert.deepEqual(missingWires(model, bare), { curves: [901], points: [] });
 });
 
+test('missingWires: a wire body\'s edges, a curve each by the edge\'s id; its own id not one', () => {
+  // The cube with a wire body (#70) of three edges (#71, #72 and one with no id, which can't be told).
+  const w = cube();
+  const at = [[5, 0, 0], [6, 0, 0], [6, 1, 0], [5, 1, 0]], v = at.map((point) => w.addVertex({ point }));
+  const e = [[0, 1, [1, 0, 0]], [1, 2, [0, 1, 0]], [2, 3, [-1, 0, 0]]].map(([a, c, dir], k) => w.addEdge({
+    curve: w.addCurve({ kind: 'line', point: at[a as number]!, direction: dir as number[], magnitude: 1 }),
+    start: v[a as number]!, end: v[c as number]!, sameSense: true, range: [0, 1], ...(k < 2 ? { id: 71 + k } : {}) }));
+  w.addItem({ kind: 'body', ref: w.addBody({ kind: 'wire', members: e.map((ref) => ({ ref, sense: true })), id: 70 }),
+    id: 70 });
+  const wired = w.finish();
+  assert.deepEqual(missingWires(wired, result()), { curves: [71, 72], points: [] });
+  assert.deepEqual(missingWires(wired, result([72])), { curves: [71], points: [] });
+  assert.deepEqual(missingWires(wired, result([71, 72])), { curves: [], points: [] });
+  // The cube's solid is no wire: nothing of its edges expected.
+  assert.deepEqual(missingWires(cube().finish(), result()), { curves: [], points: [] });
+});
+
 test('addWires: the other result\'s curves and points for the missing ids appended, the rest as they were', () => {
   const r = result([5, 6]), from = result([7, 901], [8, 902]);
   const { result: out, added } = addWires(r, from, { curves: [901], points: [902] });

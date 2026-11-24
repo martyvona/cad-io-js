@@ -1,7 +1,7 @@
-host: Apple M4, 10 cores (4 performance, 6 efficiency), 10 threads, 24 GiB; Darwin 24.6.0 arm64; Node 24.5.0; lowpowermode 0, on AC; load 5.9; speed 4410 on 1 thread, 23479 on 10
-517 files imported in 18.7 s: 683 components (and 2944 leaf products placed as parts, 2123 root parts), 3264 parts, 5036 part instances (8 hidden)
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 12.5; speed 4684 on 1 thread, 34142 on 18
+517 files imported in 1312.8 s: 683 components (and 2944 leaf products placed as parts, 2123 root parts), 3264 parts, 5036 part instances (8 hidden)
 696 materials; 0 component materials; 118 parts with per-face materials (5486 faces); 14 instance overrides; 3169 layers; 68 external components
-models: 107.7 MB
+models: 116.0 MB
      14 components and placed products != products  e.g. gkv311-opencascade-dataset/step/xr1-db-214_2.stp
       2 a model with errors (validateBrep)  e.g. gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483
       1 diagnostic: representation without a length unit; read as millimetres  e.g. gkv311-opencascade-dataset/step/bug32314_corrupted.stp #392938
