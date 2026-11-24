@@ -225,8 +225,8 @@ struct PointClass {
  * Which side of closed shell `shell` a point just outside face `face` lies on, the point at a point well inside the
  * face (a narrow face's: in at its tolerance) moved eps along the face's normal (its sense applied): outside, the
  * face's normal points out of the shell; inside, into it (a void's faces, rightly, face into the void, so a void
- * shell's are inside); unknown where it can't be told (no point in the face, no offset clear of the other faces, or
- * the point unknown).
+ * shell's are inside); unknown where it can't be told (no point in the face, no offset clear of the other faces, the
+ * point unknown, or the point off the other side, where its offset is clear too, classified the same).
  */
 struct ShellSide {
   enum Side : uint8_t { outside, inside, unknown };

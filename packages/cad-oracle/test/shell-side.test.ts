@@ -290,6 +290,55 @@ test('a narrow face whose loop has a gap wider than its tolerance: no point in a
     }
   });
 
+test('a degenerate torus\'s face can\'t be counted: a ray meeting its surface set aside', { skip }, async () => {
+  // Shells of one loopless face on a torus: a ring (3, 1), a spindle (1, 3) and a horn (2, 2). A point in the ring's
+  // tube is inside; in the others no ray from a point within the surface's reach is usable, so it's unknown; a point
+  // past the surface's box, its rays missing it, still outside.
+  for (const [R, r] of [[3, 1], [1, 3], [2, 2]] as const) {
+    const b = new BrepBuilder();
+    const surface = b.addSurface({ kind: 'torus', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
+      majorRadius: R, minorRadius: r });
+    const face = b.addFace({ surface, sameSense: true, loops: [] });
+    const shell = b.addShell({ kind: 'closed', faces: [{ face, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+    using o = new Oracle(await init(), b.finish().buffer);
+    const c = o.classify(0, [R, 0, 0]);
+    assert.deepEqual([c.side, c.why], R > r ? ['inside', ''] : ['unknown', 'no usable ray'], `${R}, ${r}`);
+    assert.equal(o.classify(0, [R + r + 1, 0, 0]).side, 'outside', `${R}, ${r}`);
+  }
+});
+
+test('the points off both sides of a face on the same side of the shell: neither told', { skip }, async () => {
+  // A box 2 across with a square 0.2 across at z = 1 inside it, in its shell (its rays miscounted, as a face
+  // classified in where it isn't would have them): both points off the square are inside the box.
+  const b = new BrepBuilder();
+  const shell = box(b, [2, 2, 2]);
+  const at = [[0.9, 0.9], [1.1, 0.9], [1.1, 1.1], [0.9, 1.1]] as const;
+  const vs = at.map(([x, y]) => b.addVertex({ point: [x, y, 1] }));
+  const edges = at.map(([x, y], i) => {
+    const [x2, y2] = at[(i + 1) % 4]!, len = Math.hypot(x2 - x, y2 - y);
+    const curve = b.addCurve({ kind: 'line', point: [x, y, 1], direction: [(x2 - x) / len, (y2 - y) / len, 0],
+      magnitude: len });
+    return b.addEdge({ curve, start: vs[i]!, end: vs[(i + 1) % 4]!, sameSense: true, range: [0, 1] });
+  });
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 1], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const square = b.addFace({ surface: plane, sameSense: true, id: 999, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+  // (box() closes its shell; the square added to it.)
+  (b as unknown as { shells: { faces: { face: number; sense: boolean }[] }[] }).shells[shell]!.faces
+    .push({ face: square, sense: true });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+  const d = b.finish();
+  using o = new Oracle(await init(), d.buffer);
+  const f = Array.from(d.face.id).indexOf(999);
+  for (const eps of [0.3, -0.05]) {
+    const r = o.shellSide(0, f, eps);
+    const why = 'the points off both sides of the face on the same side of the shell';
+    assert.deepEqual([r.side, r.why], ['unknown', why], `${eps}`);
+  }
+  assert.equal(o.shellSide(0, Array.from(d.face.id).indexOf(21), 0.3).side, 'outside');
+});
+
 test('a cone reaching its apex as a pole: a ray meeting it below its circle\'s box still counted', { skip },
   async () => {
     const d = conePoint();

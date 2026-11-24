@@ -129,6 +129,16 @@ RayFace Oracle::Impl::rayFace(int face, Vec3 o, Vec3 d, Range tr) {
     out.status = li.status;
     return out;
   }
+  // A degenerate torus's face (a spindle's or horn's, minor radius at least the major, or one the source says so of):
+  // classification on it can't be trusted (its pole lines part two sheets, and points of the other sheet came out
+  // in a strip by one: LMP1 #173136's #1078959), so a line meeting its surface can't count it.
+  const int sf = model.faceSurface(face);
+  if (model.surfaceKind(sf) == CBR_SURFACE_TORUS && (model.surfaceInts(sf)[0] != 0
+      || model.surfaceReals(sf)[10] >= model.surfaceReals(sf)[9])
+      && (!li.crossings.empty() || !li.tangencies.empty() || !li.overlaps.empty())) {
+    out.status = Status::unsupported;
+    return out;
+  }
   // Classified, each at its own tolerance in 3D: the face's for crossings, widened by half a tangency's span (its
   // cluster stands for that stretch of the line) for tangencies.
   auto side = [&](cadgeom::Vec2 uv, double tol3d) {
@@ -391,33 +401,56 @@ ShellSide Oracle::Impl::shellSide(int shell, int face, double eps) {
   const std::vector<int> faces = shellFaces(shell);
   const double tol = tols.face(face);
   // An offset clear of the shell's other faces: the segment from the point moved off back through the face to tol
-  // beyond meets the face alone, once, at x.
+  // beyond meets the face alone, once, at x. (Not below 10 x the tolerance: an offset less than that is taken as
+  // that, its own test the clear one.) The point at the first clear offset, a halving at a time; false where none is.
+  auto offset = [&](double sign, Vec3& q, double& at) {
+    for (double a = std::fmax(std::fabs(eps), 10 * tol), tries = 0; tries < 5 && a >= 10 * tol; tries++, a *= 0.5) {
+      q = x + (sign * a) * n;
+      const Vec3 d = -(sign * (a + 2 * tol)) * n;
+      bool clear = true;
+      for (int f : faces) {
+        const RayFace r = rayFace(f, q, d, {0, 1});
+        if (r.status != Status::ok) clear = false;
+        for (const FaceHit& h : r.hits) {
+          const bool ours = f == face && h.kind == FaceHit::crossing && cadgeom::norm(h.point - x) <= 2 * tol;
+          clear = clear && ours;
+        }
+        if (!clear) break;
+      }
+      if (clear) {
+        at = sign * a;
+        return true;
+      }
+    }
+    return false;
+  };
   // (eps's sign the side: negative, against the normal.)
   const double sign = eps < 0 ? -1 : 1;
-  // (Not below 10 x the tolerance: an offset less than that is taken as that, its own test the clear one below.)
-  for (double a = std::fmax(std::fabs(eps), 10 * tol), tries = 0; tries < 5 && a >= 10 * tol; tries++, a *= 0.5) {
-    const Vec3 q = x + (sign * a) * n, d = -(sign * (a + 2 * tol)) * n;
-    bool clear = true;
-    for (int f : faces) {
-      const RayFace r = rayFace(f, q, d, {0, 1});
-      if (r.status != Status::ok) clear = false;
-      for (const FaceHit& h : r.hits) {
-        const bool ours = f == face && h.kind == FaceHit::crossing && cadgeom::norm(h.point - x) <= 2 * tol;
-        clear = clear && ours;
-      }
-      if (!clear) break;
-    }
-    if (!clear) continue;
-    out.point = q, out.eps = sign * a;
-    out.classified = classify(shell, q);
-    switch (out.classified.side) {
-      case PointClass::outside: out.side = ShellSide::outside; break;
-      case PointClass::inside: out.side = ShellSide::inside; break;
-      default: out.why = out.classified.why[0] ? out.classified.why : "the point moved off the face unknown";
-    }
+  Vec3 q;
+  double at = 0;
+  if (!offset(sign, q, at)) {
+    out.why = "no offset clear of the shell's other faces";
     return out;
   }
-  out.why = "no offset clear of the shell's other faces";
+  out.point = q, out.eps = at;
+  out.classified = classify(shell, q);
+  switch (out.classified.side) {
+    case PointClass::outside: out.side = ShellSide::outside; break;
+    case PointClass::inside: out.side = ShellSide::inside; break;
+    default:
+      out.why = out.classified.why[0] ? out.classified.why : "the point moved off the face unknown";
+      return out;
+  }
+  // The other side, where its offset is clear too: crossing the face once there, its point must be on the other side
+  // of the shell; on the same, a ray was miscounted (a face classified in where it isn't), and neither is told.
+  Vec3 q2;
+  double at2 = 0;
+  if (offset(-sign, q2, at2)) {
+    const PointClass c2 = classify(shell, q2);
+    if (c2.side == out.classified.side) {
+      out.side = ShellSide::unknown, out.why = "the points off both sides of the face on the same side of the shell";
+    }
+  }
   return out;
 }
 
