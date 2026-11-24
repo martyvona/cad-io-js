@@ -4205,6 +4205,8 @@ await check('triangle edges on a selected face', async () => {
 // with a modifier, or repeated; recorded as the controls they press. Each control shows its key, greyed, after its
 // name, whole (the names themselves, which recordings use, unchanged).
 await check('keyboard shortcuts', async () => {
+  // (Other checks' keys forgotten first, before the page's scripts: they're in the same browser, and the hints must
+  // show here for the mouse alone.)
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
     await cadViewer.idle();
@@ -4277,7 +4279,8 @@ await check('keyboard shortcuts', async () => {
     // (The keyboard these keys said there is forgotten: later pages start without it.)
     localStorage.removeItem('cad-viewer.keyboard');
     return out;
-  })()`) as { after: { f: [boolean, string[]]; fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[];
+  })()`, { first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { f: [boolean, string[]];
+    fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[];
     h: [boolean, boolean]; s: [boolean, boolean]; tree: boolean[]; g: string[]; control: string; ignored: boolean[];
     ignoredCalls: string[]; recorded: string[]; hints: [string, string, boolean, boolean, boolean][] } };
   const a = r.after, j = JSON.stringify(a);
@@ -6506,7 +6509,7 @@ await check('open errors', async () => {
   expect(!!typed?.error && /not a URL, nor a path within the content root/.test(typed.text), `a bad address: ${j}`);
   return undefined;
 });
-// Screenshot..., between Export... and About...: disabled with no model; the model alone at its default width, the
+// Screenshot..., between Export... and Link to this view...: disabled with no model; the model alone at its default width, the
 // square of its sphere's circle within the view between the tree and the controls (worked out here from the camera),
 // and at twice that, the height in proportion, its pixels the view's there; with a transparent background (over the
 // view's, the opaque image again); JPEG (no transparency offered); the whole window redrawn, as wide as
@@ -6518,7 +6521,7 @@ await check('screenshot', async () => {
     const all = ui.gui.controllersRecursive();
     const shot = all.find((c) => c._name === 'Screenshot...');
     const names = all.map((c) => c._name);
-    const order = [names.indexOf('Export...'), names.indexOf('Screenshot...'), names.indexOf('About...')];
+    const order = [names.indexOf('Export...'), names.indexOf('Screenshot...'), names.indexOf('Link to this view...')];
     const before = shot._disabled;
     await ui.openUrl('/content/as1.stp');
     await cadViewer.idle();
@@ -6682,7 +6685,7 @@ await check('screenshot', async () => {
     file: undefined }, tab: { ...a.tab, file: undefined } });
   const near = (p: number[], q: number[], d: number) => p.slice(0, 3).every((v, k) => Math.abs(v - q[k]!) <= d);
   expect(a.order[0] >= 0 && a.order[1] === a.order[0] + 1 && a.order[2] === a.order[1] + 1 && a.before === true &&
-    a.after === false, `between Export... and About..., enabled with a model: ${j}`);
+    a.after === false, `between Export... and Link to this view..., enabled with a model: ${j}`);
   const m = a.model;
   expect(m.shown.what === 'model' && Math.abs(m.shown.width - a.expected.width) <= 1 && m.file.name === 'as1.png' &&
     m.image.width === m.shown.width && Math.abs(m.image.height - a.expected.height) <= 1 &&
