@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <functional>
+#include <unordered_map>
 #include <vector>
 
 #include "cad_oracle/oracle.h"
@@ -23,6 +24,32 @@ constexpr int kAdaptivePieces = 8;
 constexpr int kAdaptiveSplits = 4;
 /** Boundary points an integrand's default scale is probed around at most (floors). */
 constexpr size_t kScaleSamples = 16;
+/** Pieces a PieceCache holds at most (a few MB at a face's K); full, it starts again. */
+constexpr size_t kMaxCachedPieces = size_t(1) << 16;
+
+/**
+ * Inner pieces' integrals by (u, the piece's ends, its panels), kept across H's calls on one face: the outer rules
+ * of the loops' segments over one span of u's breaks share their nodes, and H from a band's bottom repeats every
+ * whole piece between the cuts below. Only for an F that is fixed while it's kept (freeIntegral clears it when a
+ * band run starts, its F giving zeros once a strip turns unsound).
+ */
+struct PieceCache {
+  struct Key {
+    double u, a, b;
+    int m;
+    bool operator==(const Key& o) const { return u == o.u && a == o.a && b == o.b && m == o.m; }
+  };
+  struct Hash {
+    size_t operator()(const Key& k) const {
+      const std::hash<double> h;
+      return ((h(k.u) * 31 + h(k.a)) * 31 + h(k.b)) * 31 + static_cast<size_t>(k.m);
+    }
+  };
+  std::unordered_map<Key, size_t, Hash> at;
+  /** Each piece's K values (its -integral), at the index at gives. */
+  std::vector<double> values;
+  void clear() { at.clear(), values.clear(); }
+};
 
 /**
  * A face's integrand in (u, v): K components, the caller's then the area, F(u, t, out). H(u, v0, v) integrates it
@@ -48,6 +75,8 @@ struct Inner {
    */
   std::vector<int> panels;
   std::vector<double> adaptTol;
+  /** Optional: H's fixed-panel pieces kept there. */
+  PieceCache* cache = nullptr;
 
   int span(double x) const { return static_cast<int>(std::upper_bound(cuts.begin(), cuts.end(), x) - cuts.begin()); }
   /** The pieces of [v0, v] between the cuts, in order from v0. */
@@ -118,7 +147,23 @@ struct Inner {
     pieces(v0, v, ends);
     for (size_t k = 0; k + 1 < ends.size(); k++) {
       const int mm = panels.empty() ? m : panels[span((ends[k] + ends[k + 1]) / 2)];
-      piece(u, ends[k], ends[k + 1], mm, out, f.data());
+      if (!cache || mm == 0) {
+        piece(u, ends[k], ends[k + 1], mm, out, f.data());
+        continue;
+      }
+      const PieceCache::Key key{u, ends[k], ends[k + 1], mm};
+      auto it = cache->at.find(key);
+      size_t i;
+      if (it != cache->at.end()) {
+        i = it->second;
+      } else {
+        if (cache->at.size() >= kMaxCachedPieces) cache->clear();
+        i = cache->values.size();
+        cache->values.resize(i + K, 0.0);
+        piece(u, ends[k], ends[k + 1], mm, cache->values.data() + i, f.data());
+        cache->at.emplace(key, i);
+      }
+      for (int q = 0; q < K; q++) out[q] += cache->values[i + q];
     }
   }
 };

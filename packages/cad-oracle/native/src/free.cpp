@@ -125,6 +125,8 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
   bool bad = false;
   Inner in;
   in.K = K;
+  PieceCache cache;
+  in.cache = &cache;
   in.F = [&](double a, double t, double* o) {
     // Once a strip isn't sound the run is thrown away (bands follow): cut it short, not through the fold.
     if (bad) {
@@ -621,7 +623,7 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
 
   Run R;
   for (int n = 1;; n = n == 1 ? 4 : 2 * n) {
-    bad = false;
+    bad = false, cache.clear();
     R = run(n);
     if (!ok) return fail(Status::invalidModel, "a p-curve not evaluated");
     if (!bad || n >= kMaxBands) {
