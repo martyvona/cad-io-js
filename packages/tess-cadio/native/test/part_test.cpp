@@ -1231,6 +1231,62 @@ TEST_CASE("the criteria's deviation verdicts sound inside knot cells: whatever t
   CHECK(nearAll > 10);  // (accepted triangles close to d: a looser verdict would show)
 }
 
+TEST_CASE("the criteria's piece bounds stop once past d (deviationWithin) with the verdict the whole bound gives: "
+  "random triangles across knot cells on B-splines, refused for their bound exactly where the box's and the pieces' "
+  "bounds (deviationBound, every piece) are past d") {
+  // deviationWithin bounds a triangle the 4-point sample passes by its knot cells' cached bound, then its box's, then
+  // its pieces', stopping at the first piece that puts the bound past d; deviationBound takes every piece. Triangles
+  // over several cells (their pieces many, a late one often the decider) at deflections where both verdicts are
+  // common. (No pole: near one the surface's distance by inversion may accept what the bounds refuse.)
+  struct Case { const char* model; double d; };
+  int refusedAll = 0, acceptedAll = 0;
+  for (Case c : {Case{"bumpPatch", 0.3}, Case{"bumpPatch", 0.1}, Case{"bumpPatch", 3e-2}, Case{"bumpPatch", 1e-2},
+         Case{"bsplineTube", 0.1}, Case{"bsplineTube", 1e-2}}) {
+    cadgeom::Model m = load(c.model);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+    REQUIRE(s);
+    const cadgeom::SurfaceDomain D = s->domain();
+    auto crit = makeCriteria(m, 0, *s, cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}}, Deflections{c.d, 0.26}, st);
+    REQUIRE(crit);
+    std::mt19937 rng(17);
+    std::uniform_real_distribution<double> unit(0, 1);
+    const double W = D.u.hi - D.u.lo, H = D.v.hi - D.v.lo;
+    int differ = 0, refused = 0, accepted = 0;
+    for (int n = 0; n < 4000; n++) {
+      // From a twentieth of the domain up to most of it: across one to all of its cells.
+      const double scale = std::pow(10.0, -1.3 + 1.2 * unit(rng));
+      cadgeom::Vec2 o{D.u.lo + W * unit(rng), D.v.lo + H * unit(rng)}, tri[3];
+      for (int i = 0; i < 3; i++)
+        tri[i] = {std::clamp(o.x + W * scale * (unit(rng) - 0.5), D.u.lo, D.u.hi),
+          std::clamp(o.y + H * scale * (unit(rng) - 0.5), D.v.lo, D.v.hi)};
+      const Refusal r = crit->refusal(tri, false);
+      // (The sample's refusals come before any bound.)
+      if (r != Refusal::none && r != Refusal::deviationBounded) continue;
+      double whole, pieces;
+      if (!crit->deviationBound(tri, whole, false) || !crit->deviationBound(tri, pieces, true)) continue;
+      // deviationBound is the least of the cells' bound and the box's (or the pieces'): past d both ways, refused.
+      const bool past = whole > c.d && pieces > c.d;
+      if (past != (r == Refusal::deviationBounded)) {
+        differ++;
+        std::printf("  %s at %g: (%g, %g) (%g, %g) (%g, %g): %s, the box's bound %g, the pieces' %g\n", c.model, c.d,
+          tri[0].x, tri[0].y, tri[1].x, tri[1].y, tri[2].x, tri[2].y, r == Refusal::none ? "accepted" : "refused",
+          whole, pieces);
+      }
+      refused += past;
+      accepted += whole > c.d && pieces <= c.d;
+    }
+    CHECK_EQ(differ, 0);
+    refusedAll += refused, acceptedAll += accepted;
+  }
+  // Both verdicts after the box's bound: refused by the pieces, and accepted by them alone.
+  if (refusedAll < 200 || acceptedAll < 50)
+    std::printf("  refused %d, accepted by the pieces %d\n", refusedAll, acceptedAll);
+  CHECK(refusedAll >= 200);
+  CHECK(acceptedAll >= 50);
+}
+
 TEST_CASE("the criteria's metric: sizes from the principal curvatures, every direction within them, graded") {
   auto criteria = [](const char* name, int f, cadgeom::Box2 box, double d, double angle,
     std::unique_ptr<cadgeom::Surface>& s) {
