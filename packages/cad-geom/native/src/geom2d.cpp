@@ -474,11 +474,20 @@ Vec2 travel(const LoopPiece& p, double t) {
   return p.reversed ? -d : d;
 }
 
+/** The copy of a pole line at c nearest x: c itself where the direction isn't periodic. */
+double poleCopy(double x, double c, double period) {
+  return period > 0 ? c + period * std::round((x - c) / period) : c;
+}
+
+/**
+ * Whether q is within tol of a pole line, in a periodic direction of any copy of it: which (isU: u = c), and c the
+ * copy nearest q (the same for two points only on the same copy).
+ */
 bool onPole(Vec2 q, const Periods& per, double tol, bool& isU, double& c) {
   for (double u : per.poleU)
-    if (std::fabs(q.x - u) <= tol) { isU = true; c = u; return true; }
+    if (double k = poleCopy(q.x, u, per.u); std::fabs(q.x - k) <= tol) { isU = true; c = k; return true; }
   for (double v : per.poleV)
-    if (std::fabs(q.y - v) <= tol) { isU = false; c = v; return true; }
+    if (double k = poleCopy(q.y, v, per.v); std::fabs(q.y - k) <= tol) { isU = false; c = k; return true; }
   return false;
 }
 
@@ -1050,37 +1059,22 @@ Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<
   for (size_t i = 0; i < loops.size(); i++)
     addLoop(bd, loops[i], static_cast<int>(i), periods, tol, boxes ? &(*boxes)[i] : nullptr);
   if (bd.gaps) status = Status::invalidModel;
-  // On a pole line: on if the face reaches it, the line one point in space: its boundary meets the line (anywhere
-  // along it), or a point just off it, on either side, is in (a cap whose loop stays clear of its pole).
-  bool isU;
-  double c;
-  if (onPole(p, periods, tol, isU, c)) {
-    for (const LoopPiece& piece : bd.pieces)
-      for (Vec2 q : {pieceStart(piece), pieceEnd(piece)})
-        if (std::fabs((isU ? q.x : q.y) - c) <= tol) return Side::on;
-    Status s2 = Status::ok;
-    for (double side : {-1.0, 1.0}) {
-      double off = 1e3 * tol + 1e-9 * std::fabs(c);
-      Vec2 q = isU ? Vec2{c + side * off, p.y} : Vec2{p.x, c + side * off};
-      if (classifyBoundary(bd, q, periods, tol, s2) != Side::out) return Side::on;
-    }
-    return Side::out;
-  }
   // Beyond a pole line its boundary lies all on one side of: out. (A cone's apex, inside its domain: past it in (u, v)
   // is the other nappe, which a face bounded on one side never reaches, but a ray from there would meet the boundary
   // as from inside a polar cap, its region unbounded toward the pole.) Not across a period.
-  if (!bd.boxes.empty()) {
-    Bbox all;
-    for (const Bbox& b : bd.boxes) all.add({b.x0, b.y0}), all.add({b.x1, b.y1});
+  Bbox all;
+  for (const Bbox& b : bd.boxes) all.add({b.x0, b.y0}), all.add({b.x1, b.y1});
+  auto poleOut = [&](Vec2 q) {
+    if (bd.boxes.empty()) return false;
     auto beyond = [&](double x, double lo, double hi, double c) {
       return (hi <= c + tol && x > c + tol) || (lo >= c - tol && x < c - tol);
     };
     if (!(periods.u > 0))
       for (double c : periods.poleU)
-        if (beyond(p.x, all.x0, all.x1, c)) return Side::out;
+        if (beyond(q.x, all.x0, all.x1, c)) return true;
     if (!(periods.v > 0))
       for (double c : periods.poleV)
-        if (beyond(p.y, all.y0, all.y1, c)) return Side::out;
+        if (beyond(q.y, all.y0, all.y1, c)) return true;
     // Across a period, two or more pole lines part it into bands, each a sheet of the surface (a spindle
     // torus's v): a point in a band the boundary doesn't enter, where it enters another, is out. (A ray from it,
     // clipped at the pole lines, would meet the boundary's closures along them as from inside the face.) A boundary
@@ -1117,8 +1111,28 @@ Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<
       }
       return !inOurs && inOther;
     };
-    if (bands(p.y, periods.v, periods.poleV, false) || bands(p.x, periods.u, periods.poleU, true)) return Side::out;
+    if (bands(q.y, periods.v, periods.poleV, false) || bands(q.x, periods.u, periods.poleU, true)) return true;
+    return false;
+  };
+  // On a pole line (any copy of it): on if the face reaches it, the line one point in space: its boundary meets the
+  // line (anywhere along it), or a point just off it, on either side, is in, by the rules above too (a cap whose loop
+  // stays clear of its pole).
+  bool isU;
+  double c;
+  if (onPole(p, periods, tol, isU, c)) {
+    const double period = isU ? periods.u : periods.v;
+    for (const LoopPiece& piece : bd.pieces)
+      for (Vec2 q : {pieceStart(piece), pieceEnd(piece)})
+        if (double x = isU ? q.x : q.y; std::fabs(x - poleCopy(x, c, period)) <= tol) return Side::on;
+    Status s2 = Status::ok;
+    for (double side : {-1.0, 1.0}) {
+      double off = 1e3 * tol + 1e-9 * std::fabs(c);
+      Vec2 q = isU ? Vec2{c + side * off, p.y} : Vec2{p.x, c + side * off};
+      if (!poleOut(q) && classifyBoundary(bd, q, periods, tol, s2) != Side::out) return Side::on;
+    }
+    return Side::out;
   }
+  if (poleOut(p)) return Side::out;
   Side s = classifyBoundary(bd, p, periods, tol, status);
   return s;
 }

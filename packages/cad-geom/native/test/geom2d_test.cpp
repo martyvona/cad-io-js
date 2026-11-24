@@ -847,14 +847,14 @@ TEST_CASE("classify2: a spindle torus's poles split its periodic v: a face judge
 // v = h, u from u0 to u1 across the seam, its p-curves' ends on the pole line at other u (every u there one point in
 // space), the loop closed along the line between them as the face API closes it: a turn of u in all, so by the loop's
 // sense the other band lies on its left. Its pieces through `map` (u, v) -> plane, reversed where the map turns the
-// plane over; its pole pieces at v = b + nudge.
+// plane over; its pole pieces at v = b + nudge, its last a further `up` (a period: the same face).
 namespace lmp {
 const double a = 1.672572179, b = 4.610613128, h = 4.665256867, u0 = 6.202289296, u1 = 0.080896011;
-template <class Map> std::vector<Loop2> wedge(Map map, bool flip, double shift = 0, double nudge = 0) {
+template <class Map> std::vector<Loop2> wedge(Map map, bool flip, double shift = 0, double nudge = 0, double up = 0) {
   const double c0 = 3.222488642 + shift, c1 = 3.060696643 + shift, e = b + nudge;
   std::vector<std::pair<Vec2, Vec2>> sides{{{c0, e}, {u1 + shift, e}}, {{u1 + shift, e}, {u1 + shift, h}},
     {{u1 + 2 * pi + shift, h}, {u0 + shift, h}}, {{u0 + shift, h}, {u0 + shift, e}}, {{u0 + shift, e}, {c1, e}},
-    {{c1, e}, {c0, e}}};
+    {{c1, e + up}, {c0, e + up}}};
   if (flip) {
     std::reverse(sides.begin(), sides.end());
     for (auto& sd : sides) std::swap(sd.first, sd.second);
@@ -901,6 +901,40 @@ TEST_CASE("classify2: a spindle torus's face against one pole line: points in th
   Periods per{2 * pi, 2 * pi, {a, b}, {}};
   for (Vec2 p : in) CHECK(classify2(face, {p.y, p.x}, per, 0.0057, st) == Side::in);
   for (Vec2 p : out) CHECK(classify2(face, {p.y, p.x}, per, 0.0057, st) == Side::out);
+}
+
+TEST_CASE("classify2: on a pole line a period over: on where the face reaches the pole, as on the line itself") {
+  // LMP1 #173136's wedge (namespace lmp) reaches the pole line b along its closures, so every u on it is on; points
+  // within tol of b's copies a period either way are on too (compared with the poles as given, they were judged as
+  // points off the line). The other pole line, a, it doesn't reach: out, on any copy.
+  using namespace lmp;
+  auto id = [](Vec2 p) { return p; };
+  Status st;
+  for (double shift : {0.0, 2 * pi, -2 * pi})
+    for (double dv : {0.0, 0.003, -0.003}) {
+      const std::vector<Loop2> face = wedge(id, false);
+      Periods per{2 * pi, 2 * pi, {}, {a, b}};
+      for (double u : {6.28, 3.0, 0.5}) CHECK(classify2(face, {u, b + shift + dv}, per, 0.0057, st) == Side::on);
+      CHECK(classify2(face, {6.28, a + shift + dv}, per, 0.0057, st) == Side::out);
+      // The same in u, the pole lines u = a and b across a periodic u.
+      const std::vector<Loop2> swapped = wedge([](Vec2 p) { return Vec2{p.y, p.x}; }, true);
+      Periods perU{2 * pi, 2 * pi, {a, b}, {}};
+      for (double v : {6.28, 3.0, 0.5}) CHECK(classify2(swapped, {b + shift + dv, v}, perU, 0.0057, st) == Side::on);
+      CHECK(classify2(swapped, {a + shift + dv, 6.28}, perU, 0.0057, st) == Side::out);
+    }
+  // A piece a period over in v: its joints with the others a period apart, not a jump along the pole line between two
+  // copies (closed by a segment, it would cross the whole period). Judged as the wedge.
+  const std::vector<Loop2> face = wedge(id, false, 0, 0, 2 * pi);
+  const std::vector<Loop2> swapped = wedge([](Vec2 p) { return Vec2{p.y, p.x}; }, true, 0, 0, 2 * pi);
+  Periods per{2 * pi, 2 * pi, {}, {a, b}}, perU{2 * pi, 2 * pi, {a, b}, {}};
+  for (Vec2 p : {Vec2{6.28, 4.64}, Vec2{0.03, 4.62}}) {
+    CHECK(classify2(face, p, per, 0.0057, st) == Side::in);
+    CHECK(classify2(swapped, {p.y, p.x}, perU, 0.0057, st) == Side::in);
+  }
+  for (Vec2 p : {Vec2{6.28, 4.0}, Vec2{3, 3}, Vec2{3, 4.64}, Vec2{6.28, 5.0}}) {
+    CHECK(classify2(face, p, per, 0.0057, st) == Side::out);
+    CHECK(classify2(swapped, {p.y, p.x}, perU, 0.0057, st) == Side::out);
+  }
 }
 
 TEST_CASE("classify2: bands by poles across a period: a face reaching two bands, by pieces across a pole line alone") {
