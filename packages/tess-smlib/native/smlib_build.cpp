@@ -1553,7 +1553,8 @@ private:
     EdgeGeom g;
     switch (m.curveKind(c)) {
     case CBR_CURVE_COMPOSITE:
-      for (int k = 0; k < n[0]; k++) curveItem(n[3 + 3 * k], id, tr, depth + 1);
+      // (Per segment: curve, same_sense, transition, after n and self_intersect: layout.ts's CURVE_LAYOUTS.)
+      for (int k = 0; k < n[0]; k++) curveItem(n[2 + 3 * k], id, tr, depth + 1);
       return;
     case CBR_CURVE_BSPLINE:
     case CBR_CURVE_POLYLINE: {
@@ -2089,7 +2090,8 @@ void Builder::buildItem(int i)
   }
   case CBR_ITEM_FACE: buildSheet({m.itemRef(i)}, tr); break;
   case CBR_ITEM_SURFACE: buildNatural(m.itemRef(i), -1, tr); break;
-  case CBR_ITEM_CURVE: curveItem(m.itemRef(i), CBR_U32(m.v[CBR_CURVE_ID])[m.itemRef(i)], tr); break;
+  // (The item's id, else its curve's: as OCCT's builder and tess-cadio label a curve item.)
+  case CBR_ITEM_CURVE: curveItem(m.itemRef(i), id ? id : CBR_U32(m.v[CBR_CURVE_ID])[m.itemRef(i)], tr); break;
   case CBR_ITEM_POINT: {
     const double* p = m.itemReal(m.itemRef(i));
     out.points.push_back({id, {p[0], p[1], p[2]}, tr});

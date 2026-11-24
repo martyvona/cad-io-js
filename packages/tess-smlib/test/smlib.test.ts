@@ -446,6 +446,28 @@ test('loose geometry: curve items drawn, the point placed, the box closed', { sk
   assert.ok(Math.abs(volume - 1) < 1e-9, `volume ${volume}`);
 });
 
+test('a composite curve item: each segment drawn on its own curve, the composite\'s id', { skip }, async () => {
+  // Two segments on different lines, (0, 0, 0) to (1, 0, 0) and (1, 0, 0) to (1, 1, 0).
+  const b = new BrepBuilder();
+  const s1 = b.addCurve({ kind: 'polyline', points: [[0, 0, 0], [1, 0, 0]] });
+  const s2 = b.addCurve({ kind: 'polyline', points: [[1, 0, 0], [1, 1, 0]] });
+  b.addItem({ kind: 'curve', id: 5, ref: b.addCurve({ kind: 'composite', selfIntersect: false, segments: [
+    { curve: s1, sameSense: true, transition: 'continuous' }, { curve: s2, sameSense: true, transition: 'continuous' },
+  ] }) });
+  const r = await mesh(b.finish());
+  assert.deepEqual(r.curves!.map((c) => c.entityId), [5, 5]);
+  const on = (k: number, test: (p: number[]) => boolean) => {
+    const c = r.curves![k]!;
+    for (let i = c.start; i < c.start + c.count; i++) {
+      const p = [0, 1, 2].map((j) => r.curvePositions![3 * i + j]!);
+      assert.ok(test(p), `segment ${k}: ${p}`);
+    }
+  };
+  const near = (x: number, y: number) => Math.abs(x - y) < 1e-6;
+  on(0, ([x, y, z]) => near(y!, 0) && near(z!, 0) && x! > -1e-6 && x! < 1 + 1e-6);
+  on(1, ([x, y, z]) => near(x!, 1) && near(z!, 0) && y! > -1e-6 && y! < 1 + 1e-6);
+});
+
 test('transforms composed: an item\'s own, then its instance\'s; curves sampled within the deflection', { skip },
   async () => {
     // A unit cube moved by (5, 0, 0) as its item, placed again by an instance turning it a quarter about z.
