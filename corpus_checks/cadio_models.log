@@ -1,0 +1,164 @@
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 12.3; speed 4912 on 1 thread, 48394 on 18
+profile medium (linear 0.1 mm, angular 0.2617993877991494), healed, chain ours -> SMLib -> OCCT; WORKERS=6 CPU_MS=600000
+
+per file: faces; failed by ours alone (by class); holes after the fallback (by class); kept with defects by ours, meshed (by defect)
+  ../models/arm/arm-ap203.step: 106 faces; ours 1 (past deflection 1); after 0 (none); kept 0 (none)
+  ../models/arm/arm-ap214.step: 106 faces; ours 1 (past deflection 1); after 0 (none); kept 0 (none)
+  ../models/arm/arm-ap242.step: 106 faces; ours 1 (past deflection 1); after 0 (none); kept 0 (none)
+  ../models/cnc-box/cnc-box-ap203.step: 1960 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/cnc-box/cnc-box-ap214.step: 1960 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/cnc-box/cnc-box-ap242.step: 1960 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/lightarm/lightarm-ap203.step: 5439 faces; ours 1 (boundary crossing 1); after 0 (none); kept 0 (none)
+  ../models/lightarm/lightarm-ap214.step: 5439 faces; ours 1 (boundary crossing 1); after 0 (none); kept 0 (none)
+  ../models/lightarm/lightarm-ap242.step: 5439 faces; ours 1 (boundary crossing 1); after 0 (none); kept 0 (none)
+  ../models/ohmm/ohmm-ap203.step: 2593 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/ohmm/ohmm-ap214.step: 2593 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/ohmm/ohmm-ap242.step: 2593 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/onshape/FireSpokeViralSphere.step: 1140 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/onshape/Iron.step: 220 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/onshape/Kuka.step: 1793 faces; ours 2 (boundary crossing 1, turned 1); after 0 (none); kept 0 (none)
+  ../models/onshape/LMP1.step: 64187 faces; ours 24 (boundary crossing 19, turned 5); after 0 (none); kept 22 (past deflection 4, turned 18)
+  ../models/onshape/LMP1.stpZ: 64187 faces; ours 24 (boundary crossing 19, turned 5); after 0 (none); kept 22 (past deflection 4, turned 18)
+  ../models/onshape/LaPavoni.step: 2062 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/onshape/VW.step: 16509 faces; ours 3 (boundary crossing 2, topology or sampling 1); after 0 (none); kept 5 (past deflection 2, turned + past deflection 1, turned 2)
+  ../models/projector-lift/projector-lift-ap203.step: 778 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/projector-lift/projector-lift-ap214.step: 778 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/projector-lift/projector-lift-ap242.step: 778 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/rpbp/rpbp-ap203.step: 2404 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/rpbp/rpbp-ap214.step: 2561 faces; ours 0 (none); after 0 (none); kept 1 (turned 1)
+  ../models/rpbp/rpbp-ap242.step: 2561 faces; ours 0 (none); after 0 (none); kept 1 (turned 1)
+  ../models/shady-v3/shady-v3-ap203.step: 2786 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/shady-v3/shady-v3-ap214.step: 2786 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/shady-v3/shady-v3-ap242.step: 2786 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/sit-stand/sit-stand-ap203.step: 2229 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/sit-stand/sit-stand-ap214.step: 2229 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/sit-stand/sit-stand-ap242.step: 2229 faces; ours 0 (none); after 0 (none); kept 0 (none)
+
+total: 205297 faces; ours alone failed 59; holes after the fallback 0
+  ours alone by class: boundary crossing 44, turned 11, past deflection 3, topology or sampling 1
+  after the fallback by class: none
+  kept with defects by ours (meshed, not failed): 51; by defect: past deflection 10, turned + past deflection 1, turned 40
+
+per surface kind: faces, failed by ours alone, holes after the fallback, kept with defects
+  primitives (plane, cylinder, cone, sphere, torus): 167703 faces, failed 20, holes 0, kept 4
+    cylinder: 71362 faces, failed 3, holes 0, kept 0
+    plane: 68975 faces, failed 13, holes 0, kept 0
+    torus: 14574 faces, failed 0, holes 0, kept 4
+    cone: 10348 faces, failed 0, holes 0, kept 0
+    sphere: 2444 faces, failed 4, holes 0, kept 0
+  the rest (free-form, swept, offset): 37594 faces, failed 39, holes 0, kept 47
+    bspline: 37594 faces, failed 39, holes 0, kept 47
+
+every face ours fails: file, part, face, surface, class: cause, after the fallback
+  ../models/arm/arm-ap203.step	#122	#1198	cylinder	past deflection (2.52 x d): noConvergence: meshed past its deflection: at least 2.52 x the deflection (a refused triangle's point inverted onto its surface), past 2 x max(d, tol) = 2 x 0.1 mm	fallback meshes it
+  ../models/arm/arm-ap214.step	#122	#1198	cylinder	past deflection (2.52 x d): noConvergence: meshed past its deflection: at least 2.52 x the deflection (a refused triangle's point inverted onto its surface), past 2 x max(d, tol) = 2 x 0.1 mm	fallback meshes it
+  ../models/arm/arm-ap242.step	#114	#1190	cylinder	past deflection (2.52 x d): noConvergence: meshed past its deflection: at least 2.52 x the deflection (a refused triangle's point inverted onto its surface), past 2 x max(d, tol) = 2 x 0.1 mm	fallback meshes it
+  ../models/lightarm/lightarm-ap203.step	#3784	#91488	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/lightarm/lightarm-ap214.step	#3784	#91488	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/lightarm/lightarm-ap242.step	#3776	#91480	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/Kuka.step	#4099	#27606	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/Kuka.step	#4099	#28466	bspline	turned (332 triangles): noConvergence: meshed with 332 triangles turned against its surface (their facets against their corners' normals, refused and not mended)	fallback meshes it
+  ../models/onshape/LMP1.step	#173335	#1085957	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#173335	#1085958	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172995	#1073191	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172995	#1073209	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172992	#1073137	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172992	#1073155	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172922	#1068185	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172719	#1058227	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172522	#1049684	sphere	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172482	#1046217	sphere	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172440	#1041642	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172440	#1041644	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172440	#1042281	bspline	turned (3036 triangles): noConvergence: refinement stopped at its point cap, 138228 triangles (its cap 200000: 609 expected), and meshed with 3036 triangles turned against its surface (their facets against their corners' norm	fallback meshes it
+  ../models/onshape/LMP1.step	#172440	#1042389	bspline	turned (95545 triangles): noConvergence: refinement stopped at its point cap, 200071 triangles (its cap 200000: 184 expected), and meshed with 95545 triangles turned against its surface (their facets against their corners' nor	fallback meshes it
+  ../models/onshape/LMP1.step	#172433	#1039840	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172433	#1039841	bspline	turned (85905 triangles): noConvergence: refinement stopped at its point cap, 200271 triangles (its cap 200000: 9 expected), and meshed with 85905 triangles turned against its surface (their facets against their corners' norma	fallback meshes it
+  ../models/onshape/LMP1.step	#172433	#1039871	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172433	#1039872	bspline	turned (87564 triangles): noConvergence: refinement stopped at its point cap, 200292 triangles (its cap 200000: 8 expected), and meshed with 87564 triangles turned against its surface (their facets against their corners' norma	fallback meshes it
+  ../models/onshape/LMP1.step	#172427	#1039657	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172427	#1039658	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172427	#1039663	bspline	turned (88286 triangles): noConvergence: refinement stopped at its point cap, 200144 triangles (its cap 200000: 9 expected), and meshed with 88286 triangles turned against its surface (their facets against their corners' norma	fallback meshes it
+  ../models/onshape/LMP1.step	#172427	#1039664	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172377	#1037354	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.step	#172357	#1035605	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#173335	#1085957	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#173335	#1085958	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172995	#1073191	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172995	#1073209	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172992	#1073137	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172992	#1073155	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172922	#1068185	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172719	#1058227	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172522	#1049684	sphere	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172482	#1046217	sphere	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172440	#1041642	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172440	#1041644	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172440	#1042281	bspline	turned (3036 triangles): noConvergence: refinement stopped at its point cap, 138228 triangles (its cap 200000: 609 expected), and meshed with 3036 triangles turned against its surface (their facets against their corners' norm	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172440	#1042389	bspline	turned (95545 triangles): noConvergence: refinement stopped at its point cap, 200071 triangles (its cap 200000: 184 expected), and meshed with 95545 triangles turned against its surface (their facets against their corners' nor	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172433	#1039840	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172433	#1039841	bspline	turned (85905 triangles): noConvergence: refinement stopped at its point cap, 200271 triangles (its cap 200000: 9 expected), and meshed with 85905 triangles turned against its surface (their facets against their corners' norma	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172433	#1039871	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172433	#1039872	bspline	turned (87564 triangles): noConvergence: refinement stopped at its point cap, 200292 triangles (its cap 200000: 8 expected), and meshed with 87564 triangles turned against its surface (their facets against their corners' norma	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172427	#1039657	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172427	#1039658	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172427	#1039663	bspline	turned (88286 triangles): noConvergence: refinement stopped at its point cap, 200144 triangles (its cap 200000: 9 expected), and meshed with 88286 triangles turned against its surface (their facets against their corners' norma	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172427	#1039664	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172377	#1037354	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172357	#1035605	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/VW.step	#2478	#302055	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+  ../models/onshape/VW.step	#2452	#298974	bspline	topology or sampling: noConvergence: a pole's fan folds over itself: 3 edges used twice the same way	fallback meshes it
+  ../models/onshape/VW.step	#2407	#294279	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
+
+every face ours keeps with a defect: file, part, face, surface, defect: as said
+  ../models/onshape/LMP1.step	#172990	#1073024	bspline	past deflection: 1.054 x the larger of d and tol
+  ../models/onshape/LMP1.step	#172969	#1072094	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172922	#1068015	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172719	#1057885	torus	past deflection: 1.281 x the larger of d and tol
+  ../models/onshape/LMP1.step	#172719	#1058057	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172665	#1055631	bspline	turned: 4 triangles turned
+  ../models/onshape/LMP1.step	#172662	#1055590	bspline	turned: 3 triangles turned
+  ../models/onshape/LMP1.step	#172655	#1055511	bspline	turned: 3 triangles turned
+  ../models/onshape/LMP1.step	#172654	#1055500	bspline	turned: 5 triangles turned
+  ../models/onshape/LMP1.step	#172651	#1055434	bspline	turned: 3 triangles turned
+  ../models/onshape/LMP1.step	#172632	#1055196	bspline	turned: 2 triangles turned
+  ../models/onshape/LMP1.step	#172597	#1054458	bspline	turned: 11 triangles turned
+  ../models/onshape/LMP1.step	#172440	#1040745	bspline	turned: 11 triangles turned
+  ../models/onshape/LMP1.step	#172440	#1041679	torus	past deflection: 1.064 x the larger of d and tol
+  ../models/onshape/LMP1.step	#172440	#1041683	bspline	past deflection: 1.082 x the larger of d and tol
+  ../models/onshape/LMP1.step	#172434	#1039897	bspline	turned: 8 triangles turned
+  ../models/onshape/LMP1.step	#172428	#1039682	bspline	turned: 4 triangles turned
+  ../models/onshape/LMP1.step	#172427	#1039656	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172427	#1039659	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172399	#1038455	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172390	#1037927	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.step	#172379	#1037385	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172990	#1073024	bspline	past deflection: 1.054 x the larger of d and tol
+  ../models/onshape/LMP1.stpZ	#172969	#1072094	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172922	#1068015	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172719	#1057885	torus	past deflection: 1.281 x the larger of d and tol
+  ../models/onshape/LMP1.stpZ	#172719	#1058057	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172665	#1055631	bspline	turned: 4 triangles turned
+  ../models/onshape/LMP1.stpZ	#172662	#1055590	bspline	turned: 3 triangles turned
+  ../models/onshape/LMP1.stpZ	#172655	#1055511	bspline	turned: 3 triangles turned
+  ../models/onshape/LMP1.stpZ	#172654	#1055500	bspline	turned: 5 triangles turned
+  ../models/onshape/LMP1.stpZ	#172651	#1055434	bspline	turned: 3 triangles turned
+  ../models/onshape/LMP1.stpZ	#172632	#1055196	bspline	turned: 2 triangles turned
+  ../models/onshape/LMP1.stpZ	#172597	#1054458	bspline	turned: 11 triangles turned
+  ../models/onshape/LMP1.stpZ	#172440	#1040745	bspline	turned: 11 triangles turned
+  ../models/onshape/LMP1.stpZ	#172440	#1041679	torus	past deflection: 1.064 x the larger of d and tol
+  ../models/onshape/LMP1.stpZ	#172440	#1041683	bspline	past deflection: 1.082 x the larger of d and tol
+  ../models/onshape/LMP1.stpZ	#172434	#1039897	bspline	turned: 8 triangles turned
+  ../models/onshape/LMP1.stpZ	#172428	#1039682	bspline	turned: 4 triangles turned
+  ../models/onshape/LMP1.stpZ	#172427	#1039656	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172427	#1039659	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172399	#1038455	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172390	#1037927	bspline	turned: 1 triangles turned
+  ../models/onshape/LMP1.stpZ	#172379	#1037385	bspline	turned: 1 triangles turned
+  ../models/onshape/VW.step	#2472	#300507	bspline	past deflection: 1.651 x the larger of d and tol
+  ../models/onshape/VW.step	#2472	#300523	bspline	past deflection: 1.656 x the larger of d and tol
+  ../models/onshape/VW.step	#2399	#292804	bspline	turned + past deflection: 1 triangles turned, 1.299 x the larger of d and tol
+  ../models/onshape/VW.step	#2393	#290997	bspline	turned: 3 triangles turned
+  ../models/onshape/VW.step	#2393	#291000	bspline	turned: 7 triangles turned
+  ../models/rpbp/rpbp-ap214.step	#2694	#48717	bspline	turned: 1 triangles turned
+  ../models/rpbp/rpbp-ap242.step	#2686	#48709	bspline	turned: 1 triangles turned
