@@ -57,11 +57,11 @@
 //                ran out, faces failed, CPU ms, triangles, ours's status
 //   CPU_MS=<ms>     ours's limit per part in its worker thread's CPU time (tess-workers' cpuTimeoutMs, default
 //                120000: a part slower than that fails for development's purposes either way), 4 x it in wall time
-//                the backstop; a part stopped at it is its own status, "over N s CPU", listed with its last
-//                progress (a performance worklist), and run again alone at the end (all three backends, ours first
-//                and by itself, the host otherwise as it is), its alone result the one tallied, both verdicts listed
-//                (on this host's efficiency cores a thread's CPU time runs about 2 x, so a part can pass the limit
-//                under load only); ALONE=0 tallies the verdict under load instead
+//                the backstop (at least 60 s); a part stopped at it is its own status, "over N s CPU", listed with
+//                its last progress (a performance worklist), and run again alone at the end (all three backends,
+//                ours first and by itself, the host otherwise as it is), its alone result the one tallied, both
+//                verdicts listed (on this host's efficiency cores a thread's CPU time runs about 2 x, so a part can
+//                pass the limit under load only); ALONE=0 tallies the verdict under load instead
 //   TIMEOUT_MS=<ms> OCCT's and SMLib's limit per part, in wall time (default 600000)
 //   SLOW_MS=<ms>    ours slower than this in CPU time on a part it meshes is listed as slow (default 120000)
 //   IDLE_MS=<ms>    runner.ts's watchdog on a child silent on one file (default here 0, none: every request has
@@ -115,6 +115,12 @@ const ROUND_CAP = 48, MANY_ROUNDS = 16;
 /** Ours's limit (ms of CPU time), the references' (ms of wall time), and the CPU time over which ours is slow. */
 const CPU_MS = Number(process.env.CPU_MS ?? 120_000);
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 600_000);
+/**
+ * Ours's wall-time backstop: 4 x CPU_MS, at least 60 s. The CPU limit is checked only at the worker's progress and on
+ * the pool's poll, so a wall limit of a few ms (CPU_MS=1, the tests') fires first on a loaded host, where the worker
+ * thread waits that long to run, and the part is a plain timeout, not over CPU_MS.
+ */
+const BACKSTOP_MS = Math.max(4 * CPU_MS, 60_000);
 /** Ours's status at CPU_MS. */
 const OVER = `over ${CPU_MS / 1000} s CPU`;
 const SLOW_MS = Number(process.env.SLOW_MS ?? 120_000);
@@ -468,7 +474,7 @@ export const check: FileCheck<string, Tallies> = {
       backend: { module: import.meta.resolve(`../packages/${pkg}/src/index.ts`), export: cls,
         ...(cpu && (INSERTIONS || ROUNDS) ? { options: { ...(INSERTIONS ? { countInsertions: true } : {}),
           ...(ROUNDS ? { countRounds: true } : {}) } } : {}) }, workers,
-      ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS } : { timeoutMs: TIMEOUT_MS }) });
+      ...(cpu ? { cpuTimeoutMs: CPU_MS, timeoutMs: BACKSTOP_MS } : { timeoutMs: TIMEOUT_MS }) });
     pools = { cadio: pool(PKG.cadio, 'CadioTessellator', true), occt: pool(PKG.occt, 'OcctTessellator', false),
       smlib: pool(PKG.smlib, 'SmlibTessellator', false) };
     // (Named so a backend that won't start fails the run saying which: runner.ts.)
@@ -885,7 +891,7 @@ if (import.meta.main) {
   const { children, meshWorkers } = division();
   const workers = Number(process.env.WORKERS ?? Math.max(1, Math.floor(meshWorkers / 3)));
   console.log(`coverage: tess-cadio against OCCT (native route) and SMLib, ${PROFILE} profile (${LIN} mm, ${ANG} rad), `
-    + `ours's limit ${CPU_MS / 1000} s of CPU (${4 * CPU_MS / 1000} s of wall the backstop), the references' `
+    + `ours's limit ${CPU_MS / 1000} s of CPU (${BACKSTOP_MS / 1000} s of wall the backstop), the references' `
     + `${TIMEOUT_MS / 1000} s of wall, slow over ${SLOW_MS / 1000} s of CPU; healing ${HEAL ? 'on (cad-heal\'s default '
       + 'fixes)' : 'off'}; `
     + `${((performance.now() - t0) / 1000).toFixed(0)} s, ${children || 1} processes x ${workers} workers per backend`);
@@ -910,7 +916,7 @@ if (import.meta.main) {
     console.log(`\n### Parts over ${CPU_MS / 1000} s of CPU, run again alone at the end (load ${os.loadavg()[0]!
       .toFixed(1)} at the start): the verdict under the run's load; alone`);
     const alone = new WorkerTessellator({ backend: { module: import.meta.resolve('../packages/tess-cadio/src/index.ts'),
-      export: 'CadioTessellator' }, workers: 1, cpuTimeoutMs: CPU_MS, timeoutMs: 4 * CPU_MS });
+      export: 'CadioTessellator' }, workers: 1, cpuTimeoutMs: CPU_MS, timeoutMs: BACKSTOP_MS });
     await alone.init();
     const byFile = new Map<string, string[][]>();
     for (const c of capped) {
