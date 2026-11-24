@@ -142,6 +142,19 @@ public:
     valid_.assign(grid_.size(), false);
     for (int i = 0; i <= kGrid; i++)
       for (int j = 0; j <= kGrid; j++) valid_[at(i, j)] = own(node(i, j), grid_[at(i, j)]);
+    // Nodes on a pole's line are degenerate whatever own() says: a B-spline's collapsed row of poles that are a
+    // fitting's noise apart (t4mec #472: 8 poles within 1.7e-3 mm, a sphere's of radius 100) has |S_v| that noise, not
+    // 0, and a curvature across it of 1 / the noise (700 against 0.01), whose sizes, graded over a grid cell, would
+    // have the face expect 5.3 million triangles where it needs 1,200 (and its point cap scale with them).
+    for (const Singularity& g : sing) {
+      if (g.kind == Singularity::normalVanishes) continue;
+      const Interval r = g.isoU ? box_.x : box_.y;
+      for (int k = 0; k <= kGrid; k++) {
+        const double x = k == kGrid ? r.hi : r.lo + (r.hi - r.lo) * k / kGrid;
+        if (!(std::fabs(x - g.at) <= 1e-9 * (r.hi - r.lo))) continue;
+        for (int l = 0; l <= kGrid; l++) valid_[g.isoU ? at(k, l) : at(l, k)] = false;
+      }
+    }
     // Nodes at a degenerate point take a valid neighbour's (the nearest along the row or column).
     for (int pass = 0; pass < 2 * kGrid; pass++) {
       bool missing = false;

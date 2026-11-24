@@ -219,11 +219,15 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   int steiner = 0;
   std::vector<int32_t> created;
   {
-    // The seeds, each where it lands from the last one's triangle.
+    // The seeds along a Morton curve, each where it lands from the last one's triangle: in their own order (a mesh's
+    // Steiner points by its refinement queue) each walk crosses the mesh, and a face's millions take thousands of
+    // seconds. A heartbeat every 1024, the loop's only one.
     int32_t hint = 0;
-    for (Vec2 q : domain.seeds) {
+    uint32_t seeded = 0;
+    for (int32_t i : cdt::mortonOrder(domain.seeds)) {
       if (steiner >= options.maxPoints) break;
-      if (!(std::isfinite(q.x) && std::isfinite(q.y))) continue;
+      if (options.onWork && (++seeded & 1023) == 0) options.onWork();
+      const Vec2 q = domain.seeds[i];
       if (hint >= static_cast<int32_t>(T.tris().size()) || T.tris()[hint].dead) hint = 0;
       while (T.tris()[hint].dead) hint++;
       const int32_t at = T.locate(q, hint);
