@@ -355,10 +355,19 @@ const SURFACES = `
 #506=PRESENTATION_STYLE_ASSIGNMENT((#505));
 #507=STYLED_ITEM('',(#506),#112);`;
 
-test("an annotation-only representation isn't a part; a geometric set's surfaces take their styles as faces",
-  async () => {
+test("an annotation-only representation isn't a part, its items said left out; a geometric set's surfaces take "
+  + 'their styles as faces', async () => {
   const { scene } = await importStep(file(SURFACES));
   assert.deepEqual(scene.parts.map((p) => p.sources[0]?.id), [115]);
+  assert.deepEqual(scene.diagnostics.filter((d) => /annotation/.test(d.message)), [{ severity: 'info', message:
+    '1 annotation item (graphical PMI: text, callouts, annotation occurrences) in 1 representation not imported: #104' }]);
+  // A second beside the geometry: counted, its representation named too.
+  const two = await importStep(file(SURFACES.replace("#115=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('gbssr',"
+    + '(#114),#16);', "#115=GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION('gbssr',(#114,#31),#16);")
+    + "\n#31=TEXT_LITERAL('note','another',#23,'baseline left',.RIGHT.);"));
+  assert.deepEqual(two.scene.diagnostics.filter((d) => /annotation/.test(d.message)).map((d) => d.message), [
+    '2 annotation items (graphical PMI: text, callouts, annotation occurrences) in 2 representations not imported: '
+    + '#104, #115']);
   const part = scene.parts[0]!;
   assert.equal(part.material, undefined);
   assert.deepEqual(part.faceMaterials?.map((f) => [f.face, scene.materials[f.material]!.color]), [[112, [1, 0, 0]]]);
