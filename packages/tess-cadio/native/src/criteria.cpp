@@ -1,3 +1,4 @@
+#include <cstdlib>
 // The criteria (criteria.h). The metric is local and anisotropic: at each (u, v) the principal curvatures k1, k2 and
 // their directions (the eigenpairs of the second fundamental form against the first), and along each direction the
 // size h_i a chord may have, the smallest of sqrt(6 d / |k_i|) (an equilateral triangle's centroid strays h^2 |k| / 6
@@ -24,11 +25,15 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <tuple>
 #include <cstring>
 #include <unordered_map>
 #include <vector>
 
 namespace tesscadio {
+
+// Experiment: the cap (h_long / h_short) a Local made next takes (0: none, or ACAP's).
+double g_nextCap = 0;
 
 using namespace cadgeom;
 
@@ -377,6 +382,15 @@ private:
   void setBoundaryPoints(const std::vector<std::pair<Vec2, Vec3>>& points) override {
     boundary_.clear();
     for (const auto& [uv, p] : points) boundary_[{bits(uv.x), bits(uv.y)}] = p;
+    if (getenv("BCAP")) {
+      bpts_.clear();
+      for (size_t i = 0; i < points.size(); i++) {
+        double sp = INFINITY;
+        for (size_t j = 0; j < points.size(); j++)
+          if (j != i) { const double x = norm(points[j].second - points[i].second); if (x > 0) sp = std::min(sp, x); }
+        if (std::isfinite(sp)) bpts_.push_back({points[i].first, points[i].second, sp});
+      }
+    }
   }
   /**
    * A triangle's corners as the output has them: the boundary's own point at a corner on it, else p's; whether any
@@ -946,6 +960,21 @@ private:
     Vec2 a{M - k1 * F, -(L - k1 * E)}, b{N - k1 * G, -(M - k1 * F)};
     Vec2 x1 = std::hypot(a.x, a.y) >= std::hypot(b.x, b.y) ? a : b;
     double h1 = size(k1), h2 = size(k2);
+    { static const double envCap = getenv("ACAP") ? atof(getenv("ACAP")) : 0;
+      const double cap = cap_ > 0 ? cap_ : envCap;
+      if (cap > 0) { if (h1 > cap * h2) h1 = cap * h2; else if (h2 > cap * h1) h2 = cap * h1; } }
+    if (!bpts_.empty()) {
+      // The long size at most BCAP x the nearest boundary point's spacing, plus half the way there.
+      static const double bcap = atof(getenv("BCAP"));
+      double best = INFINITY, bound = INFINITY;
+      for (const auto& [uv, P, sp] : bpts_) {
+        const double du = uv.x - p.x, dv = uv.y - p.y, w = du * du + dv * dv;
+        if (w < best) best = w, bound = bcap * sp + 0.5 * norm(P - q.p);
+      }
+      double& hl = h1 > h2 ? h1 : h2;
+      const double hs = std::min(h1, h2);
+      if (hl > bound) hl = std::max(bound, hs);
+    }
     double s1 = length2({E, F, G}, x1.x, x1.y);
     if (!(s1 > 0) || r <= 1e-12 * (std::fabs(H) + 1e-300) || !std::isfinite(s1)) {
       // An umbilic (or no curvature): every direction alike, the smaller size.
@@ -1055,6 +1084,9 @@ private:
   double spacing_ = 0;
   /** The surface's poles' and apexes' points. */
   std::vector<Vec3> poles_;
+  double cap_ = g_nextCap;
+  /** Experiment (BCAP): the boundary's points, (u, v), 3D, and each one's spacing (to its nearest other). */
+  std::vector<std::tuple<Vec2, Vec3, double>> bpts_;
   double tolerance_;
   /** The refinement floor (belowFloor). */
   double floor_;

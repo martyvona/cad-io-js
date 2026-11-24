@@ -24,6 +24,66 @@
 
 namespace tesscadio {
 
+extern double g_nextCap;
+// Experiment: a grid of seeds at the metric's spacing along u and v, the longer step capped at cap x the shorter in
+// 3D, none within 0.6 of a metric step of the boundary's points or its segments' quarter points.
+static void seedGrid(Domain2& d, const SurfaceCriteria& c, const cadgeom::Surface& S, double cap, double expected) {
+  using cadgeom::Vec2;
+  static const double gscale = getenv("GSCALE") ? atof(getenv("GSCALE")) : 1;
+  double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+  for (Vec2 p : d.points) ulo = std::min(ulo, p.x), uhi = std::max(uhi, p.x), vlo = std::min(vlo, p.y), vhi = std::max(vhi, p.y);
+  if (!(ulo < uhi && vlo < vhi)) return;
+  auto steps = [&](Vec2 p, double& du, double& dv) {
+    Metric2 M = c.metric(p);
+    cadgeom::SurfacePoint q;
+    if (!(M.a > 0 && M.c > 0) || S.eval(p.x, p.y, 1, q) != cadgeom::Status::ok) return false;
+    du = gscale / std::sqrt(M.a), dv = gscale / std::sqrt(M.c);
+    double eu = cadgeom::norm(q.du), ev = cadgeom::norm(q.dv);
+    if (!(eu > 0 && ev > 0)) return false;
+    double hu = du * eu, hv = dv * ev;
+    if (hu > cap * hv) du = cap * hv / eu;
+    else if (hv > cap * hu) dv = cap * hu / ev;
+    return std::isfinite(du) && std::isfinite(dv) && du > 0 && dv > 0;
+  };
+  std::vector<Vec2> bnd(d.points);
+  auto seg = [&](int a, int b) { Vec2 p = d.points[a], q = d.points[b];
+    for (double t : {0.25, 0.5, 0.75}) bnd.push_back({p.x + t * (q.x - p.x), p.y + t * (q.y - p.y)}); };
+  for (const auto& l : d.loops) for (size_t k = 0; k < l.size(); k++) seg(l[k], l[(k + 1) % l.size()]);
+  for (size_t k = 0; k + 1 < d.segments.size(); k += 2) seg(d.segments[k], d.segments[k + 1]);
+  std::sort(bnd.begin(), bnd.end(), [](Vec2 a, Vec2 b) { return a.x < b.x; });
+  const size_t limit = static_cast<size_t>(std::max(1000.0, expected / 4));
+  std::vector<Vec2> out;
+  double v = vlo;
+  while (v < vhi && out.size() <= limit) {
+    double dv = INFINITY;
+    for (int i = 0; i <= 16; i++) { double du0, dv0; if (steps({ulo + (uhi - ulo) * i / 16, v}, du0, dv0)) dv = std::min(dv, dv0); }
+    if (!std::isfinite(dv)) return;
+    v += dv;
+    if (v >= vhi) break;
+    double u = ulo;
+    while (u < uhi && out.size() <= limit) {
+      double du, dv1;
+      if (!steps({u, v}, du, dv1)) return;
+      u += du;
+      if (u >= uhi) break;
+      Metric2 M = c.metric({u, v});
+      const double ell = M.a - M.b * M.b / M.c; if (!(ell > 0)) continue;
+      const double ru = 0.6 * gscale / std::sqrt(ell); bool near = false;
+      auto it = std::lower_bound(bnd.begin(), bnd.end(), u - ru, [](Vec2 a, double x) { return a.x < x; });
+      for (; it != bnd.end() && it->x <= u + ru && !near; ++it) {
+        Vec2 w{it->x - u, it->y - v};
+        near = M.a * w.x * w.x + 2 * M.b * w.x * w.y + M.c * w.y * w.y < 0.36 * gscale * gscale;
+      }
+      if (!near) out.push_back({u, v});
+    }
+  }
+  if (getenv("SDEBUG")) std::fprintf(stderr, "SEEDS %zu limit %zu\n", out.size(), limit);
+  if (getenv("SDEBUG") && atoi(getenv("SDEBUG")) == 2) { std::map<double, int> rows; for (Vec2 p : out) rows[p.y]++; std::fprintf(stderr, "GRID u [%g %g] v [%g %g]", ulo, uhi, vlo, vhi); for (auto [v, n] : rows) std::fprintf(stderr, " v=%.4f:%d", v, n); std::fprintf(stderr, "\n"); }
+  if (out.size() > limit) return;
+  d.seeds = std::move(out);
+}
+
+
 /** The deviation check's progress: a report as each face's starts, and again every this many triangles measured. */
 constexpr int kDeviationReport = 64;
 /** PartOptions::keepSteiner: a face meshed this many times already is seeded with its last mesh's points. */
@@ -215,6 +275,66 @@ struct PartMesher::Impl {
     int meshings = 0;
   };
   std::vector<LastMesh> last;
+  /** Experiment (RETRY): per face its crease lines, criteria box, whether retried with the cap, and its mesh's 3D area
+   * over the surface's area over its (u, v) triangles, and the share of that 3D area in facets past 30 degrees. */
+  std::vector<std::vector<SurfaceCriteria::Crease>> creaseLines;
+  std::vector<Box2> critBox;
+  std::vector<char> retried;
+  std::vector<double> patchRatio, tiltShare, capKeep, bandArea;
+  /** Whether face f is one to retry: ok but over the patch ratio, or failed in its meshing (not its boundary). */
+  bool toRetry(int f, double over) const {
+    if (!criteria[f] || retried[f]) return false;
+    static const bool guard = !(getenv("RETRYSLIVER") && !atoi(getenv("RETRYSLIVER")));
+    if (faces[f].status == Status::ok) return patchRatio[f] > 1 + over && !(guard && bandArea[f] > 0);
+    static const bool all = getenv("RETRYALL") && atoi(getenv("RETRYALL"));
+    const std::string& c = faces[f].cause;
+    return all || !(c.find("boundary") != std::string::npos || c.find("not sampled") != std::string::npos ||
+      c.find("seam's side") != std::string::npos);
+  }
+  /** Rescue: a retried face that failed, meshed once more on its own metric (from its boundary alone, its cap as
+   * first), the checks then run again; kept only if ok and its patch ratio within 1 + over, else its failure stays. */
+  struct Rescue { int f; FaceMesh saved; std::unique_ptr<SurfaceCriteria> was; decltype(last)::value_type lastWas; };
+  std::vector<Rescue> rescues;
+  void rescueMesh(int f) {
+    if (!surfaces[f] || !retried[f] || faces[f].status == Status::ok) return;
+    Status st;
+    g_nextCap = 0;
+    auto c = makeCriteria(m, f, *surfaces[f], critBox[f], o.d, st);
+    if (!c) return;
+    c->setOutputOrigin(o.outputOrigin);
+    if (!creaseLines[f].empty()) c->setCreases(creaseLines[f]);
+    rescues.push_back({f, faces[f], std::move(criteria[f]), last[f]});
+    criteria[f] = std::move(c);
+    last[f].steiner.clear();
+    if (memos.size() < faces.size()) memos.resize(faces.size());
+    memos[f].reset();
+    meshFace(f);
+  }
+  void rescueDecide(double over) {
+    for (Rescue& r : rescues) {
+      const int f = r.f;
+      const bool keep = faces[f].status == Status::ok && patchRatio[f] <= 1 + over;
+      if (getenv("RETRYLOG")) std::fprintf(stderr, "RESCUE row %d id %u %s ratio %.4f tris %zu status %d cause %.60s\n", f, m.u32(CBR_FACE_ID)[f], keep ? "kept" : "dropped", patchRatio[f], faces[f].triangles.size() / 3, int(faces[f].status), faces[f].cause.c_str());
+      if (!keep) faces[f] = std::move(r.saved), criteria[f] = std::move(r.was), last[f] = std::move(r.lastWas);
+    }
+  }
+  void retryFace(int f) {
+    if (!surfaces[f] || retried[f]) return;
+    retried[f] = 1;
+    if (!(getenv("RETRYNOKEEP") && atoi(getenv("RETRYNOKEEP")))) capKeep[f] = faces[f].cap;
+    static const double cap = getenv("RETRYCAP") ? atof(getenv("RETRYCAP")) : 16;
+    g_nextCap = cap;
+    Status st;
+    auto c = makeCriteria(m, f, *surfaces[f], critBox[f], o.d, st);
+    g_nextCap = 0;
+    if (!c) return;
+    c->setOutputOrigin(o.outputOrigin);
+    if (!creaseLines[f].empty()) c->setCreases(creaseLines[f]);
+    criteria[f] = std::move(c);
+    if (f < static_cast<int>(memos.size())) memos[f].reset();
+    if (getenv("RETRYLOG")) std::fprintf(stderr, "RETRY row %d id %u was %s ratio %.4f tilt %.4f round %d cause %.60s\n", f, m.u32(CBR_FACE_ID)[f], faces[f].status == Status::ok ? "ok" : "failed", patchRatio[f], tiltShare[f], last[f].meshings, faces[f].cause.c_str());
+    meshFace(f);
+  }
   /**
    * Per face, its creases (cad_geom/creases.h) as constraints: each piece's line (u = at where isoU, else v = at), its
    * samples along it (ascending), and at each end on the boundary the edge sample there (edge, parameter; -1 none).
@@ -704,6 +824,7 @@ struct PartMesher::Impl {
         (isoU ? sideU : sideV)[k % 2] = true;
       }
       criteria[f]->setCreases(lines);
+      creaseLines[f] = lines;
       faceBox[f] = {{sideU[0] ? ru.lo : -INFINITY, sideU[1] ? ru.hi : INFINITY},
         {sideV[0] ? rv.lo : -INFINITY, sideV[1] ? rv.hi : INFINITY}};
     }
@@ -1432,6 +1553,7 @@ struct PartMesher::Impl {
     // half as many; maxPointsPerFace, given, instead.
     out.capExpected = domainExpected(d, *criteria[f]);
     out.cap = std::min(o.capCeiling, std::max(o.capFloor, o.capMultiple * out.capExpected));
+    if (capKeep[f] > 0) out.cap = std::min(out.cap, capKeep[f]);
     mo.maxPoints = o.maxPointsPerFace >= 0 ? o.maxPointsPerFace : static_cast<int>(std::min(out.cap / 2, 1e9));
     mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
@@ -1519,11 +1641,57 @@ struct PartMesher::Impl {
         }
       }
     }
+    static const double seedCap = getenv("SCAP") ? atof(getenv("SCAP")) : 0;
+    bool gridSeeded = false;
+    static const bool keepGrid0 = getenv("SKEEP") && atoi(getenv("SKEEP"));
+    if (keepGrid0 && seedCap > 0) d.seeds.clear();
+    if (seedCap > 0 && d.seeds.empty() && surfaces[f]) seedGrid(d, *criteria[f], *surfaces[f], seedCap, out.cap), gridSeeded = !d.seeds.empty();
+    static const bool keepGrid = getenv("SKEEP") && atoi(getenv("SKEEP"));
+    static const bool noRefine = getenv("SNOREF") && atoi(getenv("SNOREF"));
+    const int maxPointsWas = mo.maxPoints;
+    if (noRefine && gridSeeded) mo.maxPoints = static_cast<int>(d.seeds.size());
     Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    if (noRefine && gridSeeded && mesh.status == Status::noConvergence) mesh.status = Status::ok;
+    mo.maxPoints = maxPointsWas;
+    if (getenv("SROW") && atoi(getenv("SROW")) == f && surfaces[f]) {
+      // Seeds kept, and per triangle by its corners on the boundary (index < nb): edge lengths and tilt in 3D.
+      std::set<std::pair<double, double>> pts;
+      for (Vec2 q : mesh.points) pts.insert({q.x, q.y});
+      size_t keptSeeds = 0;
+      for (Vec2 q : d.seeds) keptSeeds += pts.count({q.x, q.y});
+      const double eb[] = {0.05, 0.1, 0.2, 0.5, 1, 2, 5, 1e9}, tb[] = {5, 15, 30, 60, 80, 91};
+      long E[4][8] = {}, Tl[4][6] = {}; double TA[4][6] = {};
+      for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+        SurfacePoint q[3]; Vec3 nn{0, 0, 0}; int nbnd = 0; bool ok = true;
+        for (int k = 0; k < 3; k++) {
+          const int32_t i = mesh.triangles[t + k]; nbnd += i < static_cast<int32_t>(nb);
+          ok = ok && surfaces[f]->eval(mesh.points[i].x, mesh.points[i].y, 1, q[k]) == Status::ok;
+          if (ok) { Vec3 n = cross(q[k].du, q[k].dv); if (norm(n) > 0) nn = nn + (1 / norm(n)) * n; }
+        }
+        if (!ok) continue;
+        double longest = 0;
+        for (int k = 0; k < 3; k++) longest = std::max(longest, norm(q[(k + 1) % 3].p - q[k].p));
+        const Vec3 g = cross(q[1].p - q[0].p, q[2].p - q[0].p);
+        const double tilt = norm(g) > 0 && norm(nn) > 0 ? std::acos(std::clamp(std::fabs(dot(g, nn)) / (norm(g) * norm(nn)), 0.0, 1.0)) * 180 / M_PI : 0;
+        int e = 0; while (longest > eb[e]) e++;
+        int b = 0; while (tilt > tb[b]) b++;
+        E[nbnd][e]++, Tl[nbnd][b]++, TA[nbnd][b] += 0.5 * norm(g);
+      }
+      std::fprintf(stderr, "ROW %d nb %zu seeds %zu kept %zu points %zu tris %zu status %d\n", f, nb, d.seeds.size(), keptSeeds, mesh.points.size(), mesh.triangles.size() / 3, int(mesh.status));
+      for (int c = 0; c < 4; c++) {
+        std::fprintf(stderr, "  %d boundary corners: longest edge <=0.05,0.1,0.2,0.5,1,2,5,more:", c);
+        for (int e = 0; e < 8; e++) std::fprintf(stderr, " %ld", E[c][e]);
+        std::fprintf(stderr, " | tilt <=5,15,30,60,80,90 count/area:");
+        for (int b = 0; b < 6; b++) std::fprintf(stderr, " %ld/%.3f", Tl[c][b], TA[c][b]);
+        std::fprintf(stderr, "\n");
+      }
+    }
+    if (getenv("SROW") && atoi(getenv("SROW")) == f) std::fprintf(stderr, "ROW %d seeds %zu grid %d status %d tris %zu rejected %zu\n", f, d.seeds.size(), int(gridSeeded), int(mesh.status), mesh.triangles.size() / 3, mesh.rejected.size());
     // (Meshing from the seeds failed, or left a triangle its criteria refuse, which a kept point can stand in the way
     // of without the triangle asking a split: from the boundary alone, as the first time.)
-    if (!d.seeds.empty() && ((mesh.status != Status::ok && mesh.status != Status::noConvergence) ||
+    if (!d.seeds.empty() && !(gridSeeded && keepGrid && mesh.status == Status::ok) && ((mesh.status != Status::ok && mesh.status != Status::noConvergence) ||
       !mesh.rejected.empty())) {
+      if (getenv("SDEBUG")) std::fprintf(stderr, "DISCARD face %d seeds %zu status %d rejected %zu\n", f, d.seeds.size(), int(mesh.status), mesh.rejected.size());
       d.seeds.clear();
       mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
     }
@@ -1569,6 +1737,49 @@ struct PartMesher::Impl {
       return;
     }
     out.status = Status::ok;
+    {
+      double a3 = 0, ap = 0, tilted = 0, dev = 0;
+      for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+        const Vec2 A = mesh.points[mesh.triangles[t]], B = mesh.points[mesh.triangles[t + 1]], C = mesh.points[mesh.triangles[t + 2]];
+        SurfacePoint q[3], g;
+        bool ok = surfaces[f]->eval(A.x, A.y, 1, q[0]) == Status::ok && surfaces[f]->eval(B.x, B.y, 1, q[1]) == Status::ok &&
+          surfaces[f]->eval(C.x, C.y, 1, q[2]) == Status::ok &&
+          surfaces[f]->eval((A.x + B.x + C.x) / 3, (A.y + B.y + C.y) / 3, 1, g) == Status::ok;
+        if (!ok) continue;
+        if (getenv("DUMPFACE") && strtoul(getenv("DUMPFACE"), nullptr, 10) == m.u32(CBR_FACE_ID)[f]) {
+          std::fprintf(stderr, "DUMP t %zu idx %d %d %d uv (%.6g %.6g) (%.6g %.6g) (%.6g %.6g) |SuxSv| %.6g", t / 3, mesh.triangles[t], mesh.triangles[t + 1], mesh.triangles[t + 2], A.x, A.y, B.x, B.y, C.x, C.y, norm(cross(g.du, g.dv)));
+          for (int k = 0; k < 3; k++) std::fprintf(stderr, " S%d (%.6f %.6f %.6f)", k, q[k].p.x, q[k].p.y, q[k].p.z);
+          std::fprintf(stderr, "\n");
+        }
+        const Vec3 n3 = cross(q[1].p - q[0].p, q[2].p - q[0].p);
+        const double f3 = 0.5 * norm(n3);
+        const double uvA = 0.5 * std::fabs((B.x - A.x) * (C.y - A.y) - (C.x - A.x) * (B.y - A.y));
+        const Vec3 nn = cross(g.du, g.dv);
+        a3 += f3, ap += uvA * norm(nn);
+        dev = std::max(dev, norm((1.0 / 3) * (q[0].p + q[1].p + q[2].p) - g.p));
+        if (f3 > 0 && norm(nn) > 0 && std::fabs(dot(n3, nn)) / (norm(n3) * norm(nn)) < std::cos(M_PI / 6)) tilted += f3;
+      }
+      {
+        // A sliver: its (u, v) patch's area under its boundary's offset from the surface x its perimeter, where the
+        // patch says nothing of the face (bandArea the excess, 0 where not one).
+        double off = 0, perim = 0;
+        const size_t nbp = std::min(bp.size(), mesh.points.size());
+        for (size_t i = 0; i < nbp; i++) {
+          SurfacePoint s;
+          if (surfaces[f]->eval(mesh.points[i].x, mesh.points[i].y, 0, s) == Status::ok) off = std::max(off, norm(bp[i].point - s.p));
+        }
+        std::map<std::pair<int32_t, int32_t>, int> use;
+        for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3)
+          for (int k = 0; k < 3; k++) use[{mesh.triangles[t + k], mesh.triangles[t + (k + 1) % 3]}]++;
+        for (auto [e, n] : use)
+          if (!use.count({e.second, e.first}) && e.first < (int32_t)nbp && e.second < (int32_t)nbp)
+            perim += norm(bp[e.second].point - bp[e.first].point);
+        bandArea[f] = ap < off * perim ? off * perim : 0;
+        if (getenv("PATCHLOG")) std::fprintf(stderr, "BAND row %d off %.4g perim %.4g ap %.4g sliver %d\n", f, off, perim, ap, bandArea[f] > 0);
+      }
+      patchRatio[f] = ap > 0 ? a3 / ap : 0, tiltShare[f] = a3 > 0 ? tilted / a3 : 0;
+      if (getenv("PATCHLOG")) std::fprintf(stderr, "PATCH row %d id %u kind %d meshing %d ratio %.5f tilt %.4f tris %zu a3 %.6g ap %.6g dev %.4g\n", f, m.u32(CBR_FACE_ID)[f], m.i32(CBR_FACE_SURFACE)[f] >= 0 ? int(m.u8(CBR_SURFACE_KIND)[m.i32(CBR_FACE_SURFACE)[f]]) : 0, last[f].meshings, patchRatio[f], tiltShare[f], mesh.triangles.size() / 3, a3, ap, dev);
+    }
     if (mesh.status == Status::noConvergence) {
       out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
       out.capped = true;
@@ -1589,7 +1800,11 @@ struct PartMesher::Impl {
       int edge, span;
       bool forward;
       auto [a, b] = segs[w.segment];
-      if (spanOf(f, bp[a], bp[b], edge, span, forward))
+      const bool sp = spanOf(f, bp[a], bp[b], edge, span, forward);
+      if (getenv("SPLITLOG") && atoi(getenv("SPLITLOG")) == (int)m.u32(CBR_FACE_ID)[f])
+        std::fprintf(stderr, "SPLIT meshing %d seg %d (%.3f %.3f %.3f)-(%.3f %.3f %.3f) frac %.3f spanOf %d edge %d span %d kinds %d/%d edges %d/%d samples %d/%d\n", last[f].meshings, w.segment,
+          bp[a].point.x, bp[a].point.y, bp[a].point.z, bp[b].point.x, bp[b].point.y, bp[b].point.z, w.fraction, int(sp), sp ? edge : -1, sp ? span : -1, int(bp[a].kind), int(bp[b].kind), bp[a].edgeIndex, bp[b].edgeIndex, bp[a].sample, bp[b].sample);
+      if (sp)
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
       else if (auto c = creaseSegment.find({std::min(a, b), std::max(a, b)}); c != creaseSegment.end())
         creaseSplits[f].insert(c->second);
@@ -1602,6 +1817,8 @@ struct PartMesher::Impl {
     out.ringBlocked = ringBlocked[f], out.splitsDropped = splitsDropped[f];
     // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
+    if (getenv("SPLITLOG") && atoi(getenv("SPLITLOG")) == (int)m.u32(CBR_FACE_ID)[f])
+      std::fprintf(stderr, "SPLITS meshing %d wanted %zu splitWanted %zu tris %zu refused %zu\n", last[f].meshings, wanted[f].size(), mesh.splitWanted.size(), mesh.triangles.size() / 3, mesh.rejected.size());
     out.splitsWanted = static_cast<int>(wanted[f].size() + creaseSplits[f].size());
     out.sampled = !criteria[f]->bounded();
     if (o.countExpected) {
@@ -1824,6 +2041,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.ringBlocked.assign(nf, 0), I.splitsDropped.assign(nf, 0);
   I.refused.resize(nf);
   I.last.resize(nf);
+  I.creaseLines.assign(nf, {}), I.critBox.assign(nf, {}), I.retried.assign(nf, 0), I.patchRatio.assign(nf, 0), I.tiltShare.assign(nf, 0), I.capKeep.assign(nf, 0), I.bandArea.assign(nf, 0);
   I.creases.assign(nf, {}), I.creaseSplits.assign(nf, {});
   const cadgeom::Tolerances tols(m);
   I.floor = refinementFloor(tols.part(), I.o.d.linear);
@@ -1859,6 +2077,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         I.criteriaWhy[f] = !fb.cause.empty() ? fb.cause : "its boundary gives no points in (u, v)";
         continue;
       }
+      I.critBox[f] = box;
       I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
       if (I.criteria[f]) I.criteria[f]->setOutputOrigin(I.o.outputOrigin);
       if (!I.criteria[f]) I.criteriaWhy[f] = "no criteria for it (its (u, v) box not finite)";
@@ -1889,7 +2108,14 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   if (I.o.creases) I.findFaceCreases();
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
   for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
-  for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
+  static const bool retry = getenv("RETRY") && atoi(getenv("RETRY"));
+  static const double retryOver = getenv("RETRYOVER") ? atof(getenv("RETRYOVER")) : 0.1;
+  if (retry)
+    for (int f = 0; f < nf; f++)
+      if (I.toRetry(f, retryOver)) I.retryFace(f);
+  I.rounds = 0;
+  auto runRounds = [&](int upTo) {
+  for (; I.rounds < upTo; I.rounds++) {
     // Every face's wanted splits, each span once (the first face's fraction).
     std::vector<SplitRequest> requests;
     std::set<std::pair<int, int>> seen;
@@ -1938,12 +2164,29 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
     for (int f : undone) I.meshFace(f);
     I.ringFacesRemeshed += static_cast<int>(undone.size());
   }
-  I.memos.clear();
-  if (I.o.collapseTurned) I.collapseTurned();
-  I.failCapped();
-  I.checkDeviation();
-  I.checkFacing();
-  I.checkFoldedFans();
+  };
+  runRounds(I.o.maxSplitRounds);
+  if (retry) {
+    bool any = false;
+    for (int f = 0; f < nf; f++)
+      if (I.toRetry(f, retryOver))
+        I.retryFace(f), any = true;
+    if (any) runRounds(I.rounds + 16);
+  }
+  auto finish = [&] {
+    I.memos.clear();
+    if (I.o.collapseTurned) I.collapseTurned();
+    I.failCapped();
+    I.checkDeviation();
+    I.checkFacing();
+    I.checkFoldedFans();
+  };
+  finish();
+  static const bool rescue = retry && !(getenv("RESCUE") && !atoi(getenv("RESCUE")));
+  if (rescue) {
+    for (int f = 0; f < nf; f++) I.rescueMesh(f);
+    if (!I.rescues.empty()) finish(), I.rescueDecide(retryOver);
+  }
 }
 
 PartMesher::~PartMesher() { delete impl_; }
