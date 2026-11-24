@@ -170,7 +170,8 @@ test('progress: each phase as it begins, the representations counted through par
   const told: ImportProgress[] = [];
   await importStep(file(DATA), { onProgress: (p) => told.push(p) });
   const phases = told.map((p) => p.phase).filter((p, k, a) => p !== a[k - 1]);
-  assert.deepEqual(phases, ['reading', 'structure', 'parts', 'assembly']);
+  // (Healing on by default: its phase last.)
+  assert.deepEqual(phases, ['reading', 'structure', 'parts', 'assembly', 'healing']);
   const parts = told.filter((p) => p.phase === 'parts');
   assert.ok(parts.length > 2);
   assert.deepEqual(parts.map((p) => p.done), parts.map((_, k) => k));
