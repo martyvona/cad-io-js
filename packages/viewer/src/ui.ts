@@ -40,6 +40,7 @@ import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
 import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
 import { askScreenshot } from './screenshot-dialog.ts';
+import { showLink } from './link-dialog.ts';
 import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
   from './screenshot.ts';
 
@@ -127,11 +128,11 @@ export interface Ui {
    */
   notice(title: string, intro: string, items?: readonly string[], error?: boolean): Promise<void>;
   /**
-   * Whether Copy link to this view spells out the settings whose defaults depend on the device (its Include device
+   * Whether Link to this view... spells out the settings whose defaults depend on the device (its Include device
    * defaults: the meshing profile and the edge style), even where they're this device's.
    */
   linkDeviceDefaults(): boolean;
-  /** The view's address, for "Copy link to this view" (set by the automation layer). */
+  /** The view's address, for "Link to this view..." (set by the automation layer). */
   link?: () => string;
   /** The controls (for the recorder, recorder.ts, and replay). */
   readonly gui: GUI;
@@ -169,7 +170,7 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 const GNOMON_KEY = 'cad-viewer.gnomon';
 /** '1' once a physical keyboard has been seen in this browser (shortcuts.ts's fromKeyboard): the keys' hints shown. */
 const KEYBOARD_KEY = 'cad-viewer.keyboard';
-/** Copy link's Include device defaults, as remembered in this browser ('1' on; else off). */
+/** Link to this view...'s Include device defaults, as remembered in this browser ('1' on; else off). */
 const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
 /** The remembered choice (off where storage can't be read). */
 function linkDefaultsRemembered(): boolean {
@@ -548,14 +549,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json, .3mf)');
     return src;
   }, files.map((f) => f.name).join(', '))) : undefined;
-  // The view's address to the clipboard (where the page may write it: a secure context), else shown to copy.
-  const copyLink = () => {
-    const href = ui.link?.();
-    if (!href) return;
-    const show = () => window.prompt('The link to this view:', href);
-    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(href).then(
-      () => say('link copied'), show);
-    else show();
+  // Link to this view...'s option, off by default, remembered in this browser: the device's defaults spelled out in
+  // the link (the profile, the edge style), so it shows the same on a phone as on a desktop.
+  const linkDefaults = { on: linkDefaultsRemembered() };
+  // The view's address in a dialog (link-dialog.ts), with the option and Copy.
+  const linkDialog = () => {
+    const link = ui.link;
+    if (!link) return;
+    return showLink({ link, defaults: linkDefaults.on, setDefaults: (on) => {
+      linkDefaults.on = on;
+      try {
+        localStorage.setItem(LINK_DEFAULTS_KEY, on ? '1' : '0');
+      } catch {
+        // Not remembered; it still applies now.
+      }
+    } });
   };
   // A model's URL (fetched here, unless the caller has fetched it already: replay checks its hash first).
   let lastUrl = '';
@@ -623,23 +631,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();
+  file.add({ link: () => linkDialog() }, 'link').name('Link to this view...');
   file.add({ about: () => about() }, 'about').name('About...');
 
   const view = gui.addFolder('View');
   const zoomAll = view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
   // Enabled while something is selected.
   const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
-  view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
-  // Its option, off by default, remembered in this browser: the device's defaults spelled out in the link (the
-  // profile, the edge style), so it shows the same on a phone as on a desktop.
-  const linkDefaults = { on: linkDefaultsRemembered() };
-  view.add(linkDefaults, 'on').name('Include device defaults').onChange((on: boolean) => {
-    try {
-      localStorage.setItem(LINK_DEFAULTS_KEY, on ? '1' : '0');
-    } catch {
-      // Not remembered; it still applies now.
-    }
-  });
   // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
   const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
   viewer.showGnomon = axes.on;

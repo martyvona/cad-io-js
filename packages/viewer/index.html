@@ -238,6 +238,9 @@
     .cv-dialog p[hidden] { display: none; }
     .cv-dialog label.check { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
     .cv-dialog label.check input { display: inline; width: auto; margin: 0; }
+    /* Link to this view's link (link-dialog.ts): one line, scrolling sideways, tall enough for the scroll bar too. */
+    .cv-dialog textarea.link { width: min(520px, calc(100vw - 72px)); white-space: pre; overflow-x: auto;
+      overflow-y: hidden; resize: none; height: calc(1.5em + 34px); line-height: 1.5; }
     .cv-dialog label[hidden] { display: none; }
     .cv-dialog .alpha { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
     .cv-dialog .alpha input[type=range] { flex: 1; width: auto; margin: 0; padding: 0; }

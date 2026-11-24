@@ -3724,29 +3724,67 @@ await check('tess-cadio', async () => {
     `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
   return undefined;
 });
-// Copy link to this view's Include device defaults (off by default, remembered in this browser): off, a link leaves out
-// what is the device's default (a desktop's medium profile and fat edges; a phone's link says its thin edges, which
-// aren't the desktop's, but not its coarse profile); on, profile= and edgeStyle= are always in it, a custom profile
-// by its deflections. (Pages share the browser's storage: left off at the end, as the other checks expect.)
-await check('copy link: device defaults', async () => {
+// File's Link to this view... (link-dialog.ts): a modal with Include device defaults (off by default, remembered in
+// this browser), the link in a one-line box that can be selected and scrolls sideways, and Copy (the clipboard
+// stubbed), the dialog left open. Off, a link leaves out what is the device's default (a desktop's medium profile and
+// fat edges; a phone's link says its thin edges, which aren't the desktop's, but not its coarse profile); on, profile=
+// and edgeStyle= are always in it, a custom profile by its deflections; the box follows the option. Not in View any
+// more. (Pages share the browser's storage: left off at the end, as the other checks expect.)
+await check('link to this view', async () => {
   const look = `(async () => {
     await cadViewer.idle();
-    const option = ui.gui.controllersRecursive().find((c) => c._name === 'Include device defaults');
-    const said = () => { const u = new URL(ui.link()); const h = new URLSearchParams(u.hash.slice(1));
+    let copied;
+    navigator.clipboard.writeText = async (t) => { copied = t; };
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const control = (path) => ui.gui.controllersRecursive().find((c) => c.parent._title + '/' + c._name === path);
+    const inView = ['Copy link to this view', 'Include device defaults'].filter((n) =>
+      ui.gui.controllersRecursive().some((c) => c._name === n));
+    // The dialog opened, its parts.
+    const open = async () => {
+      const b = control('File/Link to this view...');
+      b.$button.click();
+      await frame();
+      const d = document.querySelector('dialog.cv-dialog');
+      return { d, box: d.querySelector('input[type=checkbox]'), text: d.querySelector('textarea.link'),
+        copy: [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy') };
+    };
+    const said = (href) => { const u = new URL(href); const h = new URLSearchParams(u.hash.slice(1));
       return { profile: u.searchParams.get('profile'), linear: u.searchParams.get('linearDeflection'),
         edgeStyle: h.get('edgeStyle') }; };
-    const before = { checked: option.getValue(), link: said() };
-    option.setValue(!before.checked);
-    const toggled = { stored: localStorage.getItem('cad-viewer.linkDeviceDefaults'), link: said() };
+    let o = await open();
+    const before = { checked: o.box.checked, link: said(o.text.value), same: o.text.value === ui.link(),
+      title: o.d.querySelector('h2').textContent, readOnly: o.text.readOnly, wrap: o.text.wrap };
+    o.box.click();
+    await frame();
+    const toggled = { stored: localStorage.getItem('cad-viewer.linkDeviceDefaults'), link: said(o.text.value),
+      same: o.text.value === ui.link() };
+    o.copy.click();
+    for (let i = 0; i < 50 && (copied === undefined || o.copy.textContent === 'Copy'); i++) await frame();
+    const copy = { copied: copied === o.text.value, label: o.copy.textContent, open: o.d.open };
+    // A long link: one line, scrolling sideways, the line whole above the scroll bar; focused, all of it selected.
+    o.text.value = o.text.value + '&' + 'x'.repeat(600);
+    o.text.focus();
+    const long = { scrolls: o.text.scrollWidth > o.text.clientWidth, line: o.text.scrollHeight <= o.text.clientHeight,
+      selected: o.text.selectionStart === 0 && o.text.selectionEnd === o.text.value.length,
+      inside: o.text.getBoundingClientRect().right <= o.d.getBoundingClientRect().right };
+    o.d.querySelector('button[value=close]').click();
+    await frame();
     ui.setMeshing({ profile: 'custom', linearDeflection: 0.05 });
-    await (async () => { const b = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+    await (async () => { const b = control('B-Rep Meshing/Mesh again');
       await b.getValue().call(b.object); await cadViewer.idle(); })();
-    const custom = said();
-    return { before, toggled, custom, device: viewer.device };
+    o = await open();
+    const custom = said(o.text.value);
+    o.d.querySelector('button[value=close]').click();
+    await frame();
+    return { before, toggled, copy, long, custom, inView, closed: !document.querySelector('dialog.cv-dialog'),
+      device: viewer.device };
   })()`;
   type Said = { profile: string | null; linear: string | null; edgeStyle: string | null };
-  type Got = { before: { checked: boolean; link: Said }; toggled: { stored: string | null; link: Said }; custom: Said;
-    device: string };
+  type Got = { before: { checked: boolean; link: Said; same: boolean; title: string; readOnly: boolean;
+    wrap: string }; toggled: { stored: string | null; link: Said; same: boolean };
+    copy: { copied: boolean; label: string; open: boolean };
+    long: { scrolls: boolean; line: boolean; selected: boolean; inside: boolean }; custom: Said; inView: string[];
+    closed: boolean; device: string };
   // (As it is: the check's pages otherwise ask for thin edges.)
   const url = `?url=${encodeURIComponent('/content/as1.stp')}&check`;
   // Off, then turned on.
@@ -3758,10 +3796,15 @@ await check('copy link: device defaults', async () => {
     return 0; })()`, { phone: true, asIs: true }), (await page(url, look, { phone: true, asIs: true }) as
     { after: Got }).after);
   const j = JSON.stringify({ a, b, pOn });
+  expect(a.before.title === 'Link to this view' && a.before.readOnly && a.before.wrap === 'off' && a.before.same
+    && a.inView.length === 0 && a.closed, `File's Link to this view...: the link, read only, one line: ${j}`);
   expect(!a.before.checked && a.before.link.profile === null && a.before.link.edgeStyle === null,
     `off by default: the desktop's defaults left out: ${j}`);
-  expect(a.toggled.stored === '1' && a.toggled.link.profile === 'medium' && a.toggled.link.edgeStyle === 'fat',
-    `on: spelled out, remembered: ${j}`);
+  expect(a.toggled.stored === '1' && a.toggled.link.profile === 'medium' && a.toggled.link.edgeStyle === 'fat'
+    && a.toggled.same, `on: spelled out, remembered, the box following: ${j}`);
+  expect(a.copy.copied && a.copy.label === 'Copied' && a.copy.open, `Copy: the link copied, the dialog open: ${j}`);
+  expect([a, pOn].every((x) => x.long.scrolls && x.long.line && x.long.selected && x.long.inside),
+    `a long link: scrolling sideways, the line whole, all selected on focus, inside the dialog: ${j}`);
   expect(a.custom.profile === null && a.custom.linear === '0.05', `on, custom: its deflections: ${j}`);
   expect(b.before.checked && b.before.link.profile === 'medium' && b.toggled.stored === '0'
     && b.toggled.link.profile === null && b.toggled.link.edgeStyle === null, `remembered on; off again: ${j}`);

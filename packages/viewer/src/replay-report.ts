@@ -4,9 +4,13 @@
 
 import type { RecordedEvent } from './recorder.ts';
 
-/** Controls replay leaves alone. (Select by ID's dialog: the selection it made is replayed, as a select event.) */
-export const NOT_REPLAYED = new RegExp('^(File/|View/Copy link|View/(Enter|Exit) full screen|' +
-  'B-Rep Meshing/Clear cache|Selection/Select by ID)');
+/**
+ * Controls replay leaves alone. (Select by ID's dialog: the selection it made is replayed, as a select event. View's
+ * Copy link and Include device defaults: older recordings', of what's now File's Link to this view..., which changes
+ * nothing shown.)
+ */
+export const NOT_REPLAYED = new RegExp('^(File/|View/Copy link|View/Include device defaults|' +
+  'View/(Enter|Exit) full screen|B-Rep Meshing/Clear cache|Selection/Select by ID)');
 
 /**
  * Whether replay acts on an event (ReplayReport's `steps`): loads, controls but those above, calls, selections in
