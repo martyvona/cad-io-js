@@ -1,6 +1,7 @@
 // tess-cadio's cases from the corpus that a unit fixture doesn't reach: each a part of a file and its faces, meshed
-// (the medium profile, init's defaults) and checked to have none of them failed. A file missing from the corpus is
-// skipped, said so. Usage: node --max-old-space-size=12000 corpus_checks/cadio_cases.ts
+// (the medium profile, init's defaults) and checked to have none of them failed, nor any split its refinement asked
+// for dropped (tess-cadio's warning naming the face: a segment no edge, crease or ring has). A file missing from the
+// corpus is skipped, said so. Usage: node --max-old-space-size=12000 corpus_checks/cadio_cases.ts
 import fs from 'node:fs';
 import path from 'node:path';
 import { MESH_PROFILES, type TessellationResult } from '../packages/cad-scene/src/index.ts';
@@ -60,6 +61,10 @@ const CASES: Case[] = [
   // another frozen (EdgeMesh::split, endSpanFrozen).
   { file: 'third_party/gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp', part: 43110, faces: [23796, 23984],
     why: 'an end span\'s split past the near-end drop, then frozen' },
+  // Tori cut by a straight pseudo-edge sampled at its ends alone (both its loops' points), whose span refinement asks
+  // split: the face's cut among its edges (part.cpp's addCuts), the split made (#1061562 past its deflection else).
+  { file: 'models/onshape/LMP1.step', part: 172790, faces: [1061562, 1061570], why: 'a two-sample cut split' },
+  { file: 'models/onshape/LaPavoni.step', part: 5805, faces: [31422, 31427], why: 'a two-sample cut split' },
 ];
 
 // A face's triangles past an aspect of 1000 in a result.
@@ -99,6 +104,8 @@ for (const [file, cases] of byFile) {
     const r = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(part.brep!.model.buffer),
       origin: part.origin, ...MESH_PROFILES.medium });
     const failed = failedCauses(r), still = c.faces.filter((f) => failed.has(f)).map((f) => `#${f} ${failed.get(f)}`);
+    const drop = r.diagnostics?.find((d) => d.message.includes('split requests dropped'))?.message ?? '';
+    for (const f of c.faces) if (new RegExp(`#${f} \\(`).test(drop)) still.push(`#${f} split requests dropped`);
     if (c.needles) {
       for (const f of c.faces) if (!failed.has(f) && needles(r, f)) still.push(`#${f} ${needles(r, f)} needles`);
     }

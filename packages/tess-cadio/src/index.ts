@@ -424,6 +424,12 @@ export class CadioTessellator implements Tessellator {
       diagnostics.push({ severity: 'warning', message: `${blocked.length} faces with refinement blocked by a fixed `
         + `ring segment: ${blocked.map((id, i) => `#${id} (${blockedRounds[i]} rounds)`).join(', ')}` });
     }
+    // (Faces whose refinement asked for a split no edge, crease or ring segment takes: a bug, said.)
+    const dropped = list('splitsDropped'), droppedCount = list('splitsDroppedCount');
+    if (dropped.length) {
+      diagnostics.push({ severity: 'warning', message: `${dropped.length} faces with split requests dropped (no `
+        + `edge's, crease's or ring's segment): ${dropped.map((id, i) => `#${id} (${droppedCount[i]})`).join(', ')}` });
+    }
     const sampled = list('sampled');
     if (sampled.length) {
       diagnostics.push({ severity: 'info', message: `${sampled.length} faces meshed with their deviation from the `

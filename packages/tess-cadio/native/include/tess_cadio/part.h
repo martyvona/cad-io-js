@@ -231,6 +231,11 @@ struct FaceMesh {
    * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.
    */
   int ringBlocked = 0;
+  /**
+   * Splits its refinement asked for, over its meshings, of a segment that is no edge's span, crease's segment or
+   * ring's (none should be: each is a bug, its triangles there refused for good).
+   */
+  int splitsDropped = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
   bool sampled = false;
   /**

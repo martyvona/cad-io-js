@@ -190,7 +190,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense,
     holesOnly;
-  std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped;
+  std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped, dropped, droppedCount;
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
   std::string thinArea = "[";
@@ -268,6 +268,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
       if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
+      if (fm.splitsDropped) dropped.push_back(faceId[f]), droppedCount.push_back(fm.splitsDropped);
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (fm.seamUnsettled) unsettled.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
@@ -362,7 +363,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
     ",\"againstSense\":" + ids(againstSense) + ",\"holesOnly\":" + ids(holesOnly) + ",\"folded\":" + ids(folded) +
-    ",\"ringBlocked\":" + ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" +
+    ",\"ringBlocked\":" + ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) +
+    ",\"splitsDropped\":" + ids(dropped) + ",\"splitsDroppedCount\":" + ids(droppedCount) + ",\"capped\":" +
     ids(capped) +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"thin\":" + ids(thin) +
     ",\"thinArea\":" + thinArea + "]" + ",\"folds\":" +
@@ -407,7 +409,9 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex), "ringBlocked" and
  * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
- * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces failed for refinement stopped at the
+ * is, and in how many rounds: FaceMesh::ringBlocked), "splitsDropped" and "splitsDroppedCount" (the faces whose
+ * refinement asked for a split of a segment that is no edge's, crease's or ring's, and how many requests:
+ * FaceMesh::splitsDropped; none expected), "capped" (the faces failed for refinement stopped at the
  * point cap: FaceMesh::capped), "poles" (with tc_set_list_poles, every face's singularities as its closed surface has
  * them, 5 numbers each [face id, cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
  * tc_set_count_expected, each face's [face id, triangles its size metric expects: FaceMesh::expectedTriangles,
