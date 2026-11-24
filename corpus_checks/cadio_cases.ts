@@ -1,13 +1,13 @@
 // tess-cadio's cases from the corpus that a unit fixture doesn't reach: each a part of a file and its faces, meshed
-// (the medium profile, init's defaults) and checked to have none of them failed, nor any split its refinement asked
-// for dropped (tess-cadio's warning naming the face: a segment no edge, crease or ring has). A file missing from the
+// (the medium profile, init's defaults) and checked to have none of them failed or kept with a defect, nor any split
+// its refinement asked for dropped (tess-cadio's warning naming the face: a segment no edge, crease or ring has). A file missing from the
 // corpus is skipped, said so. Usage: node --max-old-space-size=12000 corpus_checks/cadio_cases.ts
 import fs from 'node:fs';
 import path from 'node:path';
 import { MESH_PROFILES, type TessellationResult } from '../packages/cad-scene/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { CadioTessellator } from '../packages/tess-cadio/src/index.ts';
-import { failedCauses } from './cadio_causes.ts';
+import { failedCauses, keptDefects } from './cadio_causes.ts';
 
 // `needles`: also none of the faces' triangles past an aspect (its longest side over its altitude) of 1000.
 interface Case { file: string; part: number; faces: number[]; why: string; needles?: boolean }
@@ -112,6 +112,9 @@ for (const [file, cases] of byFile) {
     const r = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(part.brep!.model.buffer),
       origin: part.origin, ...MESH_PROFILES.medium });
     const failed = failedCauses(r), still = c.faces.filter((f) => failed.has(f)).map((f) => `#${f} ${failed.get(f)}`);
+    // (A face kept with a defect, tess-cadio's keepDefects, is no case met: the case is for meshing it clean.)
+    const kept = keptDefects(r);
+    for (const f of c.faces) if (kept.has(f)) still.push(`#${f} kept with defects: ${kept.get(f)}`);
     const drop = r.diagnostics?.find((d) => d.message.includes('split requests dropped'))?.message ?? '';
     for (const f of c.faces) if (new RegExp(`#${f} \\(`).test(drop)) still.push(`#${f} split requests dropped`);
     if (c.needles) {

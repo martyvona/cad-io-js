@@ -19,3 +19,16 @@ export function failedCauses(r: { readonly diagnostics: readonly Pick<Diagnostic
   }
   return out;
 }
+
+/** The kept-with-defects warning's opening words: "<n> (#id (defects), ...)" follows. */
+export const KEPT_HEAD = 'faces kept with defects: ';
+
+/** Each face kept with a defect (part.h's PartOptions::keepDefects): its id to its defects as said, from these. */
+export function keptDefects(r: { readonly diagnostics: readonly Pick<Diagnostic, 'message'>[] }): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const x of r.diagnostics) {
+    if (!x.message.startsWith(KEPT_HEAD)) continue;
+    for (const m of x.message.matchAll(/#(\d+) \(([^)]*)\)/g)) out.set(Number(m[1]), m[2]!);
+  }
+  return out;
+}
