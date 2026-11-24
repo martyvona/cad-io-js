@@ -282,6 +282,23 @@ export class Oracle {
     }
   }
 
+  /**
+   * Face row `face`'s flux of p - c by components: the integrals of (p - c)_j n_j, j = x, y, z (co_face_flux), the
+   * three of faceMoments' degree 1 a volume needs (a closed shell's signed volume their sum over its faces / 3),
+   * integrated alone, so cheaper.
+   */
+  faceFlux(face: number, center: [number, number, number] = [0, 0, 0]): [Estimate, Estimate, Estimate] {
+    const x = this.x, p = x._malloc(72);
+    try {
+      x._co_face_flux!(this.live(), face, center[0], center[1], center[2], p);
+      const o = x.HEAPF64.subarray(p / 8, p / 8 + 9);
+      const at = (k: number): Estimate => ({ value: o[3 * k]!, error: o[3 * k + 1]!, status: STATUS[o[3 * k + 2]!]! });
+      return [at(0), at(1), at(2)];
+    } finally {
+      x._free(p);
+    }
+  }
+
   /** Point `p` against closed shell row `shell` by rays (oracle.h's classify). */
   classify(shell: number, p: Vec3): PointClass {
     const x = this.x, o = x._malloc(13 * 8 + 8);

@@ -668,6 +668,24 @@ test('moments of a face far from the origin, about a point of it: within its poi
   }
 });
 
+test('faceFlux: faceMoments\' degree-1 x n_x, y n_y, z n_z, the same bits (each component integrated alone)',
+  { skip }, async () => {
+    const c: V = [0.3, -0.2, 0.5];
+    const models: [string, BrepData][] = [['a zone', band(2, -0.5, 0.8, 'zone', false)],
+      ['a cap as a revolution', band(2, -0.5, 0.8, 'north', true)], ['a double cone', doubleCone()],
+      ['a square', square(0, 0)]];
+    for (const [what, d] of models) {
+      using o = new Oracle(await init(), d.buffer);
+      const m = o.faceMoments(0, { center: c, degree: 1 }).slice(1), x = o.faceFlux(0, c);
+      assert.deepEqual(x, [m[0]!.n[0], m[1]!.n[1], m[2]!.n[2]], what);
+      assert.ok(x.every((e) => e.status === 'ok'), what);
+    }
+    // The default centre is the origin.
+    using o = new Oracle(await init(), square(0, 0).buffer);
+    assert.deepEqual(o.faceFlux(0), o.faceFlux(0, [0, 0, 0]));
+    assert.notDeepEqual(o.faceFlux(0, [0, 0, 1]), o.faceFlux(0));
+  });
+
 test('faceMoments takes degrees 0 to MAX_MOMENT_DEGREE', { skip }, async () => {
   using o = new Oracle(await init(), square(0, 0).buffer);
   assert.equal(o.faceMoments(0, { degree: MAX_MOMENT_DEGREE }).length, 35);

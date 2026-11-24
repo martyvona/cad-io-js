@@ -130,6 +130,25 @@ int32_t co_face_moments(int32_t h, int32_t face, double cx, double cy, double cz
   return 0;
 }
 
+/**
+ * Face `face`'s flux of p - c by components (oracle.h's faceIntegral): the integrals of (p - c)_j n_j for j = x, y, z,
+ * into out[3 j ..] as (value, error, status); a closed shell's signed volume is their sum over its faces / 3. The same
+ * three of co_face_moments' degree 1, but integrated alone (its other nine components set the quadrature's work).
+ * 0, or -1 for a bad handle.
+ */
+int32_t co_face_flux(int32_t h, int32_t face, double cx, double cy, double cz, double* out) {
+  Entry* e = entry(h);
+  if (!e) return -1;
+  const Vec3 c{cx, cy, cz};
+  Integrand g{3, [&](Vec3 p, Vec3 nv, double* o) {
+    const Vec3 d = p - c;
+    o[0] = d.x * nv.x, o[1] = d.y * nv.y, o[2] = d.z * nv.z;
+  }, {}};
+  const std::vector<Estimate> v = e->oracle->faceIntegral(face, g);
+  for (int k = 0; k < 3; k++) put(out + 3 * k, v[k]);
+  return 0;
+}
+
 /** Point (px, py, pz) against closed shell `shell` (oracle.h's classify) into out[0..12] (putClass), its why. */
 int32_t co_classify(int32_t h, int32_t shell, double px, double py, double pz, double* out, const char** why) {
   Entry* e = entry(h);
