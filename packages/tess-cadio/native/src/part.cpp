@@ -153,11 +153,32 @@ struct PartMesher::Impl {
   std::vector<FaceMesh> faces;
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
+  /**
+   * Face f's cuts into edgesOf[f]: each pseudo-edge whose ends are among `pts` (the face's boundary points). Not only
+   * those with a pseudoSample: a straight cut is sampled at its ends alone, both of them its loops' points (where the
+   * cut crosses them), so none of its boundary points names it, and its span would be no edge's to split.
+   */
+  void addCuts(int f, const std::vector<const BoundaryPoint*>& pts) {
+    std::set<std::tuple<double, double, double>> at;
+    for (const BoundaryPoint* p : pts) {
+      if (p->kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p->edgeIndex);
+      at.insert({p->point.x, p->point.y, p->point.z});
+    }
+    for (int e = m.edges(); e < em->edgeCount(); e++) {
+      if (!em->isPseudo(e) || edgesOf[f].count(e)) continue;
+      const std::vector<Vec3>& q = em->edge(e).points;
+      if (q.size() >= 2 && at.count({q.front().x, q.front().y, q.front().z}) && at.count({q.back().x, q.back().y,
+        q.back().z}))
+        edgesOf[f].insert(e);
+    }
+  }
   std::vector<std::vector<SplitRequest>> wanted;
   /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
   std::vector<size_t> mesherTriangles;
   /** Each face's rounds with refinement blocked by a ring's segment (FaceMesh::ringBlocked). */
   std::vector<int> ringBlocked;
+  /** Each face's split requests dropped, over its meshings (FaceMesh::splitsDropped). */
+  std::vector<int> splitsDropped;
   /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
   double floor = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
@@ -562,9 +583,10 @@ struct PartMesher::Impl {
         if (m.loopKind(l) == CBR_LOOP_EDGE)
           for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
       }
+      std::vector<const BoundaryPoint*> pts;
       for (const auto& L : fb.loops)
-        for (const BoundaryPoint& p : L)
-          if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
+        for (const BoundaryPoint& p : L) pts.push_back(&p);
+      addCuts(f, pts);
       const Surface& s = *surfaces[f];
       Range ru{INFINITY, -INFINITY}, rv{INFINITY, -INFINITY};
       for (const auto& L : fb.loops)
@@ -1288,6 +1310,7 @@ struct PartMesher::Impl {
     if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
     out = {};
+    out.splitsDropped = splitsDropped[f];
     refused[f].clear();
     collapseInfo[f] = {};
     wanted[f].clear();
@@ -1378,16 +1401,15 @@ struct PartMesher::Impl {
             {static_cast<int>(k), static_cast<int>(i)};
         }
       }
-    // Its edges: its loops' model edges, and the pseudo-edges its boundary has.
+    // Its edges: its loops' model edges, and its cuts' pseudo-edges.
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
       if (m.loopKind(l) == CBR_LOOP_EDGE)
         for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
     }
-    for (const BoundaryPoint& p : bp) {
-      d.points.push_back(p.uv);
-      if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
-    }
+    std::vector<const BoundaryPoint*> pts;
+    for (const BoundaryPoint& p : bp) d.points.push_back(p.uv), pts.push_back(&p);
+    addCuts(f, pts);
     // The segments the edges won't split (an edge's span whose chord is within the refinement floor, or an end
     // span too short to take a point past the edge's near-end drop, as EdgeMesh::split has them): frozen, so the
     // mesher inserts past them rather than asking.
@@ -1526,6 +1548,12 @@ struct PartMesher::Impl {
       // Two edges leaving a vertex nearly tangent (the coarser one's chord across the other's samples), or two loops
       // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
       // a few spans a round wouldn't mend many crossings within the rounds.
+      // (A pair that is one point, or that has a pole line's or a vertex loop's point, is no edge's span and no
+      // request; one between two edges' samples that is none is dropped, counted.)
+      auto sampled = [&](int32_t i) {
+        return i >= 0 && i < static_cast<int32_t>(bp.size()) && (bp[i].kind == BoundaryPoint::edgeSample ||
+          bp[i].kind == BoundaryPoint::pseudoSample);
+      };
       if (mesh.rejected.size() >= 4)
         for (size_t k = 0; k + 1 < mesh.rejected.size(); k += 2) {
           const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
@@ -1534,6 +1562,8 @@ struct PartMesher::Impl {
           if (a >= 0 && b >= 0 && a < static_cast<int32_t>(bp.size()) && b < static_cast<int32_t>(bp.size()) &&
             spanOf(f, bp[a], bp[b], edge, span, forward))
             wanted[f].push_back({edge, span, 0.5});
+          else if (a != b && sampled(a) && sampled(b))
+            out.splitsDropped = ++splitsDropped[f];
         }
       out.splitsWanted = static_cast<int>(wanted[f].size());
       return;
@@ -1563,11 +1593,13 @@ struct PartMesher::Impl {
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
       else if (auto c = creaseSegment.find({std::min(a, b), std::max(a, b)}); c != creaseSegment.end())
         creaseSplits[f].insert(c->second);
+      else if (ringSegments.count({std::min(a, b), std::max(a, b)}))
+        blocked = true;
       else
-        blocked = blocked || ringSegments.count({std::min(a, b), std::max(a, b)});
+        out.splitsDropped = ++splitsDropped[f];
     }
     if (blocked) ringBlocked[f]++;
-    out.ringBlocked = ringBlocked[f];
+    out.ringBlocked = ringBlocked[f], out.splitsDropped = splitsDropped[f];
     // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
     out.splitsWanted = static_cast<int>(wanted[f].size() + creaseSplits[f].size());
@@ -1789,7 +1821,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
   I.collapseInfo.assign(nf, {});
-  I.ringBlocked.assign(nf, 0);
+  I.ringBlocked.assign(nf, 0), I.splitsDropped.assign(nf, 0);
   I.refused.resize(nf);
   I.last.resize(nf);
   I.creases.assign(nf, {}), I.creaseSplits.assign(nf, {});
