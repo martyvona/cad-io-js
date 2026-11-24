@@ -1884,3 +1884,89 @@ TEST_CASE("rational B-spline boxes about the rectangle: a narrow strip far from 
     CHECK(far(buu) <= 3 * most[1]);
   }
 }
+
+TEST_CASE("inversion until ambiguous: on a folded patch it stops early, ambiguous; elsewhere the whole "
+  "search bit for bit") {
+  // S(u, v) = (1000 (2u - 1)^2, 10 v, 0.01 u) on [0, 1]^2, folded back over itself along u: p = (500, 5, 0.005) has
+  // two feet, at u = (1 -/+ sqrt(0.5)) / 2, each about 0.0035 from p and 0.0071 apart (more than tol = 0.005).
+  auto S = rawSpline(2, 1, {0, 1}, {3, 3}, {0, 1}, {2, 2},
+    {{{1000, 0, 0}, {1000, 10, 0}}, {{-1000, 0, 0.005}, {-1000, 10, 0.005}}, {{1000, 0, 0.01}, {1000, 10, 0.01}}});
+  REQUIRE(S);
+  const SurfaceDomain d = S->domain();
+  const Vec3 p{500, 5, 0.005};
+  const double tol = 0.005;
+  long r0 = surfaces::inversionRects;
+  const SurfaceInversion full = invertSurface(*S, p, d.u, d.v, tol);
+  long r1 = surfaces::inversionRects;
+  const SurfaceInversion fast = invertSurface(*S, p, d.u, d.v, tol, nullptr, nullptr, false, true);
+  long r2 = surfaces::inversionRects;
+  CHECK(full.status == Status::ok);
+  CHECK(full.certainty == Certainty::ambiguous);
+  CHECK(fast.status == Status::ok);
+  CHECK(fast.certainty == Certainty::ambiguous);
+  CHECK(fast.distance <= tol);
+  CHECK(!fast.alternatives.empty());
+  // Its feet points of S within tol of p, and some two of them (the foot and an alternative, or two alternatives)
+  // more than tol apart.
+  std::vector<Vec3> pts{fast.foot};
+  for (Vec2 uv : fast.alternatives) {
+    SurfacePoint q;
+    S->eval(uv.x, uv.y, 0, q);
+    CHECK(norm(q.p - p) <= 2 * tol);
+    pts.push_back(q.p);
+  }
+  double spread = 0;
+  for (Vec3 a : pts)
+    for (Vec3 b : pts) spread = std::max(spread, norm(a - b));
+  CHECK(spread > tol);
+  CHECK(r2 - r1 < r1 - r0);
+
+  // The reference models' B-splines at points near and off them: where the search doesn't stop it is the whole
+  // search (the same (u, v), distance and certainty, bit for bit); where it does, a point within tol of p, the whole
+  // search's nearest within tol of it, and two of the points it found within tol of p more than tol apart.
+  std::mt19937_64 rng(37);
+  std::uniform_real_distribution<double> U(0, 1), D(-1, 1);
+  int same = 0, stopped = 0, bad = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    const Model m(ref.data, ref.size);
+    for (int row = 0; row < m.surfaces(); row++) {
+      if (m.surfaceKind(row) != CBR_SURFACE_BSPLINE) continue;
+      Status st;
+      auto s = makeSurface(m, row, st);
+      if (!s) continue;
+      const SurfaceDomain dom = s->domain();
+      Box3 bb;
+      s->bound(dom.u, dom.v, bb);
+      const double size = std::hypot(bb.x.width(), std::hypot(bb.y.width(), bb.z.width()));
+      for (int k = 0; k < 16; k++) {
+        const double t = (k % 2 ? 1e-2 : 1e-6) * size;
+        SurfacePoint q;
+        s->eval(dom.u.lo + U(rng) * (dom.u.hi - dom.u.lo), dom.v.lo + U(rng) * (dom.v.hi - dom.v.lo), 0, q);
+        const Vec3 dir{D(rng), D(rng), D(rng)};
+        const Vec3 x = q.p + (0.2 * size * U(rng) * (k % 4 < 2 ? 0 : 1) / std::fmax(norm(dir), 1e-9)) * dir;
+        const SurfaceInversion a = invertSurface(*s, x, dom.u, dom.v, t);
+        std::vector<SurfaceFoot> found;
+        const SurfaceInversion b = invertSurface(*s, x, dom.u, dom.v, t, nullptr, &found, false, true);
+        const bool identical = a.status == b.status && a.uv.x == b.uv.x && a.uv.y == b.uv.y
+          && a.distance == b.distance && a.certainty == b.certainty && a.alternatives.size() == b.alternatives.size();
+        if (identical) {
+          same++;
+          continue;
+        }
+        stopped++;
+        // (Stopped only once it held two points within tol of p more than tol apart: among what it found.)
+        bool apart = false;
+        for (const SurfaceFoot& f : found)
+          for (const SurfaceFoot& g : found)
+            apart = apart || (f.distance <= t && g.distance <= t && norm(f.foot - g.foot) > t);
+        const bool ok = b.status == Status::ok && b.distance <= t && a.distance <= b.distance + t && apart;
+        if (!ok && bad++ < 8)
+          std::printf("  %s %d: whole %.17g (%d, %d), until ambiguous %.17g (%d, %d)\n", ref.file, row, a.distance,
+            int(a.status), int(a.certainty), b.distance, int(b.status), int(b.certainty));
+      }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(same > 0);
+}
