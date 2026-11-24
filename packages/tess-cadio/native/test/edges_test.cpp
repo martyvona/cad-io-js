@@ -911,6 +911,98 @@ TEST_CASE("a split in an edge's end span kept past the near-end drop (min(tol, d
   CHECK(!em.endSpanFrozen(e, spans - 2));
 }
 
+TEST_CASE("a curve crossing its neighbour within the tolerance beside their vertex: its samples there dropped") {
+  // cuspCrossing: C runs below L (the x axis) to 0.0099 over x in (0, 0.43). Under an uncertainty of 0.05 those
+  // samples are on L: dropped from C, the boundary crossing itself nowhere, C before L at the corner or after it
+  // (mirrored), the face's sense false (turned), or on a cylinder where the two uses meet a period apart (cuspSeam:
+  // below z = 0); every sample past the dip kept, as under 1e-3, where the dip is real and the boundary still
+  // crosses; and kept under a deflection their neighbours' chord would miss them by.
+  auto crossings = [](const FaceBoundary& fb) {
+    std::vector<std::pair<Vec2, Vec2>> segs;
+    std::vector<std::pair<size_t, size_t>> at;
+    for (size_t l = 0; l < fb.loops.size(); l++)
+      for (size_t i = 0; i < fb.loops[l].size(); i++)
+        segs.push_back({fb.loops[l][i].uv, fb.loops[l][(i + 1) % fb.loops[l].size()].uv}), at.push_back({l, i});
+    auto side = [](Vec2 a, Vec2 b, Vec2 c) { return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x); };
+    int n = 0;
+    for (size_t x = 0; x < segs.size(); x++)
+      for (size_t y = x + 1; y < segs.size(); y++) {
+        if (at[x].first == at[y].first) {
+          const size_t len = fb.loops[at[x].first].size(), i = at[x].second, j = at[y].second;
+          if (j == i + 1 || (i == 0 && j == len - 1)) continue;
+        }
+        const auto [a, b] = segs[x];
+        const auto [c, d] = segs[y];
+        n += side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+      }
+    return n;
+  };
+  // The triangle's area in closed form: the line from (10, 0) to (3, 3), then back along C (its Bezier's flux).
+  auto exactArea = [] {
+    const Vec2 P[4] = {{0, 0}, {1, -0.1}, {2, 0.6}, {3, 3}};
+    auto at = [&](double t) {
+      const double s = 1 - t;
+      return s * s * s * P[0] + 3 * s * s * t * P[1] + 3 * s * t * t * P[2] + t * t * t * P[3];
+    };
+    auto d = [&](double t) {
+      const double s = 1 - t;
+      return 3 * (s * s * (P[1] - P[0]) + 2 * s * t * (P[2] - P[1]) + t * t * (P[3] - P[2]));
+    };
+    const int n = 2000;
+    double flux = 0;
+    for (int k = 0; k <= n; k++) {
+      const double t = static_cast<double>(k) / n, w = k == 0 || k == n ? 1 : k % 2 ? 4 : 2;
+      const Vec2 q = at(t), dq = d(t);
+      flux += w * (q.x * dq.y - q.y * dq.x);
+    }
+    return 15 - 0.5 * flux / (3.0 * n);
+  };
+  std::vector<double> past;
+  for (const char* name : {"cuspCrossingTight", "cuspCrossing", "cuspCrossingMirrored", "cuspCrossingTurned",
+         "cuspSeam"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    o.maxSpacing = 0.1;
+    EdgeMesh em(m, o);
+    const bool tight = std::strcmp(name, "cuspCrossingTight") == 0, seam = std::strcmp(name, "cuspSeam") == 0;
+    const double sy = std::strcmp(name, "cuspCrossingMirrored") == 0 ? -1 : 1;
+    // (C is the model's third edge, L, M, C; on the seam its second, L, C, M.)
+    const EdgeSamples& c = em.edge(seam ? 1 : 2);
+    int below = 0;
+    std::vector<double> beyond;
+    for (size_t i = 1; i + 1 < c.points.size(); i++) {
+      below += (seam ? c.points[i].z : c.points[i].y * sy) < 0;
+      if (c.points[i].x > 0.5) beyond.push_back(c.t[i]);
+    }
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    CHECK_EQ(checkCoedges(m, em, 1e-9, name), 0);
+    if (tight) {
+      CHECK(below >= 2);
+      CHECK(crossings(fb) > 0);
+      past = beyond;
+      continue;
+    }
+    CHECK_EQ(below, 0);
+    CHECK_EQ(crossings(fb), 0);
+    if (seam) continue;
+    CHECK(beyond == past);
+    CHECK(std::fabs(meshArea(m, 0, fb, 0.3, 1e-3) - exactArea()) < 1e-2);
+  }
+  {
+    cadgeom::Model m = load("cuspCrossing");
+    EdgeOptions o;
+    o.deflection = 1e-5;
+    o.maxSpacing = 0.1;
+    EdgeMesh em(m, o);
+    int below = 0;
+    for (size_t i = 1; i + 1 < em.edge(2).points.size(); i++) below += em.edge(2).points[i].y < 0;
+    CHECK(below >= 2);
+  }
+}
+
 TEST_CASE("a span with no width in parameter never split, however long (an end vertex off its curve's end)") {
   cadgeom::Model m = load("cube");
   REQUIRE(m.ok());

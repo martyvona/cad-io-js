@@ -783,6 +783,114 @@ struct EdgeMesh::Impl {
   }
 
   /**
+   * Face f's corners where a curve comes into a vertex beside its neighbour and crosses it there within the tolerance
+   * (LMP1 #172995's #1073191: a B-spline nearly tangent to a straight edge, 0.0056 past it 0.15 from their vertex,
+   * the tolerance 0.0508; the curve itself, not its chords, so finer sampling doesn't help): while a segment of one
+   * use near the junction crosses one of the other's in (u, v), the inside sample nearest the vertex that lies within
+   * the tolerance of the other's points in 3D and outside the corner's wedge is dropped from its edge, where the chord
+   * bridging it stays within the deflection of it. By the tolerance it is on the other edge. The wedge: from the
+   * vertex towards each use's first sample past the tolerance of the other, the face's way between them; within the
+   * crossing both uses' samples lie within the tolerance of each other, and only those outside it put the boundary
+   * across (a straight edge's lie on its own direction: dropping them mends nothing). From the edge, so every use
+   * loses it; its uses placed again. True where any went.
+   */
+  bool dropCusps(int f) {
+    constexpr int kNear = 8, kRounds = 8;
+    const Face& F = faces[f];
+    if (!F.s) return false;
+    bool any = false;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      const std::vector<int> cs = bounding(l);
+      const int K = static_cast<int>(cs.size());
+      if (K < 2) continue;
+      for (int k = 0; k < K; k++) {
+        const int ca = cs[k], cb = cs[(k + 1) % K];
+        if (junctionPole(f, ca) >= 0) continue;
+        for (int round = 0; round < kRounds; round++) {
+          const CoedgeSamples &A = coedges[ca].s, &B = coedges[cb].s;
+          const int na = static_cast<int>(A.uv.size()), nb = static_cast<int>(B.uv.size());
+          if (na < 2 || nb < 2 || A.index.size() != A.uv.size() || B.index.size() != B.uv.size()) break;
+          const int ea = m.coedgeEdge(ca), eb = m.coedgeEdge(cb);
+          Vec2 sh = A.uv.back() - B.uv.front();
+          for (int d = 0; d < 2; d++)
+            if (F.period[d] > 0) (d ? sh.y : sh.x) = std::round((d ? sh.y : sh.x) / F.period[d]) * F.period[d];
+            else (d ? sh.y : sh.x) = 0;
+          // (A's points from the junction back, B's from it on.)
+          auto a = [&](int j) { return A.uv[na - 1 - j]; };
+          auto b = [&](int j) { return B.uv[j] + sh; };
+          auto crosses = [](Vec2 p, Vec2 q, Vec2 r, Vec2 s2) {
+            auto o2 = [](Vec2 x, Vec2 y, Vec2 z) { return (y.x - x.x) * (z.y - x.y) - (y.y - x.y) * (z.x - x.x); };
+            const double d1 = o2(p, q, r), d2 = o2(p, q, s2), d3 = o2(r, s2, p), d4 = o2(r, s2, q);
+            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+          };
+          bool crossing = false;
+          for (int ia = 0; ia < std::min(kNear, na - 1) && !crossing; ia++)
+            for (int jb = 0; jb < std::min(kNear, nb - 1) && !crossing; jb++)
+              if (!(ia == 0 && jb == 0)) crossing = crosses(a(ia), a(ia + 1), b(jb), b(jb + 1));
+          if (!crossing) break;
+          auto pointA = [&](int j) { return edges[ea].s.points[A.index[na - 1 - j]]; };
+          auto pointB = [&](int j) { return edges[eb].s.points[B.index[j]]; };
+          // The other use's points near the junction, as a polyline.
+          auto near = [&](Vec3 x, bool ofA) {
+            double best = kInf;
+            const int n = ofA ? std::min(kNear + 1, nb) : std::min(kNear + 1, na);
+            for (int j = 0; j + 1 < n; j++) {
+              const Vec3 p = ofA ? pointB(j) : pointA(j), q = ofA ? pointB(j + 1) : pointA(j + 1), pq = q - p;
+              const double l2 = dot(pq, pq), t = l2 > 0 ? std::clamp(dot(x - p, pq) / l2, 0.0, 1.0) : 0;
+              best = std::fmin(best, norm(x - (p + t * pq)));
+            }
+            return best;
+          };
+          // The wedge's sides: towards each use's first sample past tol of the other (else its last near one).
+          const Vec2 V = a(0);
+          auto side = [&](bool ofA) {
+            const int n = std::min(kNear, (ofA ? na : nb) - 1);
+            for (int j = 1; j <= n; j++)
+              if (near(ofA ? pointA(j) : pointB(j), ofA) > tol) return (ofA ? a(j) : b(j)) - V;
+            return (ofA ? a(n) : b(n)) - V;
+          };
+          // (The angle from x to y counterclockwise, in [0, 2 pi).)
+          auto turn = [](Vec2 x, Vec2 y) {
+            const double t = std::atan2(x.x * y.y - x.y * y.x, x.x * y.x + x.y * y.y);
+            return t < 0 ? t + 2 * M_PI : t;
+          };
+          const Vec2 dA = side(true), dB = side(false);
+          // (The face on the loop's left where its sense is true: from B's side counterclockwise to A's.)
+          const bool sense = m.faceSameSense(f);
+          const double wedge = sense ? turn(dB, dA) : turn(dA, dB);
+          auto outside = [&](Vec2 q) { return (sense ? turn(dB, q - V) : turn(dA, q - V)) > wedge * (1 + 1e-9); };
+          // Candidates nearest the vertex first, either side: an inside sample of its edge within tol of the other,
+          // outside the wedge.
+          int dropE = -1, dropI = -1;
+          for (int j = 1; j <= kNear && dropE < 0; j++)
+            for (bool ofA : {true, false}) {
+              const int n = ofA ? na : nb;
+              if (j >= n - 1 || dropE >= 0) continue;
+              const int e = ofA ? ea : eb, idx = ofA ? A.index[na - 1 - j] : B.index[j];
+              const int ns = static_cast<int>(edges[e].s.points.size());
+              if (idx <= 0 || idx >= ns - 1) continue;
+              const Vec3 x = edges[e].s.points[idx];
+              if (near(x, ofA) > tol || !outside(ofA ? a(j) : b(j))) continue;
+              const Vec3 p = edges[e].s.points[idx - 1], q = edges[e].s.points[idx + 1], pq = q - p;
+              const double l2 = dot(pq, pq), t = l2 > 0 ? std::clamp(dot(x - p, pq) / l2, 0.0, 1.0) : 0;
+              if (norm(x - (p + t * pq)) > o.deflection) continue;
+              dropE = e, dropI = idx;
+            }
+          if (dropE < 0) break;
+          Edge& E = edges[dropE];
+          E.s.t.erase(E.s.t.begin() + dropI);
+          E.s.points.erase(E.s.points.begin() + dropI);
+          for (int c : E.coedges) computeCoedge(c);
+          any = true;
+        }
+      }
+    }
+    return any;
+  }
+
+  /**
    * Edge e's inside samples whose use's (u, v) steps back along a side of its face's (u, v) range that it runs on (u,
    * or v, at a bound that doesn't wrap: its feet clamped there, the curve past the surface), against that run's
    * direction, dropped from the edge where the chord bridging each block of them is within the deflection of their
@@ -2553,6 +2661,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     I.computeCoedge(c);
   }
   for (int e = 0; e < I.nModel; e++) I.dropReversals(e);
+  for (int f = 0; f < m.faces(); f++) I.dropCusps(f);
   I.samplePoleCrossings();
   // Pole lines' density: the face's coedges' samples per period along it, at least kMinPolePoints.
   for (int f = 0; f < m.faces(); f++) {

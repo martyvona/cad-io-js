@@ -2051,6 +2051,74 @@ function cuspPocket(mirrored: boolean): BrepBuilder {
 export const cuspPocket_ = (): BrepBuilder => cuspPocket(false);
 export const cuspPocketMirrored = (): BrepBuilder => cuspPocket(true);
 
+/**
+ * A triangle on z = 0 whose curved side leaves its corner at the origin beside its straight one and crosses it: L the
+ * line (0, 0) to (10, 0), C a cubic Bezier (0, 0), (1, -0.1), (2, 0.6), (3, 3) to the third corner, a line between.
+ * C itself runs below L to 0.0099 at x 0.2, back over it at x 0.43 (LMP1 #172995's #1073191's corner, in the
+ * open). Under an uncertainty of 0.05 that dip is on L; under 1e-3 it isn't. Mirrored (y to -y), C leaves the
+ * corner after L in the loop instead of arriving before it. Turned: the face's sense false, its loop the other way.
+ */
+function cuspCrossing(mirrored: boolean, uncertainty: number, turned = false): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
+  const sy = mirrored ? -1 : 1;
+  const v0 = b.addVertex({ point: [0, 0, 0] }), v1 = b.addVertex({ point: [10, 0, 0] });
+  const v2 = b.addVertex({ point: [3, 3 * sy, 0] });
+  const L = b.addEdge({ curve: b.addCurve(line2([0, 0, 0], [1, 0, 0])), start: v0, end: v1, sameSense: true,
+    range: [0, 10] });
+  const l = Math.hypot(7, 3);
+  const M = b.addEdge({ curve: b.addCurve(line2([10, 0, 0], [-7 / l, 3 * sy / l, 0])), start: v1, end: v2,
+    sameSense: true, range: [0, l] });
+  const C = b.addEdge({ curve: b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1], multiplicities: [4, 4],
+    poles: [[0, 0, 0], [1, -0.1 * sy, 0], [2, 0.6 * sy, 0], [3, 3 * sy, 0]], closed: false, selfIntersect: false,
+    form: 'unspecified' }), start: v0, end: v2, sameSense: true,
+    range: [0, 1] });
+  const ccw = mirrored
+    ? [{ edge: C, orientation: 'forward' as const }, { edge: M, orientation: 'reversed' as const },
+      { edge: L, orientation: 'reversed' as const }]
+    : [{ edge: L, orientation: 'forward' as const }, { edge: M, orientation: 'forward' as const },
+      { edge: C, orientation: 'reversed' as const }];
+  const coedges = turned ? ccw.reverse().map((c) => ({ edge: c.edge,
+    orientation: c.orientation === 'forward' ? 'reversed' as const : 'forward' as const })) : ccw;
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: !turned,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * cuspCrossing's corner on a cylinder of radius 10 at its seam: L the arc z = 0 from u = 2 pi - 1 to the seam vertex
+ * (10, 0, 0), its p-curve ending at u = 2 pi; C, with no 3D curve, leaving that vertex by its p-curve from (0, 0),
+ * the plane's Bezier with u = -x / 10 (a millimetre an x of 1): (0, 0), (-0.1, -0.1), (-0.2, 0.6), (-0.3, 3), below
+ * z = 0 to 0.0099 over its first 0.043 rad; M back from its end to L's start. The two uses meet a period apart in
+ * (u, v). Under an uncertainty of 0.05.
+ */
+function cuspSeam(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.05 });
+  const R = 10, P2 = 2 * Math.PI;
+  const at = (u: number, z: number) => [R * Math.cos(u), R * Math.sin(u), z];
+  const v = b.addVertex({ point: at(0, 0) }), vl = b.addVertex({ point: at(P2 - 1, 0) });
+  const vc = b.addVertex({ point: at(-0.3, 3) });
+  const L = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: R }), start: vl, end: v,
+    sameSense: true, range: [P2 - 1, P2] });
+  const C = b.addEdge({ start: v, end: vc, sameSense: true });
+  const M = b.addEdge({ start: vc, end: vl, sameSense: true });
+  const lm = Math.hypot(0.7, 3);
+  const coedges: Coedge[] = [
+    { edge: L, orientation: 'forward', pcurve: b.addCurve(line2([0, 0], [1, 0])) },
+    { edge: C, orientation: 'forward', range: [0, 1], pcurve: b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1],
+      multiplicities: [4, 4], poles: [[0, 0], [-0.1, -0.1], [-0.2, 0.6], [-0.3, 3]], closed: false,
+      selfIntersect: false, form: 'unspecified' }) },
+    { edge: M, orientation: 'forward', range: [0, lm],
+      pcurve: b.addCurve(line2([P2 - 0.3, 3], [-0.7 / lm, -3 / lm])) }];
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: R }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const cuspCrossing_ = (): BrepBuilder => cuspCrossing(false, 0.05);
+export const cuspCrossingMirrored = (): BrepBuilder => cuspCrossing(true, 0.05);
+export const cuspCrossingTight = (): BrepBuilder => cuspCrossing(false, 1e-3);
+export const cuspCrossingTurned = (): BrepBuilder => cuspCrossing(false, 0.05, true);
+export const cuspSeam_ = (): BrepBuilder => cuspSeam();
+
 /** A circle on z = 0 (axis +z: counterclockwise as t grows) about (cx, cy), t = 0 along xDir. */
 function planeCircle(b: BrepBuilder, cx: number, cy: number, r: number, xDir: number[]): number {
   return b.addCurve({ kind: 'circle', position: { origin: [cx, cy, 0], axis: [0, 0, 1], xDir }, radius: r });
@@ -2330,6 +2398,7 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 }
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
+  cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   kinkStripQuadratic: () => kinkStrip(false, true), kinkStripRun: () => kinkStrip(false, false, 0.004, true),
   affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall: () => bsplineBall(),
