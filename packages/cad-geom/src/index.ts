@@ -795,3 +795,4 @@ export class Geometry {
     }
   }
 }
+export { type JudgedMesh, type JudgedModel, meshDeviationJudge } from './deviation.ts';

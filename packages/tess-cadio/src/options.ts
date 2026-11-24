@@ -12,4 +12,4 @@ export const MAX_MIN_ANGLE_DEGREES = 30;
  * unsupported geometry) still fail. Meshes made so aren't to be cached beside normal ones: the cache keys on the
  * request, not on init options.
  */
-export const KEEP_FAILING = { failCapped: false, failTurnedOver: false, maxDeviationFactor: 0 } as const;
+export const KEEP_FAILING = { failCapped: false, failTurnedOver: false, checkDeviation: false } as const;

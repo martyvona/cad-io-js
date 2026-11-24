@@ -118,7 +118,7 @@ public:
    * An upper bound on how far the flat triangle on the surface's points at its corners strays from the surface (a
    * sphere's or a distance function's closed form, else the derivative bounds over its (u, v) box, or with `pieces`
    * over its pieces, tighter and dearer, as accept() has them); false where there is none (the surface's kind
-   * sampled, a bound failing, a corner not evaluated). For PartOptions::maxDeviationFactor's check, which measures
+   * sampled, a bound failing, a corner not evaluated). For PartOptions::checkDeviation's check, which measures
    * only where this doesn't settle it.
    */
   virtual bool deviationBound(const cadgeom::Vec2 tri[3], double& out, bool pieces = true) const = 0;

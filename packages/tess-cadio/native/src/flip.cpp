@@ -159,4 +159,23 @@ bool collapseVertex(const UvOf& uv, std::vector<int32_t>& T, int32_t C, int32_t 
   return true;
 }
 
+int windingFaults(const std::vector<int32_t>& T, const std::vector<int32_t>& weld) {
+  std::map<std::pair<int32_t, int32_t>, int> uses;
+  for (size_t t = 0; t + 2 < T.size(); t += 3) {
+    const int32_t a = weld[T[t]], b = weld[T[t + 1]], c = weld[T[t + 2]];
+    if (a == b || b == c || c == a) continue;
+    uses[{a, b}]++, uses[{b, c}]++, uses[{c, a}]++;
+  }
+  int faults = 0;
+  for (const auto& [e, n] : uses) {
+    if (e.first > e.second) continue;
+    auto back = uses.find({e.second, e.first});
+    const int m = back == uses.end() ? 0 : back->second;
+    faults += n >= 2 || m >= 2;
+  }
+  for (const auto& [e, n] : uses)
+    if (e.first > e.second && !uses.count({e.second, e.first})) faults += n >= 2;
+  return faults;
+}
+
 }  // namespace tesscadio

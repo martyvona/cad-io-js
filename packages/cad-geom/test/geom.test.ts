@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { BrepBuilder, LOOP_KIND, openBrep, rowCount, SURFACE_KIND } from '../../cad-brep/src/index.ts';
 import { curveEvaluator, surfaceEvaluator } from '../../cad-brep/src/geometry.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CERTAINTY, Geometry, init, STATUS } from '../src/index.ts';
+import { CERTAINTY, Geometry, init, meshDeviationJudge, STATUS } from '../src/index.ts';
 
 const dist = path.join(import.meta.dirname, '../dist');
 const built = fs.existsSync(path.join(dist, 'cad_geom.wasm')) && fs.existsSync(path.join(dist, 'cad_geom.mjs'));
@@ -1278,4 +1278,33 @@ test('a revolution of a line crossing its axis: the apex a pole, and a curve thr
   assert.deepEqual(p.pieces.map((q) => q.t), [[0, 0.5], [0.5, 1]]);
   const want = [0, 1.5 / s, 0, 2.5 / s];
   want.forEach((w, i) => assert.ok(Math.abs(p.uv[i]! - w) < 1e-9, `uv[${i}] ${p.uv[i]}`));
+});
+
+test('meshDeviationJudge: a face\'s triangles\' worst sampled distance from its surface (centroids, sides\' middles); '
+  + 'undefined for a face not in the model or without triangles', { skip }, async () => {
+  // Two whole unit spheres, faces #5 about the origin and #6 about (10, 0, 0).
+  const bb = new BrepBuilder();
+  for (const [id, x] of [[5, 0], [6, 10]] as const) {
+    const position = { origin: [x, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+    const face = bb.addFace({ surface: bb.addSurface({ kind: 'sphere', position, radius: 1 }), sameSense: true,
+      loops: [], id });
+    const shell = bb.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    bb.addItem({ kind: 'body', ref: bb.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  }
+  const model = openBrep(bb.finish().buffer);
+  const judge = meshDeviationJudge(await init());
+  // The octant triangle: its centroid 1 - 1/sqrt(3) inside, its sides' middles 1 - 1/sqrt(2); on each sphere, given
+  // as positions minus an origin.
+  const [whole, half] = [5, 6];
+  const tri = (dx: number, origin: [number, number, number]) => ({ origin,
+    positions: Float32Array.from([1 + dx, 0, 0, dx, 1, 0, dx, 0, 1].map((x, i) => x - origin[i % 3]!)),
+    indices: Uint32Array.from([0, 1, 2]) });
+  const want = 1 - 1 / Math.sqrt(3);
+  const a = judge.worst(model, { ...tri(0, [0, 0, 0]), faces: [{ entityId: whole, start: 0, count: 3 }] }, whole);
+  assert.ok(Math.abs(a! - want) < 1e-6, String(a));
+  const b = judge.worst(model, { ...tri(10, [10, 0, 0]), faces: [{ entityId: half, start: 0, count: 3 }] }, half);
+  assert.ok(Math.abs(b! - want) < 1e-6, String(b));
+  assert.equal(judge.worst(model, { ...tri(0, [0, 0, 0]), faces: [{ entityId: whole, start: 0, count: 0 }] }, whole),
+    undefined);
+  assert.equal(judge.worst(model, { ...tri(0, [0, 0, 0]), faces: [] }, 99999), undefined);
 });
