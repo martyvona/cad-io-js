@@ -160,7 +160,10 @@ struct PartOptions {
    * nearest C's projection would leave AP or PB under the refinement floor: C collapsed onto the nearer end of AB,
    * its triangles taking that point (FaceMesh::collapsed). Every triangle at that point rechecked for facing as
    * shipped and for its deviation (maxDeviationFactor x max(d, the face's tolerance)), the collapse undone where any
-   * fails. Faces at their point cap that failCapped fails aren't tried.
+   * fails. Then any triangle still turned: one of its corners that is the mesher's own point collapsed onto each of
+   * that point's neighbours, nearest first, until one holds the same checks with the result manifold and no (u, v)
+   * area changing sign (a bounded number of tries a face). Only faces that would otherwise fail for a turned triangle
+   * change. Faces at their point cap that failCapped fails aren't tried.
    */
   bool collapseTurned = true;
 };
