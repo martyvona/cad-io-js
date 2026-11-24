@@ -343,9 +343,27 @@ test('a plane face whose edges\' curves miss their vertices: the polygon of the 
   assert.ok(!trusted(m, 1e-6));
 });
 
-test('a torus face whose loops wind its minor circle is flagged', { skip }, async () => {
-  const m = await measure(torusBand(3, 1, 1.2));
-  assert.ok(m.flags.includes('winds'), JSON.stringify(m));
+/**
+ * A face flagged winds: no area, flux or moments (unsupported, with the reason), since the term the method leaves out
+ * is in no error; its perimeter still measured.
+ */
+async function refusedWinds(d: BrepData, what: string): Promise<void> {
+  using o = new Oracle(await init(), d.buffer);
+  const m = o.face(0);
+  assert.ok(m.flags.includes('winds'), `${what}: ${JSON.stringify(m)}`);
+  assert.equal(trusted(m, 1e-6), false);
+  assert.ok(m.area.status === 'unsupported' && Number.isNaN(m.area.value) && m.area.error === Infinity
+    && Number.isNaN(m.boundary) && /winds a period/.test(m.why), `${what}: ${JSON.stringify(m)}`);
+  assert.ok(m.perimeter.status === 'ok' && m.perimeter.value > 0, `${what}: ${JSON.stringify(m)}`);
+  const c: [number, number, number] = [1, 2, 3];
+  for (const e of [...o.faceMoments(0, { center: c, degree: 1 }).map((x) => x.n).flat(), ...o.faceFlux(0, c),
+    ...o.faceAndFlux(0, c).flux ?? []]) {
+    assert.ok(e.status === 'unsupported' && Number.isNaN(e.value), `${what}: ${JSON.stringify(e)}`);
+  }
+}
+
+test('a torus face whose loops wind its minor circle is flagged winds, its area refused', { skip }, async () => {
+  await refusedWinds(torusBand(3, 1, 1.2), 'torus');
 });
 
 test('a revolution with one pole at its bounded profile\'s end', { skip }, async () => {
@@ -782,4 +800,51 @@ test('faceAndFlux: on a free-form face faceFlux\'s bits and face\'s measure from
     using o = new Oracle(await init(), d.buffer);
     assert.deepEqual(o.faceAndFlux(0, c), { measure: o.face(0) }, what);
   }
+});
+
+/**
+ * A band round a tube between two of its profile's circles: the revolution about z of a circle of radius r centred
+ * R from the axis (in the xz plane), between the angles 0 and gamma; each loop a closed profile circle, the two
+ * winding the profile's period opposite ways (their sum none). Area r gamma 2 pi R. As a torus too (`torus`).
+ */
+function tubeBand(R: number, r: number, gamma: number, torus = false): BrepData {
+  const b = new BrepBuilder();
+  const surface = torus
+    ? b.addSurface({ kind: 'torus', majorRadius: R, minorRadius: r, position: { origin: O, axis: Z, xDir: X } })
+    : b.addSurface({ kind: 'revolution', axisOrigin: O, axisDirection: Z,
+      curve: b.addCurve({ kind: 'circle', radius: r, position: { origin: [R, 0, 0], axis: [0, -1, 0], xDir: X } }) });
+  const ring = (u: number) => {
+    const c: V = [R * Math.cos(u), R * Math.sin(u), 0], x: V = [Math.cos(u), Math.sin(u), 0];
+    const p = b.addVertex({ point: [c[0] + r * x[0], c[1] + r * x[1], 0] });
+    return b.addEdge({ curve: b.addCurve({ kind: 'circle', radius: r, position: { origin: c,
+      axis: [Math.sin(u), -Math.cos(u), 0], xDir: x } }), start: p, end: p, sameSense: true, range: [0, 2 * PI] });
+  };
+  b.addFace({ surface, sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: ring(0), orientation: 'reversed' }] },
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: ring(gamma), orientation: 'forward' }] }] });
+  return b.finish();
+}
+
+test('a band round a tube between two profile circles (loops winding the profile opposite ways): flagged winds, its '
+  + 'area refused, as a revolution and as a torus', { skip }, async () => {
+  // (The method's H du is nothing along a loop winding v, u constant there: without the flag the area came out about
+  // 0 with an error far below the band's area, bug30790's tube bands at 3e-12 +/- 8.6e-4 against about 0.38 mm^2.)
+  for (const torus of [false, true]) await refusedWinds(tubeBand(10, 0.2, 0.3, torus), torus ? 'torus' : 'revolution');
+});
+
+test('a B-spline cylinder face with one loop, once round it: flagged winds, its area refused', { skip }, async () => {
+  // (A rational quadratic ring swept along z; the loop the circle at z = 1, no pole to close the face by.)
+  const b = new BrepBuilder();
+  const h = Math.SQRT1_2, ring = [[2, 0], [2, 2], [0, 2], [-2, 2], [-2, 0], [-2, -2], [0, -2], [2, -2], [2, 0]];
+  const w = [1, h, 1, h, 1, h, 1, h, 1];
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 0.25, 0.5, 0.75, 1],
+    vKnots: [0, 5], uMultiplicities: [3, 2, 2, 2, 3], vMultiplicities: [2, 2],
+    poles: ring.map(([x, y]) => [[x!, y!, 0], [x!, y!, 5]]), weights: w.map((x) => [x, x]), uClosed: true,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const p = b.addVertex({ point: [2, 0, 1] });
+  const e = b.addEdge({ curve: b.addCurve({ kind: 'circle', radius: 2, position: { origin: [0, 0, 1], axis: Z,
+    xDir: X } }), start: p, end: p, sameSense: true, range: [0, 2 * PI] });
+  b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', coedges: [{ edge: e,
+    orientation: 'forward' }] }] });
+  await refusedWinds(b.finish(), 'B-spline');
 });

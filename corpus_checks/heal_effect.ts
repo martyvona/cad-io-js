@@ -4,8 +4,9 @@
 // (its native route) and SMLib (each in a tess-workers pool) at the medium profile with measures:
 //   - cost: healing's CPU time (the process's, its pool's threads included) and wall time per file, the slowest parts'
 //     files, parts that hit the CPU cap (kept as imported);
-//   - per backend: faces meshed (with triangles) as imported and healed, faces gained and lost, parts failed (an
-//     error, a timeout, a crash, no triangles) either way, triangles, OCCT's measure's validity;
+//   - per backend: faces meshed (with triangles) as imported and healed, faces gained and lost (each listed with its
+//     cause), parts failed (an error, a timeout, a crash, no triangles) either way, each named with its errors,
+//     triangles, OCCT's measure's validity;
 //   - cad-oracle: faces whose area it trusts as imported and healed;
 //   - healing's diagnostics: by severity and by message (numbers and ids folded), the parts with a tolerance error;
 //   - the files with the most faces lost or gained per backend, and with the largest change in triangles;
@@ -49,7 +50,8 @@ const healOn = Object.fromEntries((process.env.HEAL_ON ?? '').split(',').filter(
 const INSIDE_EXAMPLES = 60;
 const backends = [...(process.env.BACKENDS ?? 'occt,smlib').split(',') as Backend[],
   ...hybrid ? ['occtHybrid' as const] : []];
-const side = () => ({ parts: 0, failed: 0, faces: 0, triangles: 0, measuresValid: 0, ms: 0 });
+const side = () => ({ parts: 0, failed: 0, faces: 0, triangles: 0, measuresValid: 0, ms: 0,
+  failedEx: [] as string[] });
 const fresh = () => ({
   files: 0, skipped: 0, parts: 0, faces: 0, healCpuMs: 0, healWallMs: 0, importCpuMs: 0,
   slowest: [] as { ms: number; file: string }[], capped: 0,
@@ -204,6 +206,10 @@ export const check: FileCheck<undefined, Result> = {
           s.parts++;
           if (r instanceof Error || failedPart(r) || !r.indices.length) {
             s.failed++;
+            // (Every failed part named with what it said: a throw's message, else its errors, else nothing meshed.)
+            const errs = r instanceof Error ? [r.message] : r.diagnostics.filter((d) => d.severity === 'error')
+              .map((d) => d.message);
+            s.failedEx.push(`${where}: ${errs.length ? errs.join('; ').slice(0, 300) : 'nothing meshed, no error said'}`);
             return new Map<number, number>();
           }
           const m = facesMeshed(r);
@@ -222,16 +228,17 @@ export const check: FileCheck<undefined, Result> = {
         pf.ta += ra instanceof Error ? 0 : ra.indices.length / 3;
         for (const id of ma.keys()) if (!mb.has(id)) pf.gained++;
         for (const id of mb.keys()) if (!ma.has(id)) pf.lost++;
+        const cbAll = causes(rb), cbOf = (id: number) => cbAll.has(id) ? ` (as imported: ${cbAll.get(id)})` : '';
         for (const id of ma.keys()) if (!mb.has(id)) {
           M.gained++;
-          if (M.gainedEx.length < EXAMPLES) M.gainedEx.push(`${where} face #${id}`);
+          M.gainedEx.push(`${where} face #${id}${cbOf(id)}`);
         }
         const ca = causes(ra), cb = causes(rb);
         for (const id of mb.keys()) if (!ma.has(id)) {
           M.lost++;
-          if (M.lostEx.length < EXAMPLES) M.lostEx.push(`${where} face #${id}`);
           const why = ra instanceof Error ? `the part: ${fold(ra.message)}` : partFailedAfter ? 'the part failed'
             : ca.has(id) ? fold(ca.get(id)!) : 'no cause given';
+          M.lostEx.push(`${where} face #${id}: ${ca.has(id) ? ca.get(id) : why}`);
           const t = M.lostBy[why] ??= { n: 0, ex: [] };
           t.n++;
           if (t.ex.length < 2) t.ex.push(`${where} face #${id}`);
@@ -268,12 +275,13 @@ function merge(all: Result, r: Result) {
   all.slowest.sort((a, b) => b.ms - a.ms).splice(10);
   for (const b of backends) {
     const A = all.mesh[b], B = r.mesh[b];
-    for (const s of ['before', 'after'] as const) for (const k of Object.keys(A[s]) as (keyof typeof A.before)[]) {
-      A[s][k] += B[s][k];
+    for (const s of ['before', 'after'] as const) {
+      for (const k of ['parts', 'failed', 'faces', 'triangles', 'measuresValid', 'ms'] as const) A[s][k] += B[s][k];
+      A[s].failedEx.push(...B[s].failedEx);
     }
     for (const k of ['gained', 'lost', 'partsGained', 'partsLost'] as const) A[k] += B[k];
-    A.gainedEx.push(...B.gainedEx.slice(0, EXAMPLES - A.gainedEx.length));
-    A.lostEx.push(...B.lostEx.slice(0, EXAMPLES - A.lostEx.length));
+    A.gainedEx.push(...B.gainedEx);
+    A.lostEx.push(...B.lostEx);
     for (const [k, t] of Object.entries(B.lostBy)) {
       const x = A.lostBy[k] ??= { n: 0, ex: [] };
       x.n += t.n, x.ex.push(...t.ex.slice(0, 2 - x.ex.length));
@@ -324,6 +332,8 @@ if (import.meta.main) {
       + ` valid measures ${M.before.measuresValid} / ${M.after.measuresValid}, meshing ${s(M.before.ms)} / `
       + `${s(M.after.ms)} (each request's wall time, summed)`);
     console.log(`  faces gained ${M.gained}, lost ${M.lost}; parts gained ${M.partsGained}, lost ${M.partsLost}`);
+    for (const x of M.before.failedEx) console.log(`    part failed as imported: ${x}`);
+    for (const x of M.after.failedEx) console.log(`    part failed healed:      ${x}`);
     for (const x of M.gainedEx) console.log(`    gained: ${x}`);
     for (const x of M.lostEx) console.log(`    lost:   ${x}`);
     const by = Object.entries(M.lostBy).sort((p, q) => q[1].n - p[1].n);

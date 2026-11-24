@@ -467,8 +467,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
       if (gap > vNeedE[e]!) vNeedE[e] = gap;
     }
   }
-  // The tolerances grown, edges' and vertices', in one diagnostic for the part (growth.ts's rule for its severity).
-  const growth = new Growth(tol.size);
+  // The tolerances grown, edges' and vertices', in the part's diagnostics (growth.ts's rule for their severities).
+  const growth = new Growth(tol.size, tol.part);
   for (let v = 0; v < vNeed.length; v++) {
     const byV = fixes.has('vertexTolerance') && vNeed[v]! > tol.vertex(v);
     const byEnds = fixes.has('pcurveEnds') && endNeedV[v]! > tol.vertex(v);
@@ -490,8 +490,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
     growth.add('edge', d.edge.id[e]!, tol.edge(e), grown, [...byE ? ['edgeTolerance' as const] : [],
       ...byV ? ['vertexTolerance' as const] : [], ...byEnds ? ['pcurveEnds' as const] : []]);
   }
-  const grownDiagnostic = growth.diagnostic();
-  if (grownDiagnostic) diagnostics.push(grownDiagnostic);
+  diagnostics.push(...growth.diagnostics());
   if (tracedAtTol.n || tracedGrown.n) {
     const ex = [...tracedAtTol.ex, ...tracedGrown.ex].slice(0, EXAMPLES);
     diagnostics.push({ severity: 'warning', message: `edgeTolerance: ${tracedAtTol.n + tracedGrown.n} coedges' curves `

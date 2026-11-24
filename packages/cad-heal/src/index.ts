@@ -10,8 +10,8 @@
 // One master switch (`heal`: on wherever healPart or healScene is called, in importers HEAL_BY_DEFAULT) leaves every
 // model exactly as imported when off; under it, each fix can be turned off by name. Each p-curve fix reports one
 // diagnostic per part it changes (a warning with its count and examples), and one for what it couldn't repair; the
-// tolerances grown (edgeTolerance's, vertexTolerance's, pcurveEnds') are one diagnostic per part, a warning or an
-// error by how far they grew (fix/growth.ts). Parts heal one at a time here, or in parallel through a PartHealer (a
+// tolerances grown (edgeTolerance's, vertexTolerance's, pcurveEnds') are said per part, an info for the small
+// growths and a warning or an error for the rest by how far they grew (fix/growth.ts). Parts heal one at a time here, or in parallel through a PartHealer (a
 // worker pool's, tess-workers). The geometry is cad-geom's (its WebAssembly module, `init`).
 
 import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, FACING, FACING_FROM, faceOutlines, LOOP_KIND,
