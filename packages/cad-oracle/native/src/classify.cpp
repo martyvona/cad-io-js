@@ -336,16 +336,26 @@ bool Oracle::Impl::gridPoint(int face, const Surface& surface, double ulo, doubl
   // tolerance; classifying at one that large isn't: a joint's pieces near the meeting there span whole sides, and
   // points off the face came out in). In judged at the face's tolerance where that's settled, else at the first of 10
   // and 100 times it that is (loops with gaps wider than the tolerance, invalidModel there, bridged at a larger one).
-  const int32_t count = static_cast<int32_t>(grid.size());
+  // Classified in batches growing from the middle (1, 4, 16, ... points) as the search below reaches them: a point
+  // near the boundary costs the most (the face API approximates the pieces near it finely), and the middle's points
+  // are mostly well inside. The point found is the one classifying the whole grid at once would find (the face API
+  // fails a face whole, at a tolerance, and the first batch takes all three).
   const double ks[3] = {1, 10, 100};
   std::vector<uint8_t> sides[3], st[3];
   std::vector<double> tolUv(grid.size());
-  for (int j = 0; j < 3; j++) {
-    sides[j].resize(grid.size()), st[j].resize(grid.size());
-    if (cg_face_classify(h, face, uvs.data(), count, ks[j] * tols.face(face), sides[j].data(), st[j].data(),
-          tolUv.data()) != 0)
-      return false;
-  }
+  for (int j = 0; j < 3; j++) sides[j].resize(grid.size()), st[j].resize(grid.size());
+  size_t done = 0, batch = 1;
+  // Points [0, i] classified at the three tolerances; false where the face API fails.
+  auto upTo = [&](size_t i) {
+    for (; done <= i; done += batch, batch *= 4) {
+      batch = std::min(batch, grid.size() - done);
+      for (int j = 0; j < 3; j++)
+        if (cg_face_classify(h, face, uvs.data() + 2 * done, static_cast<int32_t>(batch), ks[j] * tols.face(face),
+              sides[j].data() + done, st[j].data() + done, tolUv.data() + done) != 0)
+          return false;
+    }
+    return true;
+  };
   auto in = [&](size_t i) {
     for (int j = 0; j < 3; j++)
       if (st[j][i] == 0) return sides[j][i] == 0;
@@ -353,6 +363,7 @@ bool Oracle::Impl::gridPoint(int face, const Surface& surface, double ulo, doubl
   };
   for (int j : {2, 1}) {
     for (size_t i = 0; i < grid.size(); i++) {
+      if (!upTo(i)) return false;
       if (!in(i) || sides[j][i] == 2) continue;
       cadgeom::SurfacePoint q;
       Vec3 nn;
