@@ -1044,6 +1044,53 @@ TEST_CASE("classify2 of many points: each point's single answer, the boxes and f
   if (!(batch * 5 < singles)) std::printf("    polylines: %ld one at a time, %ld at once\n", singles, batch);
 }
 
+TEST_CASE("onPolylineDelta: a tolerance rounded down to a power of 2; classify2's batch shares polylines across it") {
+  // The delta: a power of 2, at most the tolerance and more than half it; a power of 2 itself; others as they are.
+  int bad = 0;
+  for (double tol = 1e-12; tol < 1e3; tol *= 1.37) {
+    const double d = onPolylineDelta(tol);
+    int e = 0;
+    bad += !(d <= tol && 2 * d > tol && std::frexp(d, &e) == 0.5);
+  }
+  CHECK_EQ(bad, 0);
+  CHECK_EQ(onPolylineDelta(std::ldexp(1.0, -20)), std::ldexp(1.0, -20));
+  CHECK_EQ(onPolylineDelta(std::ldexp(1.0, -20) * (1 - 1e-15)), std::ldexp(1.0, -21));
+  CHECK_EQ(onPolylineDelta(0.0), 0.0);
+  CHECK_EQ(onPolylineDelta(HUGE_VAL), HUGE_VAL);
+  CHECK_EQ(onPolylineDelta(-1.5), -1.5);
+  CHECK(std::isnan(onPolylineDelta(NAN)));
+  // An annulus's 200 points 0 to 8e-6 off its circles, each at its own tolerance in [1e-6, 4e-6) (three powers of
+  // 2): the batch's answers each point's own call's, its polylines the 2 pieces' boxes and at most 3 on tests' each.
+  Arc2 outer({0, 0}, 2), inner({0, 0}, 1);
+  Loop2 a, b;
+  a.pieces.push_back({&outer, {0, 2 * pi}, false});
+  b.pieces.push_back({&inner, {0, 2 * pi}, true});
+  const std::vector<Loop2> loops{a, b};
+  std::vector<Vec2> p;
+  std::vector<double> tol;
+  for (int k = 0; k < 200; k++) {
+    const double t = 2 * pi * k / 200, r = (k % 2 ? 1 : 2) + (k % 4 < 2 ? 1 : -1) * 2e-6 * (k % 5);
+    p.push_back({r * std::cos(t), r * std::sin(t)});
+    tol.push_back(1e-6 + 3e-6 * k / 200);
+  }
+  const int n = static_cast<int>(p.size());
+  std::vector<Side> one(n), many(n);
+  std::vector<Status> oneSt(n), manySt(n);
+  for (int k = 0; k < n; k++) one[k] = classify2(loops, p[k], {}, tol[k], oneSt[k]);
+  const long before = boundaryPolylines;
+  classify2(loops, p.data(), tol.data(), n, {}, many.data(), manySt.data());
+  const long batch = boundaryPolylines - before;
+  int diff = 0, on = 0, off = 0;
+  for (int k = 0; k < n; k++) {
+    diff += one[k] != many[k] || oneSt[k] != manySt[k];
+    on += one[k] == Side::on, off += one[k] != Side::on;
+  }
+  CHECK_EQ(diff, 0);
+  CHECK(on > 50 && off > 20);
+  CHECK(batch <= 2 + 2 * 3);
+  if (!(batch <= 8)) std::printf("    polylines at once: %ld\n", batch);
+}
+
 TEST_CASE("nest2: many holes in a plate, each in the plate only, none in another") {
   // A square plate with a 6 x 6 grid of round holes: each hole's parent the plate, the plate outermost; the holes'
   // boxes don't hold one another, so they aren't tested against one another.

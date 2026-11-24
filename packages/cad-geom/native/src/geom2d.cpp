@@ -48,6 +48,9 @@ namespace cadgeom {
 
 long boundaryPolylines = 0;
 
+double onPolylineDelta(double tol) {
+  return tol > 0 ? std::ldexp(1.0, std::ilogb(tol)) : tol;  // (inf to inf: ilogb gives INT_MAX)
+}
 
 namespace {
 
@@ -505,7 +508,7 @@ Bbox pieceBox(const LoopPiece& p) {
   return b;
 }
 
-/** Pieces' polylines at a tolerance (onBoundary's), by curve, range and tolerance: made once for many points. */
+/** Pieces' polylines for the on test, by curve, range and onPolylineDelta: made once for many points. */
 using FineCache = std::map<std::tuple<const Curve*, double, double, double>, Poly>;
 
 struct Boundary {
@@ -633,17 +636,19 @@ bool onBoundary(const Boundary& bd, Vec2 p, const Periods& per, double tol) {
       Poly local;
       const Poly* found = nullptr;
       // (Not the boundary's own segments: they go with it, and another's may reuse the address.)
+      // (Keyed by the delta, not tol: each point of a batch can have its own tolerance.)
+      const double delta = onPolylineDelta(tol);
       if (bd.fine && !dynamic_cast<const Segment*>(piece.curve)) {
-        auto key = std::make_tuple(piece.curve, piece.range.lo, piece.range.hi, tol);
+        auto key = std::make_tuple(piece.curve, piece.range.lo, piece.range.hi, delta);
         auto it = bd.fine->find(key);
         if (it == bd.fine->end()) {
           boundaryPolylines++;
-          it = bd.fine->emplace(key, polyline(*piece.curve, piece.range, tol)).first;
+          it = bd.fine->emplace(key, polyline(*piece.curve, piece.range, delta)).first;
         }
         found = &it->second;
       } else {
         boundaryPolylines++;
-        local = polyline(*piece.curve, piece.range, tol);
+        local = polyline(*piece.curve, piece.range, delta);
         found = &local;
       }
       const Poly& poly = *found;
