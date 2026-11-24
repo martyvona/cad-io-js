@@ -785,7 +785,8 @@ test('in a file of another unit, every length is millimetres and nothing else ch
     .replace('GLOBAL_UNIT_ASSIGNED_CONTEXT((#10,#11))', 'GLOBAL_UNIT_ASSIGNED_CONTEXT((#9,#11))')
     .replace("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-5),#10,'','')",
       "UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-5),#9,'','')");
-  const mm = (await importStep(file(ALL_KINDS))).scene;
+  // (As imported: what the importer makes of each unit, healing aside.)
+  const mm = (await importStep(file(ALL_KINDS), { heal: { heal: false } })).scene;
   const a = mm.parts[0]!.brep!.model;
   // What the model holds: 11 3D curves, the plane's 10 2D ones, the cylinder's 4 (a line, a B-spline, a polyline, a
   // trim of the line), the sphere's 3 (a circle, an offset of its own B-spline), and the poly loop's 3 sides as lines
@@ -800,7 +801,7 @@ test('in a file of another unit, every length is millimetres and nothing else ch
     + `of no ends of its own (an unbounded curve, untrimmed: left as segments) (#${id})`), 'B-rep model: a '
     + 'curve-bounded face whose boundary\'s segments don\'t meet within the uncertainty (left as segments) (#352)']);
   for (const [k, text] of [[10, ALL_KINDS.replace('.MILLI.', '.CENTI.')], [25.4, inch]] as const) {
-    const scene = (await importStep(file(text))).scene;
+    const scene = (await importStep(file(text), { heal: { heal: false } })).scene;
     const problems: string[] = [];
     const r = compareScaled(a, scene.parts[0]!.brep!.model, k, `x ${k}`, (what, ex) => problems.push(
       `${what}: ${ex}`));

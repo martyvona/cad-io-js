@@ -896,7 +896,9 @@ test('real faces that mesh only another way: alone unhealed, alone healed, 1024 
     const face = async (file: string, part: number, id: number, heal = true, scale = 1, transform?: number[]) => {
       const key = `${file} ${part}`;
       if (!parts.has(key)) {
-        const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, file))));
+        // (As imported: SMLib's own healing, or none, on the source's faces.)
+        const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, file))),
+          { heal: { heal: false } });
         parts.set(key, brepToJson(scene.parts.find((x) => x.sources[0]!.id === part)!.brep!.model));
       }
       const j = parts.get(key)!;
@@ -1226,7 +1228,9 @@ test('faces the builder leaves out are counted among the faces that failed to me
 
 test('a face that fails to mesh is an error; the part, meshed but for it, not failed',
   { skip: skip || (fs.existsSync(corpus) ? false : 'no corpus (test_corpus/third_party/pull.sh)') }, async () => {
-    const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, 'bug24383_224013.stp'))));
+    // (As imported: the face that fails is the source's.)
+    const { scene } = await importStep(new Uint8Array(fs.readFileSync(path.join(corpus, 'bug24383_224013.stp'))),
+      { heal: { heal: false } });
     const p = scene.parts.find((x) => x.sources[0]!.id === 11)!;
     const r = await (await backend()).tessellate({ ...request(p.brep!.model, 0.1), origin: p.origin });
     const failed = r.diagnostics.find((d) => /^\d+ faces failed to mesh$/.test(d.message));
