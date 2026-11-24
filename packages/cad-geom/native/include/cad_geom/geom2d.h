@@ -78,10 +78,15 @@ Side classify2(const std::vector<Loop2>& loops, Vec2 p, Periods periods, double 
  * counted for tests; never reset.
  */
 extern long boundaryPolylines;
+/**
+ * The deviation the on test's polylines are made to at tolerance tol: tol rounded down to a power of 2 (tol itself if
+ * not positive, infinity infinity), so points at nearby tolerances share them, none coarser than its own tolerance asks.
+ */
+double onPolylineDelta(double tol);
 
 /**
  * classify2 of n points, each at its own tolerance (tol[i]), what doesn't depend on the point made once for them all
- * (the pieces' boxes, and their polylines at each tolerance asked).
+ * (the pieces' boxes, and their polylines at each onPolylineDelta of the tolerances asked).
  */
 void classify2(const std::vector<Loop2>& loops, const Vec2* p, const double* tol, int n, Periods periods, Side* sides,
   Status* statuses);
