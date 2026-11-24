@@ -3144,6 +3144,34 @@ TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected trian
   CHECK_EQ(pd.face(0).cap, byRule);
 }
 
+TEST_CASE("a collapsed row of poles a fitting's noise apart is a pole to the size metric's grid: the face expects as "
+  "many triangles as with the row exact") {
+  // (bsplineBallNoisy: the unit ball with its pole rows' poles up to 3e-6 off, within its tolerance, so still poles,
+  // but |S_v| there about that, not 0, and the curvature across the row some 1e4. Taken from the row, the grid's
+  // sizes, graded over a cell, made the face expect many times as many triangles, and refinement run away near it.
+  // The counts from a mesher stopped early (its point cap small, no split rounds), so they fail fast.)
+  // (bsplineBallV: the same with u and v swapped, its pole rows v = 0 and 2.)
+  for (const char* name : {"bsplineBall", "bsplineBallV"}) {
+    const std::string noisyName = std::string(name) == "bsplineBall" ? "bsplineBallNoisy" : "bsplineBallNoisyV";
+    cadgeom::Model exact = load(name), noisy = load(noisyName.c_str());
+    REQUIRE(exact.ok() && noisy.ok());
+    PartOptions o = options(0.1, 0.26);
+    o.maxPointsPerFace = 2000, o.maxSplitRounds = 0;
+    PartMesher a(exact, o), b(noisy, o);
+    const double want = a.face(0).capExpected, got = b.face(0).capExpected;
+    if (!(std::fabs(got - want) <= 0.1 * want)) std::printf("  %s: expected %.1f, exact %.1f\n", noisyName.c_str(), got, want);
+    CHECK(want > 0);
+    REQUIRE(std::fabs(got - want) <= 0.1 * want);
+    // And by default it meshes as the exact ball does.
+    PartMesher c(exact, options(0.1, 0.26)), e(noisy, options(0.1, 0.26));
+    CHECK(e.face(0).status == cadgeom::Status::ok);
+    CHECK_EQ(e.face(0).cap, 200000.0);
+    const double n = e.face(0).triangles.size(), m = c.face(0).triangles.size();
+    if (!(std::fabs(n - m) <= 0.2 * m)) std::printf("  %s: %.0f triangles, exact %.0f\n", noisyName.c_str(), n, m);
+    CHECK(std::fabs(n - m) <= 0.2 * m);
+  }
+}
+
 TEST_CASE("A refused triangle whose circumcentre lands at a vertex already there is broken at its centroid") {
   // (sineSheet's 40 mm square at 0.1 mm: refinement over its regular grid puts refused triangles' circumcentres on
   // vertices there; left final, 37 of them stayed refused, the L 200 mm sheet's past its deflection.)

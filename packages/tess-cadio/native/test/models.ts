@@ -843,16 +843,27 @@ export const bsplineApexHole = (): BrepBuilder => bsplineApex(1e-4);
 /**
  * A whole unit sphere as a rational B-spline periodic in v: its meridian (u, 0 to 2) from the south pole to the north
  * degree 2, both ends collapsed, its circle (v) CIRCLE9's; no loops. Its natural extent with the roles of u and v
- * swapped from a sphere's; area 4 pi.
+ * swapped from a sphere's; area 4 pi. With `noise`, each collapsed row's poles moved off its pole by up to that (a
+ * fitting's, as t4mec #472's), the rows still the surface's singularities; with `transposed`, u and v swapped (the
+ * meridian v, the pole rows v = 0 and 2).
  */
-export function bsplineBall(): BrepBuilder {
+export function bsplineBall(noise = 0, transposed = false): BrepBuilder {
   const b = new BrepBuilder();
   const meridian = [[0, -1, 1], [1, -1, Math.SQRT1_2], [1, 0, 1], [1, 1, Math.SQRT1_2], [0, 1, 1]];  // (r, z, w)
-  const poles = meridian.map(([r, z]) => CIRCLE9.xy.map(([x, y]) => [r! * x!, r! * y!, z!]));
+  const poles = meridian.map(([r, z], i) => CIRCLE9.xy.map(([x, y], k) => {
+    const off = r === 0 ? noise : 0;
+    const j = k % 8;
+    return [r! * x! + off * Math.sin(3 * j + i), r! * y! + off * Math.cos(5 * j + i), z! + off * Math.sin(7 * j + i)];
+  }));
   const weights = meridian.map((m) => CIRCLE9.w.map((w) => w * m[2]!));
-  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 2, uKnots: [0, 1, 2], vKnots: [0, 1, 2, 3, 4],
-    uMultiplicities: [3, 2, 3], vMultiplicities: [3, 2, 2, 2, 3], poles, weights, uClosed: false, vClosed: true,
-    selfIntersect: false, form: 'unspecified' });
+  const flip = <T>(g: T[][]) => g[0]!.map((_, j) => g.map((row) => row[j]!));
+  const meridianKnots = { knots: [0, 1, 2], multiplicities: [3, 2, 3] };
+  const circleKnots = { knots: [0, 1, 2, 3, 4], multiplicities: [3, 2, 2, 2, 3] };
+  const [u, v] = transposed ? [circleKnots, meridianKnots] : [meridianKnots, circleKnots];
+  const surface = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 2, uKnots: u.knots, vKnots: v.knots,
+    uMultiplicities: u.multiplicities, vMultiplicities: v.multiplicities, poles: transposed ? flip(poles) : poles,
+    weights: transposed ? flip(weights) : weights, uClosed: transposed, vClosed: !transposed, selfIntersect: false,
+    form: 'unspecified' });
   sheet(b, b.addFace({ surface, sameSense: true, loops: [] }));
   return b;
 }
@@ -2318,7 +2329,9 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), kinkStripRun: () => kinkStrip(false, false, 0.004, true),
   affineFeetOff, plateHoles,
-  bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall, wholeTorus, wholeSphereVertex,
+  bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall: () => bsplineBall(),
+  bsplineBallNoisy: () => bsplineBall(3e-6), bsplineBallV: () => bsplineBall(0, true),
+  bsplineBallNoisyV: () => bsplineBall(3e-6, true), wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true),
   sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
