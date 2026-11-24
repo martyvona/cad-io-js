@@ -83,6 +83,13 @@ export interface TessellationResult {
    * judging, `error` the area's error estimate; in the payload's units.
    */
   oracle?: { entityId: number; area: number; perimeter: number; error?: number }[];
+  /**
+   * Faces meshed with a defect the backend kept rather than fail them (tess-cadio's keepDefects): `what` in words (a
+   * few triangles turned against the surface, past the deflection by so much, at the point cap); `pastLimits` where
+   * the defect is past the backend's own limits for keeping it, so that a fallback backend's mesh of the face is to
+   * replace it where that one is better (fallback.ts). A face here has its triangles.
+   */
+  defects?: { entityId: number; pastLimits: boolean; what: string }[];
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {

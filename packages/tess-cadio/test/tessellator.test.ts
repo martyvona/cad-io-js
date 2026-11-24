@@ -168,9 +168,9 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.ok(Number(li[3]) >= 1 && Number(li[3]) <= Number(li[2]), `${li[2]} refused, ${li[3]} at a pole`);
     assert.ok(ri.diagnostics.some((x) => /seam whose side in \(u, v\) their neighbours didn't settle/.test(x.message)));
     // bsplineApexHole's at 1e-3 mm and 0.1 rad: refused, none in a pole's fan (kept: past the deflection, the
-    // default would fail the face, maxDeviationFactor).
+    // check would fail or mark the face).
     const keeping = new CadioTessellator();
-    await keeping.init({ maxDeviationFactor: 0 });
+    await keeping.init({ checkDeviation: false });
     const ro = await keeping.tessellate({ ...req('cube'), data: new Uint8Array(bsplineApexHole().finish().buffer),
       linearDeflection: 1e-3, angularDeflection: 0.1 });
     const o = ro.diagnostics.map((x) => re.exec(x.message)).find((m) => m);
@@ -179,17 +179,19 @@ test('triangles still refused counted, those in a pole\'s fan apart: none at pol
     assert.equal(o[3], '0');
   });
 
-test('init({maxDeviationFactor}): a face left farther from its surface than that x the deflection fails; 0 never',
+test('init({checkDeviation}): a face left farther from its surface than the deflection fails; false never checked',
   { skip }, async () => {
-    // bsplineApexHole at 1e-3 mm and 0.1 rad keeps refused triangles: a factor of 1e-6 fails its face (the failed
-    // faces' diagnostic, no triangles for it), 0 keeps it as meshed.
-    const data = new Uint8Array(bsplineApexHole().finish().buffer);
-    const run = async (factor: number) => {
+    // torusOuterHalf from its boundary alone (one point, its turned triangles kept): its triangles across the tube
+    // past the deflection. Checked (without keepDefects), its face fails (the failed faces' diagnostic, no triangles
+    // for it); not checked, kept as meshed.
+    const data = new Uint8Array(torusOuterHalf().finish().buffer);
+    const run = async (checkDeviation: boolean) => {
       const t = new CadioTessellator();
-      await t.init({ maxDeviationFactor: factor, keepDefects: false });
-      return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
+      await t.init({ checkDeviation, keepDefects: false, maxPointsPerFace: 1, failCapped: false,
+        failTurnedOver: false });
+      return t.tessellate({ ...req('cube'), data, linearDeflection: 0.1 });
     };
-    const strict = await run(1e-6), never = await run(0);
+    const strict = await run(true), never = await run(false);
     const failed = (r: TessellationResult) => r.diagnostics.some((x) => /faces failed to mesh/.test(x.message));
     assert.ok(failed(strict), JSON.stringify(strict.diagnostics));
     assert.ok(!failed(never), JSON.stringify(never.diagnostics));
@@ -199,7 +201,7 @@ test('init({maxDeviationFactor}): a face left farther from its surface than that
 test('init({maxPointsPerFace}): a face that reaches it fails, said as capped, not as an unsettled seam', { skip },
   async () => {
   const t = new CadioTessellator();
-  await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0, keepDefects: false });
+  await t.init({ maxPointsPerFace: 20, checkDeviation: false, keepDefects: false });
   const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
   assert.ok(r.diagnostics.some((x) => /^\d+ faces failed with refinement stopped at their point cap$/.test(x.message)),
     JSON.stringify(r.diagnostics));
@@ -215,14 +217,14 @@ test('init({failCapped, failTurnedOver, keepDefects}): false keeps a capped face
   + 'fails, with it (the default) it\'s kept and said', { skip }, async () => {
   const faces = async (opts: { failCapped?: boolean; keepDefects?: boolean }) => {
     const t = new CadioTessellator();
-    await t.init({ maxPointsPerFace: 20, maxDeviationFactor: 0, ...opts });
+    await t.init({ maxPointsPerFace: 20, checkDeviation: false, ...opts });
     const r = await t.tessellate({ ...req('spheres'), linearDeflection: 1e-3 });
     return { failed: r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message)),
       kept: keptDefects(r) };
   };
   assert.equal((await faces({ keepDefects: false })).failed, true);
   assert.equal((await faces({ failCapped: false, keepDefects: false })).failed, false);
-  // (Its deviation not judged here, maxDeviationFactor 0: kept for the cap alone.)
+  // (Its deviation not checked here: kept for the cap alone.)
   const kept = await faces({});
   assert.equal(kept.failed, false);
   assert.deepEqual([...kept.kept.values()], ['at its point cap']);
@@ -230,7 +232,7 @@ test('init({failCapped, failTurnedOver, keepDefects}): false keeps a capped face
   // failTurnedOver false.
   const turned = async (failTurnedOver: boolean) => {
     const t = new CadioTessellator();
-    await t.init({ maxPointsPerFace: 1, failCapped: false, maxDeviationFactor: 0, failTurnedOver, keepDefects: false });
+    await t.init({ maxPointsPerFace: 1, failCapped: false, checkDeviation: false, failTurnedOver, keepDefects: false });
     const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(torusOuterHalf().finish().buffer),
       linearDeflection: 0.1 });
     return r.diagnostics.some((x) => x.severity === 'error' && /faces failed to mesh/.test(x.message));
@@ -337,7 +339,7 @@ test('refinement blocked by a pole ring\'s fixed segment, said with the face and
   'not at 0.05', { skip }, async () => {
   // (At 0.35 rad: at the 10-degree default bentApex at 0.05 asks a ring segment split once too.)
   const t = new CadioTessellator();
-  await t.init({ maxDeviationFactor: 0, minAngle: 0.35 });
+  await t.init({ checkDeviation: false, minAngle: 0.35 });
   const re = /^1 faces with refinement blocked by a fixed ring segment: #\d+ \((\d+) rounds\)$/;
   const blocked = async (d: number) => {
     const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bentApex().finish().buffer),
@@ -635,7 +637,7 @@ test('an apex\'s fan consistent along its chain: bsplineApexHole meshed by defau
   // (bsplineApexHole at 1e-3 mm and 0.1 rad: its apex's fan folded, 2 edges used twice the same way welded; either
   // its far ends' corners left out or its triangles each against the mesher's use of their ring segment mends it.)
   const t = new CadioTessellator();
-  await t.init({ maxDeviationFactor: 0 });
+  await t.init({ checkDeviation: false });
   const r = await t.tessellate({ ...req('cube'), data: new Uint8Array(bsplineApexHole().finish().buffer),
     linearDeflection: 1e-3, angularDeflection: 0.1 });
   assert.equal(failedCauses(r).size, 0);
@@ -655,7 +657,7 @@ test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over 
   const data = new Uint8Array(bsplineApexHole().finish().buffer);
   const run = async (failFoldedFans?: boolean) => {
     const t = new CadioTessellator();
-    await t.init({ maxDeviationFactor: 0, consistentFans: false, apexCorners: false,
+    await t.init({ checkDeviation: false, consistentFans: false, apexCorners: false,
       ...(failFoldedFans === undefined ? {} : { failFoldedFans }) });
     return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
   };

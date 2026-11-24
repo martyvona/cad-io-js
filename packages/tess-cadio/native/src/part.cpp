@@ -187,7 +187,7 @@ struct PartMesher::Impl {
   std::vector<std::vector<PoleRing>> rings;
   /**
    * Per face, its refused triangles (FaceMesh::rejected, in order): their (u, v) corners and their vertices' indices
-   * into the face's points, for the deviation check (PartOptions::maxDeviationFactor).
+   * into the face's points, for the deviation check (PartOptions::checkDeviation).
    */
   struct Refused {
     Vec2 uv[3];
@@ -726,7 +726,7 @@ struct PartMesher::Impl {
   }
 
   /**
-   * Faces left farther from their surfaces than maxDeviationFactor x the larger of the deflection and the face's
+   * Faces left farther from their surfaces than the larger of the deflection and the face's
    * tolerance (cad-geom's Tolerances::face: the part's, widened by the face's own; the limit) fail: below its
    * tolerance the model doesn't say where the surface is. A refused
    * triangle is settled without measuring where its criteria's bound (deviationBound) plus its corners' distances from
@@ -736,13 +736,13 @@ struct PartMesher::Impl {
    * the measure in its cause a lower bound on the worst.
    */
   void checkDeviation() {
-    if (!(o.maxDeviationFactor > 0)) return;
+    if (!o.checkDeviation) return;
     const cadgeom::Tolerances tols(m);
     const int nf = static_cast<int>(faces.size());
     for (int f = 0; f < nf; f++) {
       FaceMesh& fm = faces[f];
       if (fm.status != Status::ok || fm.rejected.empty() || !surfaces[f]) continue;
-      const double within = std::fmax(o.d.linear, tols.face(f)), limit = o.maxDeviationFactor * within;
+      const double within = std::fmax(o.d.linear, tols.face(f)), limit = within;
       // (Kept past the limit up to keepDeviation x within: measured on to that, the defect's size.)
       const double keepLimit = o.keepDefects ? std::fmax(limit, o.keepDeviation * within) : limit;
       const Surface& s = *surfaces[f];
@@ -804,8 +804,9 @@ struct PartMesher::Impl {
       }
       fm.worstDeviation = worst;
       if (worst <= limit) continue;
-      if (!past) {
+      if (o.keepDefects) {
         fm.defectDeviation = worst / within;
+        fm.defectPastLimits = fm.defectPastLimits || past;
         continue;
       }
       char why[240];
@@ -1042,15 +1043,15 @@ struct PartMesher::Impl {
   }
 
   /**
-   * Whether the flat triangle p (its corners' (u, v) uv) of face f is within maxDeviationFactor x max(d, the face's
-   * tolerance) of its surface at its barycentric lattice of order 4: each point's surface point at its lattice (u, v)
-   * first (an upper bound on its distance), inverted only where that isn't within. True where the factor is 0.
+   * Whether the flat triangle p (its corners' (u, v) uv) of face f is within max(d, the face's tolerance) of its
+   * surface at its barycentric lattice of order 4: each point's surface point at its lattice (u, v) first (an upper
+   * bound on its distance), inverted only where that isn't within. True where checkDeviation is off.
    */
   bool deviationWithin(int f, const Vec3 p[3], const Vec2 uv[3]) const {
-    if (!(o.maxDeviationFactor > 0)) return true;
+    if (!o.checkDeviation) return true;
     const Surface& s = *surfaces[f];
     const SurfaceDomain D = s.domain();
-    const double limit = o.maxDeviationFactor * std::fmax(o.d.linear, cadgeom::Tolerances(m).face(f));
+    const double limit = std::fmax(o.d.linear, cadgeom::Tolerances(m).face(f));
     for (int i = 0; i <= 4; i++)
       for (int j = 0; i + j <= 4; j++) {
         const double wa = i / 4.0, wb = j / 4.0, wc = (4 - i - j) / 4.0;
@@ -1426,8 +1427,9 @@ struct PartMesher::Impl {
         if (turned) turnedArea += a;
       }
       if (!against) continue;
-      if (o.keepDefects && against <= o.keepTurned && turnedArea <= o.keepTurnedShare * area) {
+      if (o.keepDefects) {
         fm.defectTurned = against;
+        fm.defectPastLimits = fm.defectPastLimits || against > o.keepTurned || turnedArea > o.keepTurnedShare * area;
         continue;
       }
       char why[160];
@@ -1440,6 +1442,38 @@ struct PartMesher::Impl {
   }
 
   /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
+  /**
+   * A face kept with a defect (PartOptions::keepDefects) fails where its output, welded at its shipped positions,
+   * has an edge used twice the same way or more than twice (windingFaults): a triangle wound backwards, a hole where
+   * back faces are culled. Its (u, v) triangles are counterclockwise, so none is expected; this checks it.
+   */
+  void checkKeptWinding() {
+    if (!o.keepDefects) return;
+    const double* O = o.outputOrigin;
+    const bool shipped = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    for (FaceMesh& fm : faces) {
+      if (fm.status != Status::ok || !(fm.defectTurned || fm.defectDeviation > 0 || fm.defectCapped)) continue;
+      std::map<std::array<float, 3>, int32_t> at;
+      std::vector<int32_t> weld(fm.points.size());
+      for (size_t i = 0; i < fm.points.size(); i++) {
+        const Vec3 p = fm.points[i];
+        const std::array<float, 3> k = shipped
+          ? std::array<float, 3>{static_cast<float>(p.x - O[0]), static_cast<float>(p.y - O[1]),
+            static_cast<float>(p.z - O[2])}
+          : std::array<float, 3>{static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)};
+        weld[i] = at.emplace(k, static_cast<int32_t>(at.size())).first->second;
+      }
+      const int faults = windingFaults(fm.triangles, weld);
+      if (!faults) continue;
+      char why[200];
+      std::snprintf(why, sizeof why, "kept with a defect, but %d %s used twice the same way or more than twice (a "
+        "triangle wound backwards)", faults, faults == 1 ? "edge" : "edges");
+      fm.status = Status::noConvergence;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
   /** A capped face's cause: its cap, and how many triangles it stopped at. */
   static std::string capCause(const FaceMesh& fm) {
     char why[200];
@@ -2106,6 +2140,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.checkDeviation();
   I.checkFacing();
   I.checkFoldedFans();
+  I.checkKeptWinding();
 }
 
 PartMesher::~PartMesher() { delete impl_; }
