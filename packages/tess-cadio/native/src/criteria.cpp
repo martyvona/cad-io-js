@@ -450,7 +450,7 @@ private:
       if (!bounds(t, b, false)) {
         sampledAny_ = true;
       } else if (b.deviation > d_.linear) {
-        if (!bounds(t, b, true)) sampledAny_ = true;
+        if (!bounds(t, b, true, d_.linear)) sampledAny_ = true;
         else if (b.deviation > d_.linear) return Refusal::deviationBounded;
       }
       return Refusal::none;
@@ -549,12 +549,21 @@ private:
    * by the derivatives' magnitudes and dividing by |S_u x S_v|, which shrinks where the parameterization does, runs
    * far past the turn, 2 / cos^2 v times it on a sphere: a hemisphere went from 555 triangles to 40,918.)
    */
-  bool bounds(const Vec2 t[3], Bounds& out, bool pieces) const {
+  bool bounds(const Vec2 t[3], Bounds& out, bool pieces, double limit = INFINITY) const {
     Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
     double d2[3], strips = 0;
     double Du = ru.hi - ru.lo, Dv = rv.hi - rv.lo;
-    if (pieces ? !stripBounds(ru, rv, d2, strips) : !wholeBounds(ru, rv, d2)) return false;
+    if (pieces) {
+      double past = 0;
+      if (!stripBounds(ru, rv, d2, strips, t, limit, past)) return false;
+      if (past > 0) {
+        out.deviation = past;
+        return true;
+      }
+    } else if (!wholeBounds(ru, rv, d2)) {
+      return false;
+    }
     // (e = Dv / Du minimizes the cross term's share over the triangle's extents, (M_uv e) Du^2 + (M_uv / e) Dv^2;
     // sqrt(M_vv / M_uu) instead blows up where M_vv is rounding, a cylinder's or a tube's along its lines.)
     double e = Du > 0 && Dv > 0 ? Dv / Du : 1;
@@ -644,9 +653,20 @@ private:
    * strip has beyond its neighbours is confined to its width, so its height is about M_uu w^2 / 4 at most, which its
    * uu term, at least 2 w^2 M_uu as U > 8 w, already covers. A ridge along the strip, bent along it there alone,
    * was refused alike with and without the join.)
+   *
+   * With `limit` finite (deviationWithin's d), the pieces stop once those bounded so far put triangle t's bound past
+   * it by a margin: `past` is that partial bound (else 0) and d2 and `strips` are partial. The bound only grows as
+   * pieces join: d2 and the strips' maxima take maxima, the strips' terms are non-negative, and the smallest circle
+   * round the corners scaled by sqrt(a_u), sqrt(a_v) doesn't shrink as those grow (the inverse of a diagonal map that
+   * shrinks nothing takes the larger circle onto one round the smaller set). So a partial bound past the limit is
+   * the refusal the whole one gives. The margin, 1e-9 of the limit, keeps rounding (the partial's terms are summed in
+   * another order) from deciding one. Where a later piece's bound would fail, the whole has none and the sample
+   * stands; stopped, the triangle is refused instead, the strict side.
    */
-  bool stripBounds(Range ru, Range rv, double d2[3], double& strips) const {
+  bool stripBounds(Range ru, Range rv, double d2[3], double& strips, const Vec2 t[3], double limit,
+    double& past) const {
     strips = 0;
+    past = 0;
     std::vector<double> us, vs;
     s_.breaks(ru, rv, us, vs);
     auto cuts = [](Range r, std::vector<double> c) {
@@ -666,13 +686,37 @@ private:
     // Each strip's maxima over its pieces (a piece in both a u- and a v-strip taken as the u-strip's), the rest's d2.
     std::vector<std::array<double, 3>> su(nu, {0, 0, 0}), sv(nv, {0, 0, 0});
     d2[0] = d2[1] = d2[2] = 0;
+    // The partial bound's terms as the pieces join (with a limit): d2 as below, the strips' sum.
+    double p2[3] = {0, 0, 0}, ps = 0;
+    const double e = U > 0 && V > 0 ? V / U : 1, stop = limit * (1 + 1e-9);
     for (size_t i = 0; i < nu; i++)
       for (size_t j = 0; j < nv; j++) {
         if (!(us[i + 1] > us[i] && vs[j + 1] > vs[j])) continue;
         double d[3];
         if (!wholeBounds({us[i], us[i + 1]}, {vs[j], vs[j + 1]}, d)) return false;
         double* into = thinU[i] ? su[i].data() : thinV[j] ? sv[j].data() : d2;
+        if (std::isfinite(limit)) {
+          if (thinU[i]) {
+            ps += 0.25 * (us[i + 1] - us[i]) * U * std::fmax(0.0, d[0] - into[0]);
+            p2[1] = std::fmax(p2[1], d[1]), p2[2] = std::fmax(p2[2], d[2]);
+          } else if (thinV[j]) {
+            ps += 0.25 * (vs[j + 1] - vs[j]) * V * std::fmax(0.0, d[2] - into[2]);
+            p2[0] = std::fmax(p2[0], d[0]), p2[1] = std::fmax(p2[1], d[1]);
+          } else {
+            for (int k = 0; k < 3; k++) p2[k] = std::fmax(p2[k], d[k]);
+          }
+        }
         for (int k = 0; k < 3; k++) into[k] = std::fmax(into[k], d[k]);
+        if (std::isfinite(limit)) {
+          const double au = p2[0] + p2[1] * e, av = p2[2] + p2[1] / e;
+          Vec2 q[3];
+          for (int k = 0; k < 3; k++) q[k] = {std::sqrt(au) * t[k].x, std::sqrt(av) * t[k].y};
+          const double bound = 0.5 * enclosing2(q) + ps;
+          if (bound > stop) {
+            past = bound;
+            return true;
+          }
+        }
       }
     for (size_t i = 0; i < nu; i++)
       if (thinU[i]) {

@@ -7,7 +7,7 @@
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
   from 'cad-scene';
 import { oracleMeasures, sha256 } from 'cad-scene';
-import { CAUSES_HEAD } from './causes.ts';
+import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
 const API_VERSION = 9;
@@ -103,6 +103,7 @@ interface CadioExports {
   _tc_set_count_expected: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
+  _tc_set_keep_defects: Fn;
   _tc_set_fail_folded_fans: Fn;
   _tc_set_fan_rules: Fn;
   _tc_set_analysis: Fn;
@@ -176,6 +177,11 @@ export interface CadioInitOptions {
   failCapped?: boolean;
   failTurnedOver?: boolean;
   /**
+   * Keep a face whose defect is small rather than fail it (part.h's PartOptions::keepDefects: a few triangles turned,
+   * a little past its deflection, at its point cap), the defect said in a warning (KEPT_HEAD); default true.
+   */
+  keepDefects?: boolean;
+  /**
    * Fail a face whose pole's fan folds over itself, its output welded at shipped positions not manifold there
    * (part.h's PartOptions::failFoldedFans); default true. False keeps them as meshed, for measuring.
    */
@@ -232,6 +238,7 @@ export class CadioTessellator implements Tessellator {
   private countExpected = false;
   private failCapped = true;
   private failTurnedOver = true;
+  private keepDefects = true;
   private failFoldedFans = true;
   private fanRules: [number, number] = [1, 1];
   private maxPoints = 0;
@@ -254,6 +261,7 @@ export class CadioTessellator implements Tessellator {
     this.countExpected = opts.countExpected ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
+    this.keepDefects = opts.keepDefects ?? true;
     this.failFoldedFans = opts.failFoldedFans ?? true;
     this.fanRules = [opts.consistentFans ?? true ? 1 : 0, opts.apexCorners ?? true ? 1 : 0];
     this.maxPoints = opts.maxPointsPerFace ?? 0;
@@ -316,6 +324,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_count_expected(this.countExpected ? 1 : 0);
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
+    m._tc_set_keep_defects(this.keepDefects ? 1 : 0);
     m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);
     m._tc_set_fan_rules(...this.fanRules);
     m._tc_set_max_points(this.maxPoints);
@@ -429,6 +438,15 @@ export class CadioTessellator implements Tessellator {
     if (dropped.length) {
       diagnostics.push({ severity: 'warning', message: `${dropped.length} faces with split requests dropped (no `
         + `edge's, crease's or ring's segment): ${dropped.map((id, i) => `#${id} (${droppedCount[i]})`).join(', ')}` });
+    }
+    // (Faces kept with a defect rather than failed: [id, turned, deviation over max(d, tol), capped] each.)
+    const kept = Array.isArray(diag['kept']) ? diag['kept'] as [number, number, number, number][] : [];
+    if (kept.length) {
+      const what = ([id, turned, dev, capped]: [number, number, number, number]) => `#${id} (` + [
+        turned ? `${turned} triangles turned` : '', dev ? `${dev} x the larger of d and tol` : '',
+        capped ? 'at its point cap' : '',
+      ].filter(Boolean).join(', ') + ')';
+      diagnostics.push({ severity: 'warning', message: `${KEPT_HEAD}${kept.length} (${kept.map(what).join(', ')})` });
     }
     const sampled = list('sampled');
     if (sampled.length) {

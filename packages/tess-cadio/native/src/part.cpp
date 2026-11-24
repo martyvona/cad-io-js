@@ -743,6 +743,8 @@ struct PartMesher::Impl {
       FaceMesh& fm = faces[f];
       if (fm.status != Status::ok || fm.rejected.empty() || !surfaces[f]) continue;
       const double within = std::fmax(o.d.linear, tols.face(f)), limit = o.maxDeviationFactor * within;
+      // (Kept past the limit up to keepDeviation x within: measured on to that, the defect's size.)
+      const double keepLimit = o.keepDefects ? std::fmax(limit, o.keepDeviation * within) : limit;
       const Surface& s = *surfaces[f];
       const SurfaceDomain D = s.domain();
       const PartProgress here{PartProgress::deviation, f, rounds, f, nf};
@@ -797,17 +799,21 @@ struct PartMesher::Impl {
               invertSurface(s, x, D.u, D.v, o.d.linear, haveUv ? &uv : nullptr, nullptr, true);
             if (inv.status != Status::ok) continue;
             worst = std::fmax(worst, inv.distance);
-            past = worst > limit;
+            past = worst > keepLimit;
           }
       }
       fm.worstDeviation = worst;
-      if (!past) continue;
+      if (worst <= limit) continue;
+      if (!past) {
+        fm.defectDeviation = worst / within;
+        continue;
+      }
       char why[240];
       std::snprintf(why, sizeof why, "meshed past its deflection: at least %.3g x the deflection (a refused triangle's "
         "point inverted onto its surface), past %.3g x max(d, tol) = %.3g x %.3g mm", worst / o.d.linear,
-        o.maxDeviationFactor, o.maxDeviationFactor, within);
+        keepLimit / within, keepLimit / within, within);
       fm.status = Status::noConvergence;
-      fm.cause = why;
+      fm.cause = failedFor(fm, why);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
       refused[f].clear();
     }
@@ -1372,7 +1378,7 @@ struct PartMesher::Impl {
       std::snprintf(why, sizeof why, "a pole's fan folds over itself: %d %s used twice the same way", folded,
         folded == 1 ? "edge" : "edges");
       fm.status = Status::noConvergence;
-      fm.cause = why;
+      fm.cause = failedFor(fm, why);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
@@ -1400,38 +1406,63 @@ struct PartMesher::Impl {
         return false;
       };
       int against = 0;
+      // (The turned triangles' area and the face's, for keepTurnedShare.)
+      double turnedArea = 0, area = 0;
       for (size_t t = 0; t + 2 < fm.triangles.size() && t / 3 < mesherTriangles[f]; t += 3) {
         const int32_t* v = &fm.triangles[t];
+        const double a = 0.5 * norm(cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]));
+        area += a;
         if (atSingular(fm.points[v[0]]) || atSingular(fm.points[v[1]]) || atSingular(fm.points[v[2]])) continue;
+        bool turned;
         if (shipped) {
           Vec3 q[3], n{0, 0, 0};
           for (int k = 0; k < 3; k++) q[k] = asShipped(fm.points[v[k]]), n = n + asFloat(fm.normals[v[k]]);
-          against += facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
-          continue;
+          turned = facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
+        } else {
+          const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+          turned = facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
         }
-        const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
-        against += facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
+        against += turned;
+        if (turned) turnedArea += a;
       }
       if (!against) continue;
+      if (o.keepDefects && against <= o.keepTurned && turnedArea <= o.keepTurnedShare * area) {
+        fm.defectTurned = against;
+        continue;
+      }
       char why[160];
       std::snprintf(why, sizeof why, "meshed with %d triangles turned against its surface (their facets against their "
         "corners' normals, refused and not mended)", against);
       fm.status = Status::noConvergence;
-      fm.cause = why;
+      fm.cause = failedFor(fm, why);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
 
   /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
+  /** A capped face's cause: its cap, and how many triangles it stopped at. */
+  static std::string capCause(const FaceMesh& fm) {
+    char why[200];
+    std::snprintf(why, sizeof why, "refinement stopped at its point cap, %zu triangles (its cap %.0f: %.0f expected)",
+      fm.triangles.size() / 3, fm.cap, fm.capExpected);
+    return why;
+  }
+  /** A failure's cause, led by the cap's where the face was kept past failCapped and so failed for another defect. */
+  static std::string failedFor(const FaceMesh& fm, const char* why) {
+    return fm.defectCapped ? capCause(fm) + ", and " + why : std::string(why);
+  }
+
   void failCapped() {
     if (!o.failCapped) return;
     for (FaceMesh& fm : faces) {
       if (fm.status != Status::ok || !fm.capped) continue;
+      // (Kept, its mesh judged as any other's by the deviation and facing checks after this one.)
+      if (o.keepDefects) {
+        fm.defectCapped = true;
+        continue;
+      }
       fm.status = Status::noConvergence;
-      char why[200];
-      std::snprintf(why, sizeof why, "refinement stopped at its point cap, %zu triangles (its cap %.0f: %.0f expected)",
-        fm.triangles.size() / 3, fm.cap, fm.capExpected);
-      fm.cause = why;
+      fm.cause = capCause(fm);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
