@@ -2624,7 +2624,8 @@ await check('picks unfold the tree', async () => {
 // Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent, Select
 // children and Select none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted
 // exactly as the selection is (none stale), the tree scrolled to show a selected row. Select children: the assemblies'
-// children, then a part's faces, edges and curves (the tree's detail turned on). The tree's menu: Select parent and
+// children; a part's nothing while the tree's detail is off (the selection kept, the detail left off), its faces,
+// edges and curves once it's on. The tree's menu: Select parent and
 // Select children on the row right-clicked (not the selection), the rest as the buttons.
 await check('selection buttons in the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
@@ -2658,6 +2659,11 @@ await check('selection buttons in the tree', async () => {
     const part = m.nodes.find((n) => n.kind === 'part').id;
     out.detailBefore = m.hasDetail();
     ui.select([part]);
+    press('Select children');
+    out.kept = JSON.stringify(ui.selected()) === JSON.stringify([part]) && !m.hasDetail();
+    const detail = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves');
+    detail.setValue(true);
+    detail._callOnFinishChange();
     press('Select children'); out.detail = await look();
     out.kinds = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
     out.detailAfter = m.hasDetail();
@@ -2694,8 +2700,9 @@ await check('selection buttons in the tree', async () => {
   }
   expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
   expect(o.childrenOk === true, `the parents' children: ${j}`);
-  expect(o.detailBefore === false && o.detailAfter === true && (o.kinds as string[]).includes('face'),
-    `a part's children, its detail: ${j}`);
+  expect(o.detailBefore === false && o.kept === true, `a part's children with the detail off: none, the selection `
+    + `kept: ${j}`);
+  expect(o.detailAfter === true && (o.kinds as string[]).includes('face'), `with it on, its detail: ${j}`);
   expect(o.menuParent === true && o.menuChildren === true && o.menuAll === true && o.menuNone === true,
     `the tree's menu: ${j}`);
   return undefined;
@@ -3731,29 +3738,67 @@ await check('tess-cadio', async () => {
     `minAngle= with OCCT: ${JSON.stringify(o.after)}`);
   return undefined;
 });
-// Copy link to this view's Include device defaults (off by default, remembered in this browser): off, a link leaves out
-// what is the device's default (a desktop's medium profile and fat edges; a phone's link says its thin edges, which
-// aren't the desktop's, but not its coarse profile); on, profile= and edgeStyle= are always in it, a custom profile
-// by its deflections. (Pages share the browser's storage: left off at the end, as the other checks expect.)
-await check('copy link: device defaults', async () => {
+// File's Link to this view... (link-dialog.ts): a modal with Include device defaults (off by default, remembered in
+// this browser), the link in a one-line box that can be selected and scrolls sideways, and Copy (the clipboard
+// stubbed), the dialog left open. Off, a link leaves out what is the device's default (a desktop's medium profile and
+// fat edges; a phone's link says its thin edges, which aren't the desktop's, but not its coarse profile); on, profile=
+// and edgeStyle= are always in it, a custom profile by its deflections; the box follows the option. Not in View any
+// more. (Pages share the browser's storage: left off at the end, as the other checks expect.)
+await check('link to this view', async () => {
   const look = `(async () => {
     await cadViewer.idle();
-    const option = ui.gui.controllersRecursive().find((c) => c._name === 'Include device defaults');
-    const said = () => { const u = new URL(ui.link()); const h = new URLSearchParams(u.hash.slice(1));
+    let copied;
+    navigator.clipboard.writeText = async (t) => { copied = t; };
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const control = (path) => ui.gui.controllersRecursive().find((c) => c.parent._title + '/' + c._name === path);
+    const inView = ['Copy link to this view', 'Include device defaults'].filter((n) =>
+      ui.gui.controllersRecursive().some((c) => c._name === n));
+    // The dialog opened, its parts.
+    const open = async () => {
+      const b = control('File/Link to this view...');
+      b.$button.click();
+      await frame();
+      const d = document.querySelector('dialog.cv-dialog');
+      return { d, box: d.querySelector('input[type=checkbox]'), text: d.querySelector('textarea.link'),
+        copy: [...d.querySelectorAll('button')].find((x) => x.textContent === 'Copy') };
+    };
+    const said = (href) => { const u = new URL(href); const h = new URLSearchParams(u.hash.slice(1));
       return { profile: u.searchParams.get('profile'), linear: u.searchParams.get('linearDeflection'),
         edgeStyle: h.get('edgeStyle') }; };
-    const before = { checked: option.getValue(), link: said() };
-    option.setValue(!before.checked);
-    const toggled = { stored: localStorage.getItem('cad-viewer.linkDeviceDefaults'), link: said() };
+    let o = await open();
+    const before = { checked: o.box.checked, link: said(o.text.value), same: o.text.value === ui.link(),
+      title: o.d.querySelector('h2').textContent, readOnly: o.text.readOnly, wrap: o.text.wrap };
+    o.box.click();
+    await frame();
+    const toggled = { stored: localStorage.getItem('cad-viewer.linkDeviceDefaults'), link: said(o.text.value),
+      same: o.text.value === ui.link() };
+    o.copy.click();
+    for (let i = 0; i < 50 && (copied === undefined || o.copy.textContent === 'Copy'); i++) await frame();
+    const copy = { copied: copied === o.text.value, label: o.copy.textContent, open: o.d.open };
+    // A long link: one line, scrolling sideways, the line whole above the scroll bar; focused, all of it selected.
+    o.text.value = o.text.value + '&' + 'x'.repeat(600);
+    o.text.focus();
+    const long = { scrolls: o.text.scrollWidth > o.text.clientWidth, line: o.text.scrollHeight <= o.text.clientHeight,
+      selected: o.text.selectionStart === 0 && o.text.selectionEnd === o.text.value.length,
+      inside: o.text.getBoundingClientRect().right <= o.d.getBoundingClientRect().right };
+    o.d.querySelector('button[value=close]').click();
+    await frame();
     ui.setMeshing({ profile: 'custom', linearDeflection: 0.05 });
-    await (async () => { const b = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+    await (async () => { const b = control('B-Rep Meshing/Mesh again');
       await b.getValue().call(b.object); await cadViewer.idle(); })();
-    const custom = said();
-    return { before, toggled, custom, device: viewer.device };
+    o = await open();
+    const custom = said(o.text.value);
+    o.d.querySelector('button[value=close]').click();
+    await frame();
+    return { before, toggled, copy, long, custom, inView, closed: !document.querySelector('dialog.cv-dialog'),
+      device: viewer.device };
   })()`;
   type Said = { profile: string | null; linear: string | null; edgeStyle: string | null };
-  type Got = { before: { checked: boolean; link: Said }; toggled: { stored: string | null; link: Said }; custom: Said;
-    device: string };
+  type Got = { before: { checked: boolean; link: Said; same: boolean; title: string; readOnly: boolean;
+    wrap: string }; toggled: { stored: string | null; link: Said; same: boolean };
+    copy: { copied: boolean; label: string; open: boolean };
+    long: { scrolls: boolean; line: boolean; selected: boolean; inside: boolean }; custom: Said; inView: string[];
+    closed: boolean; device: string };
   // (As it is: the check's pages otherwise ask for thin edges.)
   const url = `?url=${encodeURIComponent('/content/as1.stp')}&check`;
   // Off, then turned on.
@@ -3765,10 +3810,15 @@ await check('copy link: device defaults', async () => {
     return 0; })()`, { phone: true, asIs: true }), (await page(url, look, { phone: true, asIs: true }) as
     { after: Got }).after);
   const j = JSON.stringify({ a, b, pOn });
+  expect(a.before.title === 'Link to this view' && a.before.readOnly && a.before.wrap === 'off' && a.before.same
+    && a.inView.length === 0 && a.closed, `File's Link to this view...: the link, read only, one line: ${j}`);
   expect(!a.before.checked && a.before.link.profile === null && a.before.link.edgeStyle === null,
     `off by default: the desktop's defaults left out: ${j}`);
-  expect(a.toggled.stored === '1' && a.toggled.link.profile === 'medium' && a.toggled.link.edgeStyle === 'fat',
-    `on: spelled out, remembered: ${j}`);
+  expect(a.toggled.stored === '1' && a.toggled.link.profile === 'medium' && a.toggled.link.edgeStyle === 'fat'
+    && a.toggled.same, `on: spelled out, remembered, the box following: ${j}`);
+  expect(a.copy.copied && a.copy.label === 'Copied' && a.copy.open, `Copy: the link copied, the dialog open: ${j}`);
+  expect([a, pOn].every((x) => x.long.scrolls && x.long.line && x.long.selected && x.long.inside),
+    `a long link: scrolling sideways, the line whole, all selected on focus, inside the dialog: ${j}`);
   expect(a.custom.profile === null && a.custom.linear === '0.05', `on, custom: its deflections: ${j}`);
   expect(b.before.checked && b.before.link.profile === 'medium' && b.toggled.stored === '0'
     && b.toggled.link.profile === null && b.toggled.link.edgeStyle === null, `remembered on; off again: ${j}`);
@@ -4162,6 +4212,184 @@ await check('triangle edges on a selected face', async () => {
   const a = r.after, j = JSON.stringify(a);
   expect(a.mask !== undefined && a.mask > 100, `a face picked and highlighted: ${j}`);
   expect(a.selected! > a.mask! * 0.05 && a.all! > a.mask! * 0.05, `its edges drawn over its highlight: ${j}`);
+  return undefined;
+});
+// The keyboard shortcuts (shortcuts.ts), each pressing its control: f zooms to the selection, or all with none; 1 to 7
+// look along the axes in Look Along an Axis's order; h and s hide and show the selection; t shows the tree or not; g
+// cycles triangle edges (selected or all to off; off to selected with a selection, else all). None in a text field,
+// with a modifier, or repeated; recorded as the controls they press. Each control shows its key, greyed, after its
+// name, whole (the names themselves, which recordings use, unchanged).
+await check('keyboard shortcuts', async () => {
+  // (Other checks' keys forgotten first, before the page's scripts: they're in the same browser, and the hints must
+  // show here for the mouse alone.)
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const calls = [];
+    const zoomAll = viewer.zoomAll, zoomSelected = ui.zoomSelected, setView = viewer.setView;
+    viewer.zoomAll = function (...a) { calls.push('all'); return zoomAll.apply(this, a); };
+    ui.zoomSelected = function (...a) { calls.push('selected'); return zoomSelected.apply(this, a); };
+    viewer.setView = function (v, ...a) { calls.push(v); return setView.call(this, v, ...a); };
+    // A key pressed on what has the focus (else the page): whether its default was prevented.
+    const key = (k, o = {}, on = document.activeElement ?? document.body) => !on.dispatchEvent(new KeyboardEvent(
+      'keydown', { key: k, bubbles: true, cancelable: true, ...o }));
+    const take = () => calls.splice(0);
+    const out = {};
+    const part = viewer.nodes.nodes.find((n) => n.kind === 'part');
+    const path = viewer.nodes.pathOf(part.id);
+    const hidden = () => cadViewer.state().hidden.includes(path);
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // (Their folders open, to be measured.)
+    for (const f of ui.gui.foldersRecursive()) {
+      if (['View', 'Look Along an Axis', 'Rendering', 'Tree', 'Selection'].includes(f._title)) f.open();
+    }
+    out.hints = ui.gui.controllersRecursive().flatMap((c) => {
+      const k = c.$name.querySelector('.cv-key');
+      // (A mouse here: shown, whatever keyboard was seen.)
+      return k ? [[c._name, k.textContent, +getComputedStyle(k).opacity < 1 && getComputedStyle(k).display !== 'none'
+        && matchMedia('(any-pointer: fine)').matches && !document.documentElement.classList.contains('cv-keyboard'),
+        c.$name.textContent === c._name + k.textContent,
+        c.$name.clientWidth > 0 && c.$name.scrollWidth <= c.$name.clientWidth]] : [];
+    });
+    ui.select([]);
+    out.f = [key('f'), take()];
+    ui.select([part.id]);
+    out.fSelected = [key('f'), take()];
+    out.views = ['1', '2', '3', '4', '5', '6', '7', '8', '0'].map((k) => key(k));
+    out.viewCalls = take();
+    out.h = [key('h'), hidden()];
+    out.s = [key('s'), hidden()];
+    const tree0 = control('Show the tree').getValue();
+    key('t');
+    const tree1 = control('Show the tree').getValue();
+    key('t');
+    out.tree = [tree0, tree1, control('Show the tree').getValue()];
+    const edges = () => viewer.render.triangleEdges;
+    out.g = [edges()];
+    for (let i = 0; i < 2; i++) { key('g'); out.g.push(edges()); }
+    ui.select([]);
+    for (let i = 0; i < 2; i++) { key('g'); out.g.push(edges()); }
+    out.control = control('Triangle edges').getValue();
+    // Left alone: a text field's, modified, shifted, repeated.
+    const input = document.createElement('input');
+    document.body.append(input);
+    out.ignored = [key('f', {}, input), key('f', { ctrlKey: true }), key('f', { metaKey: true }),
+      key('f', { altKey: true }), key('F', { shiftKey: true }), key('f', { repeat: true }), key('x')];
+    input.remove();
+    out.ignoredCalls = take();
+    // Recorded as the controls they press.
+    cadViewer.record(true);
+    key('1');
+    key('t');
+    key('t');
+    key('g');
+    key('g');
+    const rec = cadViewer.record(false);
+    out.recorded = rec.events.filter((e) => e.type === 'control').map((e) => e.path + (e.value === undefined ? ''
+      : '=' + e.value));
+    take();
+    viewer.zoomAll = zoomAll;
+    ui.zoomSelected = zoomSelected;
+    viewer.setView = setView;
+    // (The keyboard these keys said there is forgotten: later pages start without it.)
+    localStorage.removeItem('cad-viewer.keyboard');
+    return out;
+  })()`, { first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { f: [boolean, string[]];
+    fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[];
+    h: [boolean, boolean]; s: [boolean, boolean]; tree: boolean[]; g: string[]; control: string; ignored: boolean[];
+    ignoredCalls: string[]; recorded: string[]; hints: [string, string, boolean, boolean, boolean][] } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.f[0] && a.f[1].join() === 'all' && a.fSelected[0] && a.fSelected[1].join() === 'selected',
+    `f: zoom all with nothing selected, zoom selected with something: ${j}`);
+  expect(a.views.join() === 'true,true,true,true,true,true,true,false,false'
+    && a.viewCalls.join() === 'front,back,left,right,top,bottom,iso', `1 to 7: the views, in order: ${j}`);
+  expect(a.h.join() === 'true,true' && a.s.join() === 'true,false', `h hides the selection, s shows it: ${j}`);
+  expect(a.tree[0] !== a.tree[1] && a.tree[0] === a.tree[2], `t: the tree shown or not: ${j}`);
+  expect(a.g.join() === 'off,selected,off,all,off' && a.control === 'off',
+    `g: off to selected with a selection, to all without; back to off: ${j}`);
+  expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
+    `none in a text field, with a modifier, repeated, or unbound: ${j}`);
+  expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Front 1,Back 2,Left 3,'
+    + 'Right 4,Top 5,Bottom 6,Iso 7,Show the tree t,Hide selected h,Show selected s,Triangle edges g'
+    && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
+  expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|Tree/Show the tree=false|Tree/Show the tree=true|'
+    + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off', `recorded as their controls: ${j}`);
+  return undefined;
+});
+// The keys' hints on a touch screen with no mouse or trackpad (an emulated phone): hidden, until a key is pressed
+// outside a text field (a physical keyboard: an on-screen one shows only for a text field), then shown, and still in
+// the next page (remembered in the browser); a key typed in a text field doesn't count. (Other checks' keys forgotten
+// first: they're in the same browser.)
+await check('key hints on touch screens', async () => {
+  const shown = `(() => getComputedStyle(ui.gui.controllersRecursive().find((c) => c._name === 'Zoom all')
+    .$name.querySelector('.cv-key')).display !== 'none')()`;
+  const key = (on: string) => `${on}.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))`;
+  const first = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    const out = { fine: matchMedia('(any-pointer: fine)').matches, before: ${shown} };
+    const input = document.createElement('input');
+    document.body.append(input);
+    ${key('input')};
+    out.typed = ${shown};
+    input.remove();
+    ${key('document.body')};
+    out.after = ${shown};
+    out.remembered = localStorage.getItem('cad-viewer.keyboard');
+    return out;
+  })()`, { phone: true, first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { fine: boolean; before: boolean; typed: boolean; after: boolean;
+    remembered: string | null } };
+  const next = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    const out = { shown: ${shown} };
+    localStorage.removeItem('cad-viewer.keyboard');
+    return out;
+  })()`, { phone: true }) as { after: { shown: boolean } };
+  const a = first.after, j = JSON.stringify({ ...a, next: next.after });
+  expect(!a.fine && !a.before && !a.typed, `no mouse: hidden, a key in a text field too: ${j}`);
+  expect(a.after && a.remembered === '1' && next.after.shown, `a key elsewhere: shown, and remembered: ${j}`);
+  return undefined;
+});
+// The controls' folders: File has Link to this view..., one fullscreen button and Theme before About...; View its
+// zooms, Axes and the views alone; Selection, after picking and selecting, Details, hiding and showing, transparency;
+// Rendering ends with Custom background and its picker. The fullscreen button says which way it goes: pressed (as a
+// user's gesture), the page full screen and the button Exit fullscreen; pressed again, back, Enter fullscreen.
+await check('control folders', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true, userGesture: true }, sessionId)) as { result: { value: unknown } })
+    .result.value;
+  const press = `(async () => {
+    const before = !!document.fullscreenElement;
+    ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name)).$button
+      .click();
+    for (let i = 0; i < 100 && !!document.fullscreenElement === before; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
+    const b = ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name));
+    return { full: !!document.fullscreenElement, label: b._name, shown: b.$name.textContent };
+  })()`;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const folder = (t) => ui.gui.foldersRecursive().find((f) => f._title === t).controllers.map((c) => c._name);
+    const b = ui.gui.controllersRecursive().find((c) => c._name === 'Enter fullscreen');
+    return { file: folder('File'), view: folder('View'), selection: folder('Selection'),
+      rendering: folder('Rendering').slice(-2), enabled: !!b && !b._disabled && document.fullscreenEnabled };
+  })()`, { then: async (sessionId) => {
+    const on = await evaluate(sessionId, press);
+    const off = await evaluate(sessionId, press);
+    return { on, off };
+  } }) as { after: { file: string[]; view: string[]; selection: string[]; rendering: string[]; enabled: boolean };
+    then: { on: { full: boolean; label: string; shown: string }; off: { full: boolean; label: string;
+      shown: string } } };
+  const a = r.after, t = r.then, j = JSON.stringify({ a, t });
+  expect(a.file.join() === 'Open file...,Load URL...,Save original...,Export...,Screenshot...,Link to this view...,'
+    + 'Enter fullscreen,Theme,About...', `File: ${j}`);
+  expect(a.view.join() === 'Zoom all,Zoom selected,Axes', `View: its zooms and Axes (and the views' folder): ${j}`);
+  expect(a.selection.slice(-9).join() === 'Details,Hide selected,Show selected,Hide others,Show others,Show all,'
+    + 'Opacity,Make transparent,Restore opacity' && a.selection[0] === 'Pick', `Selection: ${j}`);
+  expect(a.rendering.join() === 'Custom background,Background', `Rendering ends with the background: ${j}`);
+  expect(a.enabled && t.on.full && t.on.label === 'Exit fullscreen' && t.on.shown === 'Exit fullscreen'
+    && !t.off.full && t.off.label === 'Enter fullscreen' && t.off.shown === 'Enter fullscreen',
+    `one fullscreen button, saying which way it goes: ${j}`);
   return undefined;
 });
 await check('no model', async () => {
@@ -4792,7 +5020,7 @@ await check('theme', async () => {
   expect(as(a, a.systemLight ? 'light' : 'dark') && a.control === 'auto' && a.saved === null, `auto again: ${j}`);
   return undefined;
 });
-// View's Custom background: off, the theme's; on, the picker's colour (drawn, and the page's --view-bg behind the
+// Rendering's Custom background: off, the theme's; on, the picker's colour (drawn, and the page's --view-bg behind the
 // view), the picker enabled only then; remembered, so a new page starts with it from its first paint (index.html's
 // inline script); off again, the theme's. (Turned off and forgotten at the end: pages share the profile.)
 await check('custom background', async () => {
@@ -5885,8 +6113,9 @@ await check('recording', async () => {
     await pause();
     // A switch and a button, as clicked.
     const end = await send('Runtime.evaluate', { expression: `(async () => {
+      // (By its name's own text: a control's key, after it, isn't part of its name.)
       const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
-        .find((c) => c.textContent.trim() === name);
+        .find((c) => c.querySelector('.name')?.firstChild?.textContent.trim() === name);
       control('Cut along X').querySelector('input').click();
       await cadViewer.idle();
       control('Zoom all').querySelector('button').click();
@@ -6050,7 +6279,7 @@ await check('replay dialogs', async () => {
       return files.map((f) => ({ getFile: async () => f }));
     };
     const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
-      .find((c) => c.textContent.trim() === name);
+      .find((c) => c.querySelector('.name')?.firstChild?.textContent.trim() === name);
     const status = () => document.getElementById('status').textContent;
     const replay = (rec) => {
       ui.say('');
@@ -6295,7 +6524,7 @@ await check('open errors', async () => {
   expect(!!typed?.error && /not a URL, nor a path within the content root/.test(typed.text), `a bad address: ${j}`);
   return undefined;
 });
-// Screenshot..., between Export... and About...: disabled with no model; the model alone at its default width, the
+// Screenshot..., between Export... and Link to this view...: disabled with no model; the model alone at its default width, the
 // square of its sphere's circle within the view between the tree and the controls (worked out here from the camera),
 // and at twice that, the height in proportion, its pixels the view's there; with a transparent background (over the
 // view's, the opaque image again); JPEG (no transparency offered); the whole window redrawn, as wide as
@@ -6307,7 +6536,7 @@ await check('screenshot', async () => {
     const all = ui.gui.controllersRecursive();
     const shot = all.find((c) => c._name === 'Screenshot...');
     const names = all.map((c) => c._name);
-    const order = [names.indexOf('Export...'), names.indexOf('Screenshot...'), names.indexOf('About...')];
+    const order = [names.indexOf('Export...'), names.indexOf('Screenshot...'), names.indexOf('Link to this view...')];
     const before = shot._disabled;
     await ui.openUrl('/content/as1.stp');
     await cadViewer.idle();
@@ -6471,7 +6700,7 @@ await check('screenshot', async () => {
     file: undefined }, tab: { ...a.tab, file: undefined } });
   const near = (p: number[], q: number[], d: number) => p.slice(0, 3).every((v, k) => Math.abs(v - q[k]!) <= d);
   expect(a.order[0] >= 0 && a.order[1] === a.order[0] + 1 && a.order[2] === a.order[1] + 1 && a.before === true &&
-    a.after === false, `between Export... and About..., enabled with a model: ${j}`);
+    a.after === false, `between Export... and Link to this view..., enabled with a model: ${j}`);
   const m = a.model;
   expect(m.shown.what === 'model' && Math.abs(m.shown.width - a.expected.width) <= 1 && m.file.name === 'as1.png' &&
     m.image.width === m.shown.width && Math.abs(m.image.height - a.expected.height) <= 1 &&
