@@ -30,7 +30,8 @@ export interface ShellSideResult {
 export interface ShellSide {
   /**
    * For closed shell row `shell` of the model: which side of it a point just outside face row `face` lies on, the
-   * point at a point well inside the face moved `eps` (about 10 x the tolerance) along its normal.
+   * point at a point well inside the face (a narrow face's: in at its tolerance) moved `eps` (about 10 x the
+   * tolerance) along its normal.
    */
   side(model: BrepData, shell: number, face: number, eps: number): ShellSideResult;
 }

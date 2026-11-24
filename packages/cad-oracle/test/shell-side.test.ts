@@ -248,6 +248,48 @@ test('a point well inside a face: in at its tolerance, and clear of its boundary
     }
   });
 
+test('a face narrower than 20 x its tolerance: its point in at the tolerance itself, for shellSide alone', { skip },
+  async () => {
+    // At 0.06 the ring 1 wide is all within 10 x the tolerance (0.6) of its circles: the point is one in at 0.06,
+    // farther than that from both. Nesting takes points well inside only: the ring's top face gives it none.
+    using o = new Oracle(await init(), ring(0.06).buffer);
+    const r = o.shellSide(0, 0, 1e-3);
+    assert.equal(r.side, 'outside');
+    const rho = Math.hypot(r.from[0], r.from[1]);
+    assert.ok(rho >= 1.06 && rho <= 1.94 && Math.abs(r.from[2] - 0.5) < 1e-12, `${r.from}`);
+  });
+
+test('a void narrower than 20 x the tolerance: its faces\' sides told, its nesting not (no point well inside)',
+  { skip }, async () => {
+    // At 0.06 (the part's uncertainty), the void's faces 0.5 across are within 10 x it of their edges throughout.
+    // Moved into the material (an offset into the void, 0.6 at the least, would come out through its far face).
+    const b = new BrepBuilder({ uncertainty: 0.06 });
+    const outer = box(b, [4, 4, 4]), hole = box(b, [0.5, 0.5, 0.5], [1.75, 1.75, 1.75], 100, () => true);
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: outer, sense: true },
+      { ref: hole, sense: false }] }) });
+    using o = new Oracle(await init(), b.finish().buffer);
+    assert.equal(o.shellSide(1, 6, -1e-3).side, 'outside');
+    assert.deepEqual(o.nesting(0), [-1, -2]);
+  });
+
+test('a narrow face whose loop has a gap wider than its tolerance: no point in at the tolerance alone', { skip },
+  async () => {
+    // A box 4 x 0.5 x 2 at 0.06: its bottom face within 10 x that of its edges throughout, its point one in at 0.06.
+    // With the edge from (0, 0, 0) to (0, 0.5, 0) 0.1 short of its end (its line's magnitude 0.4), the face's loop
+    // has a gap there: classified at 0.06 its points are invalidModel, so none is taken, though their sides say in.
+    for (const short of [false, true]) {
+      const b = new BrepBuilder({ uncertainty: 0.06 });
+      const shell = box(b, [4, 0.5, 2]);
+      b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
+      const d = b.finish();
+      if (short) d.pool.curveReal[d.curve.real[d.edge.curve[0]!]! + 6] = 0.4;
+      using o = new Oracle(await init(), d.buffer);
+      const r = o.shellSide(0, 0, -1e-3);
+      assert.deepEqual([r.side, r.why ?? ''], short ? ['unknown', 'no point well inside the face'] : ['inside', ''],
+        `${short}`);
+    }
+  });
+
 test('a cone reaching its apex as a pole: a ray meeting it below its circle\'s box still counted', { skip },
   async () => {
     const d = conePoint();
