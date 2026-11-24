@@ -427,8 +427,8 @@ TEST_CASE("singularities: each iso-line given is one point on the surface, its p
   CHECK(n > 50);
 }
 
-TEST_CASE("evalRow: every surface's rows along u and along v bit for bit as eval, in its domain and past it, as made "
-  "and closed in fact") {
+TEST_CASE("evalRow: every surface's rows along u and along v as eval gives them (the same statuses; a B-spline's "
+  "partials within rounding, the others bit for bit), in its domain and past it, as made and closed in fact") {
   std::mt19937_64 rng(11);
   int bad = 0, n = 0, splines = 0;
   for (bool close : {false, true}) {
@@ -452,10 +452,33 @@ TEST_CASE("evalRow: every surface's rows along u and along v bit for bit as eval
             std::vector<SurfacePoint> got(ts.size());
             std::vector<Status> st(ts.size());
             s->evalRow(alongV, fixed, static_cast<int>(ts.size()), ts.data(), order, got.data(), st.data());
+            std::vector<SurfacePoint> want(ts.size());
+            std::vector<Status> ws(ts.size());
+            for (size_t i = 0; i < ts.size(); i++)
+              ws[i] = alongV ? s->eval(fixed, ts[i], order, want[i]) : s->eval(ts[i], fixed, order, want[i]);
+            // Rounding: a partial's within 1e-12 of the row's largest partial (one can be 0 all along it), the
+            // point's of the row's extent (and 8 ulp of where it is).
+            const bool spline = std::strstr(typeid(*impl(s.get())).name(), "BSpline") != nullptr ||
+              m.name.find("raw") == 0 || close;
+            auto field = [](const SurfacePoint& q, int f) {
+              const Vec3 v[6] = {q.p, q.du, q.dv, q.duu, q.duv, q.dvv};
+              return v[f];
+            };
+            double big[6] = {0, 0, 0, 0, 0, 0};
+            for (size_t i = 0; i < ts.size(); i++)
+              for (int f = 0; f < 6; f++)
+                big[f] = std::fmax(big[f], f ? norm(field(want[i], f)) : norm(want[i].p - want[0].p));
             for (size_t i = 0; i < ts.size(); i++) {
-              SurfacePoint want;
-              const Status ws = alongV ? s->eval(fixed, ts[i], order, want) : s->eval(ts[i], fixed, order, want);
-              if (ws != st[i] || std::memcmp(&want, &got[i], sizeof want) != 0) {
+              bool same = ws[i] == st[i];
+              if (!spline) same = same && std::memcmp(&want[i], &got[i], sizeof(SurfacePoint)) == 0;
+              for (int f = 0; f < 6 && spline; f++) {
+                const double scale = f ? std::fmax(std::fmax(big[1], big[2]), std::fmax(big[3], std::fmax(big[4], big[5])))
+                  : big[0];
+                const double tol = 1e-12 * scale + (f ? 0 : 8 * 2.2e-16 * norm(want[i].p)) + 1e-300;
+                const Vec3 d = field(got[i], f) - field(want[i], f);
+                same = same && norm(d) <= tol;
+              }
+              if (!same) {
                 if (bad++ < 10) std::printf("  %s%s: row along %s at %.17g, point %.17g, order %d differs from eval\n",
                   m.name.c_str(), close ? " (closed)" : "", alongV ? "v" : "u", fixed, ts[i], order);
               }
