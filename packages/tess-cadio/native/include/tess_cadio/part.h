@@ -100,6 +100,23 @@ struct PartOptions {
   int keepTurned = 16;
   double keepTurnedShare = 0.01;
   /**
+   * A face meshed again with its size metric's stretch (long size over short) capped at this (Deflections::
+   * stretchCap), keeping its first point cap, where its mesh is far over its patch (the triangles' 3D area over their
+   * (u, v) area times |S_u x S_v| at each centroid past 1 + retryRatio: a lantern, long triangles across a thin,
+   * curved band) and it isn't a sliver narrower than its boundary's offset from the surface, or where its meshing
+   * failed (not its boundary); after the first meshings and again after the split rounds, which then run on; kept
+   * where the better mesh (ok, and under its patch ratio before), else meshed as before.
+   * 0: never.
+   */
+  double retryStretch = 16, retryRatio = 0.1;
+  /**
+   * A face at its point cap at two meshings in a row, the second refusing no fewer triangles than the first, is
+   * frozen (FaceMesh::frozen): not meshed again in the split rounds, its split requests dropped, as failCapped or
+   * keepDefects then has it. Meshed once more after the rounds where its neighbours' splits changed its edges since,
+   * no requests taken, so it meets them.
+   */
+  bool freezeCapped = true;
+  /**
    * Two rules against such folds, each on by default (off for tests and measuring): `consistentFans`, a fan whose
    * triangles' directions by their normals disagree has every one against the mesher's use of its ring segment;
    * `apexCorners`, at an apex a far end's corner under 1e-3 rad about it from that end is left out (a needle else).
@@ -227,6 +244,11 @@ struct FaceMesh {
   /** Whether a defect is past PartOptions::keepDeviation, keepTurned or keepTurnedShare (its deviation then a lower
    * bound: measured until past the limit). */
   bool defectPastLimits = false;
+  /** Whether it was meshed again at a capped stretch (PartOptions::retryStretch); its patch ratio, meshed last. */
+  bool retried = false;
+  double patchRatio = 0;
+  /** Whether PartOptions::freezeCapped froze it: capped twice in a row, its refusals not falling. */
+  bool frozen = false;
   /** Its refused triangles measured for the deviation check, the rest within it by their bound. */
   int deviationMeasured = 0;
   /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */

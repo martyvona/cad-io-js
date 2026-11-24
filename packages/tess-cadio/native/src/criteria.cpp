@@ -996,6 +996,11 @@ private:
     Vec2 a{M - k1 * F, -(L - k1 * E)}, b{N - k1 * G, -(M - k1 * F)};
     Vec2 x1 = std::hypot(a.x, a.y) >= std::hypot(b.x, b.y) ? a : b;
     double h1 = size(k1), h2 = size(k2);
+    // (Deflections::stretchCap: the long size at most that times the short.)
+    if (d_.stretchCap > 0) {
+      if (h1 > d_.stretchCap * h2) h1 = d_.stretchCap * h2;
+      else if (h2 > d_.stretchCap * h1) h2 = d_.stretchCap * h1;
+    }
     double s1 = length2({E, F, G}, x1.x, x1.y);
     if (!(s1 > 0) || r <= 1e-12 * (std::fabs(H) + 1e-300) || !std::isfinite(s1)) {
       // An umbilic (or no curvature): every direction alike, the smaller size.

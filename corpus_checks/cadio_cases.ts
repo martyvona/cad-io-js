@@ -1,7 +1,8 @@
 // tess-cadio's cases from the corpus that a unit fixture doesn't reach: each a part of a file and its faces, meshed
-// (the medium profile, init's defaults) and checked to have none of them failed or kept with a defect, nor any split
-// its refinement asked for dropped (tess-cadio's warning naming the face: a segment no edge, crease or ring has). A file missing from the
-// corpus is skipped, said so. Usage: node --max-old-space-size=12000 corpus_checks/cadio_cases.ts
+// (the medium profile, init's defaults) and checked to have none of them failed or kept with a defect (but as a case's
+// `kept` allows), nor any split its refinement asked for dropped (tess-cadio's warning naming the face: a segment no
+// edge, crease or ring has). A file missing from the corpus is skipped, said so. Usage: node --max-old-space-size=12000
+// corpus_checks/cadio_cases.ts
 import fs from 'node:fs';
 import path from 'node:path';
 import { MESH_PROFILES, type TessellationResult } from '../packages/cad-scene/src/index.ts';
@@ -10,7 +11,10 @@ import { CadioTessellator } from '../packages/tess-cadio/src/index.ts';
 import { failedCauses, keptDefects } from './cadio_causes.ts';
 
 // `needles`: also none of the faces' triangles past an aspect (its longest side over its altitude) of 1000.
-interface Case { file: string; part: number; faces: number[]; why: string; needles?: boolean }
+// `kept`: the faces may be kept with a defect instead (tess-cadio's keepDefects), within its limits and with at most
+// `turned` triangles turned, each face's mesh area within `area` (mm^2).
+interface Case { file: string; part: number; faces: number[]; why: string; needles?: boolean;
+  kept?: { turned: number; area: [number, number] } }
 const root = path.join(import.meta.dirname, '..', 'test_corpus');
 const CASES: Case[] = [
   // A pole's ring inside an arc that, one span at the start (its two ends labelled with the edges before them), the
@@ -52,9 +56,11 @@ const CASES: Case[] = [
     why: 'a torus apex\'s fans made consistent' },
   // The same face meshed only if no more is judged on those points than the output's own turn: the angle on them
   // (a thin triangle's tilt, steeper as refinement thins it) took it to the point cap, the turn against any one
-  // corner's normal left one turned.
+  // corner's normal left one turned. Meshed so, a lantern, 3.2 mm^2 (its patch ratio past 1.1): meshed again at a
+  // capped stretch (retryStretch), about 0.99, kept with a few triangles turned.
   { file: 'models/onshape/LMP1.step', part: 172878, faces: [1064893],
-    why: 'only the turn on the boundary\'s own points' },
+    why: 'only the turn on the boundary\'s own points; retried, not a lantern',
+    kept: { turned: 4, area: [0.95, 1.05] } },
   // A split a torus asks on its edge's span inside a neighbouring sphere's pole ring: the ring shrunk to it
   // (part.cpp's shrinkRings).
   { file: 'third_party/gkv311-opencascade-dataset/step/r0901_ec.stp', part: 11, faces: [37264],
@@ -76,6 +82,17 @@ const CASES: Case[] = [
 ];
 
 // A face's triangles past an aspect of 1000 in a result.
+/** A face's mesh area in `r` (mm^2). */
+function faceArea(r: TessellationResult, face: number): number {
+  let a = 0;
+  for (const f of r.faces) if (f.entityId === face) for (let k = f.start; k < f.start + f.count; k += 3) {
+    const p = [0, 1, 2].map((q) => [0, 1, 2].map((c) => r.positions[3 * r.indices[k + q]! + c]!));
+    const u = p[1]!.map((x, i) => x - p[0]![i]!), v = p[2]!.map((x, i) => x - p[0]![i]!);
+    a += Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!) / 2;
+  }
+  return a;
+}
+
 function needles(r: TessellationResult, face: number): number {
   let n = 0;
   for (const f of r.faces) if (f.entityId === face) for (let k = f.start; k < f.start + f.count; k += 3) {
@@ -114,7 +131,21 @@ for (const [file, cases] of byFile) {
     const failed = failedCauses(r), still = c.faces.filter((f) => failed.has(f)).map((f) => `#${f} ${failed.get(f)}`);
     // (A face kept with a defect, tess-cadio's keepDefects, is no case met: the case is for meshing it clean.)
     const kept = keptDefects(r);
-    for (const f of c.faces) if (kept.has(f)) still.push(`#${f} kept with defects: ${kept.get(f)}`);
+    for (const f of c.faces) {
+      const k = kept.get(f);
+      if (k === undefined) continue;
+      const turned = Number(/(\d+) triangles turned/.exec(k)?.[1] ?? 0);
+      const allowed = c.kept && !/past the limits/.test(k) && turned <= c.kept.turned && !/larger of d/.test(k);
+      if (!allowed) still.push(`#${f} kept with defects: ${k}`);
+    }
+    if (c.kept) {
+      for (const f of c.faces) {
+        if (failed.has(f)) continue;
+        const a = faceArea(r, f);
+        if (!(a >= c.kept.area[0] && a <= c.kept.area[1])) still.push(`#${f} area ${a.toPrecision(4)} mm^2 outside `
+          + `[${c.kept.area.join(', ')}]`);
+      }
+    }
     const drop = r.diagnostics?.find((d) => d.message.includes('split requests dropped'))?.message ?? '';
     for (const f of c.faces) if (new RegExp(`#${f} \\(`).test(drop)) still.push(`#${f} split requests dropped`);
     if (c.needles) {

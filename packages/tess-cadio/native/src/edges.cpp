@@ -320,6 +320,57 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
   return t;
 }
 
+} // namespace
+
+namespace {
+
+void looseCurve(const Model& m, int curve, const EdgeOptions& o, double tol, bool forward, int depth,
+  std::vector<std::vector<Vec3>>& out, Status& status) {
+  if (m.curveKind(curve) == CBR_CURVE_COMPOSITE && depth < 16) {
+    const int32_t* in = m.curveInts(curve);
+    const int n = in[0];
+    for (int j = 0; j < n; j++) {
+      const int k = forward ? j : n - 1 - j;
+      looseCurve(m, in[2 + 3 * k], o, tol, forward == (in[3 + 3 * k] != 0), depth + 1, out, status);
+    }
+    return;
+  }
+  Status st;
+  const std::unique_ptr<Curve> c = makeCurve(m, curve, st);
+  if (!c || c->dim() != 3) {
+    status = worse(status, c ? Status::invalidModel : st);
+    return;
+  }
+  const CurveDomain d = c->domain();
+  if (!std::isfinite(d.range.lo) || !std::isfinite(d.range.hi) || !(d.range.hi > d.range.lo)) {
+    status = worse(status, Status::unsupported);
+    return;
+  }
+  const CurveGeom g(*c);
+  const Criteria k{o.deflection, o.angle, o.maxSpacing, refinementFloor(tol, o.deflection)};
+  std::vector<Vec3> pts;
+  for (double t : sample(g, d.range.lo, d.range.hi, d.period > 0, k, st)) pts.push_back(g.at(t));
+  status = worse(status, st);
+  if (!forward) std::reverse(pts.begin(), pts.end());
+  out.push_back(std::move(pts));
+}
+
+} // namespace
+
+std::vector<std::vector<Vec3>> sampleLooseCurve(const Model& m, int curve, const EdgeOptions& o, double tol,
+  Status& status) {
+  std::vector<std::vector<Vec3>> out;
+  status = Status::ok;
+  if (curve < 0 || curve >= m.curves()) {
+    status = Status::invalidModel;
+    return out;
+  }
+  looseCurve(m, curve, o, tol, true, 0, out, status);
+  return out;
+}
+
+namespace {
+
 /** x shifted by a whole number of periods to be nearest `to` (period 0: unchanged). */
 /**
  * A projected p-curve for meshing within this times the deflection of its feet, where the curve allows. cad-heal's
@@ -780,6 +831,114 @@ struct EdgeMesh::Impl {
     }
     t.push_back(E.s.t.back()), p.push_back(b);
     E.s.t = std::move(t), E.s.points = std::move(p);
+  }
+
+  /**
+   * Face f's corners where a curve comes into a vertex beside its neighbour and crosses it there within the tolerance
+   * (LMP1 #172995's #1073191: a B-spline nearly tangent to a straight edge, 0.0056 past it 0.15 from their vertex,
+   * the tolerance 0.0508; the curve itself, not its chords, so finer sampling doesn't help): while a segment of one
+   * use near the junction crosses one of the other's in (u, v), the inside sample nearest the vertex that lies within
+   * the tolerance of the other's points in 3D and outside the corner's wedge is dropped from its edge, where the chord
+   * bridging it stays within the deflection of it. By the tolerance it is on the other edge. The wedge: from the
+   * vertex towards each use's first sample past the tolerance of the other, the face's way between them; within the
+   * crossing both uses' samples lie within the tolerance of each other, and only those outside it put the boundary
+   * across (a straight edge's lie on its own direction: dropping them mends nothing). From the edge, so every use
+   * loses it; its uses placed again. True where any went.
+   */
+  bool dropCusps(int f) {
+    constexpr int kNear = 8, kRounds = 8;
+    const Face& F = faces[f];
+    if (!F.s) return false;
+    bool any = false;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      const std::vector<int> cs = bounding(l);
+      const int K = static_cast<int>(cs.size());
+      if (K < 2) continue;
+      for (int k = 0; k < K; k++) {
+        const int ca = cs[k], cb = cs[(k + 1) % K];
+        if (junctionPole(f, ca) >= 0) continue;
+        for (int round = 0; round < kRounds; round++) {
+          const CoedgeSamples &A = coedges[ca].s, &B = coedges[cb].s;
+          const int na = static_cast<int>(A.uv.size()), nb = static_cast<int>(B.uv.size());
+          if (na < 2 || nb < 2 || A.index.size() != A.uv.size() || B.index.size() != B.uv.size()) break;
+          const int ea = m.coedgeEdge(ca), eb = m.coedgeEdge(cb);
+          Vec2 sh = A.uv.back() - B.uv.front();
+          for (int d = 0; d < 2; d++)
+            if (F.period[d] > 0) (d ? sh.y : sh.x) = std::round((d ? sh.y : sh.x) / F.period[d]) * F.period[d];
+            else (d ? sh.y : sh.x) = 0;
+          // (A's points from the junction back, B's from it on.)
+          auto a = [&](int j) { return A.uv[na - 1 - j]; };
+          auto b = [&](int j) { return B.uv[j] + sh; };
+          auto crosses = [](Vec2 p, Vec2 q, Vec2 r, Vec2 s2) {
+            auto o2 = [](Vec2 x, Vec2 y, Vec2 z) { return (y.x - x.x) * (z.y - x.y) - (y.y - x.y) * (z.x - x.x); };
+            const double d1 = o2(p, q, r), d2 = o2(p, q, s2), d3 = o2(r, s2, p), d4 = o2(r, s2, q);
+            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+          };
+          bool crossing = false;
+          for (int ia = 0; ia < std::min(kNear, na - 1) && !crossing; ia++)
+            for (int jb = 0; jb < std::min(kNear, nb - 1) && !crossing; jb++)
+              if (!(ia == 0 && jb == 0)) crossing = crosses(a(ia), a(ia + 1), b(jb), b(jb + 1));
+          if (!crossing) break;
+          auto pointA = [&](int j) { return edges[ea].s.points[A.index[na - 1 - j]]; };
+          auto pointB = [&](int j) { return edges[eb].s.points[B.index[j]]; };
+          // The other use's points near the junction, as a polyline.
+          auto near = [&](Vec3 x, bool ofA) {
+            double best = kInf;
+            const int n = ofA ? std::min(kNear + 1, nb) : std::min(kNear + 1, na);
+            for (int j = 0; j + 1 < n; j++) {
+              const Vec3 p = ofA ? pointB(j) : pointA(j), q = ofA ? pointB(j + 1) : pointA(j + 1), pq = q - p;
+              const double l2 = dot(pq, pq), t = l2 > 0 ? std::clamp(dot(x - p, pq) / l2, 0.0, 1.0) : 0;
+              best = std::fmin(best, norm(x - (p + t * pq)));
+            }
+            return best;
+          };
+          // The wedge's sides: towards each use's first sample past tol of the other (else its last near one).
+          const Vec2 V = a(0);
+          auto side = [&](bool ofA) {
+            const int n = std::min(kNear, (ofA ? na : nb) - 1);
+            for (int j = 1; j <= n; j++)
+              if (near(ofA ? pointA(j) : pointB(j), ofA) > tol) return (ofA ? a(j) : b(j)) - V;
+            return (ofA ? a(n) : b(n)) - V;
+          };
+          // (The angle from x to y counterclockwise, in [0, 2 pi).)
+          auto turn = [](Vec2 x, Vec2 y) {
+            const double t = std::atan2(x.x * y.y - x.y * y.x, x.x * y.x + x.y * y.y);
+            return t < 0 ? t + 2 * M_PI : t;
+          };
+          const Vec2 dA = side(true), dB = side(false);
+          // (The face on the loop's left where its sense is true: from B's side counterclockwise to A's.)
+          const bool sense = m.faceSameSense(f);
+          const double wedge = sense ? turn(dB, dA) : turn(dA, dB);
+          auto outside = [&](Vec2 q) { return (sense ? turn(dB, q - V) : turn(dA, q - V)) > wedge * (1 + 1e-9); };
+          // Candidates nearest the vertex first, either side: an inside sample of its edge within tol of the other,
+          // outside the wedge.
+          int dropE = -1, dropI = -1;
+          for (int j = 1; j <= kNear && dropE < 0; j++)
+            for (bool ofA : {true, false}) {
+              const int n = ofA ? na : nb;
+              if (j >= n - 1 || dropE >= 0) continue;
+              const int e = ofA ? ea : eb, idx = ofA ? A.index[na - 1 - j] : B.index[j];
+              const int ns = static_cast<int>(edges[e].s.points.size());
+              if (idx <= 0 || idx >= ns - 1) continue;
+              const Vec3 x = edges[e].s.points[idx];
+              if (near(x, ofA) > tol || !outside(ofA ? a(j) : b(j))) continue;
+              const Vec3 p = edges[e].s.points[idx - 1], q = edges[e].s.points[idx + 1], pq = q - p;
+              const double l2 = dot(pq, pq), t = l2 > 0 ? std::clamp(dot(x - p, pq) / l2, 0.0, 1.0) : 0;
+              if (norm(x - (p + t * pq)) > o.deflection) continue;
+              dropE = e, dropI = idx;
+            }
+          if (dropE < 0) break;
+          Edge& E = edges[dropE];
+          E.s.t.erase(E.s.t.begin() + dropI);
+          E.s.points.erase(E.s.points.begin() + dropI);
+          for (int c : E.coedges) computeCoedge(c);
+          any = true;
+        }
+      }
+    }
+    return any;
   }
 
   /**
@@ -1492,6 +1651,50 @@ struct EdgeMesh::Impl {
         changed = true;
       }
     }
+    // A seam use whose neighbours meet it only at poles (a lune's meridian on the seam between a sphere's poles:
+    // trj4_k1_top-pe #4779's #3088) has no junction to settle its copy. Where it and a placed neighbour have given
+    // p-curves, even ones parameterized otherwise (which only seed inversion), the copy is the one those p-curves put
+    // it at against that neighbour: the source's word, not a guess. The neighbour's whole periods between its p-curve
+    // and its placement, each taken at its mean along the seam's direction; neighbours that disagree leave it
+    // unplaced. Without given p-curves it stays unplaced (singular).
+    auto pcurveMean = [&](int k, int d, double& out) {
+      const Coedge& C = coedges[cs[k]];
+      if (!C.pcurve) return false;
+      const CurveDomain D = C.pcurve->domain();
+      if (!std::isfinite(D.range.lo) || !std::isfinite(D.range.hi)) return false;
+      double sum = 0;
+      for (int i = 0; i <= 8; i++) {
+        CurvePoint q;
+        if (C.pcurve->eval(D.range.lo + (D.range.hi - D.range.lo) * i / 8.0, 0, q) != Status::ok) return false;
+        sum += d ? q.p.y : q.p.x;
+      }
+      out = sum / 9;
+      return std::isfinite(out);
+    };
+    for (int k = 0; k < K; k++) {
+      if (placed[k] || !amb[k]) continue;
+      const int d = coedges[cs[k]].ambiguous[0] ? 0 : 1;
+      const double P = F.period[d];
+      double pk;
+      if (!(P > 0) || !pcurveMean(k, d, pk)) continue;
+      double want = NAN;
+      bool agree = true;
+      for (int j : {(k + K - 1) % K, (k + 1) % K}) {
+        double pj;
+        if (j == k || !placed[j] || amb[j] || !pcurveMean(j, d, pj)) continue;
+        double at = 0;
+        const std::vector<Vec2>& uv = coedges[cs[j]].s.uv;
+        for (Vec2 q : uv) at += (d ? q.y + shift[j].y : q.x + shift[j].x);
+        at /= static_cast<double>(uv.size());
+        const double x = pk + std::round((at - pj) / P) * P;
+        if (std::isnan(want)) want = x;
+        else agree = agree && std::fabs(x - want) <= 1e-9 * P;
+      }
+      if (std::isnan(want) || !agree) continue;
+      const double seamAt = d == 0 ? first(k).x : first(k).y;
+      (d == 0 ? shift[k].x : shift[k].y) = nearest(seamAt, want, P) - seamAt;
+      placed[k] = 1;
+    }
     for (int k = 0; k < K; k++)
       if (!placed[k]) ch.status = Status::singular;
     // Each seam use's side against its direction and the face's sense: the face's other points on its left.
@@ -1555,7 +1758,15 @@ struct EdgeMesh::Impl {
       double delta = std::fmod((x - e) * sg, P);
       if (delta < 0) delta += P;
       if (delta > P - 1e-9 * P) delta = 0;
-      if (delta == 0 && wholeTurn(K - 1, 0)) delta = P;
+      if (delta == 0 && wholeTurn(K - 1, 0)) {
+        delta = P;
+        // Up a seam to the pole and back down it is a whole turn the face's way; where the coedges already turn a
+        // whole period between those two uses (down the seam, round, back up it: the loop runs against the face's
+        // sense, a face turned in the source, trj6_b1-ec #10's #18689), the jump undoes that turn instead of making it
+        // two, and the contradiction is reported as a projected seam use's is (againstSense).
+        const double travel = e - (fr ? b0.y : b0.x);
+        if (std::fabs(travel) > 0.5 * P && travel * sg > 0) sg = -sg, ch.againstSense = true;
+      }
       (fr ? b.y : b.x) = e + sg * delta;
     }
     if (p >= 0 && norm(a - b) > 1e-12) {
@@ -1607,6 +1818,25 @@ struct EdgeMesh::Impl {
       if (a == -2) continue;
       if (a < 0 || (p >= 0 && a != p)) return -1;
       p = a;
+    }
+    return p;
+  }
+
+  /**
+   * The pole a loop's coedges cs lie at where every one's edge has no curve and both its vertices are at that one
+   * pole (a degenerate edge round a cone's apex given no geometry: bug26451's drill points), else -1. Such a loop is
+   * the pole, as a vertex loop at it is; it has no samples to make a chain of.
+   */
+  int curvelessPole(int f, const std::vector<int>& cs) const {
+    int p = -1;
+    for (int c : cs) {
+      const int e = m.coedgeEdge(c);
+      if (m.edgeCurve(e) >= 0) return -1;
+      for (int v : {m.edgeStart(e), m.edgeEnd(e)}) {
+        const int a = v < 0 ? -1 : poleAt(f, m.vertexPoint(v));
+        if (a < 0 || (p >= 0 && a != p)) return -1;
+        p = a;
+      }
     }
     return p;
   }
@@ -1905,6 +2135,10 @@ struct EdgeMesh::Impl {
       }
       std::vector<int> cs = bounding(l);
       if (cs.empty()) continue;
+      if (int p = curvelessPole(f, cs); p >= 0) {
+        poleLoops++, poleSing = p;
+        continue;
+      }
       Chain ch = chain(f, cs);
       F.againstSense = F.againstSense || ch.againstSense;
       if (ch.pts.size() < 2) continue;  // (face() reports it)
@@ -2319,6 +2553,10 @@ struct EdgeMesh::Impl {
         out.interior.push_back(run);
       }
       if (cs.empty()) continue;
+      if (curvelessPole(f, cs) >= 0) {  // (its pole line comes with the cut)
+        atPole++;
+        continue;
+      }
       Chain ch = chain(f, cs);
       if (ch.pts.size() >= 2 && chainPole(f, ch) >= 0) {  // (its pole line comes with the cut)
         atPole++;
@@ -2553,6 +2791,7 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     I.computeCoedge(c);
   }
   for (int e = 0; e < I.nModel; e++) I.dropReversals(e);
+  for (int f = 0; f < m.faces(); f++) I.dropCusps(f);
   I.samplePoleCrossings();
   // Pole lines' density: the face's coedges' samples per period along it, at least kMinPolePoints.
   for (int f = 0; f < m.faces(); f++) {

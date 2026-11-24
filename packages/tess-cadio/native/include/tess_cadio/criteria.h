@@ -20,6 +20,11 @@ struct Deflections {
   double linear = 0.1;
   /** The largest angle between the surface's normals at a triangle's corners (a curve's chord and tangent), radians. */
   double angular = 0.26;
+  /**
+   * The size metric's stretch, its long size over its short, at most this; 0: as the curvature has it. A face meshed
+   * again at a capped stretch (PartOptions::retryStretch) has its criteria made with it.
+   */
+  double stretchCap = 0;
 };
 
 /**

@@ -15,6 +15,7 @@ import { edgeUsers, openEdgesCount } from './open-edges.ts';
 import { notManifoldMessage, reported, shellDefects, shellsManifold } from './manifold.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
+import { addWires, describeWires, missingWires, noneMissing } from './wires.ts';
 import type { TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from
   './tessellator.ts';
 
@@ -179,8 +180,32 @@ export class FallbackTessellator implements Tessellator {
     await Promise.all([this.primary.init(opts), this.fallback.init()]);
   }
 
+  /**
+   * The faces' result (meshed), then the model's wireframe curves and points the result lacks (missingWires) taken
+   * from the fallback's result where it has them (its result already made for the faces, else asked for them), said
+   * in a warning; what neither delivers is tessellateScene's to say.
+   */
   async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
     Promise<TessellationResult> {
+    const held: { fallback?: Promise<TessellationResult | Error> } = {};
+    const r = await this.meshed(req, onProgress, held);
+    const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
+    if (!model) return r;
+    const missing = missingWires(model, r);
+    if (noneMissing(missing)) return r;
+    const b = await (held.fallback ?? this.fallback.tessellate(req, onProgress).catch((e: unknown) =>
+      e instanceof Error ? e : new Error(String(e))));
+    if (b instanceof Error) return r;
+    const { result, added } = addWires(r, b, missing);
+    if (noneMissing(added)) return r;
+    return { ...result, diagnostics: [{ severity: 'warning', message: `${describeWires(added)} meshed by the fallback `
+      + `backend (${this.fallback.info.name}), which ${this.primary.info.name}'s result left out` },
+    ...result.diagnostics] };
+  }
+
+  /** The part's faces: the primary's result, or where it isn't sound the fallback's (`held.fallback`) or both's. */
+  private async meshed(req: TessellationRequest, onProgress: ((p: TessellationProgress) => void) | undefined,
+    held: { fallback?: Promise<TessellationResult | Error> }): Promise<TessellationResult> {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
     const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
@@ -199,7 +224,7 @@ export class FallbackTessellator implements Tessellator {
     const va = judgeResult(a, model, req.linearDeflection);
     if (va.ok) return this.finish(a as TessellationResult, this.primary, req, []);
     const p = this.primary.info.name, f = this.fallback.info.name;
-    const b = await run(this.fallback);
+    const b = await (held.fallback = run(this.fallback));
     const vb0 = judgeResult(b, model, req.linearDeflection);
     const why = va.problems.join('; ');
     const D = req.linearDeflection;

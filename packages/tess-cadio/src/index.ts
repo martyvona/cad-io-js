@@ -10,7 +10,7 @@ import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 9;
+const API_VERSION = 10;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -124,6 +124,13 @@ interface CadioExports {
   _tc_edge_angles: Fn;
   _tc_num_edge_points: Fn;
   _tc_edge_positions: Fn;
+  _tc_num_curves: Fn;
+  _tc_curves: Fn;
+  _tc_num_curve_points: Fn;
+  _tc_curve_positions: Fn;
+  _tc_num_points: Fn;
+  _tc_points: Fn;
+  _tc_point_ids: Fn;
   _tc_diag: Fn;
   _tc_free: Fn;
 }
@@ -247,7 +254,7 @@ export class CadioTessellator implements Tessellator {
   private minAngle = -1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
-    supportsEdges: true, supportsCurves: false, readsAnalysis: true,
+    supportsEdges: true, supportsCurves: true, readsAnalysis: true,
   };
   private m: CadioExports | undefined;
 
@@ -372,6 +379,20 @@ export class CadioTessellator implements Tessellator {
         result.edges.push(e);
       }
     }
+    // The model's loose items: curve items and wire bodies' edges as polylines, point items as points.
+    const nc = m._tc_num_curves();
+    if (nc) {
+      const cd = u32(m._tc_curves(), nc * 3);
+      result.curvePositions = f32(m._tc_curve_positions(), m._tc_num_curve_points() * 3);
+      result.curves = [];
+      for (let i = 0; i < cd.length; i += 3) result.curves.push({ entityId: id(cd[i]!), start: cd[i + 1]!,
+        count: cd[i + 2]! });
+    }
+    const np = m._tc_num_points();
+    if (np) {
+      result.points = f32(m._tc_points(), np * 3);
+      result.pointIds = Array.from(u32(m._tc_point_ids(), np), id);
+    }
     m._tc_free();
     const list = (k: string) => (Array.isArray(diag[k]) ? diag[k] as number[] : []);
     const failedIds = list('failed');
@@ -416,6 +437,15 @@ export class CadioTessellator implements Tessellator {
       diagnostics.push({ severity: 'info', message: `${thin.length / 11} faces with triangles under the minimum angle: `
         + `${sum(1)} triangles (by degrees: ${bins}), ${+thinArea.reduce((a, x) => a + x, 0).toPrecision(4)} mm^2; `
         + `every corner on the boundary ${sum(8)}, an edge frozen ${sum(9)}, within the floor ${sum(10)}` });
+    }
+    const leftOut = list('curvesLeftOut'), unconverged = list('curvesUnconverged');
+    if (leftOut.length) {
+      diagnostics.push({ severity: 'warning', message: `${leftOut.length} wireframe curves left out, or a `
+        + `composite's segments (unbounded, or not made): ${leftOut.map((i) => (i ? `#${i}` : 'no id')).join(', ')}` });
+    }
+    if (unconverged.length) {
+      diagnostics.push({ severity: 'warning', message: `${unconverged.length} wireframe curves sampled past the `
+        + `deflection where refinement ran out: ${unconverged.map((i) => (i ? `#${i}` : 'no id')).join(', ')}` });
     }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     if (this.countRounds && typeof diag.rounds === 'number') {

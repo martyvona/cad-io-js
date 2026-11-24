@@ -18,6 +18,7 @@ import { ORACLE_DISAGREE } from './area-oracle.ts';
 import { fillResult } from './fill.ts';
 import { joinResult } from './join.ts';
 import { orientResult, shellsOriented } from './orient.ts';
+import { describeWires, missingWires, noneMissing } from './wires.ts';
 
 export interface TessellateOptions {
   /** The meshing profile (profiles.ts), default DEFAULT_MESH_PROFILE; the deflections below replace its values. */
@@ -242,6 +243,11 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       if ((join || fill) && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
       by = r.backend ?? backend;
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
+      // The model's wireframe curves and points the result left out: no mesh of them, so the viewer and every export
+      // lack them (a backend that meshes faces alone; FallbackTessellator asks its fallback for them first).
+      const lacking = missingWires(brep.model, r);
+      if (!noneMissing(lacking)) diagnostics.push({ severity: 'warning', message: `${describeWires(lacking)} not `
+        + `meshed by ${tess.info.name} (left out of its result)`, ...(source ? { source } : {}) });
       // (Kept at once, so `onPart` sees them.)
       if (measure && (r.measures?.length || r.oracle?.length)) {
         const uses = faceUses(brep.model);

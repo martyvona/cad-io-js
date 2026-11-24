@@ -980,9 +980,12 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
   // on top of its seams. Projected and not. Radius 1 at z = 0, the apex (0, 0, -1): a point's distance from the
-  // surface |hypot(x, y) - (1 + z)| / sqrt 2. Area pi sqrt 2.
+  // surface |hypot(x, y) - (1 + z)| / sqrt 2. Area pi sqrt 2. coneApexLoop: the apex a loop of its own, an edge with
+  // no curve there, the pole (Turned: on a face whose sense is false, where the face's side wouldn't find it).
+  // seamConeTurned: seamConeBare's loop on a face whose sense is false, meshed as that sense has it, the loop against
+  // it said.
   const double area = M_PI * M_SQRT2;
-  for (const char* name : {"cone", "seamCone", "seamConeBare"})
+  for (const char* name : {"cone", "seamCone", "seamConeBare", "coneApexLoop", "coneApexLoopTurned", "seamConeTurned"})
     for (bool project : {true, false})
       for (double d : {0.05, 0.01}) {
         cadgeom::Model m = load(name);
@@ -994,6 +997,7 @@ TEST_CASE("cones with a seam from the apex used both ways: within the deflection
         if (fm.status != cadgeom::Status::ok)
           std::printf("  %s: status %d %s\n", name, int(fm.status), fm.cause.c_str());
         REQUIRE(fm.status == cadgeom::Status::ok);
+        CHECK_EQ(fm.againstSense, std::strcmp(name, "seamConeTurned") == 0);
         const Vec3 apex{0, 0, -1};
         Stats st = stats(fm, [](Vec3 p) { return std::fabs(std::hypot(p.x, p.y) - (1 + p.z)) * M_SQRT1_2; }, &apex,
           1e-12);
@@ -3369,6 +3373,110 @@ TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected trian
   CHECK(pd.face(0).status == cadgeom::Status::ok);
   const double byRule = std::max(200000.0, 64 * pd.face(0).capExpected);
   CHECK_EQ(pd.face(0).cap, byRule);
+}
+
+TEST_CASE("freezeCapped (the default): a face capped at two meshings in a row, refusing no fewer, frozen: no more "
+  "meshings or split requests, kept at its cap (keepDefects) or failed as capped") {
+  // (bumpPatch at 0.001 capped at 1 x its expected triangles: each split round meshes it again at the cap. The retry
+  // off: its rounds the freeze's alone.)
+  cadgeom::Model bump = load("bumpPatch");
+  REQUIRE(bump.ok());
+  PartOptions c = options(0.001, 0.26);
+  c.capFloor = 1000, c.capMultiple = 1, c.retryStretch = 0;
+  c.freezeCapped = false;
+  PartMesher off(bump, c);
+  CHECK(!off.face(0).frozen);
+  CHECK(off.face(0).capped);
+  c.freezeCapped = true;
+  PartMesher on(bump, c);
+  const FaceMesh& fm = on.face(0);
+  // (Off, it's meshed in every round to the rounds' limit; on, frozen at its second meshing, the first round's.)
+  if (!fm.frozen || on.rounds() != 1)
+    std::printf("  rounds off %d on %d, frozen %d, status %d\n", off.rounds(), on.rounds(), int(fm.frozen),
+      int(fm.status));
+  CHECK(off.rounds() > 2);
+  CHECK(fm.frozen);
+  CHECK(fm.status == cadgeom::Status::ok);
+  CHECK(fm.capped);
+  CHECK(fm.defectCapped);
+  CHECK_EQ(on.rounds(), 1);
+  c.keepDefects = false;
+  PartMesher strict(bump, c);
+  CHECK(strict.face(0).frozen);
+  CHECK(strict.face(0).status == cadgeom::Status::noConvergence);
+  CHECK(strict.face(0).cause.rfind("refinement stopped at its point cap, ", 0) == 0);
+}
+
+TEST_CASE("freezeCapped: a face frozen at its cap while its neighbour still splits their shared edge is meshed in no "
+  "later round, then once more after the rounds, on the edge as its neighbour left it") {
+  // bumpPair at 0.003: the gentle face (0), its cap the floor, 1000, capped by the samples the sharp face (1), its cap
+  // 16 x its expected count, puts on their shared edge; frozen at its second meshing, the first round's, while the
+  // sharp face's splits run on. Every meshing reports its face and round (PartProgress).
+  cadgeom::Model m = load("bumpPair");
+  REQUIRE(m.ok());
+  PartOptions c = options(0.003, 0.26);
+  c.capFloor = 1000, c.capMultiple = 16, c.retryStretch = 0;
+  std::map<int, std::set<int>> rounds;
+  c.progress = [&](const PartProgress& p) {
+    if (p.phase == PartProgress::meshing) rounds[p.row].insert(p.round);
+  };
+  PartMesher pm(m, c);
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  REQUIRE(pm.face(1).status == cadgeom::Status::ok);
+  CHECK(pm.face(0).frozen);
+  CHECK(pm.face(0).capped);
+  CHECK(!pm.face(1).capped);
+  CHECK(!pm.face(1).frozen);
+  // (The sharp face meshed in rounds past the one the gentle face froze in; the gentle one in rounds 0 and 1 and
+  // once after the rounds, reported at the last round's number.)
+  CHECK(rounds[1].size() > 3);
+  const std::set<int> expected{0, 1, pm.rounds()};
+  CHECK(rounds[0] == expected);
+  CHECK(pm.rounds() > 2);
+  CHECK_EQ(sharedEdges(m, pm, "bumpPair"), 0);
+}
+
+TEST_CASE("retryStretch: a sliver, its boundary farther from its surface than it is wide, not retried for its patch "
+  "ratio, which then says nothing of it") {
+  // lanternSliver: lanternBand's circles 0.3 outside the tube, the band 0.16 across; at d 0.1 its ratio is past 1.1.
+  cadgeom::Model m = load("lanternSliver");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.patchRatio > 1.1);
+  CHECK(!fm.retried);
+}
+
+TEST_CASE("retryStretch (the default): a lantern, its mesh far over its patch, meshed again at the capped stretch: its "
+  "area the exact's; off, the lantern kept") {
+  // lanternBand at d 0.1: its circles' chords sag about as far as the tube's radius, the band meshed across the tube
+  // 1.14 x its area, its patch ratio past 1.1. Retried: within 1% of 2 pi r (1.6 R + 2 r sin 0.8), its ratio under
+  // 1.1, its first point cap kept.
+  cadgeom::Model m = load("lanternBand");
+  REQUIRE(m.ok());
+  const double exact = 2 * M_PI * 0.1 * (1.6 * 29 + 0.2 * std::sin(0.8));
+  auto area = [](const FaceMesh& fm) {
+    double a = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      a += 0.5 * norm(cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return a;
+  };
+  PartOptions o = options(0.1, 0.26);
+  o.retryStretch = 0;
+  PartMesher plain(m, o);
+  REQUIRE(plain.face(0).status == cadgeom::Status::ok);
+  CHECK(!plain.face(0).retried);
+  CHECK(area(plain.face(0)) > 1.1 * exact);
+  PartMesher retried(m, options(0.1, 0.26));
+  const FaceMesh& fm = retried.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  if (!(std::fabs(area(fm) / exact - 1) < 0.01)) std::printf("  lanternBand: area %g of %g\n", area(fm), exact);
+  CHECK(fm.retried);
+  CHECK(std::fabs(area(fm) / exact - 1) < 0.01);
+  CHECK(fm.patchRatio <= 1.1);
+  CHECK_EQ(fm.cap, plain.face(0).cap);
 }
 
 TEST_CASE("a collapsed row of poles a fitting's noise apart is a pole to the size metric's grid: the face expects as "

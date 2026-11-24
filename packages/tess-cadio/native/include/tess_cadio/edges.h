@@ -93,6 +93,19 @@ struct EdgeOptions {
 };
 
 /**
+ * A loose curve's polylines (a model's curve item: a wireframe's or geometric set's curve, no face's edge): its points
+ * over its whole domain, every span within `o`'s deflection, angle and spacing by the same bounds as an edge's, none
+ * refined below the refinement floor at part tolerance `tol` (criteria.h); a periodic curve's (its ends one point) in
+ * at least 3 spans. A composite's segments each a polyline of its own, in order, each run in the composite's sense (as
+ * OCCT's STEP translator makes a composite's edges: a discontinuous joint drawn as no chord). `status` the worst of
+ * them: a curve or segment left out where it can't be made (makeCurve's status) or is unbounded (Status::unsupported:
+ * a line or parabola, not trimmed), the others still given; Status::noConvergence where a span ran out of refinement,
+ * its points given.
+ */
+std::vector<std::vector<Vec3>> sampleLooseCurve(const cadgeom::Model& m, int curve, const EdgeOptions& o, double tol,
+  Status& status);
+
+/**
  * Each model edge's samples, in the edge's start-to-end order: parameters on its curve and 3D points. The first and
  * last points are the edge's vertices' points (exactly, so edges meeting at a vertex share one point), the others
  * the curve's at their parameters. A closed edge (start == end) runs its whole range, its first and last the one
