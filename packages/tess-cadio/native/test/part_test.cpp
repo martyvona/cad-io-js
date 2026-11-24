@@ -3144,6 +3144,34 @@ TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected trian
   CHECK_EQ(pd.face(0).cap, byRule);
 }
 
+TEST_CASE("freezeCapped: a face capped at two meshings in a row, refusing no fewer, frozen: no more meshings or "
+  "split requests, failed as capped; off by default and without failCapped") {
+  // (bumpPatch at 0.001 capped at 1 x its expected triangles: each split round meshes it again at the cap.)
+  cadgeom::Model bump = load("bumpPatch");
+  REQUIRE(bump.ok());
+  PartOptions c = options(0.001, 0.26);
+  c.capFloor = 1000, c.capMultiple = 1;
+  PartMesher off(bump, c);
+  CHECK(!off.face(0).frozen);
+  CHECK(off.face(0).capped);
+  c.freezeCapped = true;
+  PartMesher on(bump, c);
+  const FaceMesh& fm = on.face(0);
+  // (Off, it's meshed in every round to the rounds' limit; on, frozen at its second meshing, the first round's.)
+  if (!fm.frozen || on.rounds() != 1)
+    std::printf("  rounds off %d on %d, frozen %d, status %d\n", off.rounds(), on.rounds(), int(fm.frozen),
+      int(fm.status));
+  CHECK(off.rounds() > 2);
+  CHECK(fm.frozen);
+  CHECK(fm.status == cadgeom::Status::noConvergence);
+  CHECK(fm.capped);
+  CHECK_EQ(on.rounds(), 1);
+  c.failCapped = false;
+  PartMesher kept(bump, c);
+  CHECK(!kept.face(0).frozen);
+  CHECK_EQ(kept.rounds(), off.rounds());
+}
+
 TEST_CASE("a collapsed row of poles a fitting's noise apart is a pole to the size metric's grid: the face expects as "
   "many triangles as with the row exact") {
   // (bsplineBallNoisy: the unit ball with its pole rows' poles up to 3e-6 off, within its tolerance, so still poles,

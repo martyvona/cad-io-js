@@ -1291,6 +1291,32 @@ struct PartMesher::Impl {
     }
   }
 
+  /**
+   * PartOptions::freezeCapped, after each meshing of face f: capped now and at its meshing before, refusing no fewer
+   * triangles (FaceMesh::rejected) than then, it's frozen and its requests dropped. (Each of its meshings in the
+   * rounds is a fresh full meshing at the cap; one that refines no less than the last won't end below it.)
+   */
+  std::vector<char> cappedBefore, frozen;
+  std::vector<size_t> refusedBefore;
+  void capCheck(int f) {
+    if (!o.freezeCapped || !o.failCapped) return;
+    if (frozen.empty()) cappedBefore.assign(faces.size(), 0), frozen.assign(faces.size(), 0),
+      refusedBefore.assign(faces.size(), 0);
+    FaceMesh& fm = faces[f];
+    if (!fm.capped) {
+      cappedBefore[f] = 0;
+      return;
+    }
+    const size_t r = fm.rejected.size();
+    if (cappedBefore[f] && r >= refusedBefore[f]) {
+      frozen[f] = 1, fm.frozen = true;
+      wanted[f].clear();
+      if (static_cast<size_t>(f) < creaseSplits.size()) creaseSplits[f].clear();
+    }
+    cappedBefore[f] = 1, refusedBefore[f] = r;
+  }
+  bool isFrozen(int f) const { return !frozen.empty() && frozen[f]; }
+
   /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
   void failCapped() {
     if (!o.failCapped) return;
@@ -1888,7 +1914,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   }
   if (I.o.creases) I.findFaceCreases();
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
-  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
+  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f), I.capCheck(f);
   for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
     // Every face's wanted splits, each span once (the first face's fraction).
     std::vector<SplitRequest> requests;
@@ -1926,16 +1952,18 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       bool again = creased.count(f) > 0;
       for (const Impl::RingShrink& R : shrunk) again = again || R.faces.count(f);
       for (int e : touched) again = again || I.edgesOf[f].count(e);
-      if (again) redo.push_back(f);
+      if (again && !I.isFrozen(f)) redo.push_back(f);
     }
     I.at = {PartProgress::meshing, 0, I.rounds + 1, 0, static_cast<int>(redo.size())};
     for (int f : redo) {
       I.meshFace(f);
+      I.capCheck(f);
       I.at.facesDone++;
     }
     for (const Impl::RingShrink& R : shrunk) I.ringFacesRemeshed += static_cast<int>(R.faces.size());
     const std::set<int> undone = I.undoShrinks(shrunk);
-    for (int f : undone) I.meshFace(f);
+    for (int f : undone)
+      if (!I.isFrozen(f)) I.meshFace(f), I.capCheck(f);
     I.ringFacesRemeshed += static_cast<int>(undone.size());
   }
   I.memos.clear();

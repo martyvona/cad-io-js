@@ -100,6 +100,12 @@ struct PartOptions {
    */
   bool failCapped = true;
   /**
+   * A face at its point cap at two meshings in a row, the second refusing no fewer triangles than the first, is
+   * frozen (FaceMesh::frozen): not meshed again in the split rounds, its split requests dropped, so failCapped fails it
+   * as capped. Only with failCapped: a frozen face's mesh no longer matches the edges its neighbours split later.
+   */
+  bool freezeCapped = false;
+  /**
    * Creases inside a face (cad_geom/creases.h: iso-lines where its normal jumps past the angle) met as the mesher's
    * constraints, their normals by side.
    */
@@ -249,6 +255,8 @@ struct FaceMesh {
   double cap = 0, capExpected = 0;
   /** Whether refinement stopped at the point cap (maxPointsPerFace): the face failed, or kept (failCapped false). */
   bool capped = false;
+  /** Whether PartOptions::freezeCapped froze it: capped twice in a row, its refusals not falling. */
+  bool frozen = false;
   /** Its boundary's FaceBoundary::againstSense: a loop against the face's sense, meshed as the sense has it. */
   bool againstSense = false;
   /** Its boundary's FaceBoundary::holesOnly: its edge loops all holes, its surface's natural extent their outer. */
