@@ -3343,6 +3343,47 @@ TEST_CASE("freezeCapped (the default): a face capped at two meshings in a row, r
   CHECK(strict.face(0).cause.rfind("refinement stopped at its point cap, ", 0) == 0);
 }
 
+TEST_CASE("freezeCapped: a face frozen at its cap while its neighbour still splits their shared edge is meshed in no "
+  "later round, then once more after the rounds, on the edge as its neighbour left it") {
+  // bumpPair at 0.003: the gentle face (0), its cap the floor, 1000, capped by the samples the sharp face (1), its cap
+  // 16 x its expected count, puts on their shared edge; frozen at its second meshing, the first round's, while the
+  // sharp face's splits run on. Every meshing reports its face and round (PartProgress).
+  cadgeom::Model m = load("bumpPair");
+  REQUIRE(m.ok());
+  PartOptions c = options(0.003, 0.26);
+  c.capFloor = 1000, c.capMultiple = 16, c.retryStretch = 0;
+  std::map<int, std::set<int>> rounds;
+  c.progress = [&](const PartProgress& p) {
+    if (p.phase == PartProgress::meshing) rounds[p.row].insert(p.round);
+  };
+  PartMesher pm(m, c);
+  REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+  REQUIRE(pm.face(1).status == cadgeom::Status::ok);
+  CHECK(pm.face(0).frozen);
+  CHECK(pm.face(0).capped);
+  CHECK(!pm.face(1).capped);
+  CHECK(!pm.face(1).frozen);
+  // (The sharp face meshed in rounds past the one the gentle face froze in; the gentle one in rounds 0 and 1 and
+  // once after the rounds, reported at the last round's number.)
+  CHECK(rounds[1].size() > 3);
+  const std::set<int> expected{0, 1, pm.rounds()};
+  CHECK(rounds[0] == expected);
+  CHECK(pm.rounds() > 2);
+  CHECK_EQ(sharedEdges(m, pm, "bumpPair"), 0);
+}
+
+TEST_CASE("retryStretch: a sliver, its boundary farther from its surface than it is wide, not retried for its patch "
+  "ratio, which then says nothing of it") {
+  // lanternSliver: lanternBand's circles 0.3 outside the tube, the band 0.16 across; at d 0.1 its ratio is past 1.1.
+  cadgeom::Model m = load("lanternSliver");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.patchRatio > 1.1);
+  CHECK(!fm.retried);
+}
+
 TEST_CASE("retryStretch (the default): a lantern, its mesh far over its patch, meshed again at the capped stretch: its "
   "area the exact's; off, the lantern kept") {
   // lanternBand at d 0.1: its circles' chords sag about as far as the tube's radius, the band meshed across the tube

@@ -508,6 +508,48 @@ export function bumpPatch(half = false): BrepBuilder {
 }
 
 /**
+ * Two bicubic B-spline patches side by side, sharing the edge x = 10: over [0, 10]^2 a gentle bump (its two middle
+ * poles raised by `rise`), and over [10, 20] x [0, 10] a sharp one (the poles of row i = 1, next to the shared edge,
+ * raised by 3), curved up to that edge but not on it (a clamped cubic's second pole has no weight at its end), so
+ * refinement splits the shared edge for the sharp face far past what the gentle one asks. Both on z = 0 along their
+ * edges, faces up.
+ */
+export function bumpPair(rise = 0.1): BrepBuilder {
+  const b = new BrepBuilder();
+  const patch = (x0: number, raised: (i: number, j: number) => number) => b.addSurface({ kind: 'bspline',
+    uDegree: 3, vDegree: 3, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1, 2, 3, 4], uMultiplicities: [4, 1, 1, 1, 4],
+    vMultiplicities: [4, 1, 1, 1, 4], poles: [0, 1, 2, 3, 4, 5, 6].map((i) => [0, 1, 2, 3, 4, 5, 6].map((j) =>
+      [x0 + i * 10 / 6, j * 10 / 6, raised(i, j)])), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const sa = patch(0, (i, j) => (i === 3 && (j === 3 || j === 4) ? rise : 0));
+  const sb = patch(10, (i, j) => (i === 1 && j >= 2 && j <= 4 ? 3 : 0));
+  const p = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0], [20, 0, 0], [20, 10, 0]];
+  const v = p.map((point) => b.addVertex({ point }));
+  const edge = (i: number, j: number) => {
+    const d = p[j]!.map((x, k) => (x - p[i]![k]!) / 10);
+    const line = b.addCurve({ kind: 'line', point: p[i]!, direction: d, magnitude: 1 });
+    return b.addEdge({ curve: line, start: v[i]!, end: v[j]!, sameSense: true, range: [0, 10] });
+  };
+  const pc = (a: number[], c: number[]) => b.addCurve({ kind: 'line', point: a,
+    direction: [(c[0]! - a[0]!) / 4, (c[1]! - a[1]!) / 4], magnitude: 0.4 });
+  const e01 = edge(0, 1), e12 = edge(1, 2), e23 = edge(2, 3), e30 = edge(3, 0);
+  const e14 = edge(1, 4), e45 = edge(4, 5), e52 = edge(5, 2);
+  const fa = b.addFace({ surface: sa, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e01, orientation: 'forward', pcurve: pc([0, 0], [4, 0]) },
+    { edge: e12, orientation: 'forward', pcurve: pc([4, 0], [4, 4]) },
+    { edge: e23, orientation: 'forward', pcurve: pc([4, 4], [0, 4]) },
+    { edge: e30, orientation: 'forward', pcurve: pc([0, 4], [0, 0]) }] }] });
+  const fb = b.addFace({ surface: sb, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e14, orientation: 'forward', pcurve: pc([0, 0], [4, 0]) },
+    { edge: e45, orientation: 'forward', pcurve: pc([4, 0], [4, 4]) },
+    { edge: e52, orientation: 'forward', pcurve: pc([4, 4], [0, 4]) },
+    { edge: e12, orientation: 'reversed', pcurve: pc([0, 4], [0, 0]) }] }] });
+  const shell = b.addShell({ kind: 'open', faces: [{ face: fa, sense: true }, { face: fb, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
+/**
  * A sine sheet: a bicubic B-spline on uniform clamped knots over [0, l]^2, its poles a grid a quarter of the
  * wavelength w apart at height a sin(2 pi x / w) sin(2 pi y / w) (a smoothed egg crate, its boundary at z = 0 where l
  * is a multiple of w), bounded by its four sides as lines with p-curves. Delaunay refinement over so regular a grid
@@ -1768,15 +1810,18 @@ export function torusOuterHalf(): BrepBuilder {
  * A lantern: a band round a thin torus (major radius 29, minor 0.1) from v = -0.8 to 0.8, 0.16 mm across, bounded by
  * its two circles (radius 29 + 0.1 cos 0.8, at z = +-0.1 sin 0.8). At d = 0.1 the circles are sampled about 4.7 mm
  * apart, their chords sagging about as far as the tube's radius, and triangles laid along the band stand across the
- * tube (LMP1 #172690's #1056598). Its area 2 pi 0.1 (1.6 x 29 + 0.2 sin 0.8).
+ * tube (LMP1 #172690's #1056598). Its area 2 pi 0.1 (1.6 x 29 + 0.2 sin 0.8). With `off`, both circles that far
+ * outside the tube (radius rho + off), within their edges' and vertices' tolerance (2 off): a sliver, its boundary
+ * farther from its surface than the band is wide.
  */
-export function lanternBand(): BrepBuilder {
+export function lanternBand(off = 0): BrepBuilder {
   const b = new BrepBuilder();
-  const R = 29, r = 0.1, v = 0.8, rho = R + r * Math.cos(v), z = r * Math.sin(v);
+  const R = 29, r = 0.1, v = 0.8, rho = R + r * Math.cos(v) + off, z = r * Math.sin(v);
+  const tolerance = off > 0 ? 2 * off : undefined;
   const circle = (h: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, h] }, radius: rho });
-  const v0 = b.addVertex({ point: [rho, 0, -z] }), v1 = b.addVertex({ point: [rho, 0, z] });
-  const eb = b.addEdge({ curve: circle(-z), start: v0, end: v0, sameSense: true });
-  const et = b.addEdge({ curve: circle(z), start: v1, end: v1, sameSense: true });
+  const v0 = b.addVertex({ point: [rho, 0, -z], tolerance }), v1 = b.addVertex({ point: [rho, 0, z], tolerance });
+  const eb = b.addEdge({ curve: circle(-z), start: v0, end: v0, sameSense: true, tolerance });
+  const et = b.addEdge({ curve: circle(z), start: v1, end: v1, sameSense: true, tolerance });
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: R, minorRadius: r }),
     sameSense: true, loops: [
       { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: eb, orientation: 'forward' }] },
@@ -2491,8 +2536,10 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   bsplineBallNoisyV: () => bsplineBall(3e-6, true), wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true),
+  bumpPair: () => bumpPair(),
   sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
-  tubeGapBySize, tubeGapOpen, torusOuterHalf, lanternBand, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
+  tubeGapBySize, tubeGapOpen, torusOuterHalf, lanternBand: () => lanternBand(),
+  lanternSliver: () => lanternBand(0.3), meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
