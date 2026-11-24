@@ -640,11 +640,15 @@ static FreeTotals freeArea(Oracle::Impl& I, int f, double relTol) {
     }, relTol);
 }
 
-FaceMeasure Oracle::Impl::freeForm(int f) {
+FaceMeasure Oracle::Impl::freeForm(int f, const Integrand* g, std::vector<Estimate>* gOut) {
   FaceMeasure m;
   m.offSurface = NAN;
   m.method = Method::freeForm;
-  const FreeTotals T = freeArea(*this, f, options.relTol);
+  // With g: its pass's area (component k), which differs from the area's own pass in the last bits at most (its panels
+  // settled over g's components too).
+  const FreeTotals T = g ? freeWith(*this, f, *g) : freeArea(*this, f, options.relTol);
+  const int ai = g ? g->components : 0;
+  if (g) *gOut = freeEstimates(T, g->components);
   m.flags = T.flags;
   m.offSurface = T.offSurface;
   if (*T.why && T.status != Status::ok && T.status != Status::noConvergence && T.status != Status::singular) {
@@ -653,9 +657,9 @@ FaceMeasure Oracle::Impl::freeForm(int f) {
     return m;
   }
   m.why = T.why;
-  double a = T.value[0];
+  double a = T.value[ai];
   if (a < 0 && !(m.flags & flagSphereSide)) m.flags |= flagOrientation, a = -a;
-  m.area = {a, T.error[0], T.status};
+  m.area = {a, T.error[ai], T.status};
   return m;
 }
 

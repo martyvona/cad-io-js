@@ -297,8 +297,14 @@ bool Oracle::ok() const { return impl_->model.ok() && impl_->h >= 0; }
 
 Estimate Oracle::edgeLength(int edge) { return impl_->edgeLength(edge); }
 
-FaceMeasure Oracle::face(int f) {
+FaceMeasure Oracle::face(int f) { return face(f, nullptr, nullptr); }
+
+FaceMeasure Oracle::face(int f, const Integrand& g, std::vector<Estimate>& gOut) { return face(f, &g, &gOut); }
+
+FaceMeasure Oracle::face(int f, const Integrand* g, std::vector<Estimate>* gOut) {
   Impl& I = *impl_;
+  // (g given: faceIntegral's results into *gOut from the free-form pass; elsewhere none, *gOut left empty.)
+  if (g) gOut->clear();
   FaceMeasure m;
   if (!ok() || f < 0 || f >= I.model.faces()) {
     m.area = m.perimeter = {NAN, INFINITY, Status::invalidModel};
@@ -321,7 +327,7 @@ FaceMeasure Oracle::face(int f) {
     case CBR_SURFACE_BSPLINE:
     case CBR_SURFACE_OFFSET:
     case CBR_SURFACE_RECTANGULAR_TRIMMED:
-      m = I.freeForm(f), m.boundary = m.area.status == Status::ok ? I.boundary(f) : NAN;
+      m = I.freeForm(f, g, gOut), m.boundary = m.area.status == Status::ok ? I.boundary(f) : NAN;
       break;
     default:
       m.area = {NAN, INFINITY, Status::unsupported};
