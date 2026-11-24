@@ -84,7 +84,7 @@ export function threemf(scene: Scene, view: ExportView, opts: ThreeMfOptions = {
 
 /**
  * The same, pausing (`pause`, awaited) now and then between objects, so the thread can do other things meanwhile (the
- * viewer's import worker sends its heartbeat then); the same bytes.
+ * viewer's model worker sends its heartbeat then); the same bytes.
  */
 export async function threemfAsync(scene: Scene, view: ExportView, pause: () => Promise<void>,
   opts: ThreeMfOptions = {}): Promise<ThreeMfResult> {

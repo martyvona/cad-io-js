@@ -6,7 +6,7 @@
 // Vertices are one where their positions round to the same grid point; an edge is kept where its two triangles' normals
 // differ by more than the threshold angle, or where it has only one triangle. Each vertex is rounded once and edges are
 // keyed by numbers (three.js rounds every triangle's corners into strings): the same edges, in the same order, several
-// times faster. Run in the import worker (model-load.ts), part by part.
+// times faster. Run in the model worker (model-load.ts), part by part.
 
 /** Positions closer than this, in world millimetres, are one vertex (1 um: 6 decimal places of a file in metres). */
 export const EDGE_GRID_MM = 0.001;

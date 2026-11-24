@@ -132,6 +132,15 @@
     #status, #details { transition: opacity 0.6s; }
     #status.faded, #details.faded { opacity: 0; }
     #status.error { color: var(--error-fg); }
+    /* While a load or Mesh again is under way (ui.ts): a spinner before the text, so a long wait doesn't look
+       stalled. */
+    #status.busy::before {
+      content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: -1px;
+      border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+      animation: status-spin 0.8s linear infinite;
+    }
+    @keyframes status-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { #status.busy::before { animation-duration: 3s; } }
     .tree-scroller:focus { outline: none; }
     .tree-row { cursor: default; user-select: none; -webkit-user-select: none; }
     .tree-row.selected { background: var(--row-selected); }
@@ -163,6 +172,13 @@
     }
     .cv-menu button:hover, .cv-menu button:focus { background: var(--button-hover); outline: none; }
     .cv-menu button.divider { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
+    /* The view's menu's header: what was clicked, as its tree row shows it (tree-panel.ts's nodeLabel). */
+    .cv-menu-header {
+      display: flex; align-items: center; gap: 4px; max-width: 320px; padding: 2px 14px 6px; margin-bottom: 4px;
+      border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap;
+    }
+    .cv-menu-header .tree-name { overflow: hidden; text-overflow: ellipsis; }
+    .cv-menu-header.failed { color: var(--failed-fg); }
     /* Modal dialogs (dialog.ts). */
     .cv-dialog {
       max-width: min(560px, calc(100% - 32px)); padding: 16px 20px; color: var(--panel-fg); background: var(--panel-bg);
@@ -189,6 +205,11 @@
     .cv-dialog p { margin: 0 0 8px; }
     .cv-dialog .table { max-height: 50vh; overflow: auto; margin: 0 0 10px; }
     .cv-dialog table { border-collapse: collapse; }
+    /* The problems dialog's two lists (problems.ts), each scrolling on its own. */
+    .cv-dialog h3 { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+    .cv-dialog .table.errors, .cv-dialog .table.warnings { max-height: 28vh; }
+    .cv-dialog .table p.none { margin: 0; opacity: 0.7; }
+    .cv-dialog .table.errors td:first-child, .cv-dialog .table.warnings td:first-child { white-space: nowrap; }
     .cv-dialog td { padding: 1px 12px 1px 0; vertical-align: top; }
     .cv-dialog td + td {
       font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all;

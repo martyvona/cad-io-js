@@ -8,7 +8,7 @@ import { NodeModel } from '../src/model.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
 import { plate, scene, wire } from './fixtures.ts';
 
-/** The fixture with its meshes as the parts' levels, as the import worker's scene has them once meshed. */
+/** The fixture with its meshes as the parts' levels, as the model worker's scene has them once meshed. */
 function meshed(): Scene {
   const s = scene();
   s.parts[0]!.lods = [{ mesh: plate(), from: 'tessellated', linearDeflection: 0.1, angularDeflection: 0.5 }];
@@ -57,7 +57,7 @@ test("exportModel: the viewer's hiding applied when asked, else the scene's", as
   assert.ok(await size({ shown: shownEdits(s, model, graph) }) < await size({}));
 });
 
-test('exportModel: paused as it goes (the import worker\'s heartbeat), the same files', async () => {
+test('exportModel: paused as it goes (the model worker\'s heartbeat), the same files', async () => {
   for (const format of ['glb', 'gltf', 'threejs', '3mf', 'step'] as const) {
     const plain = await exportModel(meshed(), at, ask({ format, compression: 'none' }));
     const paused = await exportModel(meshed(), at, ask({ format, compression: 'none' }), {}, async () => {});

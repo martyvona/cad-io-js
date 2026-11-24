@@ -1,5 +1,5 @@
 // The About dialog (File's About...): who made the viewer, its license, where its source is; and the model open, its
-// file, objects and triangles.
+// file, objects and triangles, with links to its metadata and its errors and warnings.
 
 /// <reference types="vite/client" />
 
@@ -12,14 +12,15 @@ import { VERSION } from './version.ts';
 export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
 
 /**
- * Shows it, with the model open (rows of a table, and its metadata behind a details link: file-details.ts), if any,
+ * Shows it, with the model open (rows of a table, its metadata behind a details link: file-details.ts, and its
+ * errors and warnings behind another: `problems`, problems.ts's dialog), if any,
  * and with `updates` Check for updates (only when pressed:
  * update-check.ts), saying whether the server has another version (`updates`' state, shared with the controls'
  * badge) with Reload; and with `demo` Load demo model..., which closes it and then calls `demo`. Resolves when it's
  * closed.
  */
 export async function showAbout(model?: { rows: [string, string][]; properties: Properties;
-  stretched?: string }, updates?: UpdateCheck,
+  stretched?: string; problems: () => void }, updates?: UpdateCheck,
   demo?: () => void): Promise<void> {
   let r: DialogResult | undefined;
   const update = document.createElement('p');
@@ -87,7 +88,8 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
           { text: ' and ' }, { text: 'STEP tutorial', href: new URL('step_tutorial.pdf', document.baseURI).href },
           { text: '.' }]] : []),
         ...(model ? [[{ text: 'Current model (' }, { text: 'details', action: () => void showFileDetails(
-          model.properties, model.stretched) }, { text: '):' }], model.rows] : ['No model open.']),
+          model.properties, model.stretched) }, { text: ', ' }, { text: 'errors/warnings', action: model.problems },
+        { text: '):' }], model.rows] : ['No model open.']),
       ],
       buttons: [{ label: 'Close', value: 'close', primary: true },
         ...(demo ? [{ label: 'Load demo model...', value: 'demo' }] : [])],

@@ -28,6 +28,8 @@ namespace tesscadio {
 constexpr int kDeviationReport = 64;
 /** PartOptions::keepSteiner: a face meshed this many times already is seeded with its last mesh's points. */
 constexpr int kKeepSteinerFrom = 3;
+/** collapseAround's tries (a collapse checked) at most, a face: a needle field's hundreds of turned triangles. */
+constexpr int kCollapseTries = 2048;
 
 using namespace cadgeom;
 
@@ -1198,7 +1200,136 @@ struct PartMesher::Impl {
           t--;  // (the triangle at t erased, the last mesher triangle moved into its place: t again next)
         }
       }
+      collapseAround(f, sings[f], near);
     }
+  }
+
+  /**
+   * collapseTurned's general case on face f: each triangle still turned as shipped, in index order, once, has an
+   * interior corner (the mesher's own point, in no fixed segment, at no fan) collapsed onto each of that corner's
+   * neighbours, nearest first in 3D, until one holds: the result manifold (the two points sharing exactly two
+   * neighbours), no triangle's (u, v) area changing sign or vanishing, and collapseHolds of every triangle at the
+   * merged point. At most kCollapseTries tries a face. On points and triangles near the turned ones only, through a
+   * point-to-triangles index; the triangles a collapse leaves are dropped at the end.
+   */
+  void collapseAround(int f, const std::vector<Singularity>& sing, double near) {
+    FaceMesh& fm = faces[f];
+    const CollapseInfo& si = collapseInfo[f];
+    const size_t nm = mesherTriangles[f], np = si.uv.size();
+    std::vector<std::vector<size_t>> at(np);
+    std::vector<char> pinned(np, 0), dead(nm, 0);
+    for (size_t t = 0; t < nm; t++)
+      for (int k = 0; k < 3; k++)
+        if (static_cast<size_t>(fm.triangles[3 * t + k]) < np) at[fm.triangles[3 * t + k]].push_back(t);
+    for (size_t t = nm; 3 * t + 2 < fm.triangles.size(); t++)
+      for (int k = 0; k < 3; k++)
+        if (static_cast<size_t>(fm.triangles[3 * t + k]) < np) pinned[fm.triangles[3 * t + k]] = 1;
+    for (auto [a, b] : si.fixed) {
+      if (static_cast<size_t>(a) < np) pinned[a] = 1;
+      if (static_cast<size_t>(b) < np) pinned[b] = 1;
+    }
+    auto has = [&](size_t t, int32_t v) {
+      return fm.triangles[3 * t] == v || fm.triangles[3 * t + 1] == v || fm.triangles[3 * t + 2] == v;
+    };
+    auto live = [&](int32_t v) {
+      std::vector<size_t> out;
+      for (size_t t : at[v])
+        if (!dead[t] && has(t, v) && std::find(out.begin(), out.end(), t) == out.end()) out.push_back(t);
+      return out;
+    };
+    auto uvArea = [&](const int32_t v[3]) {
+      const Vec2 a = si.uv[v[0]], b = si.uv[v[1]], c = si.uv[v[2]];
+      return (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+    };
+    // C onto E: true where it holds (the triangles changed), else everything as it was.
+    auto collapse = [&](int32_t C, int32_t E) {
+      const std::vector<size_t> atC = live(C), atE = live(E);
+      std::vector<size_t> both, keep;
+      for (size_t t : atC) (has(t, E) ? both : keep).push_back(t);
+      if (both.size() != 2) return false;
+      std::set<int32_t> nc, ne;
+      for (size_t t : atC) for (int k = 0; k < 3; k++) nc.insert(fm.triangles[3 * t + k]);
+      for (size_t t : atE) for (int k = 0; k < 3; k++) ne.insert(fm.triangles[3 * t + k]);
+      int common = 0;
+      for (int32_t x : nc) common += x != C && x != E && ne.count(x);
+      if (common != 2) return false;
+      for (size_t t : keep) {
+        int32_t v[3] = {fm.triangles[3 * t], fm.triangles[3 * t + 1], fm.triangles[3 * t + 2]};
+        const double before = uvArea(v);
+        for (int32_t& x : v) x = x == C ? E : x;
+        if (!(before * uvArea(v) > 0)) return false;
+      }
+      for (size_t t : keep) for (int k = 0; k < 3; k++) if (fm.triangles[3 * t + k] == C) fm.triangles[3 * t + k] = E;
+      for (size_t t : both) dead[t] = 1;
+      std::vector<size_t> now;
+      for (size_t t : atE) if (!dead[t]) now.push_back(t);
+      now.insert(now.end(), keep.begin(), keep.end());
+      if (!collapseHolds(f, now, sing, near)) {
+        for (size_t t : keep) for (int k = 0; k < 3; k++) if (fm.triangles[3 * t + k] == E && !has(t, C)) {
+          // (Back to C: the corner that was C is the one E took in this triangle, E not among its others.)
+          fm.triangles[3 * t + k] = C;
+          break;
+        }
+        for (size_t t : both) dead[t] = 0;
+        return false;
+      }
+      for (size_t t : keep) at[E].push_back(t);
+      return true;
+    };
+    int tries = 0, done = 0;
+    for (size_t t = 0; t < nm && tries < kCollapseTries; t++) {
+      if (dead[t]) continue;
+      const int32_t* v = &fm.triangles[3 * t];
+      if (!turnedAsShipped(f, v[0], v[1], v[2], sing, near)) continue;
+      bool fixedOne = false;
+      for (int k = 0; k < 3 && !fixedOne && tries < kCollapseTries; k++) {
+        const int32_t C = fm.triangles[3 * t + k];
+        if (static_cast<size_t>(C) >= np || si.sample[C].first != -1 || pinned[C]) continue;
+        std::vector<int32_t> nb;
+        for (size_t u : live(C))
+          for (int j = 0; j < 3; j++)
+            if (fm.triangles[3 * u + j] != C && std::find(nb.begin(), nb.end(), fm.triangles[3 * u + j]) == nb.end())
+              nb.push_back(fm.triangles[3 * u + j]);
+        std::sort(nb.begin(), nb.end(), [&](int32_t a, int32_t b) {
+          return norm(fm.points[a] - fm.points[C]) < norm(fm.points[b] - fm.points[C]);
+        });
+        for (int32_t E : nb) {
+          if (static_cast<size_t>(E) >= np || tries >= kCollapseTries) continue;
+          tries++;
+          if (collapse(C, E)) {
+            fixedOne = true;
+            break;
+          }
+        }
+      }
+      done += fixedOne;
+    }
+    if (!done) return;
+    // The dropped triangles out, the rest in order; the refused list renumbered (a dropped one's refusal gone).
+    std::vector<int64_t> to(nm, -1);
+    size_t n = 0;
+    for (size_t t = 0; t < nm; t++)
+      if (!dead[t]) {
+        to[t] = static_cast<int64_t>(n);
+        if (n != t)
+          std::copy(fm.triangles.begin() + 3 * t, fm.triangles.begin() + 3 * t + 3, fm.triangles.begin() + 3 * n);
+        n++;
+      }
+    fm.triangles.erase(fm.triangles.begin() + 3 * n, fm.triangles.begin() + 3 * nm);
+    const bool haveRef = refused[f].size() == fm.rejected.size();
+    std::vector<int32_t> rej;
+    std::vector<Refused> ref;
+    for (size_t k = 0; k < fm.rejected.size(); k++) {
+      const size_t r = static_cast<size_t>(fm.rejected[k]);
+      const int64_t nr = r < nm ? to[r] : static_cast<int64_t>(r - (nm - n));
+      if (nr < 0) continue;
+      rej.push_back(static_cast<int32_t>(nr));
+      if (haveRef) ref.push_back(refused[f][k]);
+    }
+    fm.rejected = std::move(rej);
+    if (haveRef) refused[f] = std::move(ref);
+    mesherTriangles[f] = n;
+    fm.collapsed += done;
   }
 
   /**

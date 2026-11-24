@@ -205,7 +205,7 @@ export function draggable(dialog: HTMLElement, handle: HTMLElement): void {
 
 /**
  * A modal that blocks the page until it's closed by the caller (Escape doesn't): a title and a line, as while
- * exporting (the page's meshes lent to the import worker meanwhile: viewer.ts). Returns its close.
+ * exporting (the page's meshes lent to the model worker meanwhile: viewer.ts). Returns its close.
  */
 export function showBusy(title: string, text: string): () => void {
   const dialog = document.createElement('dialog');
