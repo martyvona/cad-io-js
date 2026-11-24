@@ -17,6 +17,8 @@
 //   WORKERS=<n> workers per backend (default 4); CPU_MS=<ms> ours's limit per part in CPU time (default 600000)
 //   PLANT=hole  each file's first part's first face ours meshes emptied in ours's result and in the chain's mesh: it
 //               must be counted failed by ours ("not in our diagnostics") and as a hole after the fallback
+//   PLANT=part  each file's first part with faces left without a mesh after the chain: it must be counted among the
+//     parts with faces and no triangles.
 //   PLANT=kept  each file's first part's first face ours meshes said kept with 3 triangles turned in ours's result: it
 //               must be counted kept (turned), not failed, and not a hole
 // (progress on standard error)
@@ -49,7 +51,7 @@ class Recorder implements Tessellator {
   async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void) {
     try {
       let r = await this.inner.tessellate(req, onProgress);
-      if (PLANT && this.results.size === 0) r = emptied(r);
+      if ((PLANT === 'hole' || PLANT === 'kept') && this.results.size === 0) r = emptied(r);
       this.results.set(req.data.buffer, r);
       return r;
     } catch (e) {
@@ -71,6 +73,11 @@ function emptied(r: TessellationResult): TessellationResult {
       { severity: 'warning', message: `${KEPT_HEAD}1 (#${f.entityId} (3 triangles turned))` }] };
   }
   return { ...r, faces: r.faces.map((x) => (x.entityId === f.entityId ? { ...x, count: 0 } : x)) };
+}
+
+/** The scene's first part with faces (PLANT=part's). */
+function firstWithFaces(scene: { parts: { brep?: { model: { face: { surface: ArrayLike<number> } } } }[] }): number {
+  return scene.parts.findIndex((p) => (p.brep?.model.face.surface.length ?? 0) > 0);
 }
 
 /** A cause's class (a9's): beyond repair, boundary crossing, turned, past deflection, capped, topology or sampling. */
@@ -115,6 +122,11 @@ await chain.init();
 
 const total = counts(), perFile = new Map<string, Counts>();
 const listed: string[] = [], keptListed: string[] = [];
+/** Parts the chain gives no triangles: with no faces (wireframe-only, empty) by representation, and with faces. */
+const noFaces = new Map<string, number>(), noTriangles: string[] = [];
+/** Ours's time per part (the worker thread's CPU where the host gives it, and wall), the slowest kept for the list. */
+const slow: { cpu: number; wall: number; what: string }[] = [];
+let ourCpu = 0;
 let plantMissed = 0;
 for (const f of corpusFiles(process.argv[2] ?? 'test_corpus/models.txt')) {
   const name = shortName(f);
@@ -139,7 +151,25 @@ for (const f of corpusFiles(process.argv[2] ?? 'test_corpus/models.txt')) {
     if (!p.brep) continue;
     const d = p.brep.model;
     const r = ours.results.get(d.buffer);
-    const mesh: Mesh | undefined = res.meshes.get(i);
+    const mesh: Mesh | undefined = PLANT === 'part' && i === firstWithFaces(scene) ? undefined : res.meshes.get(i);
+    if (!mesh || !mesh.indices.length) {
+      if (!d.face.surface.length) {
+        const rep = String(p.properties?.representation ?? 'unknown representation');
+        noFaces.set(rep, (noFaces.get(rep) ?? 0) + 1);
+      } else {
+        noTriangles.push(`${name}\t#${p.sources[0]!.id}\t${d.face.surface.length} faces`);
+      }
+    }
+    if (r && !(r instanceof Error)) {
+      const t = cadioPool.timesOf(r);
+      if (t) {
+        ourCpu += t.cpuMs ?? t.wallMs;
+        slow.push({ cpu: t.cpuMs ?? NaN, wall: t.wallMs, what: `${name}\t#${p.sources[0]!.id}\t`
+          + `${d.face.surface.length} faces` });
+        slow.sort((a, b) => (b.cpu || b.wall) - (a.cpu || a.wall));
+        slow.length = Math.min(slow.length, 15);
+      }
+    }
     if (PLANT === 'hole' && mesh && planted.size) {
       for (const fc of mesh.faces) if (fc.source !== null && planted.has(fc.source)) fc.count = 0;
     }
@@ -212,6 +242,13 @@ console.log(`  ours alone by class: ${byClass(total.ours)}`);
 console.log(`  after the fallback by class: ${byClass(total.after)}`);
 console.log(`  kept with defects by ours (meshed, not failed): ${sum(total.kept)}; by defect: `
   + `${byDefect(total.kept)}`);
+console.log(`\nparts the chain gives no triangles: with faces ${noTriangles.length}; with no faces `
+  + `${[...noFaces.values()].reduce((a, b) => a + b, 0)} (${[...noFaces].map(([k, v]) => `${k} ${v}`).join(', ')
+  || 'none'})`);
+for (const l of noTriangles) console.log(`  ${l}`);
+console.log(`\nours's time, CPU (the worker thread's) summed over parts: ${(ourCpu / 1000).toFixed(1)} s; the slowest `
+  + 'parts: CPU s, wall s, file, part, faces');
+for (const x of slow) console.log(`  ${(x.cpu / 1000).toFixed(1)}\t${(x.wall / 1000).toFixed(1)}\t${x.what}`);
 console.log('\nper surface kind: faces, failed by ours alone, holes after the fallback, kept with defects');
 for (const prim of [true, false]) {
   const ks = [...byKind].filter(([k]) => PRIMITIVES.has(k) === prim).sort((a, b) => b[1].faces - a[1].faces);
@@ -227,7 +264,11 @@ console.log('\nevery face ours fails: file, part, face, surface, class: cause, a
 for (const l of listed) console.log(`  ${l}`);
 console.log('\nevery face ours keeps with a defect: file, part, face, surface, defect: as said');
 for (const l of keptListed) console.log(`  ${l}`);
-if (PLANT) {
+if (PLANT === 'part') {
+  const n = noTriangles.length;
+  console.log(`\nPLANT=part: ${n} parts with faces and no triangles, of ${perFile.size} planted`);
+  if (n < perFile.size) process.exitCode = 1;
+} else if (PLANT) {
   console.log(`\nPLANT=${PLANT}: ${plantMissed} planted faces miscounted`);
   if (plantMissed) process.exitCode = 1;
 }
