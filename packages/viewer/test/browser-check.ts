@@ -2124,20 +2124,22 @@ await check('problems dialog', async () => {
   expect(quiet.errors > 0 && !quiet.open, `none by itself in plain ?check pages: ${j}`);
   return undefined;
 });
-// Who holds the B-rep models (model-load.ts's handOver): the page, each placed part's handed over with its mesh event,
-// never waiting for the end, the same bytes the worker had; lent back for Mesh again and returned part by part (each
-// as its mesh message comes); a Mesh again cancelled by another while its mesh events are on their way (held back here
-// until the second has started) loses none, the second meshing in place; lent for an export, STEP's exact geometry
-// written from them, and back with its answer.
+// Who holds the B-rep models and their analyses (model-load.ts's handOver; healed, so each part has one): the page,
+// each placed part's handed over with its mesh event, never waiting for the end, the same bytes the worker had; lent
+// back for Mesh again and returned part by part (each as its mesh message comes); a Mesh again cancelled by another
+// while its mesh events are on their way (held back here until the second has started) loses none, the second meshing
+// in place; lent for an export, STEP's exact geometry written from them, and back with its answer.
 await check('model ownership', async () => {
-  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&heal=1&check`, `(async () => {
     await cadViewer.ready;
     await cadViewer.idle();
     const graph = () => viewer.graph;
     const breps = () => [...graph().placements.keys()].filter((i) => graph().scene.parts[i].brep).sort((a, b) => a - b);
-    // Each placed part's model as the page holds it: its bytes summed (or null where it isn't held).
-    const held = () => breps().map((i) => { const m = graph().modelOf(i);
-      return m ? new Uint8Array(m.buffer).reduce((a, x) => (a * 31 + x) >>> 0, 0) : null; });
+    // Each placed part's model and analysis as the page holds them: their bytes summed (or null where either isn't
+    // held).
+    const sum = (b) => new Uint8Array(b).reduce((a, x) => (a * 31 + x) >>> 0, 0);
+    const held = () => breps().map((i) => { const m = graph().modelOf(i), a = graph().analysisOf(i);
+      return m && a ? \`\${sum(m.buffer)}/\${sum(a.buffer)}\` : null; });
     const out = { first: held(), parts: breps().length };
     // The worker's messages counted as they come (and, while 'holding', kept back to deliver later).
     const worker = viewer.modelWorker(), deliver = worker.onmessage;
@@ -2224,14 +2226,14 @@ await check('model ownership', async () => {
     proto.holdModel = hold;
     worker.onmessage = deliver;
     return out;
-  })()`) as { after: { first: (number | null)[]; parts: number; arrivals: { meshes: number; done: boolean }[];
-    loaded: (number | null)[]; againArrivals: { meshes: number; done: boolean }[]; again: (number | null)[];
-    stale: number; twice: (number | null)[]; inPlace: boolean; twiceSeconds: number; exported: (number | null)[];
+  })()`) as { after: { first: (string | null)[]; parts: number; arrivals: { meshes: number; done: boolean }[];
+    loaded: (string | null)[]; againArrivals: { meshes: number; done: boolean }[]; again: (string | null)[];
+    stale: number; twice: (string | null)[]; inPlace: boolean; twiceSeconds: number; exported: (string | null)[];
     faces: number } };
   const a = r.after, j = JSON.stringify(a);
-  const all = (h: (number | null)[]) => h.length === a.parts && h.every((x) => x !== null);
-  const same = (h: (number | null)[]) => JSON.stringify(h) === JSON.stringify(a.first);
-  expect(a.parts > 1 && all(a.first) && same(a.loaded), `every placed part's model with the page: ${j}`);
+  const all = (h: (string | null)[]) => h.length === a.parts && h.every((x) => x !== null);
+  const same = (h: (string | null)[]) => JSON.stringify(h) === JSON.stringify(a.first);
+  expect(a.parts > 1 && all(a.first) && same(a.loaded), `every placed part's model and analysis with the page: ${j}`);
   // (A load's held back come, with its end, before the page has shown its scene: taken once it has.)
   expect(a.arrivals.length === a.parts && a.arrivals[0]!.meshes >= 2,
     `a load's, those before its scene was shown too: ${j}`);

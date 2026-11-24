@@ -34,6 +34,7 @@ import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
+import { partModelBuffers, type PartModel } from './part-model.ts';
 import type { Exported } from './export-model.ts';
 import type { ExportRequest } from './export-formats.ts';
 
@@ -863,7 +864,7 @@ export class Viewer {
    * lost, and the next Mesh again would find it missing.
    */
   private readonly modelsTo = new Map<number, SceneGraph>();
-  private readonly modelsEarly = new Map<number, [number, ArrayBuffer][]>();
+  private readonly modelsEarly = new Map<number, [number, PartModel][]>();
 
   /** Cancels sent to the model worker and not yet taken, by number. */
   private readonly cancels = new Map<number, () => void>();
@@ -962,7 +963,7 @@ export class Viewer {
         else reject(new Error(m.message));
       });
       worker.postMessage({ type: 'export', id, request, meshes, models } satisfies ToModelWorker,
-        [...buffers, ...models.map(([, b]) => b)]);
+        [...buffers, ...models.flatMap(([, b]) => partModelBuffers(b))]);
     });
   }
 
@@ -1026,8 +1027,9 @@ export class Viewer {
         if (m.type === 'exported' || m.type === 'export-error') return this.exports.get(m.id)?.(m);
         if (m.type === 'mesh') {
           const graph = this.modelsTo.get(m.load);
-          if (graph) graph.holdModel(m.part, m.model);
-          else this.modelsEarly.set(m.load, [...this.modelsEarly.get(m.load) ?? [], [m.part, m.model]]);
+          const held: PartModel = { model: m.model, ...(m.analysis ? { analysis: m.analysis } : {}) };
+          if (graph) graph.holdModel(m.part, held);
+          else this.modelsEarly.set(m.load, [...this.modelsEarly.get(m.load) ?? [], [m.part, held]]);
         }
         this.loadListeners.get(m.load)?.(m);
       };
@@ -1222,7 +1224,7 @@ export class Viewer {
       const models = graph.lendModels();
       const msg: ToModelWorker = { type: 'remesh', load: gen, settings: { ...this.settings,
         capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), models };
-      for await (const ev of this.events(gen, msg, models.map(([, b]) => b))) {
+      for await (const ev of this.events(gen, msg, models.flatMap(([, b]) => partModelBuffers(b)))) {
         if (gen !== this.generation) return true;
         if (ev.type === 'importing') {
           // Healing again, with other settings.
