@@ -38,6 +38,7 @@ import type { Pick } from './pick.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
+import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
 import { askScreenshot } from './screenshot-dialog.ts';
 import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
   from './screenshot.ts';
@@ -166,6 +167,8 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 }
 
 const GNOMON_KEY = 'cad-viewer.gnomon';
+/** '1' once a physical keyboard has been seen in this browser (shortcuts.ts's fromKeyboard): the keys' hints shown. */
+const KEYBOARD_KEY = 'cad-viewer.keyboard';
 /** Copy link's Include device defaults, as remembered in this browser ('1' on; else off). */
 const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
 /** The remembered choice (off where storage can't be read). */
@@ -623,7 +626,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   file.add({ about: () => about() }, 'about').name('About...');
 
   const view = gui.addFolder('View');
-  view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
+  const zoomAll = view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
   // Enabled while something is selected.
   const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
   view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
@@ -648,10 +651,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.redraw();
   });
   const views = view.addFolder('Look Along an Axis');
-  const viewButtons = new Map<ViewName, HTMLElement>();
+  const viewButtons = new Map<ViewName, HTMLElement>(), viewControls = new Map<ViewName, unknown>();
   for (const v of Object.keys(VIEWS) as ViewName[]) {
     const c = views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
     viewButtons.set(v, (c as unknown as { $button: HTMLElement }).$button);
+    viewControls.set(v, c);
   }
   // A click on the gnomon presses the view's button, as the user would (recorded as that control).
   viewer.onGnomonView = (v) => viewButtons.get(v)!.click();
@@ -751,8 +755,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     });
   edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
   edgeWidth.show(look.edgeStyle === 'fat');
-  rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' }).name('Triangle edges')
-    .onChange(restyle);
+  const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
+    .name('Triangle edges').onChange(restyle);
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
     rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle),
     rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle),
@@ -1243,8 +1247,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(ui, 'invertSelection').name('Invert selection');
   selFolder.add({ byId: selectById }, 'byId').name('Select by ID...');
   view.add(selection, 'details').name('Details').onChange(describe);
-  view.add(ui, 'hideSelected').name('Hide selected');
-  view.add(ui, 'showSelected').name('Show selected');
+  const hideControl = view.add(ui, 'hideSelected').name('Hide selected');
+  const showControl = view.add(ui, 'showSelected').name('Show selected');
   view.add(ui, 'hideOthers').name('Hide others');
   view.add(ui, 'showOthers').name('Show others');
   view.add(ui, 'showAll').name('Show all');
@@ -1262,6 +1266,47 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
 
   for (const f of gui.foldersRecursive()) f.close();
+
+  // The keyboard shortcuts (shortcuts.ts): each presses its control, or sets it and finishes the change, as a click
+  // would (recorded as that control).
+  const press = (c: unknown) => (c as { $button: HTMLElement }).$button.click();
+  const set = (c: { setValue(v: unknown): unknown }, v: unknown) => {
+    c.setValue(v);
+    (c as unknown as { _callOnFinishChange(): void })._callOnFinishChange();
+  };
+  // Each control's key, greyed after its name (index.html's .cv-key; not on touch screens).
+  const hint = (c: unknown, key: string) => (c as { $name: HTMLElement }).$name.append(Object.assign(
+    document.createElement('span'), { className: 'cv-key', textContent: key }));
+  hint(zoomAll, 'f');
+  hint(zoomSelected, 'f');
+  VIEW_KEYS.forEach((v, i) => hint(viewControls.get(v), String(i + 1)));
+  hint(hideControl, 'h');
+  hint(showControl, 's');
+  hint(openControl, 't');
+  hint(triangleEdges, 'g');
+  // The hints show where there's a mouse or trackpad (index.html), and once a physical keyboard has been seen (a class
+  // on the page, remembered in this browser): a tablet's keyboard alone isn't told to the page any other way.
+  const keyboardSeen = () => document.documentElement.classList.add('cv-keyboard');
+  try {
+    if (localStorage.getItem(KEYBOARD_KEY) === '1') keyboardSeen();
+  } catch { /* not remembered */ }
+  window.addEventListener('keydown', (e) => {
+    if (!document.documentElement.classList.contains('cv-keyboard') && fromKeyboard(e)) {
+      keyboardSeen();
+      try {
+        localStorage.setItem(KEYBOARD_KEY, '1');
+      } catch { /* not remembered */ }
+    }
+    const s = shortcutOf(e);
+    if (!s) return;
+    e.preventDefault();
+    if (s.type === 'zoom') press(selected.length ? zoomSelected : zoomAll);
+    else if (s.type === 'view') viewButtons.get(s.view)!.click();
+    else if (s.type === 'hide') press(hideControl);
+    else if (s.type === 'show') press(showControl);
+    else if (s.type === 'tree') set(openControl!, !tree.open);
+    else set(triangleEdges, nextTriangleEdges(look.triangleEdges, selected.length > 0));
+  });
 
   // Dropped files, anywhere on the page.
   window.addEventListener('dragover', (e) => e.preventDefault());

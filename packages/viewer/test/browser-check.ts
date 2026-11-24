@@ -4149,6 +4149,138 @@ await check('triangle edges on a selected face', async () => {
   expect(a.selected! > a.mask! * 0.05 && a.all! > a.mask! * 0.05, `its edges drawn over its highlight: ${j}`);
   return undefined;
 });
+// The keyboard shortcuts (shortcuts.ts), each pressing its control: f zooms to the selection, or all with none; 1 to 7
+// look along the axes in Look Along an Axis's order; h and s hide and show the selection; t shows the tree or not; g
+// cycles triangle edges (selected or all to off; off to selected with a selection, else all). None in a text field,
+// with a modifier, or repeated; recorded as the controls they press. Each control shows its key, greyed, after its
+// name, whole (the names themselves, which recordings use, unchanged).
+await check('keyboard shortcuts', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const calls = [];
+    const zoomAll = viewer.zoomAll, zoomSelected = ui.zoomSelected, setView = viewer.setView;
+    viewer.zoomAll = function (...a) { calls.push('all'); return zoomAll.apply(this, a); };
+    ui.zoomSelected = function (...a) { calls.push('selected'); return zoomSelected.apply(this, a); };
+    viewer.setView = function (v, ...a) { calls.push(v); return setView.call(this, v, ...a); };
+    // A key pressed on what has the focus (else the page): whether its default was prevented.
+    const key = (k, o = {}, on = document.activeElement ?? document.body) => !on.dispatchEvent(new KeyboardEvent(
+      'keydown', { key: k, bubbles: true, cancelable: true, ...o }));
+    const take = () => calls.splice(0);
+    const out = {};
+    const part = viewer.nodes.nodes.find((n) => n.kind === 'part');
+    const path = viewer.nodes.pathOf(part.id);
+    const hidden = () => cadViewer.state().hidden.includes(path);
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // (Their folders open, to be measured.)
+    for (const f of ui.gui.foldersRecursive()) {
+      if (['View', 'Look Along an Axis', 'Rendering', 'Tree'].includes(f._title)) f.open();
+    }
+    out.hints = ui.gui.controllersRecursive().flatMap((c) => {
+      const k = c.$name.querySelector('.cv-key');
+      // (A mouse here: shown, whatever keyboard was seen.)
+      return k ? [[c._name, k.textContent, +getComputedStyle(k).opacity < 1 && getComputedStyle(k).display !== 'none'
+        && matchMedia('(any-pointer: fine)').matches && !document.documentElement.classList.contains('cv-keyboard'),
+        c.$name.textContent === c._name + k.textContent,
+        c.$name.clientWidth > 0 && c.$name.scrollWidth <= c.$name.clientWidth]] : [];
+    });
+    ui.select([]);
+    out.f = [key('f'), take()];
+    ui.select([part.id]);
+    out.fSelected = [key('f'), take()];
+    out.views = ['1', '2', '3', '4', '5', '6', '7', '8', '0'].map((k) => key(k));
+    out.viewCalls = take();
+    out.h = [key('h'), hidden()];
+    out.s = [key('s'), hidden()];
+    const tree0 = control('Show the tree').getValue();
+    key('t');
+    const tree1 = control('Show the tree').getValue();
+    key('t');
+    out.tree = [tree0, tree1, control('Show the tree').getValue()];
+    const edges = () => viewer.render.triangleEdges;
+    out.g = [edges()];
+    for (let i = 0; i < 2; i++) { key('g'); out.g.push(edges()); }
+    ui.select([]);
+    for (let i = 0; i < 2; i++) { key('g'); out.g.push(edges()); }
+    out.control = control('Triangle edges').getValue();
+    // Left alone: a text field's, modified, shifted, repeated.
+    const input = document.createElement('input');
+    document.body.append(input);
+    out.ignored = [key('f', {}, input), key('f', { ctrlKey: true }), key('f', { metaKey: true }),
+      key('f', { altKey: true }), key('F', { shiftKey: true }), key('f', { repeat: true }), key('x')];
+    input.remove();
+    out.ignoredCalls = take();
+    // Recorded as the controls they press.
+    cadViewer.record(true);
+    key('1');
+    key('t');
+    key('t');
+    key('g');
+    key('g');
+    const rec = cadViewer.record(false);
+    out.recorded = rec.events.filter((e) => e.type === 'control').map((e) => e.path + (e.value === undefined ? ''
+      : '=' + e.value));
+    take();
+    viewer.zoomAll = zoomAll;
+    ui.zoomSelected = zoomSelected;
+    viewer.setView = setView;
+    // (The keyboard these keys said there is forgotten: later pages start without it.)
+    localStorage.removeItem('cad-viewer.keyboard');
+    return out;
+  })()`) as { after: { f: [boolean, string[]]; fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[];
+    h: [boolean, boolean]; s: [boolean, boolean]; tree: boolean[]; g: string[]; control: string; ignored: boolean[];
+    ignoredCalls: string[]; recorded: string[]; hints: [string, string, boolean, boolean, boolean][] } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.f[0] && a.f[1].join() === 'all' && a.fSelected[0] && a.fSelected[1].join() === 'selected',
+    `f: zoom all with nothing selected, zoom selected with something: ${j}`);
+  expect(a.views.join() === 'true,true,true,true,true,true,true,false,false'
+    && a.viewCalls.join() === 'front,back,left,right,top,bottom,iso', `1 to 7: the views, in order: ${j}`);
+  expect(a.h.join() === 'true,true' && a.s.join() === 'true,false', `h hides the selection, s shows it: ${j}`);
+  expect(a.tree[0] !== a.tree[1] && a.tree[0] === a.tree[2], `t: the tree shown or not: ${j}`);
+  expect(a.g.join() === 'off,selected,off,all,off' && a.control === 'off',
+    `g: off to selected with a selection, to all without; back to off: ${j}`);
+  expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
+    `none in a text field, with a modifier, repeated, or unbound: ${j}`);
+  expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Hide selected h,'
+    + 'Show selected s,Front 1,Back 2,Left 3,Right 4,Top 5,Bottom 6,Iso 7,Show the tree t,Triangle edges g'
+    && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
+  expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|Tree/Show the tree=false|Tree/Show the tree=true|'
+    + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off', `recorded as their controls: ${j}`);
+  return undefined;
+});
+// The keys' hints on a touch screen with no mouse or trackpad (an emulated phone): hidden, until a key is pressed
+// outside a text field (a physical keyboard: an on-screen one shows only for a text field), then shown, and still in
+// the next page (remembered in the browser); a key typed in a text field doesn't count. (Other checks' keys forgotten
+// first: they're in the same browser.)
+await check('key hints on touch screens', async () => {
+  const shown = `(() => getComputedStyle(ui.gui.controllersRecursive().find((c) => c._name === 'Zoom all')
+    .$name.querySelector('.cv-key')).display !== 'none')()`;
+  const key = (on: string) => `${on}.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))`;
+  const first = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    const out = { fine: matchMedia('(any-pointer: fine)').matches, before: ${shown} };
+    const input = document.createElement('input');
+    document.body.append(input);
+    ${key('input')};
+    out.typed = ${shown};
+    input.remove();
+    ${key('document.body')};
+    out.after = ${shown};
+    out.remembered = localStorage.getItem('cad-viewer.keyboard');
+    return out;
+  })()`, { phone: true, first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { fine: boolean; before: boolean; typed: boolean; after: boolean;
+    remembered: string | null } };
+  const next = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    const out = { shown: ${shown} };
+    localStorage.removeItem('cad-viewer.keyboard');
+    return out;
+  })()`, { phone: true }) as { after: { shown: boolean } };
+  const a = first.after, j = JSON.stringify({ ...a, next: next.after });
+  expect(!a.fine && !a.before && !a.typed, `no mouse: hidden, a key in a text field too: ${j}`);
+  expect(a.after && a.remembered === '1' && next.after.shown, `a key elsewhere: shown, and remembered: ${j}`);
+  return undefined;
+});
 await check('no model', async () => {
   const r = await page('?check');
   expect(r.empty === true, `report ${JSON.stringify(r)}`);
