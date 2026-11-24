@@ -33,6 +33,14 @@ const CASES: Case[] = [
     why: 'a turned sliver\'s apex collapsed' },
   { file: 'models/onshape/LMP1.step', part: 172440, faces: [1041915], why: 'a turned sliver\'s apex collapsed' },
   { file: 'models/onshape/LMP1.step', part: 172482, faces: [1046237, 1046289], why: 'a flip and a collapse' },
+  // Turned needles beside a boundary whose long side isn't a span the floor bars splitting, and the refused ones the
+  // mesher couldn't break: a corner of the mesher's own collapsed onto a neighbour (collapseTurned's general case).
+  { file: 'third_party/gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp', part: 4779, faces: [1529, 1759],
+    why: 'a turned needle\'s corner collapsed onto a neighbour' },
+  { file: 'third_party/gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp', part: 22, faces: [139, 142, 143],
+    why: 'a turned needle\'s corner collapsed onto a neighbour' },
+  { file: 'third_party/gkv311-opencascade-dataset/step/bug33398.step', part: 13688, faces: [76],
+    why: 'a turned needle\'s corner collapsed onto a neighbour' },
   // Poles' fans folding once welded (PartOptions::failFoldedFans fails them), at an apex with a curve through it: a fan
   // whose triangles' directions by their normals disagree made consistent along its chain, each against the mesher's
   // use of its ring segment (a cone's far ends on generators through its apex; a torus's corners a degree apart);
