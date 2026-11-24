@@ -138,6 +138,21 @@ TEST_CASE("a box's face perimeters: their edges' lengths from the facts, each co
   }
 }
 
+TEST_CASE("trusted: projectedBoundary and edgesPlaced said, not refused; any other flag refused") {
+  // A measure of 1 within 1e-9, its boundary's error known: trusted with either or both of those flags, not with
+  // another beside them; and not at a relative bound under its error.
+  FaceMeasure m;
+  m.area.value = 1, m.area.error = 1e-9, m.area.status = Status::ok, m.boundary = 1e-10;
+  for (uint32_t f : {0u, uint32_t(flagProjectedBoundary), uint32_t(flagEdgesPlaced),
+         uint32_t(flagProjectedBoundary | flagEdgesPlaced)}) {
+    m.flags = f;
+    CHECK(trusted(m, 1e-6));
+    CHECK(!trusted(m, 1e-10));
+    m.flags = f | flagOrientation;
+    CHECK(!trusted(m, 1e-6));
+  }
+}
+
 TEST_CASE("flags: a face turned over, a surface moved off its edges, no loops") {
   const fixtures::Reference& r = *fixtures::reference("box", "s1");
   const Model model(r.data, r.size);

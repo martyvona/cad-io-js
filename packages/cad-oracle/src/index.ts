@@ -13,7 +13,7 @@ export const METHOD = ['none', 'closedForm', 'extrusion', 'revolution', 'freeFor
 export type Method = (typeof METHOD)[number];
 /** oracle.h's Flag bits. */
 export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoops: 16, offSurface: 32,
-  projectedBoundary: 64, cells: 128 } as const;
+  projectedBoundary: 64, cells: 128, edgesPlaced: 256 } as const;
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
@@ -50,12 +50,13 @@ export interface FaceMeasure {
 }
 
 /**
- * A measure to rely on: computed, no flags but projectedBoundary, its boundary's error known, its error (the
- * boundary's included) within `relative` of its value (oracle.h's trusted). What users see is the value and its error,
- * with the flags no estimate covers said beside them.
+ * A measure to rely on: computed, no flags but projectedBoundary and edgesPlaced, its boundary's error known, its
+ * error (the boundary's included) within `relative` of its value (oracle.h's trusted). What users see is the value and
+ * its error, with the flags no estimate covers said beside them.
  */
 export function trusted(m: FaceMeasure, relative = 1e-6): boolean {
-  return m.area.status === 'ok' && m.flags.every((f) => f === 'projectedBoundary') && Number.isFinite(m.boundary)
+  return m.area.status === 'ok' && m.flags.every((f) => f === 'projectedBoundary' || f === 'edgesPlaced')
+    && Number.isFinite(m.boundary)
     && m.area.error <= relative * m.area.value;
 }
 
