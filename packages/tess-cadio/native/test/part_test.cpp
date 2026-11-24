@@ -2886,6 +2886,16 @@ TEST_CASE("a use whose curve the projection finds far off its face's surface fai
     CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
   }
   {
+    // The same arc with a given p-curve (the line under it in the plane): placed by inversion, its samples' distance
+    // from the plane 50 mm; failed as far off, not meshed along an arc that far from its face.
+    cadgeom::Model m = load("edgeFarOffPcurve");
+    REQUIRE(m.ok());
+    PartMesher pm(m, options(0.01, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    CHECK(fm.status == cadgeom::Status::invalidModel);
+    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+  }
+  {
     // Edges coarser than the faces want: respace splits them, each use placed again reported with its face.
     cadgeom::Model m = load("spheres");
     PartOptions o = options(0.01, 0.26);
