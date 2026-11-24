@@ -195,7 +195,7 @@ export interface PointClass {
 export interface FaceSide {
   side: 'outside' | 'inside' | 'unknown';
   why: string;
-  /** The point well inside the face, the point moved off it (eps along its normal) and that point's class. */
+  /** The point inside the face (well inside, else in at its tolerance), the point moved off it and its class. */
   from: Vec3;
   point: Vec3;
   eps: number;

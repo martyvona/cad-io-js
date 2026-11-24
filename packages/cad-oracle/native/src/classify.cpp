@@ -290,7 +290,7 @@ PointClass Oracle::Impl::classify(int shell, Vec3 p) {
   return out;
 }
 
-bool Oracle::Impl::interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n) {
+bool Oracle::Impl::interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n, bool shallow) {
   const Surface* S = faceSurface(face);
   if (!S || h < 0) return false;
   // The loops' (u, v) box from their pieces' p-curves (9 points each), else the surface's domain.
@@ -310,13 +310,13 @@ bool Oracle::Impl::interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n) 
   const cadgeom::SurfaceDomain D = S->domain();
   // The loops' box first, then the surface's domain where finite (a hemisphere's one loop, its equator, has a box
   // with no height: the face runs from it to the pole).
-  if (ulo <= uhi && gridPoint(face, *S, ulo, uhi, vlo, vhi, uv, p, n)) return true;
+  if (ulo <= uhi && gridPoint(face, *S, ulo, uhi, vlo, vhi, uv, p, n, shallow)) return true;
   return std::isfinite(D.u.lo) && std::isfinite(D.u.hi) && std::isfinite(D.v.lo) && std::isfinite(D.v.hi) &&
-    gridPoint(face, *S, D.u.lo, D.u.hi, D.v.lo, D.v.hi, uv, p, n);
+    gridPoint(face, *S, D.u.lo, D.u.hi, D.v.lo, D.v.hi, uv, p, n, shallow);
 }
 
 bool Oracle::Impl::gridPoint(int face, const Surface& surface, double ulo, double uhi, double vlo, double vhi,
-  cadgeom::Vec2& uv, Vec3& p, Vec3& n) {
+  cadgeom::Vec2& uv, Vec3& p, Vec3& n, bool shallow) {
   const Surface* S = &surface;
   if (!std::isfinite(ulo) || !std::isfinite(uhi) || !std::isfinite(vlo) || !std::isfinite(vhi)) return false;
   // A 17 x 17 grid, its points nearest the middle first.
@@ -361,10 +361,13 @@ bool Oracle::Impl::gridPoint(int face, const Surface& surface, double ulo, doubl
       if (st[j][i] == 0) return sides[j][i] == 0;
     return false;
   };
-  for (int j : {2, 1}) {
+  // Shallow, last: in at the tolerance itself, so farther than it from the boundary (a narrow face's point; its
+  // side settled there, not by the larger tolerances, which take points off narrow faces in).
+  for (int j : {2, 1, 0}) {
+    if (j == 0 && !shallow) break;
     for (size_t i = 0; i < grid.size(); i++) {
       if (!upTo(i)) return false;
-      if (!in(i) || sides[j][i] == 2) continue;
+      if (j == 0 ? st[0][i] != 0 || sides[0][i] != 0 : !in(i) || sides[j][i] == 2) continue;
       cadgeom::SurfacePoint q;
       Vec3 nn;
       if (S->eval(grid[i].x, grid[i].y, 0, q) != Status::ok || S->normal(grid[i].x, grid[i].y, nn) != Status::ok)
@@ -380,7 +383,7 @@ ShellSide Oracle::Impl::shellSide(int shell, int face, double eps) {
   ShellSide out;
   cadgeom::Vec2 uv;
   Vec3 x, n;
-  if (!interiorPoint(face, uv, x, n)) {
+  if (!interiorPoint(face, uv, x, n, true)) {
     out.why = "no point well inside the face";
     return out;
   }
