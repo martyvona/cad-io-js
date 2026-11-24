@@ -4,13 +4,14 @@
 
 import { type BrepData, openBrep } from 'cad-brep';
 import { type FaceArea, oracleAreas } from './area-oracle.ts';
+import { deviationJudge } from './deviation.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
 import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
 import { orientResult, shellsOriented } from './orient.ts';
-import { openEdgesCount } from './open-edges.ts';
+import { edgeUsers, openEdgesCount } from './open-edges.ts';
 import { notManifoldMessage, reported, shellDefects, shellsManifold } from './manifold.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
@@ -27,9 +28,10 @@ export interface Verdict {
    * How bad, to choose between two results (compareVerdicts), kind by kind, the worst kind first: whether the request
    * threw (or timed out), whether the part has no triangles, then the faces without triangles, the faces short of or
    * over their area, the open edges with the mesh edges and vertices that keep a closed shell's mesh from being an
-   * oriented manifold (manifold.ts), the other errors. A face missing outweighs any number of edges open.
+   * oriented manifold (manifold.ts), the faces the backend kept with a defect past its limits (manifold, so after
+   * those), the other errors. A face missing outweighs any number of edges open.
    */
-  rank: [number, number, number, number, number, number];
+  rank: [number, number, number, number, number, number, number];
 }
 
 /** Negative where `a` is the better (the lesser rank, kind by kind), positive where `b` is, 0 where they're alike. */
@@ -51,11 +53,14 @@ export function compareVerdicts(a: Verdict, b: Verdict): number {
  */
 export function judgeResult(r: TessellationResult | Error, model: BrepData | undefined, deflection: number,
   given?: ReadonlyMap<number, FaceArea>): Verdict {
-  if (r instanceof Error) return { ok: false, problems: [`failed: ${r.message}`], rank: [1, 0, 0, 0, 0, 0] };
+  if (r instanceof Error) return { ok: false, problems: [`failed: ${r.message}`], rank: [1, 0, 0, 0, 0, 0, 0] };
   const errors = r.diagnostics.filter((d) => d.severity === 'error');
-  if (failedPart(r)) return { ok: false, problems: errors.map((d) => d.message), rank: [0, 1, 0, 0, 0, 0] };
+  if (failedPart(r)) return { ok: false, problems: errors.map((d) => d.message), rank: [0, 1, 0, 0, 0, 0, 0] };
   const kinds = { failed: 0, partly: 0, excess: 0 };
-  for (const k of badFaces(r, model, deflection, given).values()) kinds[k]++;
+  const bad = badFaces(r, model, deflection, given);
+  for (const k of bad.values()) kinds[k]++;
+  // (Faces the backend kept with a defect past its own limits: meshed wrongly, a fallback's mesh to be preferred.)
+  const past = pastLimits(r).filter((id) => !bad.has(id)).length;
   const open = openEdgesCount(r.diagnostics);
   const shells = model ? reported(shellDefects(model, r), open > 0) : undefined;
   const manifold = !shells || shellsManifold(shells);
@@ -65,11 +70,12 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
   const problems: string[] = [];
   for (const [k, n] of Object.entries(kinds)) if (n) problems.push(`${n} ${n === 1 ? 'face' : 'faces'} ${k === 'failed'
     ? 'without triangles' : k === 'partly' ? 'meshed only in part' : `meshed over ${n === 1 ? 'its' : 'their'} area`}`);
+  if (past) problems.push(`${past} ${past === 1 ? 'face' : 'faces'} kept with a defect past the backend's limits`);
   if (open) problems.push(`open along ${open} ${open === 1 ? 'edge' : 'edges'}`);
   if (!manifold) problems.push(notManifoldMessage(shells!));
   for (const d of others) problems.push(d.message);
   return { ok: !problems.length, problems,
-    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open + defects, others.length] };
+    rank: [0, 0, kinds.failed, kinds.partly + kinds.excess, open + defects, past, others.length] };
 }
 
 /**
@@ -107,6 +113,11 @@ export function badFaces(r: TessellationResult, model: BrepData | undefined, def
 
 const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
 
+/** The faces a result's backend kept with a defect past its own limits (TessellationResult's `defects`), by id. */
+export function pastLimits(r: TessellationResult): number[] {
+  return (r.defects ?? []).filter((x) => x.pastLimits).map((x) => x.entityId);
+}
+
 /**
  * The primary tessellator, and where its result for a part isn't sound (judgeResult), the fallback's for the whole
  * part, whichever is the better (compareVerdicts: kind by kind, a face missing worst; the primary's on a tie), or the
@@ -130,15 +141,22 @@ export class FallbackTessellator implements Tessellator {
   readonly fill: boolean;
   /** Whether solids' shells facing into the material are turned over (orientResult) before results are judged. */
   readonly orient: boolean;
+  /**
+   * Whether the fallback's mesh of a face the primary kept past its limits is held to the deflection by the thread's
+   * deviation judge (setDeviationJudge) before it's taken; off, the fallback backend's own deflection is trusted (its
+   * mesh still judged for manifoldness, its edges once joined and its area).
+   */
+  readonly judgeDeviation: boolean;
 
   constructor(primary: Tessellator, fallback: Tessellator,
-    opts: { join?: boolean; perFace?: boolean; fill?: boolean; orient?: boolean } = {}) {
+    opts: { join?: boolean; perFace?: boolean; fill?: boolean; orient?: boolean; judgeDeviation?: boolean } = {}) {
     this.primary = primary;
     this.fallback = fallback;
     this.join = opts.join ?? true;
     this.perFace = opts.perFace ?? true;
     this.fill = opts.fill ?? true;
     this.orient = opts.orient ?? true;
+    this.judgeDeviation = opts.judgeDeviation ?? false;
   }
 
   get info(): TessellatorInfo {
@@ -182,21 +200,54 @@ export class FallbackTessellator implements Tessellator {
     if (va.ok) return this.finish(a as TessellationResult, this.primary, req, []);
     const p = this.primary.info.name, f = this.fallback.info.name;
     const b = await run(this.fallback);
-    const vb = judgeResult(b, model, req.linearDeflection);
+    const vb0 = judgeResult(b, model, req.linearDeflection);
     const why = va.problems.join('; ');
     const D = req.linearDeflection;
+    // A face the primary kept past its limits: the fallback's mesh of it taken (per face, or with its whole mesh)
+    // where, per face, it's matched at every edge of the face once joined (below), and with judgeDeviation within the
+    // deflection by the thread's deviation judge (by area alone where none is set); else the primary's stays, its
+    // defect said. The fallback's mesh of such a face the judge puts past the deflection counts against its whole
+    // mesh too.
+    const past = new Set(a instanceof Error ? [] : pastLimits(a));
+    const judge = this.judgeDeviation ? deviationJudge() : undefined;
+    const judged = new Map<number, boolean>();
+    const within = (face: number) => {
+      if (!past.has(face) || !judge || !model || b instanceof Error) return true;
+      if (!judged.has(face)) {
+        const w = judge.worst(model, b, face);
+        judged.set(face, w !== undefined && w <= D);
+      }
+      return judged.get(face)!;
+    };
+    const pastOff = [...past].filter((x) => !within(x)).length;
+    const vb: Verdict = pastOff ? { ...vb0, ok: false, problems: [...vb0.problems, `${pastOff} ${pastOff === 1
+      ? 'face' : 'faces'} past the deflection where ${p} kept one past its limits`],
+    rank: [vb0.rank[0], vb0.rank[1], vb0.rank[2], vb0.rank[3], vb0.rank[4], vb0.rank[5] + pastOff, vb0.rank[6]] } : vb0;
     // The per-face fallback: the primary's mesh with the faces it meshes wrongly, and those its open edges are left
     // open for, the fallback's where the fallback meshes them right; joined. Kept where better than both (than the
     // fallback's whole mesh, or as good: it keeps the rest of the primary's).
     if (this.perFace && model && !(a instanceof Error) && !(b instanceof Error) && !failedPart(a)) {
       const want = new Set(badFaces(a, model, D).keys());
       for (const face of joinEdges(model, a, D).culprits.values()) want.add(face);
+      for (const face of past) want.add(face);
       const badB = badFaces(b, model, D);
       const meshedB = new Set(b.faces.filter((x) => x.count > 0).map((x) => x.entityId));
-      const swapped = [...want].filter((x) => meshedB.has(x) && !badB.has(x)).sort((x, y) => x - y);
-      if (swapped.length) {
-        const composed = composeResults(model, a, b, new Set(swapped));
-        const c = tidy(composed, `${this.primary.info.name} with faces from ${this.fallback.info.name}`);
+      let swapped = [...want].filter((x) => meshedB.has(x) && !badB.has(x) && within(x)).sort((x, y) => x - y);
+      const by = `${this.primary.info.name} with faces from ${this.fallback.info.name}`;
+      let c = swapped.length ? tidy(composeResults(model, a, b, new Set(swapped)), by) : undefined;
+      // (A past-limit face taken whose edges aren't all closed once joined: put back, the rest composed again.)
+      if (c) {
+        const users = edgeUsers(model), open = new Set<number>();
+        for (const e of joinEdges(model, c, D).open) for (const f of users.get(e) ?? []) open.add(f);
+        const unmatched = swapped.filter((x) => past.has(x) && open.has(x));
+        if (unmatched.length) {
+          swapped = swapped.filter((x) => !unmatched.includes(x));
+          c = swapped.length ? tidy(composeResults(model, a, b, new Set(swapped)), by) : undefined;
+        }
+      }
+      if (c) {
+        const note = !this.judgeDeviation || judge || !swapped.some((x) => past.has(x)) ? ''
+          : ' (their deviation not judged, no deviation judge set: by area alone)';
         const vc = judgeResult(c, model, D);
         if (compareVerdicts(vc, va) < 0 && compareVerdicts(vc, vb) <= 0) {
           const n = swapped.length, ids = swapped.slice(0, 10).map((x) => `#${x}`).join(', ')
@@ -204,7 +255,7 @@ export class FallbackTessellator implements Tessellator {
           return this.finish({ ...c, backend: `${described(this.primary.info)}, with ${n} ${n === 1 ? 'face' : 'faces'}`
             + ` by ${described(this.fallback.info)}` }, this.primary, req, [{ severity: 'warning', message: `${n} `
             + `${n === 1 ? 'face' : 'faces'} meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
-            + `${why}: ${ids}` }]);
+            + `${why}: ${ids}${note}` }]);
         }
       }
     }

@@ -6,9 +6,10 @@
 // K = c - Y g(c) + (I - Y J)(X - c), Y the inverse of J at the middle c and J the Jacobian's box over X, has every
 // root in X inside it, so K missing X leaves none and K inside X proves exactly one (found by Newton from c). A
 // rectangle not transversal all over is split until its box is within a contact size (1e-6 of the range's 3D size, or
-// tol), a contact; neighbouring contacts are one, a tangency. Planes, and cylinders and cones where the line runs along
-// a generator, answer in closed form (SurfaceImpl::lineClosedForm); a line lying in another kind of surface is a run
-// of contacts that can take the budget.
+// tol), a transversal one Krawczyk's test hasn't settled to 1e-6 of that, a contact; neighbouring contacts are one, a
+// tangency. Planes, and cylinders and cones where the line runs along a generator, answer in closed form
+// (SurfaceImpl::lineClosedForm); a line lying in another kind of surface is a run of contacts that can take the
+// budget.
 #include "cad_geom/surface.h"
 
 #include <algorithm>
@@ -160,13 +161,13 @@ LineIntersection intersectLine(const Surface& s0, Vec3 o, Vec3 d, Range tr, Rang
     const bool ok = s.derivBox(A, B, 0, 0, b0) == Status::ok && pieceBox(Ai, Bi, 1, 0, bu)
       && pieceBox(Ai, Bi, 0, 1, bv);
     if (ok && !meets(b0)) continue;
+    bool transversal = false;
     if (ok) {
       // Transversal all over: |ud . N| >= kLineMargin |N| for every N in the normal's box.
       const Box3 N = crossBox(bu, bv);
       const Interval dn = dotBox(UD, N);
       const double nMax = boxNorm(N);
-      const bool transversal = (dn.lo > 0 || dn.hi < 0)
-        && minNum(std::fabs(dn.lo), std::fabs(dn.hi)) >= kLineMargin * nMax;
+      transversal = (dn.lo > 0 || dn.hi < 0) && minNum(std::fabs(dn.lo), std::fabs(dn.hi)) >= kLineMargin * nMax;
       if (transversal) {
         // Krawczyk: J's box over X, Y = J(c)^-1, K = c - Y g(c) + (I - Y J)(X - c).
         Vec3 p[kPartials];
@@ -219,11 +220,15 @@ LineIntersection intersectLine(const Surface& s0, Vec3 o, Vec3 d, Range tr, Rang
         }
       }
     }
-    // Unresolved: a contact where the box is within tol (or as narrow as its coordinates' rounding), else split.
+    // Unresolved: a contact where the box is within the contact size (or as narrow as its coordinates' rounding),
+    // else split. A transversal rectangle is split on to 1e-6 of that size: it holds one root at most, and Krawczyk's
+    // test settles it once the rectangle is small against the surface's curvature (a crossing on a surface curved
+    // within a few tol, a small cylinder's, else a tangency a ray can't count); the floor ends a root Krawczyk can't
+    // prove, on the range's side (where a coordinate of 0 is never thin), in a few dozen splits.
     const double diam = ok ? diameter(b0) : kInf;
     const bool thin = wu <= 4 * kEps * maxNum(std::fabs(A.lo), std::fabs(A.hi))
       && wv <= 4 * kEps * maxNum(std::fabs(B.lo), std::fabs(B.hi));
-    if ((ok && diam <= contactSize) || thin) {
+    if ((ok && diam <= (transversal ? 1e-6 * contactSize : contactSize)) || thin) {
       // Its point nearest the line, of the middle and corners.
       Contact best{0, c, {}};
       double bd = kInf;

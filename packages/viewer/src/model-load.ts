@@ -328,17 +328,25 @@ export async function healIn(scene: Scene, settings: Partial<TessellationSetting
     const key = healingOf(settings), was = healings.get(scene);
     if ((was?.key ?? '') === key) return was?.diagnostics ?? [];
     const before = scene.diagnostics.length;
-    let told = -Infinity;
+    let told = -Infinity, healed = 0, of: number | undefined;
     // (Marked before the first part changes: a cancel or a throw leaves its models part healed.)
     healings.set(scene, { key: PART_HEALED, diagnostics: [] });
     await healScene(scene, { heal: !!key, fixes: settings.healFixes, ...(settings.healFit === undefined ? {}
       : { pcurveFitTolerance: settings.healFit }), concurrency: workers,
       healer: poolHealer(pool, HEAL_MODULE),
       onPart: (done, total) => {
+        healed = done, of = total;
         const t = performance.now();
         if (cancelled() || (done < total && t - told < PROGRESS_MS)) return;
         told = t;
         emit({ type: 'importing', progress: { phase: 'healing', done, total } });
+      },
+      // Where a part's healing is (a slow part says so from within its steps), so a long part isn't silent.
+      progress: (detail) => {
+        const t = performance.now();
+        if (cancelled() || t - told < PROGRESS_MS) return;
+        told = t;
+        emit({ type: 'importing', progress: { phase: 'healing', done: healed, total: of, detail } });
       } });
     // (Kept apart from the scene's own, as healing's.)
     const diagnostics = scene.diagnostics.splice(before);

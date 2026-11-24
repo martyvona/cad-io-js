@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cube } from '../../cad-brep/test/models.ts';
 import { quads, withPoint } from './meshes.ts';
-import { areaOracle, FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures, setAreaOracle,
-  tessellateScene, TS_AREA_ORACLE, type Scene, type TessellationRequest, type TessellationResult, type Tessellator }
-  from '../src/index.ts';
+import { areaOracle, composeResults, FallbackTessellator, judgeResult, openEdgesMessage, oracleAreas, oracleMeasures,
+  setAreaOracle, setDeviationJudge, tessellateScene, TS_AREA_ORACLE, type Scene, type TessellationRequest,
+  type TessellationResult, type Tessellator } from '../src/index.ts';
 
 /** The whole-part rules alone (the per-face fallback off). */
 const whole = { perFace: false };
@@ -54,10 +54,10 @@ const request = (extra: Partial<TessellationRequest> = {}): TessellationRequest 
 
 test('judge: a sound result passes; each problem is counted, ranked and said', () => {
   const ok = judgeResult(sound(), model, 0.01);
-  assert.deepEqual(ok, { ok: true, problems: [], rank: [0, 0, 0, 0, 0, 0] });
+  assert.deepEqual(ok, { ok: true, problems: [], rank: [0, 0, 0, 0, 0, 0, 0] });
   // A face without triangles (whether or not the backend said so: the model's face list tells).
   const gone = judgeResult(withoutFace(sound(), 23), model, 0.01);
-  assert.deepEqual(gone, { ok: false, problems: ['1 face without triangles'], rank: [0, 0, 1, 0, 0, 0] });
+  assert.deepEqual(gone, { ok: false, problems: ['1 face without triangles'], rank: [0, 0, 1, 0, 0, 0, 0] });
   const left = { ...sound(), faces: sound().faces.filter((f) => f.entityId !== 23) };
   assert.deepEqual(judgeResult(left, model, 0.01), gone);
   // Wrong by its measures (without the oracle: an empty one): short (partly) and over (excess); unverified (no valid
@@ -105,16 +105,16 @@ test('judge: a sound result passes; each problem is counted, ranked and said', (
     { severity: 'error' as const, message: 'something else' },
     { severity: 'warning' as const, message: 'a warning' }] };
   assert.deepEqual(judgeResult(open, model, 0.01), { ok: false, problems: ['open along 3 edges', 'something else'],
-    rank: [0, 0, 0, 0, 3, 1] });
+    rank: [0, 0, 0, 0, 3, 0, 1] });
   // "Faces failed to mesh" is counted by the faces, not again as an error.
   const said = { ...withoutFace(sound(), 23), diagnostics: [{ severity: 'error' as const,
     message: '1 faces failed to mesh' }] };
-  assert.deepEqual(judgeResult(said, model, 0.01).rank, [0, 0, 1, 0, 0, 0]);
+  assert.deepEqual(judgeResult(said, model, 0.01).rank, [0, 0, 1, 0, 0, 0, 0]);
   // A failed part, and a request that threw: worse than any count, the throw worst.
   const failed = judgeResult(failedPart(), model, 0.01);
-  assert.deepEqual(failed, { ok: false, problems: ['OCCT: it broke'], rank: [0, 1, 0, 0, 0, 0] });
+  assert.deepEqual(failed, { ok: false, problems: ['OCCT: it broke'], rank: [0, 1, 0, 0, 0, 0, 0] });
   assert.deepEqual(judgeResult(new Error('timed out'), model, 0.01),
-    { ok: false, problems: ['failed: timed out'], rank: [1, 0, 0, 0, 0, 0] });
+    { ok: false, problems: ['failed: timed out'], rank: [1, 0, 0, 0, 0, 0, 0] });
   // Without measures or the oracle's, only faces without triangles; without the model, only the result's own faces.
   assert.ok(judgeResult({ ...sound(), measures: undefined, oracle: undefined }, model, 0.01, new Map()).ok);
   assert.ok(judgeResult({ ...left, measures: undefined, oracle: undefined }, undefined, 0.01).ok);
@@ -346,7 +346,7 @@ test('per face: the face a join can\'t close an edge for, the fallback\'s; its f
   const req = request({ linearDeflection: 0.04 });
   const off = () => ({ ...sound(), ...quads(model, { face: 23, corner: 0, by: [0, 0, 0.05] }),
     measures: sound().measures, diagnostics: [{ severity: 'error' as const, message: openEdgesMessage(2) }] });
-  assert.deepEqual(judgeResult(off(), model, 0.04).rank, [0, 0, 0, 0, 2, 0]);
+  assert.deepEqual(judgeResult(off(), model, 0.04).rank, [0, 0, 0, 0, 2, 0, 0]);
   const t = new FallbackTessellator(fake('a', off), fake('b', sound));
   await t.init();
   assert.equal((await t.tessellate(req)).backend, 'a 1, with 1 face by b 1');
@@ -381,10 +381,92 @@ test('per face: not a face the fallback meshes wrongly too; not a mix worse than
   assert.equal((await u.tessellate(req)).backend, 'a 1');
 });
 
+test('per face: a face the primary kept past its limits the fallback\'s where matched at its edges, and with '
+  + 'judgeDeviation within d by the judge (off by default: trusted); else the primary\'s, its defect kept; a manifold '
+  + 'defect after edges open', async () => {
+  const D = 0.01;
+  const kept = (pastLimits = true) => ({ ...sound(),
+    defects: [{ entityId: 23, pastLimits, what: '20 triangles turned' }] });
+  const v = judgeResult(kept(), model, D);
+  assert.deepEqual(v.rank, [0, 0, 0, 0, 0, 1, 0]);
+  assert.deepEqual(v.problems, ['1 face kept with a defect past the backend\'s limits']);
+  // Within its limits: no problem, the fallback not asked.
+  assert.ok(judgeResult(kept(false), model, D).ok);
+  const run = async (b: () => TessellationResult, pastLimits = true, judgeDeviation = true) => {
+    const fb = fake('b', b);
+    const t = new FallbackTessellator(fake('a', () => kept(pastLimits)), fb, { judgeDeviation });
+    await t.init();
+    return { r: await t.tessellate(request()), asked: fb.seen.length };
+  };
+  try {
+    // No judge: the fallback's face by area alone, said.
+    setDeviationJudge(undefined);
+    const none = (await run(sound)).r;
+    assert.equal(none.backend, 'a 1, with 1 face by b 1');
+    assert.match(none.diagnostics[0]!.message,
+      /: #23 \(their deviation not judged, no deviation judge set: by area alone\)$/);
+    assert.equal(none.defects, undefined);
+    // The judge puts the fallback's face within d: taken, nothing more said.
+    const seen: number[] = [];
+    setDeviationJudge({ name: 'test', worst: (_m, _r, face) => { seen.push(face); return 0.5 * D; } });
+    const near = (await run(sound)).r;
+    assert.equal(near.backend, 'a 1, with 1 face by b 1');
+    assert.match(near.diagnostics[0]!.message, /: #23$/);
+    assert.deepEqual(seen, [23]);
+    // Past d: the primary's kept, its defect said in `defects`; not the fallback's whole mesh either (a tie).
+    setDeviationJudge({ name: 'test', worst: () => 2 * D });
+    const far = (await run(sound)).r;
+    assert.equal(far.backend, 'a 1');
+    assert.deepEqual(far.defects, [{ entityId: 23, pastLimits: true, what: '20 triangles turned' }]);
+    // judgeDeviation off (the default): the judge not asked, the fallback's face taken, nothing said of it.
+    seen.length = 0;
+    setDeviationJudge({ name: 'test', worst: (_m, _r, face) => { seen.push(face); return 2 * D; } });
+    const trusted = (await run(sound, true, false)).r;
+    assert.equal(trusted.backend, 'a 1, with 1 face by b 1');
+    assert.match(trusted.diagnostics[0]!.message, /: #23$/);
+    assert.deepEqual(seen, []);
+    // Within d but not matched: the fallback's face 23 lifted 0.05 off its plane whole (its area the same), so no
+    // join closes its edges: put back; the fallback's whole mesh, open there, worse than a manifold defect.
+    setDeviationJudge({ name: 'test', worst: () => 0 });
+    const lifted = () => {
+      const s = sound(), f = s.faces.find((x) => x.entityId === 23)!, positions = s.positions.slice();
+      for (let k = f.start; k < f.start + f.count; k++) positions[3 * s.indices[k]! + 2]! += 0.05;
+      return { ...s, positions }; };
+    const off = (await run(lifted)).r;
+    assert.equal(off.backend, 'a 1');
+    assert.deepEqual(off.defects?.map((x) => x.entityId), [23]);
+    // The primary also without face 22: the fallback's 22 taken, its unmatched 23 put back (the mix with both, 22 no
+    // longer missing, would beat the primary's mesh by its count of faces missing).
+    const both = new FallbackTessellator(fake('a', () => ({ ...withoutFace(kept(), 22) })), fake('b', lifted),
+      { judgeDeviation: true });
+    await both.init();
+    const mix = await both.tessellate(request());
+    assert.equal(mix.backend, 'a 1, with 1 face by b 1');
+    assert.match(mix.diagnostics[0]!.message, /: #22$/);
+    assert.deepEqual(mix.defects?.map((x) => x.entityId), [23]);
+    // Kept within its limits: the primary's alone, the fallback not asked.
+    const within = await run(sound, false);
+    assert.equal(within.r.backend, 'a 1');
+    assert.equal(within.asked, 0);
+  } finally {
+    setDeviationJudge(undefined);
+  }
+});
+
+test('composeResults: the defects the first\'s on its faces, the second\'s on the faces taken from it', () => {
+  const a = { ...sound(), defects: [{ entityId: 23, pastLimits: true, what: 'x' }, { entityId: 24, pastLimits: false,
+    what: 'y' }] };
+  const b = { ...sound(), defects: [{ entityId: 23, pastLimits: false, what: 'z' }, { entityId: 25, pastLimits: true,
+    what: 'w' }] };
+  assert.deepEqual(composeResults(model, a, b, new Set([23])).defects, [{ entityId: 24, pastLimits: false, what: 'y' },
+    { entityId: 23, pastLimits: false, what: 'z' }]);
+  assert.equal(composeResults(model, { ...a, defects: [a.defects[0]!] }, sound(), new Set([23])).defects, undefined);
+});
+
 test('judge: a face without triangles is failed however small (faceFailures doesn\'t judge faces under d^2)', () => {
   // Face 23 (area 1) left out, judged at a deflection of 2: under the deflection squared, failed all the same.
-  assert.deepEqual(judgeResult(withoutFace(sound(), 23), model, 2).rank, [0, 0, 1, 0, 0, 0]);
+  assert.deepEqual(judgeResult(withoutFace(sound(), 23), model, 2).rank, [0, 0, 1, 0, 0, 0, 0]);
   // A face the result has no range for at all: the same.
   const left = { ...sound(), faces: sound().faces.filter((f) => f.entityId !== 23) };
-  assert.deepEqual(judgeResult(left, model, 2).rank, [0, 0, 1, 0, 0, 0]);
+  assert.deepEqual(judgeResult(left, model, 2).rank, [0, 0, 1, 0, 0, 0, 0]);
 });

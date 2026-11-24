@@ -136,8 +136,8 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
       }
     }, () => false);
     // The import's phases first, in order, before the scene (each told as it begins, and again only after
-    // PROGRESS_MS within it: how often depends on the machine's speed).
-    assert.deepEqual([...new Set(told)], ['reading', 'structure', 'parts', 'assembly']);
+    // PROGRESS_MS within it: how often depends on the machine's speed), then healing's (on by default).
+    assert.deepEqual([...new Set(told)], ['reading', 'structure', 'parts', 'assembly', 'healing']);
     assert.deepEqual(events.map((e) => e.type), ['scene', ...requests.map(() => 'mesh'), 'done']);
     assert.equal(requests.length, 5);
     const scene = (events[0] as { scene: Scene }).scene;

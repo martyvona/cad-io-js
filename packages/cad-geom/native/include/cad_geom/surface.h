@@ -153,10 +153,17 @@ struct SurfaceFoot {
  * distance is wanted, within eps = 1e-3 tol of the true one (a rectangle is dropped once its lower bound is past the
  * nearest found less eps, not kept while it could hold a foot within tol of it): uv and foot are a point at that
  * distance, certainty none and no alternatives, no seam or singularity flags; noConvergence where the budget ran out
- * with a rectangle that could hold a point nearer by eps.
+ * with a rectangle that could hold a point nearer by eps. `untilAmbiguous`: the search stops once it holds two points
+ * of s within tol of p more than tol apart, the result made from every point it found by then (status ok; its feet by
+ * the rule above, ambiguous or not as they cluster): where every point within tol of p lies within 2 tol of one, the
+ * whole search may cluster them otherwise, its foot and certainty then differing. Meanwhile each rectangle that could
+ * hold a point within tol of p offers its local minimum to that test (kept apart from the candidates until the search
+ * stops, so a search that doesn't is the whole search, bit for bit), so such points turn up long before the rectangles
+ * are tiny. (On a surface nearly folded flat, where a long strip of the domain maps within tol of p, certifying every
+ * foot there was most of a projection's time.)
  */
 SurfaceInversion invertSurface(const Surface& s, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint = nullptr,
-  std::vector<SurfaceFoot>* all = nullptr, bool distanceOnly = false);
+  std::vector<SurfaceFoot>* all = nullptr, bool distanceOnly = false, bool untilAmbiguous = false);
 
 /** A point where a line meets a surface: the line's parameter, the surface's, the point, and d . n there (unit). */
 struct LineHit {

@@ -39,8 +39,8 @@ struct Result {
 };
 Result result;
 bool project = true;
-// PartOptions::maxDeviationFactor and maxPointsPerFace for the next calls.
-double deviationFactor = 1.0;
+// PartOptions::checkDeviation and maxPointsPerFace for the next calls.
+bool checkDeviation = PartOptions{}.checkDeviation;
 int maxPoints = PartOptions{}.maxPointsPerFace;
 // PartOptions::capFloor, capMultiple and capCeiling for the next calls.
 double capFloor = PartOptions{}.capFloor, capMultiple = PartOptions{}.capMultiple,
@@ -92,8 +92,8 @@ int tc_api_version() { return 9; }
 /** Whether the next calls project uses without p-curves (PartOptions::projectMissingPcurves; default 1). */
 void tc_set_project(int on) { project = on != 0; }
 
-/** The next calls' PartOptions::maxDeviationFactor (default 1; 0 or less: never). */
-void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
+/** Whether the next calls check each face's deviation after the rounds (PartOptions::checkDeviation); default 1. */
+void tc_set_check_deviation(int on) { checkDeviation = on != 0; }
 
 /** The next calls' PartOptions::maxPointsPerFace (under 1: each face's cap by capFloor and the rest, the default). */
 void tc_set_max_points(int points) { maxPoints = points > 0 ? points : -1; }
@@ -177,7 +177,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.d.linear = linear;
   opts.d.angular = angular;
   opts.projectMissingPcurves = project;
-  opts.maxDeviationFactor = deviationFactor;
+  opts.checkDeviation = checkDeviation;
   opts.maxPointsPerFace = maxPoints;
   opts.capFloor = capFloor, opts.capMultiple = capMultiple, opts.capCeiling = capCeiling;
   opts.minAngle = minAngle;
@@ -199,7 +199,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense,
     holesOnly;
   std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped, dropped, droppedCount;
-  // (Each face kept with a defect, PartOptions::keepDefects: [id, turned, deviation over max(d, tol), capped 0/1].)
+  // (Each face kept with a defect, PartOptions::keepDefects: [id, turned, deviation over max(d, tol), capped 0/1, past
+  // the limits 0/1].)
   std::string kept = "[";
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
@@ -281,8 +282,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.splitsDropped) dropped.push_back(faceId[f]), droppedCount.push_back(fm.splitsDropped);
       if (fm.defectTurned || fm.defectDeviation > 0 || fm.defectCapped) {
         char row[96];
-        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d]", kept.size() > 1 ? "," : "", faceId[f], fm.defectTurned,
-          fm.defectDeviation, fm.defectCapped ? 1 : 0);
+        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d,%d]", kept.size() > 1 ? "," : "", faceId[f], fm.defectTurned,
+          fm.defectDeviation, fm.defectCapped ? 1 : 0, fm.defectPastLimits ? 1 : 0);
         kept += row;
       }
       if (fm.sampled) sampled.push_back(faceId[f]);
@@ -429,7 +430,8 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * refinement asked for a split of a segment that is no edge's, crease's or ring's, and how many requests:
  * FaceMesh::splitsDropped; none expected), "capped" (the faces failed for refinement stopped at the
  * point cap: FaceMesh::capped), "kept" (the faces kept with a defect, PartOptions::keepDefects: [face id, triangles
- * turned, measured deviation over max(d, tol) where past the limit else 0, 1 if at its point cap] each), "poles"
+ * turned, measured deviation over max(d, tol) where past the limit else 0, 1 if at its point cap, 1 if past the
+ * keep limits] each), "poles"
  * (with tc_set_list_poles, every face's singularities as its closed surface has them, 5 numbers each [face id,
  * cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
  * tc_set_count_expected, each face's [face id, triangles its size metric expects: FaceMesh::expectedTriangles,

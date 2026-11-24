@@ -1765,10 +1765,15 @@ export function affineFeetOff(): BrepBuilder {
  * z = 0.5 |u - 0.5| (a slope of 0.05 either side), rounded between knots 0.5 -/+ h of multiplicity 2 (C1 there, its
  * second partial up to about 1 / h between them); its other parameter linear, x = 10 u, y = 10 v. With `quadratic`,
  * of degree 2 across the crease and its knots simple, its second partial between them exactly 1 / (2 h). With `run`,
- * cubic with simple knots 0.5 + h x (-2, -1, 0, 1, 2): rounded over a run of four spans h wide. Bounded by its four
- * sides, the creased ones B-splines of its own knots.
+ * cubic with simple knots 0.5 + h x (-2, -1, 0, 1, 2): rounded over a run of four spans h wide. With `bump` (and
+ * `run`), flat instead but for its middle pole raised by `bump`: a ripple over the run, sharply curved inside it and
+ * level either side. `shape` stretches it along the crease (`along` x 10 long), shears it (the crease's position
+ * moving `shear` x 10 across over its length) and with `vary` scales its z by 0.25 to 1 along the crease, so the bend
+ * differs line by line. Bounded by its four sides, the creased ones B-splines of its own knots.
  */
-export function kinkStrip(inV = false, quadratic = false, h = 5e-5, run = false): BrepBuilder {
+export function kinkStrip(inV = false, quadratic = false, h = 5e-5, run = false, bump = 0,
+  shape: { along?: number; shear?: number; vary?: boolean } = {}): BrepBuilder {
+  const { along = 1, shear = 0, vary = false } = shape;
   const b = new BrepBuilder();
   const deg = quadratic ? 2 : 3, inner = quadratic || run ? 1 : 2;
   const knots = run ? [0, 0.5 - 2 * h, 0.5 - h, 0.5, 0.5 + h, 0.5 + 2 * h, 1] : [0, 0.5 - h, 0.5 + h, 1];
@@ -1776,10 +1781,16 @@ export function kinkStrip(inV = false, quadratic = false, h = 5e-5, run = false)
   const ks = knots.flatMap((k, i) => Array<number>(mults[i]!).fill(k));
   // (Poles at the Greville abscissae, so that the parameter is linear in x and the V exact outside the knots.)
   const g = ks.slice(0, ks.length - deg - 1).map((_, i) => ks.slice(i + 1, i + 1 + deg).reduce((a, x) => a + x) / deg);
-  const z = (t: number) => 0.5 * Math.abs(t - 0.5);
+  const z = (t: number) => (bump ? 0 : 0.5 * Math.abs(t - 0.5));
   const lin = [0, 1 / 3, 2 / 3, 1];
-  const at = (u: number, v: number) => [10 * u, 10 * v, z(inV ? v : u)];
-  const poles = (inV ? lin : g).map((u) => (inV ? g : lin).map((v) => at(u, v)));
+  const at = (u: number, v: number) => {
+    const t = inV ? v : u, w = inV ? u : v, X = 10 * t + 10 * shear * w, Y = 10 * along * w;
+    const Z = z(t) * (vary ? 0.25 + 0.75 * w : 1);
+    return inV ? [Y, X, Z] : [X, Y, Z];
+  };
+  // (The ripple's pole: the middle one across the run, its Greville abscissa 0.5.)
+  const up = (t: number, p: number[]) => (bump && Math.abs(t - 0.5) < 1e-12 ? [p[0]!, p[1]!, p[2]! + bump] : p);
+  const poles = (inV ? lin : g).map((u) => (inV ? g : lin).map((v) => up(inV ? v : u, at(u, v))));
   const s = b.addSurface({ kind: 'bspline', uDegree: inV ? 3 : deg, vDegree: inV ? deg : 3,
     uKnots: inV ? [0, 1] : knots, vKnots: inV ? knots : [0, 1], uMultiplicities: inV ? [4, 4] : mults,
     vMultiplicities: inV ? mults : [4, 4], poles,
@@ -1791,13 +1802,15 @@ export function kinkStrip(inV = false, quadratic = false, h = 5e-5, run = false)
     // (A side across the crease: its poles the surface's along it from a to c, backwards where the side runs back;
     // the knots symmetric, so the same knots either way.)
     const creased = inV ? du === 0 : dv === 0;
+    // (A side along it: straight, the surface linear along the crease.)
+    const p0 = at(a[0]!, a[1]!), p1 = at(c[0]!, c[1]!), len = Math.hypot(...p1.map((x, i) => x - p0[i]!));
     const curve = creased
       ? b.addCurve({ kind: 'bspline', degree: deg, knots, multiplicities: mults, closed: false, selfIntersect: false,
-        form: 'unspecified', poles: g.map((t) => at(a[0]! + du * t, a[1]! + dv * t)) })
-      : b.addCurve({ kind: 'line', point: at(a[0]!, a[1]!), direction: [du, dv, 0], magnitude: 1 });
+        form: 'unspecified', poles: g.map((t) => up(t, at(a[0]! + du * t, a[1]! + dv * t))) })
+      : b.addCurve({ kind: 'line', point: p0, direction: p1.map((x, i) => (x - p0[i]!) / len), magnitude: 1 });
     const edge = b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true,
-      range: creased ? [0, 1] : [0, 10] });
-    const pcurve = b.addCurve({ kind: 'line', point: a, direction: [du, dv], magnitude: creased ? 1 : 0.1 });
+      range: creased ? [0, 1] : [0, len] });
+    const pcurve = b.addCurve({ kind: 'line', point: a, direction: [du, dv], magnitude: creased ? 1 : 1 / len });
     return { edge, orientation: 'forward' as const, pcurve };
   });
   sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
@@ -2331,6 +2344,10 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
   kinkStripQuadratic: () => kinkStrip(false, true), kinkStripRun: () => kinkStrip(false, false, 0.004, true),
+  kinkStripRunShaped: () => kinkStrip(false, false, 0.004, true, 0, { along: 2, shear: 0.3, vary: true }),
+  kinkStripRunShapedV: () => kinkStrip(true, false, 0.004, true, 0, { along: 2, shear: 0.3, vary: true }),
+  rippleRun: () => kinkStrip(false, false, 0.004, true, 0.002), rippleRunV: () => kinkStrip(true, false, 0.004, true,
+    0.002),
   affineFeetOff, plateHoles,
   bsplineApexHole, offPoleArcLoose, loopless, looplessBsplines, bsplineBall: () => bsplineBall(),
   bsplineBallNoisy: () => bsplineBall(3e-6), bsplineBallV: () => bsplineBall(0, true),

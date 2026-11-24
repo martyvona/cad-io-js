@@ -9,10 +9,10 @@ import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
 
 /**
- * `a` with the faces `faces` (by id) meshed as in `b`: their triangles, measures and edges' polylines `b`'s (an edge
- * only these faces use `b`'s, else `a`'s where it has one), the rest `a`'s; both results for the same request (one
- * origin). Normals where both have them. Its diagnostics: `a`'s but its errors for faces that failed and open edges,
- * which are made again for the composite (open edges by openEdges, not yet joined).
+ * `a` with the faces `faces` (by id) meshed as in `b`: their triangles, measures, defects and edges' polylines `b`'s
+ * (an edge only these faces use `b`'s, else `a`'s where it has one), the rest `a`'s; both results for the same request
+ * (one origin). Normals where both have them. Its diagnostics: `a`'s but its errors for faces that failed and open
+ * edges, which are made again for the composite (open edges by openEdges, not yet joined).
  */
 export function composeResults(d: BrepData, a: TessellationResult, b: TessellationResult,
   faces: ReadonlySet<number>): TessellationResult {
@@ -61,6 +61,11 @@ export function composeResults(d: BrepData, a: TessellationResult, b: Tessellati
     ...(a.edges || b.edges ? { edges, edgePositions: Float32Array.from(ep) } : {}),
     ...(a.measures || b.measures ? { measures } : {}), diagnostics: [] };
   if (a.outlines) out.outlines = a.outlines.filter((o) => o.entityId === null || !faces.has(o.entityId));
+  // (The defects a backend kept faces with: a's on its faces, b's on the faces taken from it.)
+  const defects = [...(a.defects ?? []).filter((x) => !faces.has(x.entityId)),
+    ...(b.defects ?? []).filter((x) => faces.has(x.entityId))];
+  if (defects.length) out.defects = defects;
+  else delete out.defects;
   // The diagnostics: a's, but its failed faces and open edges told again.
   const kept: Diagnostic[] = a.diagnostics.filter((x) => !(x.severity === 'error'
     && (/^\d+ faces failed to mesh/.test(x.message) || openEdgesCount([x]))));

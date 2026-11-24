@@ -34,8 +34,8 @@ inline double refinementFloor(double partTolerance, double deflection) {
 
 /**
  * A facet (its corners' cross product) turned against a normal: past 90 degrees from it, however little. The
- * criteria refuse a facet so against any corner's normal (below the refinement floor too); PartMesher fails a face
- * whose triangle is so against its corners' mean normal (PartOptions::failTurnedOver).
+ * criteria refuse a facet so against any corner's normal (above the refinement floor; below it a pole's fans only);
+ * PartMesher fails a face whose triangle is so against its corners' mean normal (PartOptions::failTurnedOver).
  */
 inline bool facetAgainst(cadgeom::Vec3 facet, cadgeom::Vec3 normal) { return cadgeom::dot(facet, normal) < 0; }
 
@@ -118,7 +118,7 @@ public:
    * An upper bound on how far the flat triangle on the surface's points at its corners strays from the surface (a
    * sphere's or a distance function's closed form, else the derivative bounds over its (u, v) box, or with `pieces`
    * over its pieces, tighter and dearer, as accept() has them); false where there is none (the surface's kind
-   * sampled, a bound failing, a corner not evaluated). For PartOptions::maxDeviationFactor's check, which measures
+   * sampled, a bound failing, a corner not evaluated). For PartOptions::checkDeviation's check, which measures
    * only where this doesn't settle it.
    */
   virtual bool deviationBound(const cadgeom::Vec2 tri[3], double& out, bool pieces = true) const = 0;
