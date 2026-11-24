@@ -19,6 +19,8 @@
 //               must be counted failed by ours ("not in our diagnostics") and as a hole after the fallback
 //   PLANT=part  each file's first part with faces left without a mesh after the chain: it must be counted among the
 //     parts with faces and no triangles.
+//   PLANT=curves  each file's first part with loose curves (curve items, wire bodies) left without its curves after
+//     the chain: it must be counted among the parts whose curves no backend delivers.
 //   PLANT=kept  each file's first part's first face ours meshes said kept with 3 triangles turned in ours's result: it
 //               must be counted kept (turned), not failed, and not a hole
 // (progress on standard error)
@@ -27,7 +29,7 @@ import zlib from 'node:zlib';
 import type { Mesh, TessellationProgress, TessellationRequest, TessellationResult, Tessellator } from
   '../packages/cad-scene/src/index.ts';
 import { FallbackTessellator, MESH_PROFILES, tessellateScene } from '../packages/cad-scene/src/index.ts';
-import { decode } from '../packages/cad-brep/src/index.ts';
+import { BODY_KIND, type BrepData, decode, ITEM_KIND } from '../packages/cad-brep/src/index.ts';
 import { poolHealer } from '../packages/cad-heal/src/index.ts';
 import { healImported, importStep } from '../packages/step-import/src/index.ts';
 import { WorkerTessellator } from '../packages/tess-workers/src/node.ts';
@@ -124,6 +126,24 @@ const total = counts(), perFile = new Map<string, Counts>();
 const listed: string[] = [], keptListed: string[] = [];
 /** Parts the chain gives no triangles: with no faces (wireframe-only, empty) by representation, and with faces. */
 const noFaces = new Map<string, number>(), noTriangles: string[] = [];
+/**
+ * Parts with loose items (curve items and wire bodies' edges, point items): how many, and those whose curves or
+ * points the chain's mesh doesn't have (no backend delivered them), listed with what ours gave.
+ */
+let looseParts = 0, curvesPlanted = 0;
+const curvesPlantedIn = new Set<string>();
+const looseMissing: string[] = [];
+/** A part's loose curves (curve items, wire bodies' edges) and point items, as its model has them. */
+function looseItems(d: BrepData): { curves: number; points: number } {
+  let curves = 0, points = 0;
+  for (let i = 0; i < d.item.kind.length; i++) {
+    const k = d.item.kind[i]!, r = d.item.ref[i]!;
+    if (k === ITEM_KIND.curve) curves++;
+    else if (k === ITEM_KIND.point) points++;
+    else if (k === ITEM_KIND.body && d.body.kind[r] === BODY_KIND.wire) curves += d.body.count[r]!;
+  }
+  return { curves, points };
+}
 /** Ours's time per part (the worker thread's CPU where the host gives it, and wall), the slowest kept for the list. */
 const slow: { cpu: number; wall: number; what: string }[] = [];
 let ourCpu = 0;
@@ -152,6 +172,21 @@ for (const f of corpusFiles(process.argv[2] ?? 'test_corpus/models.txt')) {
     const d = p.brep.model;
     const r = ours.results.get(d.buffer);
     const mesh: Mesh | undefined = PLANT === 'part' && i === firstWithFaces(scene) ? undefined : res.meshes.get(i);
+    const loose = looseItems(d);
+    if (loose.curves || loose.points) {
+      looseParts++;
+      let curves = mesh?.curves?.length ?? 0;
+      if (PLANT === 'curves' && loose.curves && !curvesPlantedIn.has(name)) {
+        curvesPlantedIn.add(name), curvesPlanted++, curves = 0;
+      }
+      const points = (mesh?.points?.length ?? 0) / 3;
+      if ((loose.curves && !curves) || (loose.points && !points)) {
+        const o = r && !(r instanceof Error) ? `ours ${r.curves?.length ?? 0} polylines, ${r.pointIds?.length ?? 0} `
+          + 'points' : 'ours failed';
+        looseMissing.push(`${name}\t#${p.sources[0]!.id}\t${loose.curves} curves, ${loose.points} points; `
+          + `delivered ${curves} polylines, ${points} points; ${o}`);
+      }
+    }
     if (!mesh || !mesh.indices.length) {
       if (!d.face.surface.length) {
         const rep = String(p.properties?.representation ?? 'unknown representation');
@@ -246,6 +281,9 @@ console.log(`\nparts the chain gives no triangles: with faces ${noTriangles.leng
   + `${[...noFaces.values()].reduce((a, b) => a + b, 0)} (${[...noFaces].map(([k, v]) => `${k} ${v}`).join(', ')
   || 'none'})`);
 for (const l of noTriangles) console.log(`  ${l}`);
+console.log(`\nparts with loose curves or points (curve items, wire bodies, point items): ${looseParts}; `
+  + `whose curves or points no backend delivers: ${looseMissing.length}`);
+for (const l of looseMissing) console.log(`  ${l}`);
 console.log(`\nours's time, CPU (the worker thread's) summed over parts: ${(ourCpu / 1000).toFixed(1)} s; the slowest `
   + 'parts: CPU s, wall s, file, part, faces');
 for (const x of slow) console.log(`  ${(x.cpu / 1000).toFixed(1)}\t${(x.wall / 1000).toFixed(1)}\t${x.what}`);
@@ -264,7 +302,10 @@ console.log('\nevery face ours fails: file, part, face, surface, class: cause, a
 for (const l of listed) console.log(`  ${l}`);
 console.log('\nevery face ours keeps with a defect: file, part, face, surface, defect: as said');
 for (const l of keptListed) console.log(`  ${l}`);
-if (PLANT === 'part') {
+if (PLANT === 'curves') {
+  console.log(`\nPLANT=curves: ${looseMissing.length} parts' curves not delivered, of ${curvesPlanted} planted`);
+  if (!curvesPlanted || looseMissing.length < curvesPlanted) process.exitCode = 1;
+} else if (PLANT === 'part') {
   const n = noTriangles.length;
   console.log(`\nPLANT=part: ${n} parts with faces and no triangles, of ${perFile.size} planted`);
   if (n < perFile.size) process.exitCode = 1;
