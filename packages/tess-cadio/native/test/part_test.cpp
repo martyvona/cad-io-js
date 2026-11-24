@@ -338,8 +338,9 @@ TEST_CASE("a face's notes as flags: a capped refinement is capped, not an unsett
     REQUIRE(fm.status == cadgeom::Status::ok);
     CHECK(fm.capped);
     CHECK(!fm.seamUnsettled);
-    // By default it fails, said so, its triangles dropped.
+    // Failed (without keepDefects, its mesh too far off for it anyway), said so, its triangles dropped.
     o.failCapped = true;
+    o.keepDefects = false;
     PartMesher failed(m, o);
     const FaceMesh& ff = failed.face(1);
     CHECK(ff.status == cadgeom::Status::noConvergence);
@@ -553,6 +554,7 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
     o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
     o.maxSplitRounds = 0;
     o.maxDeviationFactor = 0;
+    o.keepDefects = false;  // (the strict verdict; keepDefects' own case below)
     PartMesher keep(m, o);
     const FaceMesh& k = keep.face(c.face);
     REQUIRE(k.status == cadgeom::Status::ok);
@@ -642,6 +644,89 @@ TEST_CASE("a face left past its deflection fails past maxDeviationFactor x max(d
   CHECK(pm.face(1).rejected.empty());
 }
 
+TEST_CASE("keepDefects (the default): a face past its deflection kept within keepDeviation x max(d, tol), its measure "
+  "recorded, failed past it; one turned triangle kept within keepTurned, failed past it; a capped face kept where its "
+  "mesh passes both, failed where it doesn't") {
+  {
+    // spheres' hemisphere meshed from its boundary alone (as the strict case above): W its worst, past d.
+    cadgeom::Model m = load("spheres");
+    REQUIRE(m.ok());
+    PartOptions o = options(0.1, 0.26);
+    o.maxPointsPerFace = 0, o.failCapped = false, o.failTurnedOver = false, o.maxSplitRounds = 0;
+    o.maxDeviationFactor = 0;
+    PartMesher plain(m, o);
+    const FaceMesh& k = plain.face(1);
+    REQUIRE(k.status == cadgeom::Status::ok);
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(1), st);
+    const cadgeom::SurfaceDomain D = s->domain();
+    double W = 0;
+    for (int32_t t : k.rejected)
+      for (int i = 0; i <= 4; i++)
+        for (int j = 0; i + j <= 4; j++) {
+          if (i == 4 || j == 4 || i + j == 0) continue;
+          Vec3 x = (i / 4.0) * k.points[k.triangles[3 * t]] + (j / 4.0) * k.points[k.triangles[3 * t + 1]] +
+            ((4 - i - j) / 4.0) * k.points[k.triangles[3 * t + 2]];
+          cadgeom::SurfaceInversion inv = cadgeom::invertSurface(*s, x, D.u, D.v, 1e-8);
+          if (inv.status == cadgeom::Status::ok) W = std::fmax(W, inv.distance);
+        }
+    const double base = std::fmax(0.1, cadgeom::Tolerances(m).face(1));
+    REQUIRE(W > base);
+    o.maxDeviationFactor = 1;
+    o.keepDeviation = 1.5 * W / base;
+    PartMesher kept(m, o);
+    const FaceMesh& fk = kept.face(1);
+    CHECK(fk.status == cadgeom::Status::ok);
+    // (The lattice's worst, measured on to the keep limit: W itself, its points the same, within the inversion's
+    // tolerance.)
+    if (!(std::fabs(fk.defectDeviation - W / base) <= 1e-6 * W / base))
+      std::printf("  kept at %g x, W %g x\n", fk.defectDeviation, W / base);
+    CHECK(std::fabs(fk.defectDeviation - W / base) <= 1e-6 * W / base);
+    CHECK_EQ(fk.defectTurned, 0);
+    CHECK(!fk.defectCapped);
+    o.keepDeviation = 0.75 * W / base;
+    PartMesher failed(m, o);
+    CHECK(failed.face(1).status == cadgeom::Status::noConvergence);
+    CHECK(failed.face(1).cause.find("past its deflection") != std::string::npos);
+    CHECK_EQ(failed.face(1).defectDeviation, 0);
+    // A capped face (20 points), its mesh far past d: failed at keepDeviation's default, kept past it.
+    PartOptions c = options(1e-3, 0.26);
+    c.maxPointsPerFace = 20;
+    PartMesher cf(m, c);
+    CHECK(cf.face(1).status == cadgeom::Status::noConvergence);
+    // (Its cause led by the cap's: a capped face, failed for its mesh's deviation.)
+    CHECK(cf.face(1).cause.rfind("refinement stopped at its point cap, ", 0) == 0);
+    CHECK(cf.face(1).cause.find(", and meshed past its deflection") != std::string::npos);
+    c.keepDeviation = 1e9;
+    PartMesher ck(m, c);
+    CHECK(ck.face(1).status == cadgeom::Status::ok);
+    CHECK(ck.face(1).capped);
+    CHECK(ck.face(1).defectCapped);
+    CHECK(ck.face(1).defectDeviation > 1);
+  }
+  {
+    // cornerFoldTight without the flip: one triangle turned as shipped; kept, said; failed at keepTurned 0, and at a
+    // turned area share of 0.
+    cadgeom::Model m = load("cornerFoldTight");
+    REQUIRE(m.ok());
+    PartOptions o = options(1, 0.26);
+    o.flipTurned = false;
+    PartMesher a(m, o);
+    CHECK(a.face(0).status == cadgeom::Status::ok);
+    CHECK_EQ(a.face(0).defectTurned, 1);
+    o.keepTurned = 0;
+    PartMesher b(m, o);
+    CHECK(b.face(0).status == cadgeom::Status::noConvergence);
+    CHECK(b.face(0).cause.find("turned against its surface") != std::string::npos);
+    o.keepTurned = 16, o.keepTurnedShare = 0;
+    PartMesher c(m, o);
+    CHECK(c.face(0).status == cadgeom::Status::noConvergence);
+    o.keepTurnedShare = 0.01, o.keepDefects = false;
+    PartMesher d(m, o);
+    CHECK(d.face(0).status == cadgeom::Status::noConvergence);
+  }
+}
+
 TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's tolerance): the same mesh past d kept within "
   "its tolerance, failed under it; a part's uncertainty counts alike; the limit named in the cause") {
   // spheres' hemisphere at 0.1 mm, no Steiner points, no split rounds: its refused triangles some 1.7 x d off (W).
@@ -664,6 +749,7 @@ TEST_CASE("maxDeviationFactor's limit is the factor x max(d, the face's toleranc
   o.failCapped = false;  // (capped at none on purpose: the boundary's own triangles)
   o.maxSplitRounds = 0;
   o.failTurnedOver = false;  // (meshed with no Steiner points, turned-over triangles kept: the deviation alone)
+  o.keepDefects = false;  // (the strict verdict; keepDefects' own case below)
   const double F = PartOptions{}.maxDeviationFactor;
   auto worst = [&](const cadgeom::Model& m, const FaceMesh& k) {
     cadgeom::Status st;
@@ -3110,6 +3196,7 @@ TEST_CASE("flipTurned (the default): a triangle turned as shipped flipped with i
     REQUIRE(m.ok());
     PartOptions on = options(1, 0.26), off = on;
     off.flipTurned = false;
+    off.keepDefects = false;  // (its one turned triangle a defect it would be kept with)
     PartMesher a(m, on), b(m, off);
     const FaceMesh& fm = a.face(0);
     REQUIRE(fm.status == cadgeom::Status::ok);
@@ -3194,6 +3281,7 @@ TEST_CASE("each face's point cap: max(capFloor, capMultiple x its expected trian
   REQUIRE(bump.ok());
   PartOptions c = options(0.001, 0.26);
   c.capFloor = 1000, c.capMultiple = 1;
+  c.keepDefects = false;
   PartMesher pc(bump, c);
   const FaceMesh& fm = pc.face(0);
   CHECK(fm.status == cadgeom::Status::noConvergence);

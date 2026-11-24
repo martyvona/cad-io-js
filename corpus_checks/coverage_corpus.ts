@@ -9,6 +9,8 @@
 //   - each face without our triangles in a class: beyond repair (input the user has decided is past repair, by its
 //     cause: cadio_causes.ts's beyondRepair), counted apart from our failures and out of their percentage, else a
 //     failure;
+//   - the faces ours meshes kept with a defect (tess-cadio's keepDefects: turned, past d, capped), counted, and by
+//     defect, among the meshed;
 //   - every part and face ours doesn't mesh listed in full at the end, per list (the coverage's record).
 // The references are the raw backends, as smlib_occt.ts runs them: no fallback, join or fill.
 // Usage: node corpus_checks/coverage_corpus.ts [list[,list...]] [max MB, default 1000]   (progress on standard error)
@@ -76,7 +78,7 @@ import { MESH_PROFILES, type Part } from '../packages/cad-scene/src/index.ts';
 import { type BrepData, decode } from '../packages/cad-brep/src/index.ts';
 import { importStep } from '../packages/step-import/src/index.ts';
 import { type RequestTimes, WorkerTessellator } from '../packages/tess-workers/src/node.ts';
-import { BEYOND_REPAIR, beyondRepair, CAUSES_HEAD, failedCauses } from './cadio_causes.ts';
+import { BEYOND_REPAIR, beyondRepair, CAUSES_HEAD, failedCauses, keptDefects } from './cadio_causes.ts';
 import { INSERTED_HEAD, INSERTED_KINDS, ROUNDS_HEAD } from '../packages/tess-cadio/src/index.ts';
 import { corpusFiles, plantedPart, repoDir, shortName } from './corpus.ts';
 import { addInto, division, initAll, runFiles, type FileCheck } from './runner.ts';
@@ -313,6 +315,9 @@ const fresh = () => ({
   // Faces ours gives no triangles whose input is beyond repair (beyondRepair), and by cause with its surface kind.
   beyondRepair: 0,
   beyondCauses: new Map<string, number>(),
+  // Faces ours meshes kept with a defect (tess-cadio's keepDefects), and by defect: turned, past d, capped.
+  kept: 0,
+  keptBy: new Map<string, number>(),
   // Key: our verdict ("ours meshes" or our cause), a tab, the references' column.
   matrix: new Map<string, number>(),
   // The faces ours gives no triangles by class (BEYOND, FAILURE); our failures by cause with its surface kind.
@@ -574,6 +579,12 @@ async function tallyPart(T: Tallies, f: string, name: string, p: Part, times: Re
     if (partFailed) T.unmeshedParts.push(`${where} (${rows} faces): ${ours.status}: ${ours.why}`);
     if (ours.status === OVER) T.capped.push(`${f}\t${p.sources[0]!.id}\t${where}\t${ours.why}`);
     const causes = ours.result ? failedCauses(ours.result) : new Map<number, string>();
+    for (const [id, what] of ours.result ? keptDefects(ours.result) : new Map<number, string>()) {
+      if (!ours.meshed.has(id)) continue;
+      T.kept++;
+      for (const [k, re] of [['turned', /turned/], ['past d', /larger of d/], ['capped', /point cap/]] as const)
+        if (re.test(what)) T.keptBy.set(k, (T.keptBy.get(k) ?? 0) + 1);
+    }
     if (ROUNDS && rows) {
       // Its rounds as said, or (over CPU_MS) at least the last its progress named; its faces still wanting splits.
       const said = ours.result?.diagnostics.find((x) => x.message.startsWith(ROUNDS_HEAD));
@@ -726,6 +737,8 @@ function report(label: string, T: Tallies): void {
   console.log(`  ours: faces beyond repair (input, apart from our failures): ${pct(T.beyondRepair, T.faces)}; by cause `
     + `and surface: ${[...T.beyondCauses].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} ${n}`).join(', ')
     || 'none'}`);
+  console.log(`  ours: faces kept with defects (meshed, counted as meshed): ${pct(T.kept, T.faces)}; by defect: `
+    + `${[...T.keptBy].map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
   // (Our meshed faces as the matrix has them: what's left once failures and beyond repair are taken out, checked
   // below.)
   const meshed = COLUMNS.reduce((a, c) => a + (T.matrix.get(`ours meshes\t${c}`) ?? 0), 0);

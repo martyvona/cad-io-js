@@ -85,6 +85,19 @@ struct PartOptions {
    */
   bool failFoldedFans = true;
   /**
+   * A face that would fail as past its deflection (maxDeviationFactor), turned (failTurnedOver) or at its point cap
+   * (failCapped) is kept, its mesh as meshed (manifold, on its edges' shared samples), its defect recorded
+   * (FaceMesh::defectDeviation, defectTurned, defectCapped), where the defect is small: its refused triangles'
+   * measured deviation at most keepDeviation x max(d, the face's tolerance), and at most keepTurned triangles turned,
+   * their area no more than keepTurnedShare of the face's; a capped face where its mesh passes both. Past them it
+   * fails as without. Folded fans, and every failure before meshing (its boundary, its edges far off, healing's limits), fail
+   * as without.
+   */
+  bool keepDefects = true;
+  double keepDeviation = 2.0;
+  int keepTurned = 16;
+  double keepTurnedShare = 0.01;
+  /**
    * Two rules against such folds, each on by default (off for tests and measuring): `consistentFans`, a fan whose
    * triangles' directions by their normals disagree has every one against the mesher's use of its ring segment;
    * `apexCorners`, at an apex a far end's corner under 1e-3 rad about it from that end is left out (a needle else).
@@ -201,6 +214,14 @@ struct FaceMesh {
    * point found past the limit, a lower bound on the worst; 0 where nothing was measured.
    */
   double worstDeviation = 0;
+  /**
+   * The defects it was kept with (PartOptions::keepDefects), none where it meets every check: its measured deviation
+   * over max(d, tol) where past maxDeviationFactor (a lower bound on the worst, 0 if not past), its turned triangles,
+   * and whether it is at its point cap.
+   */
+  double defectDeviation = 0;
+  int defectTurned = 0;
+  bool defectCapped = false;
   /** Its refused triangles measured for the deviation check, the rest within it by their bound. */
   int deviationMeasured = 0;
   /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
