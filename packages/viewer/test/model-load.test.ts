@@ -5,8 +5,9 @@ import { test } from 'node:test';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator } from 'cad-scene';
-import { edgesOf, importModel, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn, needsEdges, edgeJobs,
-  postable, type ModelEvent, type ModelInput } from '../src/model-load.ts';
+import { edgesOf, handOver, importModel, isLent, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn,
+  needModels, needsEdges, edgeJobs, ownBuffers, postable, takeBack, type ModelEvent, type ModelInput }
+  from '../src/model-load.ts';
 import { exportView, leafParts, pruneView, viewDifferences } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
@@ -22,6 +23,10 @@ const step = path.resolve(import.meta.dirname,
   '../../../test_corpus/third_party/gkv311-opencascade-dataset/step/as1-oc-214-mat.stp');
 const skip = fs.existsSync(step) ? false : 'corpus not fetched';
 const stepInput = (): ModelInput => ({ format: 'step', bytes: new Uint8Array(fs.readFileSync(step)) });
+
+/** The models a run's mesh events handed over, by part (the page's side of model-load.ts's handOver). */
+const handed = (events: readonly ModelEvent[]): [number, ArrayBuffer][] => events.flatMap((e) =>
+  e.type === 'mesh' ? [[e.part, e.model] as [number, ArrayBuffer]] : []);
 
 const firstFace = (data: Uint8Array) => {
   const d = openBrep(data);
@@ -141,8 +146,11 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     // representation's id, not one of the file's faces, so every face of the file counts as failed: outlined from
     // the file); a profile's deflections exactly (not through degrees).
     // (And the edges found from their triangles, as the fake backend gives none: its buffer too.)
-    assert.ok(transfers.slice(1, -1).every((t) => t.length === 4));
+    // (And each part's B-rep model's buffer, handed over to the page with its mesh: its own, to transfer.)
+    assert.ok(transfers.slice(1, -1).every((t) => t.length === 5));
     const meshes = events.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
+    assert.ok(meshes.every((e, k) => e.model.byteLength > 0 && transfers[k + 1]!.includes(e.model)));
+    assert.equal(new Set(meshes.map((e) => e.model)).size, meshes.length);
     assert.ok(meshes.every((e) => e.foundEdges && e.foundEdges.length > 0));
     assert.ok(meshes.every((e) => e.mesh!.faceOutlines!.length > 0 && e.mesh!.faces.length > 1));
     assert.equal(requests[0]!.angularDeflection, MESH_PROFILES.coarse.angularDeflection);
@@ -323,12 +331,20 @@ test('loadModelIn: keep has the scene, its meshes as its parts\' levels once mes
 test('meshModelIn: the scene kept by a load meshed again (Mesh again): a mesh per placed brep part and the end, '
   + 'no scene or import', { skip }, async () => {
   let kept: Scene | undefined;
-  await loadModelIn({ input: stepInput() }, DEFAULT_SETTINGS, 3, fake().tessellation, () => {}, () => false, {},
-    (scene) => { kept = scene; });
+  const loaded: ModelEvent[] = [];
+  await loadModelIn({ input: stepInput() }, DEFAULT_SETTINGS, 3, fake().tessellation, (e) => loaded.push(e),
+    () => false, {}, (scene) => { kept = scene; });
+  // Every placed part's model with the page once meshed: meshing again needs them back first.
+  assert.ok(meshable(kept!).every((i) => isLent(kept!, i)));
+  await assert.rejects(meshModelIn(kept!, DEFAULT_SETTINGS, 3, fake().tessellation, () => {}, () => false),
+    /B-rep models are with the page/);
+  takeBack(kept!, handed(loaded));
+  assert.ok(meshable(kept!).every((i) => !isLent(kept!, i)));
   const { requests, tessellation } = fake();
   const events: ModelEvent[] = [];
   const settings = { ...DEFAULT_SETTINGS, profile: 'custom' as const, angularDeflection: 10 };
   await meshModelIn(kept!, settings, 3, tessellation, (e) => events.push(e), () => false);
+  takeBack(kept!, handed(events));
   assert.deepEqual(events.map((e) => e.type), [...requests.map(() => 'mesh'), 'done']);
   assert.equal(requests.length, 5);
   assert.equal(requests[0]!.angularDeflection, 10 * Math.PI / 180);
@@ -337,15 +353,49 @@ test('meshModelIn: the scene kept by a load meshed again (Mesh again): a mesh pe
   // The end only after `before` (a load's edges found for its file levels): here done 50 ms after the last mesh.
   let release!: () => void;
   const order: string[] = [];
+  const more: ModelEvent[] = [];
   await meshModelIn(kept!, settings, 3, fake().tessellation, (e) => {
+    more.push(e);
     order.push(e.type);
     if (order.filter((t) => t === 'mesh').length === 5 && e.type === 'mesh') setTimeout(release, 50);
   }, () => false, new Promise<void>((r) => { release = () => { order.push('before'); r(); }; }));
   assert.deepEqual(order.slice(-2), ['before', 'done']);
-  // Cancelled at once: nothing.
+  takeBack(kept!, handed(more));
+  // Cancelled at once: nothing, the models kept here.
   const none: ModelEvent[] = [];
   await meshModelIn(kept!, settings, 3, fake().tessellation, (e) => none.push(e), () => true);
   assert.deepEqual(none, []);
+  assert.ok(meshable(kept!).every((i) => !isLent(kept!, i)));
+});
+
+test('handOver and takeBack: one copy, moved; the stand-in throws on any use; outlines made from the model taken '
+  + 'back; parts sharing a buffer given their own', { skip }, async () => {
+  const scene = await importModel(stepInput());
+  const part = meshable(scene)[0]!, brep = scene.parts[part]!.brep!;
+  const before = [...new Uint8Array(brep.model.buffer)].join();
+  const outlined = (s: Scene) => s.parts[part]!.brep!.outline!({ linearDeflection: 0.5, angularDeflection: 0.5 });
+  const want = outlined(scene).outlines.length;
+  assert.ok(want > 0);
+  const buffer = handOver(scene, part);
+  assert.ok(isLent(scene, part));
+  assert.throws(() => brep.model.face, /part \d+'s B-rep model is with the page \(reading face\)/);
+  assert.throws(() => handOver(scene, part), /with the page already/);
+  assert.throws(() => needModels(scene, meshable(scene)), /B-rep models are with the page/);
+  assert.doesNotThrow(() => needModels(scene, meshable(scene).filter((i) => i !== part)));
+  // Back: the same bytes, the outlines from them (the import's closure held the old views).
+  takeBack(scene, [[part, buffer]]);
+  assert.ok(!isLent(scene, part));
+  assert.equal([...new Uint8Array(scene.parts[part]!.brep!.model.buffer)].join(), before);
+  assert.equal(outlined(scene).outlines.length, want);
+  assert.throws(() => takeBack(scene, [[part, buffer]]), /wasn't lent/);
+  // Two parts on one buffer: the second given a copy (a transfer would detach both), its outlines from the copy.
+  const other = scene.parts.findIndex((p, i) => i !== part && p.brep);
+  scene.parts[other]!.brep!.model = scene.parts[part]!.brep!.model;
+  ownBuffers(scene);
+  const [a, b] = [part, other].map((i) => scene.parts[i]!.brep!.model.buffer);
+  assert.notEqual(a, b);
+  assert.equal([...new Uint8Array(b!)].join(), before);
+  assert.ok(scene.parts[other]!.brep!.outline!({ linearDeflection: 0.5, angularDeflection: 0.5 }).outlines.length > 0);
 });
 
 const healInput = async (): Promise<ModelInput> => {
@@ -377,6 +427,7 @@ test('loadModelIn with heal on: the scene first, then healing in the pool (its p
   // What's meshed and kept is healed: every part with an analysis, the meshes from the healed models' bytes.
   assert.ok(kept!.parts.every((p) => p.brep!.analysis));
   const data = new Set(requests.map((r) => r.data.length));
+  takeBack(kept!, handed(events));
   for (const p of kept!.parts) assert.ok(data.has(new Uint8Array(p.brep!.model.buffer).length));
 });
 
@@ -384,40 +435,44 @@ test('meshModelIn (Mesh again) with other healing: as imported, healed as asked;
   + 'otherwise, or cancelled partway: healed again in place (off: the sources back), a moved pole kept, said',
   async () => {
   const off = { ...DEFAULT_SETTINGS, heal: false };
+  // (Each run's models taken back after it, as the page lends them for the next.)
   const load = async () => {
     let kept: Scene | undefined;
-    await loadModelIn({ input: await healInput() }, off, 3, fake().tessellation, () => {}, () => false, {},
-      (s) => { kept = s; });
+    const events: ModelEvent[] = [];
+    await loadModelIn({ input: await healInput() }, off, 3, fake().tessellation, (e) => events.push(e), () => false,
+      {}, (s) => { kept = s; });
+    takeBack(kept!, handed(events));
     return kept!;
   };
   const again = async (scene: Scene, settings: typeof off, cancelled = () => false) => {
     const f = fake(), events: ModelEvent[] = [];
     await meshModelIn(scene, settings, 3, f.tessellation, (e) => events.push(e), cancelled);
+    takeBack(scene, handed(events));
     const done = events.find((e) => e.type === 'done') as Extract<ModelEvent, { type: 'done' }> | undefined;
     return { runs: f.runs.length, said: done ? healingSaid(done.diagnostics) : undefined };
   };
   const on = { ...off, heal: true };
+  const bytes = (m: { buffer: ArrayBuffer }) => [...new Uint8Array(m.buffer)].join();
   const kept = await load();
-  const imported = kept.parts.map((p) => p.brep!.model);
+  const imported = kept.parts.map((p) => bytes(p.brep!.model));
   // As imported again: nothing healed, nothing run.
   assert.deepEqual(await again(kept, off), { runs: 0, said: [] });
   const a = await again(kept, on);
   assert.equal(a.runs, 4);
   assert.ok(a.said!.includes('strayPole'));
-  const stray = kept.parts.findIndex((p) => p.name === 'stray'), healed = kept.parts[stray]!.brep!.model;
+  const stray = kept.parts.findIndex((p) => p.name === 'stray'), healed = bytes(kept.parts[stray]!.brep!.model);
   assert.notEqual(healed, imported[stray]);
   // The same healing again: kept, the same diagnostics, nothing run.
   assert.deepEqual(await again(kept, on), { runs: 0, said: a.said });
-  assert.equal(kept.parts[stray]!.brep!.model, healed);
-  const bytes = (m: { buffer: ArrayBuffer }) => [...new Uint8Array(m.buffer)].join();
+  assert.equal(bytes(kept.parts[stray]!.brep!.model), healed);
   const healedBytes = kept.parts.map((p) => bytes(p.brep!.model));
   // Off: each healed part put back as its source in place, but the moved pole, which stays, said.
   const o = await again(kept, off);
   assert.deepEqual(o.said, ['strayPole'], 'the moved poles said kept');
   kept.parts.forEach((p, i) => {
-    if (i !== stray) assert.equal(bytes(p.brep!.model), bytes(imported[i]!), `part ${i}: as imported`);
+    if (i !== stray) assert.equal(bytes(p.brep!.model), imported[i]!, `part ${i}: as imported`);
   });
-  assert.notEqual(bytes(kept.parts[stray]!.brep!.model), bytes(imported[stray]!), 'the pole still moved');
+  assert.notEqual(bytes(kept.parts[stray]!.brep!.model), imported[stray]!, 'the pole still moved');
   // A fix off, then on again: healed in place, as healing the file afresh would, the pole said kept.
   const noPole = await again(kept, { ...on, healFixes: { ...on.healFixes, pcurveReplace: false } });
   assert.ok(noPole.said!.includes('strayPole'), noPole.said!.join());
@@ -435,12 +490,17 @@ test('healing keeps no models as imported: once healed, the imported ones are fr
   v8.setFlagsFromString('--expose-gc');
   const gc = vm.runInNewContext('gc') as () => void;
   let kept: Scene | undefined;
+  const events: ModelEvent[] = [];
   await loadModelIn({ input: await healInput() }, { ...DEFAULT_SETTINGS, heal: false }, 3, fake().tessellation,
-    () => {}, () => false, {}, (s) => { kept = s; });
+    (e) => events.push(e), () => false, {}, (s) => { kept = s; });
+  takeBack(kept!, handed(events.splice(0)));
   const stray = kept!.parts.findIndex((p) => p.name === 'stray');
-  const imported = new WeakRef(kept!.parts[stray]!.brep!.model);
-  await meshModelIn(kept!, { ...DEFAULT_SETTINGS, heal: true }, 3, fake().tessellation, () => {}, () => false);
-  assert.notEqual(kept!.parts[stray]!.brep!.model, imported.deref());
+  // (Its buffer: the model's object is made again each time it's taken back.)
+  const imported = new WeakRef(kept!.parts[stray]!.brep!.model.buffer);
+  await meshModelIn(kept!, { ...DEFAULT_SETTINGS, heal: true }, 3, fake().tessellation, (e) => events.push(e),
+    () => false);
+  takeBack(kept!, handed(events.splice(0)));
+  assert.notEqual(kept!.parts[stray]!.brep!.model.buffer, imported.deref());
   for (let i = 0; i < 5 && imported.deref(); i++) { await new Promise((r) => setTimeout(r, 0)); gc(); }
   assert.equal(imported.deref(), undefined, 'the stray part\'s model as imported is still held');
 });

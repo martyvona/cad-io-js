@@ -14,8 +14,11 @@ export const LONG_PRESS_MS = 550;
 
 let open: { close(): void } | undefined;
 
-/** Shows a menu at a point (client pixels), kept inside the window; closes any other first. */
-export function showMenu(x: number, y: number, items: readonly MenuItem[]): void {
+/**
+ * Shows a menu at a point (client pixels), kept inside the window; closes any other first. `header`: a row above the
+ * items saying what it's for (the view's menu: what was clicked), not an item.
+ */
+export function showMenu(x: number, y: number, items: readonly MenuItem[], header?: HTMLElement): void {
   open?.close();
   const menu = document.createElement('div');
   menu.className = 'cv-menu';
@@ -36,6 +39,11 @@ export function showMenu(x: number, y: number, items: readonly MenuItem[]): void
     e.preventDefault();
     close();
   };
+  if (header) {
+    header.classList.add('cv-menu-header');
+    header.setAttribute('role', 'presentation');
+    menu.append(header);
+  }
   for (const item of items) {
     const b = document.createElement('button');
     b.type = 'button';

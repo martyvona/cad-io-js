@@ -13,8 +13,8 @@ import { documentActivity, onReactivated, UpdateCheck, updateText } from './upda
 import { applyCustomBackground, applyTheme, customBackground, hexColour, onSystemTheme, themeChoice, type ThemeChoice,
   VIEW_BACKGROUNDS } from './theme.ts';
 import { askUrl, showBusy, showDialog } from './dialog.ts';
-import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
-import { faceCausesOf, showProblems } from './problems.ts';
+import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
+import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
 import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
@@ -24,7 +24,7 @@ import { HEAL_FIXES } from 'cad-heal/options';
 import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSettings }
   from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
-import { TreePanel } from './tree-panel.ts';
+import { nodeLabel, TreePanel } from './tree-panel.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
 import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
@@ -120,6 +120,11 @@ export interface Ui {
   empty(): void;
   /** Says something in the status line. */
   say(text: string, error?: boolean): void;
+  /**
+   * What an operation that finished has to say beyond the status line, in a modal with a list of `items` (not in the
+   * browser check's plain ?check pages); resolves when it's closed. Never the console.
+   */
+  notice(title: string, intro: string, items?: readonly string[], error?: boolean): Promise<void>;
   /**
    * Whether Copy link to this view spells out the settings whose defaults depend on the device (its Include device
    * defaults: the meshing profile and the edge style), even where they're this device's.
@@ -219,8 +224,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Where events go (ui.onEvent), usable before `ui` exists (say is called while the controls are being built).
   const hooks: { onEvent?: (e: UiEvent) => void } = {};
   const statusShown = autoHide(status);
+  // Opens under way (a load, Mesh again): the status line stays while there are any (meshing can go quiet for longer
+  // than HIDE_AFTER on one slow part), with a spinner (its `busy` class), fading only after the last ends.
+  let opens = 0;
   const say = (text: string, error = false) => {
-    if (text !== status.textContent) statusShown();
+    if (text !== status.textContent) statusShown(opens > 0);
     status.textContent = text;
     status.classList.toggle('error', error);
     hooks.onEvent?.({ type: 'status', text, error });
@@ -243,13 +251,25 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (problemsDialog) void showDialog({ title: `Could not open ${what}`, error: true, body: [message],
       buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   };
+  /**
+   * What an operation that finished has to say beyond the status line (export's warnings, what Mesh again didn't find
+   * again, replay's divergences...), in a modal, a list scrolling on its own; never in the console. Gated as the
+   * problems dialog (?check pages: only with ?check=dialogs). Resolves when it's closed (at once where not shown).
+   */
+  const notice = async (title: string, intro: string, items: readonly string[] = [], error = false):
+    Promise<void> => {
+    if (!problemsDialog) return;
+    await showDialog({ title, error, body: [intro, ...(items.length ? [items.map((i) => [i])] : [])],
+      buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+  };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
   // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
   // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
   // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
   // their part's mesh); what never arrives (a node gone, or a selected face, edge or curve of a part that fails this
-  // time) is reported in the status line, its paths in the console. The new tree is expanded as the last was, and
-  // scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks in it.
+  // time) is counted in the status line, its paths in a modal once done (notice). The new tree is expanded as the
+  // last was, and scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks
+  // in it.
   let restore: { overrides: PathOverride[]; lost: string[]; selected: string[]; expanded: string[];
     top?: { path: string; offset: number } } | undefined;
   const restoreNodes = () => {
@@ -269,9 +289,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let exportControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   let screenshotControl: { enable(on?: boolean): unknown; disable(): unknown } | undefined;
   /**
-   * The model meshed again, the view kept (Mesh again): from the import worker's models in place (healed again there
+   * The model meshed again, the view kept (Mesh again): from the model worker's models in place (healed again there
    * where the healing changed), or by loading the file again where the worker hasn't them; `as` the settings to mesh
-   * with instead of the controls' (a model lost with the import worker, made again as it was: the controls back
+   * with instead of the controls' (a model lost with the model worker, made again as it was: the controls back
    * after).
    */
   const meshAgain = async (as?: Partial<TessellationSettings>) => {
@@ -355,7 +375,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const author = typeof m?.properties.author === 'string' ? ` (${m.properties.author})` : '';
     return showAbout(m && s ? { rows: [['File', m.name + author],
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
-      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched } : undefined,
+      ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched,
+    problems: () => void showProblems(m.name, m.diagnostics ?? []) } : undefined,
     updates, () => void loadDemo());
   };
   const loadDemo = async () => {
@@ -386,7 +407,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       if (!target) return;
       say(`exporting ${name}...`);
       const edits = shown ? shownEdits(graph.scene, nodes, graph) : undefined;
-      // (The page blocked meanwhile: its meshes are lent to the import worker, Viewer.exportModel.)
+      // (The page blocked meanwhile: its meshes are lent to the model worker, Viewer.exportModel.)
       const done = showBusy(`Exporting ${name}`, 'The view is paused until the file is made.');
       let r;
       try {
@@ -399,7 +420,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const size = r.chunks.reduce((n, c) => n + (typeof c === 'string' ? new Blob([c]).size : c.length), 0);
       const warnings = [...edits?.warnings ?? [], ...r.diagnostics.filter((d) => d.severity !== 'info')
         .map((d) => d.message)];
-      if (warnings.length) console.warn('export:', warnings);
       let bin = '';
       if (r.bin) {
         // (A second click, for the save dialog of its .bin.)
@@ -415,10 +435,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       }
       const amount = size < 1e6 ? `${Math.max(1, Math.round(size / 1e3))} KB` : `${(size / 1e6).toFixed(1)} MB`;
       say(`${target.how === 'saved' ? 'exported' : 'downloaded'} ${name}${bin}, ${amount}` +
-        (warnings.length ? `; ${warnings.length} warnings (in the console): ${warnings[0]}` : ''), warnings.length > 0);
+        (warnings.length ? `; ${count(warnings.length, 'warning')}: ${warnings[0]}` : ''), warnings.length > 0);
+      if (warnings.length) void notice(`Exported ${name}: ${count(warnings.length, 'warning')}`, 'What couldn\'t be '
+        + 'written as the view shows it, and the exporter\'s warnings:', warnings);
     } catch (e) {
       fail(e);
-      // The import worker lost with the page's meshes (Viewer.exportModel): the model made again as it was.
+      // The model worker lost with the page's meshes (Viewer.exportModel): the model made again as it was.
       // (The error dialog says so; the status line then follows the load.)
       if (e instanceof WorkerLost) void meshAgain(viewer.model?.meshedWith);
     }
@@ -429,6 +451,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     Promise<Record<string, unknown>> => (opening = opened(get, what, keep));
   const opened = async (get: () => Promise<Source | undefined>, what: string, keep: boolean):
     Promise<Record<string, unknown>> => {
+    if (opens++ === 0) status.classList.add('busy');
     try {
       say(`loading ${what}...`);
       const src = await get();
@@ -440,13 +463,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       let gen = viewer.nextLoad();
       last = src;
       if (!keep) restore = undefined;
-      // Mesh again: the import worker's scene meshed again in place where it can, else the file loaded again.
+      // Mesh again: the model worker's scene meshed again in place where it can, else the file loaded again.
       let inPlace = false;
+      // (Why Mesh again loaded the file again instead, said once it's done.)
+      let fellBack = '';
       if (keep) {
         try {
           inPlace = await viewer.meshAgain();
         } catch (e) {
-          console.warn('meshing again from the models failed; loading the file again:', e);
+          fellBack = (e as Error).message;
           gen = viewer.nextLoad();
         }
       }
@@ -474,18 +499,26 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       // (Nothing said of meshing for a model with nothing to mesh: a glTF's, a STEP file's tessellated geometry.)
       const parts = m.parts?.total ? `; ${m.parts.done - m.parts.failed} of ${m.parts.total} parts meshed` +
         (m.parts.failed ? `, ${m.parts.failed} failed` : '') : '';
-      const problems = (m.diagnostics ?? []).filter((d) => d.severity !== 'info').length;
+      const problems = problemCounts(m.diagnostics ?? []);
+      const errors = (m.diagnostics ?? []).some((d) => d.severity === 'error');
       const counts = [];
       if (lost.overrides.length) {
         counts.push(`${lost.overrides.length} appearance override${lost.overrides.length === 1 ? '' : 's'}`);
       }
       if (lost.selected.length) counts.push(`${lost.selected.length} selected`);
-      const notRestored = counts.length ? `; ${counts.join(' and ')} not found again (in the console)` : '';
+      const notRestored = counts.length ? `; ${counts.join(' and ')} not found again` : '';
       say(`${src.name}: ${((performance.now() - t) / 1000).toFixed(1)} s${parts}` +
-        (problems ? `; ${problems} warnings and errors (in the console)` : '') + notRestored + changed, !!changed);
-      if (problems) console.warn(m.diagnostics);
-      if (problems && problemsDialog) void showProblems(src.name, m.diagnostics ?? []);
-      if (notRestored) console.warn('meshed again, not found again:', lost);
+        (problems ? `; ${problems} (details from the About box)` : '') + notRestored + changed, !!changed);
+      // Then the modals, one after another: the problems dialog by itself for errors only (warnings are only counted
+      // here, and listed from About), what Mesh again didn't find again, and why it loaded the file again.
+      const modals: (() => Promise<void>)[] = [];
+      if (errors && problemsDialog) modals.push(() => showProblems(src.name, m.diagnostics ?? []));
+      if (notRestored) modals.push(() => notice(`${src.name}: not found again`, 'Meshed again, these weren\'t found '
+        + 'in the new meshes (such as the faces of a part that failed this time), so they were let go:',
+      [...lost.overrides.map((p) => `appearance override: ${p}`), ...lost.selected.map((p) => `selected: ${p}`)]));
+      if (fellBack) modals.push(() => notice(`${src.name}: loaded again`, 'Meshing again from the models already '
+        + `read failed, so the file was read and meshed again: ${fellBack}`));
+      void modals.reduce((p, f) => p.then(f), Promise.resolve());
       const box = visibleBox(viewer.display);
       const r: Record<string, unknown> = { name: src.name, seconds: (performance.now() - t) / 1000, parts: m.parts,
         stats: s, box: [box.min.toArray(), box.max.toArray()],
@@ -495,11 +528,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       hooks.onEvent?.({ type: 'loaded', report: r });
       return r;
     } catch (e) {
-      console.error(e);
       failed(what, (e as Error).message);
       report({ error: (e as Error).message });
       hooks.onEvent?.({ type: 'loaded', report: { error: (e as Error).message } });
       return { error: (e as Error).message };
+    } finally {
+      if (--opens === 0) {
+        status.classList.remove('busy');
+        statusShown();
+      }
     }
   };
   const openFiles = (files: File[], read?: Source) => files.length ? (hooks.onEvent?.({ type: 'load', files }),
@@ -579,7 +616,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
   } }, 'save').name('Save original...').disable();
   // The model exported: a format and its options (export-dialog.ts), where to save it asked at once (the dialog's click
-  // lets the page open the save dialog), then made in the import worker (export-model.ts) and written; a .gltf with its
+  // lets the page open the save dialog), then made in the model worker (export-model.ts) and written; a .gltf with its
   // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();
@@ -854,9 +891,18 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // node is in it with others; Override Appearance... on the node alone. At once, recorded node by node, the open panel
   // following. Then Selection's actions: Select parent and Select children on the same nodes as Hide, the rest as
   // their buttons.
-  const nodeMenu = (id: number, x: number, y: number) => {
-    const nodes = viewer.nodes;
+  // A node's menu (the tree's row's, or the view's for what was clicked: `header` then, the node as its row shows it).
+  const nodeMenu = (id: number, x: number, y: number, header = false) => {
+    const nodes = viewer.nodes, graph = viewer.graph;
     if (!nodes) return;
+    // Its errors and warnings, and everything's in it (problems.ts's itemDiagnostics): an item only if there are any.
+    const mine = graph ? itemDiagnostics(nodes, id, viewer.model?.diagnostics ?? [], (part) => {
+      const m = graph.modelOf(part);
+      return m && modelIds(m);
+    }) : [];
+    const errors = mine.filter((d) => d.severity === 'error').length;
+    const warnings = mine.filter((d) => d.severity === 'warning').length;
+    const name = nodes.nodes[id]!.name;
     const targets = selected.length > 1 && selected.includes(id) ? [...selected] : [id];
     const each = (o: (t: number) => AppearanceOverride) => {
       const list = targets.map((t) => [t, o(t)] as const);
@@ -878,7 +924,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Select all', action: () => ui.selectAll() },
       { label: 'Invert selection', action: () => ui.invertSelection() },
       { label: 'Select by ID...', action: () => void selectById() },
-    ]);
+      ...(errors + warnings ? [{ label: `${count(errors, 'Error')}, ${count(warnings, 'Warning')}...`,
+        divider: true, action: () => void showProblems(name, mine, nodes.nodes[id]!.face ? name
+          : `${name} and everything in it`) }] : []),
+    ], header ? nodeLabel(nodes, id) : undefined);
   };
   viewer.onModel = (nodes) => {
     // Save... saves the file of the model shown (a load that fails before showing its model leaves the last one).
@@ -925,7 +974,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes || !panel) return;
     const id = picked(nodes, panel, hit);
     panel.setFocus(id);
-    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY);
+    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY, true);
   };
   viewer.onPick = (hit, keys) => {
     const nodes = viewer.nodes;
@@ -1176,6 +1225,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       report({ empty: true });
     },
     say,
+    notice,
     gui,
     get onEvent() { return hooks.onEvent; },
     set onEvent(f) { hooks.onEvent = f; },

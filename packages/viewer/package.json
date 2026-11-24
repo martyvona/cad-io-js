@@ -16,6 +16,7 @@
   "dependencies": {
     "3mf-import": "0.3.0",
     "@headless-tree/core": "1.7.0",
+    "cad-brep": "0.3.0",
     "cad-heal": "0.3.0",
     "cad-scene": "0.3.0",
     "draco3dgltf": "1.5.9",

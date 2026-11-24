@@ -2,7 +2,9 @@
 // the problems dialog's Copy IDs (problems.ts), whose list Select by ID reads back. A node's ids: an assembly's
 // occurrence's and its component's (scene-graph.ts's `userData.sources`: NAUOs, product definitions), a part's (its
 // shape representation), a face's (its own, where its part is from STEP); edges, curves and points nodes have none.
+// A part's B-rep model holds the ids of everything in it (modelIds), where the page holds the model.
 
+import type { BrepData } from 'cad-brep';
 import type { NodeModel } from './model.ts';
 
 /** A node's STEP ids (none for models from other formats). */
@@ -11,6 +13,29 @@ export function nodeStepIds(model: NodeModel, id: number): number[] {
   if (n.face) return model.nodes[n.parent]!.object!.userData.stepFaces ? [n.face.source] : [];
   if (n.kind !== 'assembly' && n.kind !== 'part') return [];
   return (n.object?.userData.sources as number[] | undefined) ?? [];
+}
+
+/** Each model's ids (modelIds), made once. */
+const idsMade = new WeakMap<BrepData, Uint32Array>();
+
+/**
+ * Every source id a B-rep model holds (each table's `id` column: its faces', edges', vertices', curves', surfaces',
+ * loops', shells', bodies' and items'; a baked copy's `source` too), sorted, each once, without 0 (no id).
+ */
+export function modelIds(model: BrepData): Uint32Array {
+  let ids = idsMade.get(model);
+  if (ids) return ids;
+  const all: number[] = [];
+  for (const table of Object.values(model) as unknown[]) {
+    if (!table || typeof table !== 'object' || ArrayBuffer.isView(table) || table instanceof ArrayBuffer) continue;
+    for (const k of ['id', 'source']) {
+      const c = (table as Record<string, unknown>)[k];
+      if (c instanceof Uint32Array) for (const v of c) if (v) all.push(v);
+    }
+  }
+  ids = Uint32Array.from(new Set(all)).sort();
+  idsMade.set(model, ids);
+  return ids;
 }
 
 /** The STEP ids of nodes, each once, in order. */

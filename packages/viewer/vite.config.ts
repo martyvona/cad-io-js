@@ -1,8 +1,8 @@
 // The viewer's Vite config: the content root at /content/ (dev and preview servers), LAN and https by option, and in
 // builds a progressive web app: a service worker that precaches everything the app needs, the OCCT, truck, SMLib and
 // tess-cadio modules included, so a device that loaded it once can use it offline (docs/viewer.md). Options come from
-// the environment (server/options.ts). Draco's decoder (for glTF, in the import worker) is found by its bundled URL
-// (import-worker.ts).
+// the environment (server/options.ts). Draco's decoder (for glTF, in the model worker) is found by its bundled URL
+// (model-worker.ts).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -77,8 +77,8 @@ const licenses = (): Plugin => ({
       '- cad-io-js\'s geometry module, for healing (`assets/cad_geom-*.wasm` and `cad_geom-*.mjs`): AGPL-3.0-only, ' +
         'built with Eigen\'s headers (https://eigen.tuxfamily.org, MPL-2.0; its source in cad-io-js\'s ' +
         '`packages/cad-geom`, Eigen\'s at https://gitlab.com/libeigen/eigen);',
-      // (Vite lists only the page's own packages, not the import worker's, which are these.)
-      '- in the import worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
+      // (Vite lists only the page's own packages, not the model worker's, which are these.)
+      '- in the model worker, glTF-Transform (`@gltf-transform/core`, `@gltf-transform/extensions`, with ' +
         '`property-graph` and `ktx-parse`, all MIT; https://github.com/donmccurdy/glTF-Transform), Draco\'s glTF ' +
         'decoder and its encoder (draco3dgltf, `assets/draco_*` and `draco3dgltf-*.js`: Apache-2.0; ' +
         'https://github.com/google/draco), meshoptimizer\'s decoder and encoder (MIT; ' +
@@ -214,7 +214,7 @@ export default defineConfig(({ command }) => {
     // licenses goes into licenses.md (licenses()).
     build: { outDir: 'dist', emptyOutDir: true, target: 'es2023', chunkSizeWarningLimit: 4000,
       license: { fileName: VITE_LICENSES } },
-    // Module workers, split into chunks: the import worker loads the schema dictionaries on demand.
+    // Module workers, split into chunks: the model worker loads the schema dictionaries on demand.
     worker: { format: 'es' },
   };
 });
