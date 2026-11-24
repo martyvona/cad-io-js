@@ -2326,7 +2326,8 @@ await check('item errors and warnings', async () => {
       await frame();
       const h = document.querySelector('.cv-menu-header');
       const row = document.querySelector('#tree .tree-row[data-id="' + spot.id + '"] .tree-content');
-      out.view = { id: spot.id, header: h ? { icon: h.querySelector('.tree-icon')?.outerHTML,
+      out.view = { id: spot.id, selectable: h ? getComputedStyle(h).userSelect : null,
+        header: h ? { icon: h.querySelector('.tree-icon')?.outerHTML,
         name: h.querySelector('.tree-name')?.textContent, first: h === document.querySelector('.cv-menu')
           .firstElementChild } : null, rowIcon: row?.querySelector('.tree-icon')?.outerHTML ?? null,
         name: m.nodes[spot.id].name, focused: document.querySelector('.cv-menu button') === document.activeElement };
@@ -2337,7 +2338,8 @@ await check('item errors and warnings', async () => {
   type Entry = { path: string; kind: string; got: string | null; want: string | null; header: boolean;
     dialog?: { title: string; errors: number; warnings: number; intro: string; sources: string[] } };
   type Seen = { nodes: Entry[]; counts: { errors: number; warnings: number }; sources: string[];
-    view?: { id: number; header: { icon?: string; name?: string; first: boolean } | null; rowIcon: string | null;
+    view?: { id: number; selectable: string | null; header: { icon?: string; name?: string; first: boolean } | null;
+      rowIcon: string | null;
       name: string; focused: boolean } };
   const see = async (file: string, face: boolean) => (await page(`?url=${encodeURIComponent(`/content/${file}`)}`
     + '&check', look(face)) as { after: Seen }).after;
@@ -2382,7 +2384,9 @@ await check('item errors and warnings', async () => {
     }
     const v = a.view;
     expect(!!v && !!v.header && v.header.first && v.header.name === v.name && !!v.rowIcon
-      && v.header.icon === v.rowIcon && v.focused, `${file}: the view's menu's header: ${JSON.stringify(v)}`);
+      && v.header.icon === v.rowIcon && v.focused && v.selectable === 'none',
+    `${file}: the view's menu's header (not selectable: Android would select it under the long press): ${
+      JSON.stringify(v)}`);
   }
   return undefined;
 });
