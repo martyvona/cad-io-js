@@ -1764,6 +1764,26 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
+/**
+ * A lantern: a band round a thin torus (major radius 29, minor 0.1) from v = -0.8 to 0.8, 0.16 mm across, bounded by
+ * its two circles (radius 29 + 0.1 cos 0.8, at z = +-0.1 sin 0.8). At d = 0.1 the circles are sampled about 4.7 mm
+ * apart, their chords sagging about as far as the tube's radius, and triangles laid along the band stand across the
+ * tube (LMP1 #172690's #1056598). Its area 2 pi 0.1 (1.6 x 29 + 0.2 sin 0.8).
+ */
+export function lanternBand(): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 29, r = 0.1, v = 0.8, rho = R + r * Math.cos(v), z = r * Math.sin(v);
+  const circle = (h: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, h] }, radius: rho });
+  const v0 = b.addVertex({ point: [rho, 0, -z] }), v1 = b.addVertex({ point: [rho, 0, z] });
+  const eb = b.addEdge({ curve: circle(-z), start: v0, end: v0, sameSense: true });
+  const et = b.addEdge({ curve: circle(z), start: v1, end: v1, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: R, minorRadius: r }),
+    sameSense: true, loops: [
+      { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: eb, orientation: 'forward' }] },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: et, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** A 0.5 mm hole's edge: a plane disc of radius 0.25 bounded by one closed circle. */
 export function smallHole(): BrepBuilder {
   const b = new BrepBuilder();
@@ -2472,7 +2492,7 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true),
   sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
-  tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
+  tubeGapBySize, tubeGapOpen, torusOuterHalf, lanternBand, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
