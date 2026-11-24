@@ -129,16 +129,6 @@ RayFace Oracle::Impl::rayFace(int face, Vec3 o, Vec3 d, Range tr) {
     out.status = li.status;
     return out;
   }
-  // A degenerate torus's face (a spindle's or horn's, minor radius at least the major, or one the source says so of):
-  // classification on it can't be trusted (its pole lines part two sheets, and points of the other sheet came out
-  // in a strip by one: LMP1 #173136's #1078959), so a line meeting its surface can't count it.
-  const int sf = model.faceSurface(face);
-  if (model.surfaceKind(sf) == CBR_SURFACE_TORUS && (model.surfaceInts(sf)[0] != 0
-      || model.surfaceReals(sf)[10] >= model.surfaceReals(sf)[9])
-      && (!li.crossings.empty() || !li.tangencies.empty() || !li.overlaps.empty())) {
-    out.status = Status::unsupported;
-    return out;
-  }
   // Classified, each at its own tolerance in 3D: the face's for crossings, widened by half a tangency's span (its
   // cluster stands for that stretch of the line) for tangencies.
   auto side = [&](cadgeom::Vec2 uv, double tol3d) {

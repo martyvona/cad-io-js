@@ -290,24 +290,6 @@ test('a narrow face whose loop has a gap wider than its tolerance: no point in a
     }
   });
 
-test('a degenerate torus\'s face can\'t be counted: a ray meeting its surface set aside', { skip }, async () => {
-  // Shells of one loopless face on a torus: a ring (3, 1), a spindle (1, 3) and a horn (2, 2). A point in the ring's
-  // tube is inside; in the others no ray from a point within the surface's reach is usable, so it's unknown; a point
-  // past the surface's box, its rays missing it, still outside.
-  for (const [R, r] of [[3, 1], [1, 3], [2, 2]] as const) {
-    const b = new BrepBuilder();
-    const surface = b.addSurface({ kind: 'torus', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
-      majorRadius: R, minorRadius: r });
-    const face = b.addFace({ surface, sameSense: true, loops: [] });
-    const shell = b.addShell({ kind: 'closed', faces: [{ face, sense: true }] });
-    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'solid', members: [{ ref: shell, sense: true }] }) });
-    using o = new Oracle(await init(), b.finish().buffer);
-    const c = o.classify(0, [R, 0, 0]);
-    assert.deepEqual([c.side, c.why], R > r ? ['inside', ''] : ['unknown', 'no usable ray'], `${R}, ${r}`);
-    assert.equal(o.classify(0, [R + r + 1, 0, 0]).side, 'outside', `${R}, ${r}`);
-  }
-});
-
 test('the points off both sides of a face on the same side of the shell: neither told', { skip }, async () => {
   // A box 2 across with a square 0.2 across at z = 1 inside it, in its shell (its rays miscounted, as a face
   // classified in where it isn't would have them): both points off the square are inside the box.
