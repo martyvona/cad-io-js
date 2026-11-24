@@ -3129,11 +3129,64 @@ TEST_CASE("a run of knot spans each narrower than the floor in 3D but not togeth
   REQUIRE(s);
   auto c = makeCriteria(m, 0, *s, {{0, 1}, {0, 1}}, Deflections{0.5, 0.26}, st);
   REQUIRE(c);
-  // (Across the crease, u: its slope turning by 0.1 over 0.16 mm, a size about 0.26 / 0.6 = 0.4 mm there, E / h^2
-  // about 600; flat away from it, the face's extent.)
+  // (Across the crease, u: its slope turning by 2 atan 0.05 over 0.16 mm, a mean curvature k of 0.62 and a size of
+  // 0.26 / k = 0.42 mm there, E / h^2 = 100 / 0.42^2 about 570; flat away from it, graded out from the crease.)
   const double across = c->metric({0.5, 0.5}).a, away = c->metric({0.1, 0.5}).a;
-  if (!(across > 50 * away)) std::printf("  kinkStripRun: metric across %.4g, away %.4g\n", across, away);
-  CHECK(across > 50 * away);
+  const double k = 2 * std::atan(0.05) / 0.16, want = 100 * (k / 0.26) * (k / 0.26);
+  if (!(across > 0.8 * want && across > 10 * away))
+    std::printf("  kinkStripRun: metric across %.4g (%.4g asked), away %.4g\n", across, want, away);
+  CHECK(across > 0.8 * want);
+  CHECK(across > 10 * away);
+}
+
+TEST_CASE("a run of knot spans each narrower than the floor in 3D that bends sharply inside and back is sized by its "
+  "mean turn, not its pointwise curvature: rippleRun's ripple (k up to 2.5 over 0.16 mm, no turn across) sized as "
+  "flat, along u or v, and meshed as a flat strip; kinkStripRun's crease still sized as curved, by its mean "
+  "curvature, the line that bends most where a run bends unevenly along it") {
+  auto metricAt = [](const char* name, Vec2 p, bool inV) {
+    static std::vector<cadgeom::Model> keep;
+    keep.push_back(load(name));
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(keep.back(), keep.back().faceSurface(0), st);
+    REQUIRE(s);
+    auto c = makeCriteria(keep.back(), 0, *s, {{0, 1}, {0, 1}}, Deflections{0.5, 0.26}, st);
+    REQUIRE(c);
+    const tesscadio::Metric2 M = c->metric(inV ? Vec2{p.y, p.x} : p);
+    return inV ? M.c : M.a;
+  };
+  for (bool inV : {false, true}) {
+    const char* name = inV ? "rippleRunV" : "rippleRun";
+    // (Across the ripple, at its peak and either side inside the run, against the flat strip away from it.)
+    const double away = metricAt(name, {0.1, 0.5}, inV);
+    double most = 0;
+    for (double x : {0.494, 0.497, 0.5, 0.503, 0.506}) most = std::max(most, metricAt(name, {x, 0.5}, inV));
+    if (!(most < 4 * away)) std::printf("  %s: metric across %.4g, away %.4g\n", name, most, away);
+    CHECK(most < 4 * away);
+  }
+  // (The crease, against it: its run turns by 0.1 over 0.16 mm, a mean curvature of about 0.6.)
+  CHECK(metricAt("kinkStripRun", {0.5, 0.5}, false) > 10 * metricAt("kinkStripRun", {0.1, 0.5}, false));
+  // Stretched 2 x along it (|S| along 20, across 10), sheared and its bend growing along it (z x 0.25 to 1): at the
+  // line where it bends most, sized by that line's mean curvature across the run, 2 atan(0.05 f) over its 0.16 mm,
+  // not by the least line's nor by the pointwise curvature (4 x the mean there), along u or v.
+  for (bool inV : {false, true}) {
+    const char* name = inV ? "kinkStripRunShapedV" : "kinkStripRunShaped";
+    const double w = 0.95, f = 0.25 + 0.75 * w, k = 2 * std::atan(0.05 * f) / 0.16;
+    const double want = 100 * (k / 0.26) * (k / 0.26);
+    const double across = metricAt(name, {0.5, w}, inV);
+    if (!(across > 0.8 * want && across < 2 * want))
+      std::printf("  %s: metric across %.4g, its line's mean curvature asks %.4g\n", name, across, want);
+    CHECK(across > 0.8 * want);
+    CHECK(across < 2 * want);
+  }
+  // Meshed within the deflection as about as few triangles as its flat strip (a few dozen), every one accepted.
+  cadgeom::Model m = load("rippleRun");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.5, 0.26));
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status == cadgeom::Status::ok);
+  CHECK(fm.rejected.empty());
+  if (!(fm.triangles.size() / 3 <= 64)) std::printf("  rippleRun: %zu triangles\n", fm.triangles.size() / 3);
+  CHECK(fm.triangles.size() / 3 <= 64);
 }
 
 TEST_CASE("a face whose edge loops are all holes (none winding) is its surface's natural extent less them: "
