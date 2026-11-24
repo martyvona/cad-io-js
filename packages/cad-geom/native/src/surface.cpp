@@ -22,6 +22,7 @@
 #include <cmath>
 #include <queue>
 
+#include "scratch.h"
 #include "surface_impl.h"
 
 namespace cadgeom {
@@ -35,6 +36,33 @@ Status SurfaceImpl::eval(double u, double v, int order, SurfacePoint& out) const
   out = {d[0], order >= 1 ? d[pidx(1, 0)] : Vec3{}, order >= 1 ? d[pidx(0, 1)] : Vec3{},
     order >= 2 ? d[pidx(2, 0)] : Vec3{}, order >= 2 ? d[pidx(1, 1)] : Vec3{}, order >= 2 ? d[pidx(0, 2)] : Vec3{}};
   return s;
+}
+
+void SurfaceImpl::derivsRow(bool alongV, double fixed, int n, const double* ts, int order, Vec3* out,
+  Status* st) const {
+  // Through a full array: a kind's derivs may use out beyond the order asked as scratch.
+  const int stride = pidx(0, order) + 1;
+  Vec3 d[kPartials];
+  for (int i = 0; i < n; i++) {
+    st[i] = alongV ? derivs(fixed, ts[i], order, d) : derivs(ts[i], fixed, order, d);
+    std::copy(d, d + stride, out + static_cast<size_t>(i) * stride);
+  }
+}
+
+void SurfaceImpl::evalRow(bool alongV, double fixed, int n, const double* ts, int order, SurfacePoint* out,
+  Status* st) const {
+  if (order < 0 || order > 2) {
+    std::fill(st, st + n, Status::unsupported);
+    return;
+  }
+  const int stride = pidx(0, order) + 1;
+  Scratch<Vec3, 16 * 6> d(static_cast<size_t>(n) * stride, Scratch<Vec3, 16 * 6>::uninitialized);
+  derivsRow(alongV, fixed, n, ts, order, d.data(), st);
+  for (int i = 0; i < n; i++) {
+    const Vec3* e = d.data() + static_cast<size_t>(i) * stride;
+    out[i] = {e[0], order >= 1 ? e[pidx(1, 0)] : Vec3{}, order >= 1 ? e[pidx(0, 1)] : Vec3{},
+      order >= 2 ? e[pidx(2, 0)] : Vec3{}, order >= 2 ? e[pidx(1, 1)] : Vec3{}, order >= 2 ? e[pidx(0, 2)] : Vec3{}};
+  }
 }
 
 Status SurfaceImpl::normal(double u, double v, Vec3& out) const {

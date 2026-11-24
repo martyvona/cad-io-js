@@ -141,6 +141,33 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
     }
     fn(q.p, n, o);
   };
+  // F along a row: the surface evaluated at the row's points at once, each then as F takes it.
+  in.Frow = [&](double a, int n, const double* ts, double* o) {
+    if (bad) {
+      std::fill(o, o + static_cast<size_t>(n) * K, 0.0);
+      return;
+    }
+    std::vector<double> bs(n);
+    for (int i = 0; i < n; i++) bs[i] = fr.b0 + fr.dir * ts[i];
+    std::vector<SurfacePoint> q(n);
+    std::vector<Status> st(n);
+    S->evalRow(!fr.swap, a, n, bs.data(), 1, q.data(), st.data());
+    for (int i = 0; i < n; i++) {
+      double* oi = o + static_cast<size_t>(i) * K;
+      if (bad) {
+        std::fill(oi, oi + K, 0.0);
+        continue;
+      }
+      if (st[i] == Status::singular) bad = true;
+      const Vec3 nn = cross(q[i].du, q[i].dv);
+      if (basis) {
+        SurfacePoint qb;
+        const Vec2 uv = fr.uvOf(a, ts[i]);
+        if (basis->eval(uv.x, uv.y, 1, qb) == Status::ok && dot(nn, cross(qb.du, qb.dv)) <= 0) bad = true;
+      }
+      fn(q[i].p, nn, oi);
+    }
+  };
   in.P = [&](double a, double t) {
     const Vec2 uv = fr.uvOf(a, t);
     SurfacePoint q;

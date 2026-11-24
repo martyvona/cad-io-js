@@ -86,19 +86,47 @@ public:
     };
     add(U_, p_, ru, true), add(V_, q_, rv, false);
   }
+  /** A basis's values and derivatives, on the stack to order 2 (evaluation) and a degree up to kStackDegree. */
+  using B = Scratch<double, 3 * (kStackDegree + 1)>;
   Status derivs(double u, double v, int order, Vec3* out) const override {
     SurfaceDomain d = domain();
     Status st = Status::ok;
     if (u < d.u.lo || u > d.u.hi || v < d.v.lo || v > d.v.hi) st = Status::outOfDomain;
     u = std::clamp(u, d.u.lo, d.u.hi), v = std::clamp(v, d.v.lo, d.v.hi);
     int su = bspline::findSpan(p_, U_, nu_, u), sv = bspline::findSpan(q_, V_, nv_, v);
-    int n = order;
-    // On the stack to order 2 (evaluation) and a degree up to kStackDegree: no allocation in the hot path.
     // (Not zero-filled: basisDerivs writes every entry.)
-    using B = Scratch<double, 3 * (kStackDegree + 1)>;
-    B Nu((n + 1) * (p_ + 1), B::uninitialized), Nv((n + 1) * (q_ + 1), B::uninitialized);
-    bspline::basisDerivs(su, u, p_, n, U_, Nu.data());
-    bspline::basisDerivs(sv, v, q_, n, V_, Nv.data());
+    B Nu((order + 1) * (p_ + 1), B::uninitialized), Nv((order + 1) * (q_ + 1), B::uninitialized);
+    bspline::basisDerivs(su, u, p_, order, U_, Nu.data());
+    bspline::basisDerivs(sv, v, q_, order, V_, Nv.data());
+    at(su, sv, Nu.data(), Nv.data(), order, out);
+    return st;
+  }
+  /** The fixed direction's span and basis found once, then each point as derivs evaluates it. */
+  void derivsRow(bool alongV, double fixed, int n, const double* ts, int order, Vec3* out,
+    Status* st) const override {
+    const SurfaceDomain d = domain();
+    const Range rf = alongV ? d.u : d.v, rt = alongV ? d.v : d.u;
+    const int pf = alongV ? p_ : q_, pt = alongV ? q_ : p_, nf = alongV ? nu_ : nv_, nt = alongV ? nv_ : nu_;
+    const std::vector<double>& Kf = alongV ? U_ : V_;
+    const std::vector<double>& Kt = alongV ? V_ : U_;
+    const bool fixedOut = fixed < rf.lo || fixed > rf.hi;
+    fixed = std::clamp(fixed, rf.lo, rf.hi);
+    const int sf = bspline::findSpan(pf, Kf, nf, fixed);
+    B Nf((order + 1) * (pf + 1), B::uninitialized), Nt((order + 1) * (pt + 1), B::uninitialized);
+    bspline::basisDerivs(sf, fixed, pf, order, Kf, Nf.data());
+    const int stride = pidx(0, order) + 1;
+    for (int i = 0; i < n; i++) {
+      double t = ts[i];
+      st[i] = fixedOut || t < rt.lo || t > rt.hi ? Status::outOfDomain : Status::ok;
+      t = std::clamp(t, rt.lo, rt.hi);
+      const int s = bspline::findSpan(pt, Kt, nt, t);
+      bspline::basisDerivs(s, t, pt, order, Kt, Nt.data());
+      Vec3* o = out + static_cast<size_t>(i) * stride;
+      alongV ? at(sf, s, Nf.data(), Nt.data(), order, o) : at(s, sf, Nt.data(), Nf.data(), order, o);
+    }
+  }
+  /** derivs's partials from the spans su, sv and their basis functions' derivatives Nu, Nv to order n. */
+  void at(int su, int sv, const double* Nu, const double* Nv, int n, Vec3* out) const {
     // The active poles' centroid: the span's local origin.
     Vec3 o{};
     for (int i = 0; i <= p_; i++)
@@ -138,7 +166,6 @@ public:
         out[pidx(k, l)] = (1 / W[0]) * s;
       }
     out[0] = out[0] + o + c_;
-    return st;
   }
   /** A rectangle within one span: its partial's hull met with the centred form; false where a hull fails. */
   bool centred(Range ru, Range rv, int k, int l, Box3& out) const {

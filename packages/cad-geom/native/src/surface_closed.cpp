@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "scratch.h"
 #include "surface_impl.h"
 
 namespace cadgeom {
@@ -68,6 +69,12 @@ public:
   }
   Status derivs(double u, double v, int order, Vec3* out) const override {
     return s_->derivs(ru(u), rv(v), order, out);
+  }
+  void derivsRow(bool alongV, double fixed, int n, const double* ts, int order, Vec3* out,
+    Status* st) const override {
+    Scratch<double, 64> r(static_cast<size_t>(n), Scratch<double, 64>::uninitialized);
+    for (int i = 0; i < n; i++) r.data()[i] = alongV ? rv(ts[i]) : ru(ts[i]);
+    s_->derivsRow(alongV, alongV ? ru(fixed) : rv(fixed), n, r.data(), order, out, st);
   }
   Status normal(double u, double v, Vec3& out) const override { return s_->normal(ru(u), rv(v), out); }
   void breaks(Range a, Range b, std::vector<double>& us, std::vector<double>& vs) const override {

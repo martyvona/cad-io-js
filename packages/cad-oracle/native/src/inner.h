@@ -32,6 +32,11 @@ constexpr size_t kScaleSamples = 16;
 struct Inner {
   int K;
   std::function<void(double u, double t, double* out)> F;
+  /**
+   * Optional: F at n points t[i] of one u, point i's K values at out[i * K], as F gives them (a surface's row, its
+   * fixed direction's basis found once); the fixed panels' nodes go through it, the adaptive ones through F.
+   */
+  std::function<void(double u, int n, const double* t, double* out)> Frow;
   /** The surface's point at (u, v). */
   std::function<Vec3(double u, double v)> P;
   /** Sorted (innerPanels sorts them). */
@@ -85,6 +90,18 @@ struct Inner {
       return;
     }
     const double h = (b - a) / m;
+    if (Frow) {
+      std::vector<double> ts(16 * static_cast<size_t>(m)), fs(ts.size() * K);
+      for (int j = 0; j < m; j++) {
+        const double c = a + (j + 0.5) * h;
+        for (int i = 0; i < 16; i++) ts[16 * j + i] = c + kGauss16.x[i] * h / 2;
+      }
+      Frow(u, static_cast<int>(ts.size()), ts.data(), fs.data());
+      for (int j = 0; j < m; j++)
+        for (int i = 0; i < 16; i++)
+          for (int q = 0; q < K; q++) out[q] -= kGauss16.w[i] * fs[(16 * j + i) * static_cast<size_t>(K) + q] * h / 2;
+      return;
+    }
     for (int j = 0; j < m; j++) {
       const double c = a + (j + 0.5) * h;
       for (int i = 0; i < 16; i++) {
