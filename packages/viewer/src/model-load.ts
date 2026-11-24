@@ -236,18 +236,25 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
   keep?.(scene);
   // The levels shown that have no edges of their own get edges found from their triangles, part by part, after the
   // scene goes (edges.ts: off the page's thread, and not holding up meshing); those levels' buffers are copied to the
-  // page rather than transferred, as they're needed here meanwhile.
+  // page rather than transferred, as they're needed here meanwhile, and released here once their edges are found.
   const jobs = edgeJobs(scene, wantedOf(settings));
   const kept = new Set(jobs.flatMap((j) => meshBuffers(j.mesh)));
   // (The file's other levels transferred: only B-rep models are used here from now on.)
   emit({ type: 'scene', scene: postable(scene), edgeParts: jobs.length },
     levelBuffers(scene).filter((b) => !kept.has(b)));
   const edges = (async () => {
-    for (const { part, mesh } of jobs) {
-      await new Promise((r) => setTimeout(r, 0));
-      if (cancelled()) return;
-      const positions = edgesOf(mesh);
-      emit({ type: 'edges', part, positions }, [positions.buffer as ArrayBuffer]);
+    try {
+      for (const { part, mesh } of jobs) {
+        await new Promise((r) => setTimeout(r, 0));
+        if (cancelled()) return;
+        const positions = edgesOf(mesh);
+        emit({ type: 'edges', part, positions }, [positions.buffer as ArrayBuffer]);
+      }
+    } finally {
+      // Those levels' buffers released here once their edges are found (or the load cancelled): the page has its
+      // copies, and nothing here reads them again (an export takes the page's meshes; bounds use the meshes' boxes),
+      // as the levels transferred to it were left here detached. After the last job, as levels may share a buffer.
+      for (const b of kept) structuredClone(b, { transfer: [b] });
     }
   })();
   await meshModelIn(scene, settings, workers, tessellation, emit, cancelled, edges);

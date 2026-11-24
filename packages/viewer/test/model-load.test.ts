@@ -277,10 +277,12 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     const { requests, tessellation } = fake();
     const events: ModelEvent[] = [];
     const sent: ArrayBuffer[][] = [];
+    let worker: Scene | undefined;
     await loadModelIn({ input: { format: '3mf', bytes } }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
-      events.push(e);
+      // (The scene as the page gets it: a copy, as posting it makes one; its levels aren't transferred here.)
+      events.push(e.type === 'scene' ? structuredClone(e) : e);
       sent.push(t ?? []);
-    }, () => false);
+    }, () => false, {}, (s) => { worker = s; });
     // 3MF has no lines: the plate's edges found from its triangles, after the scene, before the end; its level's
     // buffers kept here for that (copied to the page, not transferred).
     assert.deepEqual(events.map((e) => e.type), ['scene', 'edges', 'done']);
@@ -290,6 +292,12 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     assert.ok(found.positions.length > 0 && sc.parts[found.part]!.lods[0]!.mesh.indices.length > 0);
     assert.deepEqual(sent[0], []);
     assert.deepEqual(sent[1], [found.positions.buffer]);
+    // Its edges found, the worker's copy of that level released (detached, as the levels it transfers are), the
+    // page's kept.
+    const level = worker!.parts[found.part]!.lods[0]!.mesh;
+    assert.equal(level.indices.length, 0);
+    assert.ok(meshBuffers(level).every((b) => b.byteLength === 0 && b.detached));
+    assert.ok(sc.parts[found.part]!.lods[0]!.mesh.indices.length > 0);
     // A .gltf whose .bin isn't given: the importer says so.
     const missing = await importModel({ format: 'gltf', bytes: new TextEncoder().encode(sidecar.json) });
     assert.equal(missing.diagnostics[0]?.severity, 'error');
