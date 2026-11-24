@@ -165,6 +165,9 @@
       position: fixed; z-index: 2000; min-width: 160px; padding: 4px 0; color: var(--panel-fg);
       background: var(--panel-bg); border: 1px solid var(--border); border-radius: 4px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      /* Nothing in it selectable: a long press opens it with the finger still down, and Android would then select the
+         header's text under it (and offer a definition); no callout on iOS either. */
+      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
     }
     .cv-menu button {
       display: block; width: 100%; padding: 4px 14px; color: inherit; background: none; border: 0; font: inherit;

@@ -8,6 +8,7 @@ import type { Mesh, Scene, TessellationRequest, TessellationResult, Tessellator 
 import { edgesOf, handOver, importModel, isLent, levelBuffers, loadModelIn, meshable, meshBuffers, meshModelIn,
   needModels, needsEdges, edgeJobs, ownBuffers, postable, takeBack, type ModelEvent, type ModelInput }
   from '../src/model-load.ts';
+import type { PartModel } from '../src/part-model.ts';
 import { exportView, leafParts, pruneView, viewDifferences } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson } from 'export-gltf';
@@ -15,7 +16,7 @@ import { threejsJson } from 'export-threejs';
 import { scene as fixture, plate, wire } from './fixtures.ts';
 import { MESH_PROFILES } from 'cad-scene';
 import { defaultSettings } from '../src/tessellation.ts';
-import { BrepBuilder, openBrep, rowCount } from 'cad-brep';
+import { analysisFor, BrepBuilder, openBrep, rowCount } from 'cad-brep';
 
 const DEFAULT_SETTINGS = defaultSettings('coarse');
 
@@ -25,8 +26,9 @@ const skip = fs.existsSync(step) ? false : 'corpus not fetched';
 const stepInput = (): ModelInput => ({ format: 'step', bytes: new Uint8Array(fs.readFileSync(step)) });
 
 /** The models a run's mesh events handed over, by part (the page's side of model-load.ts's handOver). */
-const handed = (events: readonly ModelEvent[]): [number, ArrayBuffer][] => events.flatMap((e) =>
-  e.type === 'mesh' ? [[e.part, e.model] as [number, ArrayBuffer]] : []);
+const handed = (events: readonly ModelEvent[]): [number, PartModel][] => events.flatMap((e) =>
+  e.type === 'mesh' ? [[e.part, { model: e.model, ...(e.analysis ? { analysis: e.analysis } : {}) }] as
+    [number, PartModel]] : []);
 
 const firstFace = (data: Uint8Array) => {
   const d = openBrep(data);
@@ -146,8 +148,9 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     // representation's id, not one of the file's faces, so every face of the file counts as failed: outlined from
     // the file); a profile's deflections exactly (not through degrees).
     // (And the edges found from their triangles, as the fake backend gives none: its buffer too.)
-    // (And each part's B-rep model's buffer, handed over to the page with its mesh: its own, to transfer.)
-    assert.ok(transfers.slice(1, -1).every((t) => t.length === 5));
+    // (And each part's B-rep model's buffer, handed over to the page with its mesh: its own, to transfer; and its
+    // analysis's, healing on by default.)
+    assert.ok(transfers.slice(1, -1).every((t) => t.length === 6));
     const meshes = events.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
     assert.ok(meshes.every((e, k) => e.model.byteLength > 0 && transfers[k + 1]!.includes(e.model)));
     assert.equal(new Set(meshes.map((e) => e.model)).size, meshes.length);
@@ -277,10 +280,12 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     const { requests, tessellation } = fake();
     const events: ModelEvent[] = [];
     const sent: ArrayBuffer[][] = [];
+    let worker: Scene | undefined;
     await loadModelIn({ input: { format: '3mf', bytes } }, DEFAULT_SETTINGS, 2, tessellation, (e, t) => {
-      events.push(e);
+      // (The scene as the page gets it: a copy, as posting it makes one; its levels aren't transferred here.)
+      events.push(e.type === 'scene' ? structuredClone(e) : e);
       sent.push(t ?? []);
-    }, () => false);
+    }, () => false, {}, (s) => { worker = s; });
     // 3MF has no lines: the plate's edges found from its triangles, after the scene, before the end; its level's
     // buffers kept here for that (copied to the page, not transferred).
     assert.deepEqual(events.map((e) => e.type), ['scene', 'edges', 'done']);
@@ -290,6 +295,12 @@ test('importModel and loadModelIn: GLB, .gltf with its .bin, three.js JSON, 3MF,
     assert.ok(found.positions.length > 0 && sc.parts[found.part]!.lods[0]!.mesh.indices.length > 0);
     assert.deepEqual(sent[0], []);
     assert.deepEqual(sent[1], [found.positions.buffer]);
+    // Its edges found, the worker's copy of that level released (detached, as the levels it transfers are), the
+    // page's kept.
+    const level = worker!.parts[found.part]!.lods[0]!.mesh;
+    assert.equal(level.indices.length, 0);
+    assert.ok(meshBuffers(level).every((b) => b.byteLength === 0 && b.detached));
+    assert.ok(sc.parts[found.part]!.lods[0]!.mesh.indices.length > 0);
     // A .gltf whose .bin isn't given: the importer says so.
     const missing = await importModel({ format: 'gltf', bytes: new TextEncoder().encode(sidecar.json) });
     assert.equal(missing.diagnostics[0]?.severity, 'error');
@@ -370,24 +381,30 @@ test('meshModelIn: the scene kept by a load meshed again (Mesh again): a mesh pe
 
 test('handOver and takeBack: one copy, moved; the stand-in throws on any use; outlines made from the model taken '
   + 'back; parts sharing a buffer given their own', { skip }, async () => {
-  const scene = await importModel(stepInput());
+  const scene = await importModel(stepInput(), {}, { heal: { heal: false } });
   const part = meshable(scene)[0]!, brep = scene.parts[part]!.brep!;
   const before = [...new Uint8Array(brep.model.buffer)].join();
   const outlined = (s: Scene) => s.parts[part]!.brep!.outline!({ linearDeflection: 0.5, angularDeflection: 0.5 });
   const want = outlined(scene).outlines.length;
   assert.ok(want > 0);
-  const buffer = handOver(scene, part);
+  const held = handOver(scene, part);
+  // (As imported, not healed: no analysis.)
+  assert.deepEqual(Object.keys(held), ['model']);
   assert.ok(isLent(scene, part));
   assert.throws(() => brep.model.face, /part \d+'s B-rep model is with the page \(reading face\)/);
   assert.throws(() => handOver(scene, part), /with the page already/);
   assert.throws(() => needModels(scene, meshable(scene)), /B-rep models are with the page/);
   assert.doesNotThrow(() => needModels(scene, meshable(scene).filter((i) => i !== part)));
   // Back: the same bytes, the outlines from them (the import's closure held the old views).
-  takeBack(scene, [[part, buffer]]);
+  // (An analysis it didn't lend refused, nothing taken back.)
+  assert.throws(() => takeBack(scene, [[part, { ...held, analysis: new ArrayBuffer(8) }]]),
+    /analysis wasn't lent/);
+  assert.ok(isLent(scene, part));
+  takeBack(scene, [[part, held]]);
   assert.ok(!isLent(scene, part));
   assert.equal([...new Uint8Array(scene.parts[part]!.brep!.model.buffer)].join(), before);
   assert.equal(outlined(scene).outlines.length, want);
-  assert.throws(() => takeBack(scene, [[part, buffer]]), /wasn't lent/);
+  assert.throws(() => takeBack(scene, [[part, held]]), /B-rep model wasn't lent/);
   // Two parts on one buffer: the second given a copy (a transfer would detach both), its outlines from the copy.
   const other = scene.parts.findIndex((p, i) => i !== part && p.brep);
   scene.parts[other]!.brep!.model = scene.parts[part]!.brep!.model;
@@ -411,9 +428,14 @@ test('loadModelIn with heal on: the scene first, then healing in the pool (its p
   + 'and kept, healing\'s diagnostics with the end', async () => {
   const { requests, runs, tessellation } = fake();
   const events: ModelEvent[] = [];
+  // (Each mesh event's transfer list.)
+  const transfers: ArrayBuffer[][] = [];
   let kept: Scene | undefined;
   await loadModelIn({ input: await healInput() }, { ...DEFAULT_SETTINGS, heal: true }, 3, tessellation,
-    (e) => events.push(e), () => false, {}, (s) => { kept = s; });
+    (e, t) => {
+      events.push(e);
+      if (e.type === 'mesh') transfers.push(t ?? []);
+    }, () => false, {}, (s) => { kept = s; });
   const types = events.map((e) => e.type === 'importing' ? e.progress.phase : e.type);
   const scene = types.indexOf('scene'), healing = types.lastIndexOf('healing'), mesh = types.indexOf('mesh');
   assert.ok(scene >= 0 && scene < types.indexOf('healing') && healing < mesh, types.join());
@@ -427,8 +449,26 @@ test('loadModelIn with heal on: the scene first, then healing in the pool (its p
   // What's meshed and kept is healed: every part with an analysis, the meshes from the healed models' bytes.
   assert.ok(kept!.parts.every((p) => p.brep!.analysis));
   const data = new Set(requests.map((r) => r.data.length));
-  takeBack(kept!, handed(events));
+  // Each analysis handed over with its model, both transferred; stand-ins left for both.
+  const meshes = events.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
+  assert.equal(meshes.length, 4);
+  assert.ok(meshes.every((e, k) => e.analysis && transfers[k]!.includes(e.analysis)
+    && transfers[k]!.includes(e.model)));
+  const analyses = meshes.map((e) => [...new Uint8Array(e.analysis!)].join());
+  for (const p of kept!.parts) assert.throws(() => p.brep!.analysis!.edge, /B-rep analysis is with the page/);
+  // An analysis that doesn't come back with its model refused, nothing taken back.
+  const back = handed(events);
+  assert.throws(() => takeBack(kept!, [...back.slice(0, -1), [back.at(-1)![0], { model: back.at(-1)![1].model }]]),
+    /analysis didn't come back/);
+  assert.ok(meshable(kept!).every((i) => isLent(kept!, i)));
+  takeBack(kept!, back);
   for (const p of kept!.parts) assert.ok(data.has(new Uint8Array(p.brep!.model.buffer).length));
+  // Back: the same bytes, each still its model's (by its hash).
+  for (const [k, [part]] of back.entries()) {
+    const brep = kept!.parts[part]!.brep!;
+    assert.equal([...new Uint8Array(brep.analysis!.buffer)].join(), analyses[k]);
+    await analysisFor(brep.model, brep.analysis!);
+  }
 });
 
 test('meshModelIn (Mesh again) with other healing: as imported, healed as asked; healed the same again: kept; healed '
