@@ -320,6 +320,57 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
   return t;
 }
 
+} // namespace
+
+namespace {
+
+void looseCurve(const Model& m, int curve, const EdgeOptions& o, double tol, bool forward, int depth,
+  std::vector<std::vector<Vec3>>& out, Status& status) {
+  if (m.curveKind(curve) == CBR_CURVE_COMPOSITE && depth < 16) {
+    const int32_t* in = m.curveInts(curve);
+    const int n = in[0];
+    for (int j = 0; j < n; j++) {
+      const int k = forward ? j : n - 1 - j;
+      looseCurve(m, in[2 + 3 * k], o, tol, forward == (in[3 + 3 * k] != 0), depth + 1, out, status);
+    }
+    return;
+  }
+  Status st;
+  const std::unique_ptr<Curve> c = makeCurve(m, curve, st);
+  if (!c || c->dim() != 3) {
+    status = worse(status, c ? Status::invalidModel : st);
+    return;
+  }
+  const CurveDomain d = c->domain();
+  if (!std::isfinite(d.range.lo) || !std::isfinite(d.range.hi) || !(d.range.hi > d.range.lo)) {
+    status = worse(status, Status::unsupported);
+    return;
+  }
+  const CurveGeom g(*c);
+  const Criteria k{o.deflection, o.angle, o.maxSpacing, refinementFloor(tol, o.deflection)};
+  std::vector<Vec3> pts;
+  for (double t : sample(g, d.range.lo, d.range.hi, d.period > 0, k, st)) pts.push_back(g.at(t));
+  status = worse(status, st);
+  if (!forward) std::reverse(pts.begin(), pts.end());
+  out.push_back(std::move(pts));
+}
+
+} // namespace
+
+std::vector<std::vector<Vec3>> sampleLooseCurve(const Model& m, int curve, const EdgeOptions& o, double tol,
+  Status& status) {
+  std::vector<std::vector<Vec3>> out;
+  status = Status::ok;
+  if (curve < 0 || curve >= m.curves()) {
+    status = Status::invalidModel;
+    return out;
+  }
+  looseCurve(m, curve, o, tol, true, 0, out, status);
+  return out;
+}
+
+namespace {
+
 /** x shifted by a whole number of periods to be nearest `to` (period 0: unchanged). */
 /**
  * A projected p-curve for meshing within this times the deflection of its feet, where the curve allows. cad-heal's

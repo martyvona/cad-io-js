@@ -8,6 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
+import { type BrepData, BrepBuilder, curveEvaluator, openBrep } from '../../cad-brep/src/index.ts';
 import { CadioTessellator, EXPECTED_HEAD, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD,
   VERSION } from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses, KEPT_HEAD, keptDefects } from '../src/causes.ts';
@@ -108,6 +109,110 @@ test('a model without ids: faces and edges with null entityIds, still meshed', {
   assert.ok(r.faces.some((f) => f.entityId !== null && f.count > 0));
   assert.ok(r.edges!.some((e) => e.entityId === null));
   assert.ok(!r.faces.some((f) => f.entityId === 0) && !r.edges!.some((e) => e.entityId === 0));
+});
+
+test('loose items as the other backends give them: curve items and wire edges as polylines within the deflection, '
+  + 'composites by segment, unbounded curves left out and said, points with their ids', { skip }, async () => {
+  const t = await tessellator();
+  // Distance from p to curve row `row` of the model (cad-brep's own evaluator, independent of cad-geom's).
+  const off = (d: BrepData, row: number) => {
+    const c = curveEvaluator(d, row)!;
+    return (p: number[]) => {
+      const u = c.param(p);
+      return u === undefined ? Infinity : Math.hypot(...c.point(u).map((x, j) => x - p[j]!));
+    };
+  };
+  const at = (r: TessellationResult, k: number) => Array.from(r.curvePositions!.subarray(3 * k, 3 * k + 3));
+  // everyKind: its 11 3D curves as items, none with an item id, the line (#501) the only curve with one.
+  const model = MODELS.everyKind().finish(), r = await t.tessellate({ ...req('everyKind'), edges: false });
+  const d = openBrep(model.buffer);
+  // The line, hyperbola and parabola unbounded, left out; the composite's line segment too, its polyline given.
+  // In item order: circle, ellipse, B-splines, polyline, trimmed, the composite's segment (row 7), offset.
+  const rows = [1, 2, 5, 6, 7, 8, 7, 10];
+  assert.equal(r.curves!.length, rows.length);
+  const warn = r.diagnostics.find((x) => x.message.includes('wireframe curves left out'));
+  assert.match(warn?.message ?? '',
+    /^4 wireframe curves left out, or a composite's segments .*: #501, no id, no id, no id$/);
+  // Each polyline within the deflection of its curve: its points on it, its chords' quarter points within 0.01.
+  r.curves!.forEach((c, i) => {
+    const dist = off(d, rows[i]!);
+    assert.ok(c.count >= 2);
+    for (let k = c.start; k < c.start + c.count; k++) assert.ok(dist(at(r, k)) < 1e-6, `curve ${rows[i]} point ${k}`);
+    for (let k = c.start; k + 1 < c.start + c.count; k++) {
+      const a = at(r, k), b = at(r, k + 1);
+      for (const w of [0.25, 0.5, 0.75]) {
+        assert.ok(dist(a.map((x, j) => x + w * (b[j]! - x))) <= 0.01 + 1e-9, `curve ${rows[i]} chord ${k}`);
+      }
+    }
+  });
+  // The circle (row 1) periodic: closed, in at least 3 spans; the composite's segment reversed, (1, 1, 1) to (0, 0, 0).
+  const circle = r.curves![0]!, last = r.curves![6]!;
+  assert.ok(circle.count >= 4);
+  const near = (p: number[], q: number[]) => Math.hypot(...p.map((x, j) => x - q[j]!)) < 1e-5;
+  assert.ok(near(at(r, circle.start), at(r, circle.start + circle.count - 1)));
+  assert.deepEqual([at(r, last.start), at(r, last.start + last.count - 1)], [[1, 1, 1], [0, 0, 0]]);
+  assert.ok(r.curves!.every((c) => c.entityId === null));
+  assert.deepEqual(Array.from(r.points!), [9, 8, 7]);
+  assert.deepEqual(r.pointIds, [701]);
+  // Minus the origin, as faces are.
+  const o = await t.tessellate({ ...req('everyKind'), edges: false, origin: [1, 2, 3] });
+  assert.deepEqual(Array.from(o.points!), [8, 6, 4]);
+  assert.ok(near(Array.from(o.curvePositions!.subarray(0, 3)), at(r, 0).map((x, j) => x - [1, 2, 3][j]!)));
+  // A wire body's edges, from vertex to vertex: (5, 0, 0) to (6, 0, 0) and on to (6, 1, 0), no ids.
+  const w = await t.tessellate({ ...req('facetedAndWire'), edges: false });
+  assert.deepEqual(w.curves!.map((c) => [c.entityId, c.count]), [[null, 2], [null, 2]]);
+  assert.deepEqual(Array.from(w.curvePositions!), [5, 0, 0, 6, 0, 0, 6, 0, 0, 6, 1, 0]);
+  assert.equal(w.points, undefined);
+  // Points without an id null.
+  const n = await t.tessellate(req('withoutIds'));
+  assert.deepEqual(n.pointIds, [null, 30]);
+  assert.deepEqual(Array.from(n.points!), [5, 5, 5, 6, 6, 6]);
+  assert.equal(n.curves, undefined);
+  assert.equal(t.info.supportsCurves, true);
+  // Ids: an item's own, else its curve's.
+  const b = new BrepBuilder();
+  const ring = b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
+    radius: 1, id: 77 });
+  b.addItem({ kind: 'curve', ref: ring });
+  b.addItem({ kind: 'curve', ref: ring, id: 88 });
+  const ids = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(b.finish().buffer), linearDeflection: 0.01,
+    angularDeflection: 0.26 });
+  assert.deepEqual(ids.curves!.map((c) => c.entityId), [77, 88]);
+  // A composite inside one reversed: its segments in reverse order, each reversed.
+  const c = new BrepBuilder();
+  const s1 = c.addCurve({ kind: 'polyline', points: [[0, 0, 0], [1, 0, 0]] });
+  const s2 = c.addCurve({ kind: 'polyline', points: [[1, 0, 0], [1, 1, 0]] });
+  const inner = c.addCurve({ kind: 'composite', segments: [{ curve: s1, sameSense: true, transition: 'continuous' },
+    { curve: s2, sameSense: true, transition: 'continuous' }], selfIntersect: false });
+  const outer = c.addCurve({ kind: 'composite', segments: [{ curve: inner, sameSense: false,
+    transition: 'continuous' }], selfIntersect: false });
+  c.addItem({ kind: 'curve', ref: outer, id: 5 });
+  const nested = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(c.finish().buffer),
+    linearDeflection: 0.01, angularDeflection: 0.26 });
+  assert.deepEqual(nested.curves!.map((x) => [x.entityId, x.count]), [[5, 2], [5, 2]]);
+  assert.deepEqual(Array.from(nested.curvePositions!), [1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0]);
+  // The angle alone (a unit circle at d = 1): no span turns more than 0.26, so at least 2 pi / 0.26 spans; no angle
+  // and d = 10, one span would do but a periodic curve has at least 3.
+  const unit = (angularDeflection: number, linearDeflection: number) => {
+    const u = new BrepBuilder();
+    u.addItem({ kind: 'curve', ref: u.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [0, 0, 1],
+      xDir: [1, 0, 0] }, radius: 1 }) });
+    return t.tessellate({ format: 'cad-brep', data: new Uint8Array(u.finish().buffer), linearDeflection,
+      angularDeflection });
+  };
+  assert.ok((await unit(0.26, 1)).curves![0]!.count - 1 >= Math.ceil(2 * Math.PI / 0.26));
+  assert.ok((await unit(0, 10)).curves![0]!.count - 1 >= 3);
+  // A wire edge that can't be sampled (on a line, from a vertex back to it): left out and said, no empty polyline.
+  const e = new BrepBuilder();
+  const v = e.addVertex({ point: [0, 0, 0] });
+  const line = e.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  const edge = e.addEdge({ curve: line, start: v, end: v, sameSense: true, id: 9 });
+  e.addItem({ kind: 'body', ref: e.addBody({ kind: 'wire', members: [{ ref: edge, sense: true }] }) });
+  const bad = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(e.finish().buffer),
+    linearDeflection: 0.01, angularDeflection: 0.26 });
+  assert.equal(bad.curves, undefined);
+  assert.ok(bad.diagnostics.some((x) => /^1 wireframe curves left out.*: #9$/.test(x.message)),
+    JSON.stringify(bad.diagnostics));
 });
 
 test('the seam cylinder: its seam a seam; a sphere\'s faces: the whole one (no loops) and the hemisphere meshed',
