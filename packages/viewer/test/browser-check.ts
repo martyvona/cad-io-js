@@ -4224,7 +4224,7 @@ await check('keyboard shortcuts', async () => {
     const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
     // (Their folders open, to be measured.)
     for (const f of ui.gui.foldersRecursive()) {
-      if (['View', 'Look Along an Axis', 'Rendering', 'Tree'].includes(f._title)) f.open();
+      if (['View', 'Look Along an Axis', 'Rendering', 'Tree', 'Selection'].includes(f._title)) f.open();
     }
     out.hints = ui.gui.controllersRecursive().flatMap((c) => {
       const k = c.$name.querySelector('.cv-key');
@@ -4291,8 +4291,8 @@ await check('keyboard shortcuts', async () => {
     `g: off to selected with a selection, to all without; back to off: ${j}`);
   expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
     `none in a text field, with a modifier, repeated, or unbound: ${j}`);
-  expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Hide selected h,'
-    + 'Show selected s,Front 1,Back 2,Left 3,Right 4,Top 5,Bottom 6,Iso 7,Show the tree t,Triangle edges g'
+  expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Front 1,Back 2,Left 3,'
+    + 'Right 4,Top 5,Bottom 6,Iso 7,Show the tree t,Hide selected h,Show selected s,Triangle edges g'
     && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
   expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|Tree/Show the tree=false|Tree/Show the tree=true|'
     + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off', `recorded as their controls: ${j}`);
@@ -4329,6 +4329,49 @@ await check('key hints on touch screens', async () => {
   const a = first.after, j = JSON.stringify({ ...a, next: next.after });
   expect(!a.fine && !a.before && !a.typed, `no mouse: hidden, a key in a text field too: ${j}`);
   expect(a.after && a.remembered === '1' && next.after.shown, `a key elsewhere: shown, and remembered: ${j}`);
+  return undefined;
+});
+// The controls' folders: File has Link to this view..., one fullscreen button and Theme before About...; View its
+// zooms, Axes and the views alone; Selection, after picking and selecting, Details, hiding and showing, transparency;
+// Rendering ends with Custom background and its picker. The fullscreen button says which way it goes: pressed (as a
+// user's gesture), the page full screen and the button Exit fullscreen; pressed again, back, Enter fullscreen.
+await check('control folders', async () => {
+  const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
+    returnByValue: true, awaitPromise: true, userGesture: true }, sessionId)) as { result: { value: unknown } })
+    .result.value;
+  const press = `(async () => {
+    const before = !!document.fullscreenElement;
+    ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name)).$button
+      .click();
+    for (let i = 0; i < 100 && !!document.fullscreenElement === before; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
+    const b = ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name));
+    return { full: !!document.fullscreenElement, label: b._name, shown: b.$name.textContent };
+  })()`;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const folder = (t) => ui.gui.foldersRecursive().find((f) => f._title === t).controllers.map((c) => c._name);
+    const b = ui.gui.controllersRecursive().find((c) => c._name === 'Enter fullscreen');
+    return { file: folder('File'), view: folder('View'), selection: folder('Selection'),
+      rendering: folder('Rendering').slice(-2), enabled: !!b && !b._disabled && document.fullscreenEnabled };
+  })()`, { then: async (sessionId) => {
+    const on = await evaluate(sessionId, press);
+    const off = await evaluate(sessionId, press);
+    return { on, off };
+  } }) as { after: { file: string[]; view: string[]; selection: string[]; rendering: string[]; enabled: boolean };
+    then: { on: { full: boolean; label: string; shown: string }; off: { full: boolean; label: string;
+      shown: string } } };
+  const a = r.after, t = r.then, j = JSON.stringify({ a, t });
+  expect(a.file.join() === 'Open file...,Load URL...,Save original...,Export...,Screenshot...,Link to this view...,'
+    + 'Enter fullscreen,Theme,About...', `File: ${j}`);
+  expect(a.view.join() === 'Zoom all,Zoom selected,Axes', `View: its zooms and Axes (and the views' folder): ${j}`);
+  expect(a.selection.slice(-9).join() === 'Details,Hide selected,Show selected,Hide others,Show others,Show all,'
+    + 'Opacity,Make transparent,Restore opacity' && a.selection[0] === 'Pick', `Selection: ${j}`);
+  expect(a.rendering.join() === 'Custom background,Background', `Rendering ends with the background: ${j}`);
+  expect(a.enabled && t.on.full && t.on.label === 'Exit fullscreen' && t.on.shown === 'Exit fullscreen'
+    && !t.off.full && t.off.label === 'Enter fullscreen' && t.off.shown === 'Enter fullscreen',
+    `one fullscreen button, saying which way it goes: ${j}`);
   return undefined;
 });
 await check('no model', async () => {
@@ -4959,7 +5002,7 @@ await check('theme', async () => {
   expect(as(a, a.systemLight ? 'light' : 'dark') && a.control === 'auto' && a.saved === null, `auto again: ${j}`);
   return undefined;
 });
-// View's Custom background: off, the theme's; on, the picker's colour (drawn, and the page's --view-bg behind the
+// Rendering's Custom background: off, the theme's; on, the picker's colour (drawn, and the page's --view-bg behind the
 // view), the picker enabled only then; remembered, so a new page starts with it from its first paint (index.html's
 // inline script); off again, the theme's. (Turned off and forgotten at the end: pages share the profile.)
 await check('custom background', async () => {
@@ -6052,8 +6095,9 @@ await check('recording', async () => {
     await pause();
     // A switch and a button, as clicked.
     const end = await send('Runtime.evaluate', { expression: `(async () => {
+      // (By its name's own text: a control's key, after it, isn't part of its name.)
       const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
-        .find((c) => c.textContent.trim() === name);
+        .find((c) => c.querySelector('.name')?.firstChild?.textContent.trim() === name);
       control('Cut along X').querySelector('input').click();
       await cadViewer.idle();
       control('Zoom all').querySelector('button').click();
@@ -6217,7 +6261,7 @@ await check('replay dialogs', async () => {
       return files.map((f) => ({ getFile: async () => f }));
     };
     const control = (name) => [...document.querySelectorAll('.lil-gui .controller')]
-      .find((c) => c.textContent.trim() === name);
+      .find((c) => c.querySelector('.name')?.firstChild?.textContent.trim() === name);
     const status = () => document.getElementById('status').textContent;
     const replay = (rec) => {
       ui.say('');

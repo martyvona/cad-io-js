@@ -1,5 +1,5 @@
 // The viewer's controls, in lil-gui (docs/viewer.md): opening a local file or a URL (also by dropping files on
-// the page, or ?model= in the page's address), zoom all, the views along the axes, full screen, the tree panel and
+// the page, or ?model= in the page's address), full screen, zoom all, the views along the axes, the tree panel and
 // hiding; a status line for what's loading and what went wrong. Every folder starts closed.
 
 import * as THREE from 'three';
@@ -632,7 +632,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();
   file.add({ link: () => linkDialog() }, 'link').name('Link to this view...');
-  file.add({ about: () => about() }, 'about').name('About...');
 
   const view = gui.addFolder('View');
   const zoomAll = view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
@@ -662,16 +661,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.setTheme(t);
     return t;
   };
-  const full = {
-    enter: () => void document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true)),
-    exit: () => void document.exitFullscreen().catch(() => {}),
-  };
-  const enter = view.add(full, 'enter').name('Enter full screen');
-  const exit = view.add(full, 'exit').name('Exit full screen');
+  // One button, saying which way it goes (as the page is now).
+  const full = { toggle: () => void (document.fullscreenElement ? document.exitFullscreen().catch(() => {})
+    : document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true))) };
+  const fullControl = file.add(full, 'toggle').name('Enter fullscreen');
   const fullscreen = () => {
+    fullControl.name(document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
     // Disabled where the page can't go full screen (iPhone, some embedded browsers).
-    enter.enable(document.fullscreenEnabled && !document.fullscreenElement);
-    exit.enable(!!document.fullscreenElement);
+    fullControl.enable(document.fullscreenEnabled || !!document.fullscreenElement);
     // Leaving full screen, a phone's browser can leave the page scrolled as its toolbar comes back, the top of the view
     // (the details box) under it (seen on a phone): back to the top, once now and once the toolbar has settled.
     if (!document.fullscreenElement) for (const t of [0, 400]) setTimeout(() => window.scrollTo(0, 0), t);
@@ -681,21 +678,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const first = setTheme(theme.choice);
   // Auto follows the system as it changes.
   onSystemTheme(() => { if (theme.choice === 'auto') setTheme('auto'); });
-  view.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
+  file.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
     .onChange((c: ThemeChoice) => setTheme(c));
-  // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
-  // theme's colour); remembered in this browser.
-  const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
-  const backdrop = () => {
-    picker.enable(background.on);
-    applyCustomBackground(background);
-    viewer.setBackground(background.on ? parseInt(background.color.slice(1), 16) : undefined);
-  };
-  view.add(background, 'on').name('Custom background').onChange(backdrop);
-  const picker = view.addColor(background, 'color').name('Background').onChange(backdrop);
-  backdrop();
   fullscreen();
-  // Filled once what they drive exists (below), as are View's Details and what follows it.
+  file.add({ about: () => about() }, 'about').name('About...');
+  // Filled once what they drive exists (below).
   const treeFolder = gui.addFolder('Tree');
   const selFolder = gui.addFolder('Selection');
 
@@ -765,6 +752,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     for (const c of lights) c.updateDisplay();
     restyle();
   } }, 'reset').name('Reset lighting to defaults');
+  // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
+  // theme's colour); remembered in this browser.
+  const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
+  const backdrop = () => {
+    picker.enable(background.on);
+    applyCustomBackground(background);
+    viewer.setBackground(background.on ? parseInt(background.color.slice(1), 16) : undefined);
+  };
+  rendering.add(background, 'on').name('Custom background').onChange(backdrop);
+  const picker = rendering.addColor(background, 'color').name('Background').onChange(backdrop);
+  backdrop();
   const capStyle = sectionFolder.add(look, 'capStyle', { 'Drawing (beige)': 'drawing', 'Part colours': 'parts' })
     .name('Cap style').onChange(restyle);
   const hatchWidth = sectionFolder.add(look, 'hatchWidth', 0.25, 4, 0.01).name('Hatch width (pixels)')
@@ -1230,7 +1228,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     set onEvent(f) { hooks.onEvent = f; },
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
-  // Selection: picking and selecting. View, after its own: Details, hiding and showing, transparency. Tree: the panel.
+  // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
     .name('Pick');
   selFolder.add(selection, 'multi').name('Multi-select (touch)');
@@ -1241,16 +1239,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(ui, 'invertSelection').name('Invert selection');
   selFolder.add({ byId: selectById }, 'byId').name('Select by ID...');
-  view.add(selection, 'details').name('Details').onChange(describe);
-  const hideControl = view.add(ui, 'hideSelected').name('Hide selected');
-  const showControl = view.add(ui, 'showSelected').name('Show selected');
-  view.add(ui, 'hideOthers').name('Hide others');
-  view.add(ui, 'showOthers').name('Show others');
-  view.add(ui, 'showAll').name('Show all');
+  selFolder.add(selection, 'details').name('Details').onChange(describe);
+  const hideControl = selFolder.add(ui, 'hideSelected').name('Hide selected');
+  const showControl = selFolder.add(ui, 'showSelected').name('Show selected');
+  selFolder.add(ui, 'hideOthers').name('Hide others');
+  selFolder.add(ui, 'showOthers').name('Show others');
+  selFolder.add(ui, 'showAll').name('Show all');
   // Transparency: the selection at this opacity, or back to the file's.
-  view.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
-  view.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
-  view.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
+  selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
+  selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
+  selFolder.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
   openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
     setOpen(open);
     if (!open && viewer.nodes) tree.closedByHand = true;
