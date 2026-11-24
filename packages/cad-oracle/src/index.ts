@@ -17,7 +17,7 @@ export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoop
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
-const API_VERSION = 5;
+const API_VERSION = 6;
 
 /** A computed real with an a posteriori estimate of its error (result.h's Estimate). */
 export interface Estimate {
@@ -153,6 +153,13 @@ export interface OracleOptions {
    * spared.
    */
   projectMissing?: boolean;
+}
+
+/** co_face's out[0..9] and its why as a FaceMeasure. */
+function faceMeasure(o: Float64Array, why: string): FaceMeasure {
+  return { area: { value: o[0]!, error: o[1]!, status: STATUS[o[2]!]! },
+    perimeter: { value: o[3]!, error: o[4]!, status: STATUS[o[5]!]! }, method: METHOD[o[6]!]!,
+    flags: flagsOf(o[7]!), offSurface: o[8]!, boundary: o[9]!, why };
 }
 
 const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
@@ -350,11 +357,27 @@ export class Oracle {
     const x = this.x, p = x._malloc(88);
     try {
       x._co_face!(this.live(), face, p, p + 80);
-      const o = x.HEAPF64.subarray(p / 8, p / 8 + 10);
-      const why = x.UTF8ToString(x.HEAP32[(p + 80) / 4]!);
-      return { area: { value: o[0]!, error: o[1]!, status: STATUS[o[2]!]! },
-        perimeter: { value: o[3]!, error: o[4]!, status: STATUS[o[5]!]! }, method: METHOD[o[6]!]!,
-        flags: flagsOf(o[7]!), offSurface: o[8]!, boundary: o[9]!, why };
+      return faceMeasure(x.HEAPF64.subarray(p / 8, p / 8 + 10), x.UTF8ToString(x.HEAP32[(p + 80) / 4]!));
+    } finally {
+      x._free(p);
+    }
+  }
+
+  /**
+   * face(face), with faceFlux(face, center) where it comes with the area's pass (oracle.h's face with an integrand):
+   * on a free-form face one pass for both, about half their cost, the flux the same bits as faceFlux's (the area could
+   * differ from face(face)'s in the last place; on the corpus it doesn't). Elsewhere the measure alone, no flux.
+   */
+  faceAndFlux(face: number, center: [number, number, number] = [0, 0, 0]):
+    { measure: FaceMeasure; flux?: [Estimate, Estimate, Estimate] } {
+    const x = this.x, p = x._malloc(168);
+    try {
+      x._co_face_and_flux!(this.live(), face, center[0], center[1], center[2], p, p + 160);
+      const o = x.HEAPF64.subarray(p / 8, p / 8 + 20);
+      const at = (k: number): Estimate => ({ value: o[10 + 3 * k]!, error: o[11 + 3 * k]!,
+        status: STATUS[o[12 + 3 * k]!]! });
+      const measure = faceMeasure(o, x.UTF8ToString(x.HEAP32[(p + 160) / 4]!));
+      return o[19] ? { measure, flux: [at(0), at(1), at(2)] } : { measure };
     } finally {
       x._free(p);
     }
@@ -362,4 +385,4 @@ export class Oracle {
 }
 export { AREA_ORACLE_ID, areaOracle, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, type JudgedArea, type ModelLike }
   from './judge.ts';
-export { type ShellModel, shellVolumes, type ShellVolume } from './shells.ts';
+export { shellBox, type ShellModel, shellVolumes, type ShellVolume, solidShells } from './shells.ts';

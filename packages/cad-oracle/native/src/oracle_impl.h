@@ -54,7 +54,8 @@ struct Oracle::Impl {
 
   FaceMeasure closedForm(int face);
   FaceMeasure swept(int face);
-  FaceMeasure freeForm(int face);
+  /** With g: g integrated in the same pass (freeWith), into *gOut, the area its |n| component. */
+  FaceMeasure freeForm(int face, const Integrand* g = nullptr, std::vector<Estimate>* gOut = nullptr);
   /** faceIntegral (oracle.h), on the faces closedForm, swept and freeForm measure. */
   std::vector<Estimate> integral(int face, const Integrand& g);
   /** The face's surface as the face API closes it in fact (at its tolerance), made once; null where it can't be. */

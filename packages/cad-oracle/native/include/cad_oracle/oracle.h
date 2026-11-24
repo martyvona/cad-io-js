@@ -256,6 +256,13 @@ public:
    */
   std::vector<Estimate> faceIntegral(int face, const Integrand& g);
   /**
+   * face(face), with faceIntegral(face, g) into gOut where it comes with the area's pass: on a free-form face, one pass
+   * for both, which spares the other's surface evaluations (most of a measure's cost), g's results the same bits as
+   * faceIntegral's and the area its |n| component (which could differ from face(face)'s in the last bits, that pass's
+   * panels settled over g's components too; on the corpus it doesn't). Elsewhere face(face) alone, gOut empty.
+   */
+  FaceMeasure face(int face, const Integrand& g, std::vector<Estimate>& gOut);
+  /**
    * The line o + t d, t in tr (finite), against the face: cad-geom's intersectLine on its surface (as the face API
    * closes it in fact) at the face API's tolerance for the face, each contact classified against its loops by the face
    * API (a tangency at that tolerance widened by half its span, so one reaching into the face isn't left out); a
@@ -285,6 +292,7 @@ public:
   struct Impl;
 
 private:
+  FaceMeasure face(int face, const Integrand* g, std::vector<Estimate>* gOut);
   std::unique_ptr<Impl> impl_;
 };
 

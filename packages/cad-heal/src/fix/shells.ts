@@ -22,7 +22,7 @@
 import { BODY_KIND, type BrepData, LOOP_KIND, ORIENTATION, rowCount, writeBrep } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
 import type { Diagnostic } from 'cad-scene';
-import { type FaceMeasure, Oracle, type OracleModule, shellVolumes, type ShellVolume } from 'cad-oracle';
+import { type Estimate, type FaceMeasure, Oracle, type OracleModule, shellVolumes, type ShellVolume } from 'cad-oracle';
 import type { ShellSide } from 'cad-oracle/shell-side';
 
 /** One solid shell's verdict: turned or not, by what. */
@@ -299,13 +299,15 @@ export function flipSenses(model: BrepData, faces: Iterable<number>): BrepData {
 /**
  * The shells step's verdicts for every solid's shell, with what was said (disagreements, one method deciding
  * alone as warnings, shells sharing faces or whose nesting can't be told left as built). `sides` the point
- * classification (none: the volume alone, nothing said for it). `faces`: face measures already taken on this model at
- * judging's relTol (JUDGE_REL_TOL), as shellVolumes takes them.
+ * classification (none: the volume alone, nothing said for it). `faces` and `flux`: face measures and fluxes already
+ * taken on this model at judging's relTol (JUDGE_REL_TOL), as shellVolumes takes them.
  */
 export function shellVerdicts(model: BrepData, module: OracleModule, sides?: ShellSide,
-  faces?: (face: number) => FaceMeasure | undefined): { verdicts: ShellVerdict[]; diagnostics: Diagnostic[] } {
-  const volumes = new Map(shellVolumes(module, model, { ...sides ? { sides } : {}, ...faces ? { faces } : {} })
-    .map((v) => [v.shell, v]));
+  faces?: (face: number) => FaceMeasure | undefined,
+  flux?: (face: number, center: [number, number, number]) => [Estimate, Estimate, Estimate] | undefined):
+  { verdicts: ShellVerdict[]; diagnostics: Diagnostic[] } {
+  const volumes = new Map(shellVolumes(module, model, { ...sides ? { sides } : {}, ...faces ? { faces } : {},
+    ...flux ? { flux } : {} }).map((v) => [v.shell, v]));
   const diagnostics: Diagnostic[] = [], verdicts: ShellVerdict[] = [];
   const name = (s: number) => model.shell.id[s] ? `shell #${model.shell.id[s]}` : `shell row ${s}`;
   const users = new Map<number, number>();

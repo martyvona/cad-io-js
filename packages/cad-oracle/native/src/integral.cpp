@@ -232,18 +232,28 @@ std::vector<Estimate> Oracle::Impl::integral(int f, const Integrand& g) {
   }
 
   if (kind == CBR_SURFACE_BSPLINE || kind == CBR_SURFACE_OFFSET || kind == CBR_SURFACE_RECTANGULAR_TRIMMED) {
-    const FreeTotals T = freeIntegral(*this, f, K, k, [&](Vec3 p, Vec3 n, double* o) {
-      g.f(p, sense * n, o);
-      o[k] = norm(n);
-    }, [&](const Inner& in, const std::vector<std::array<double, 3>>& samples) { return floors(g, in, samples); },
-      options.relTol);
-    if (*T.why && T.status != Status::noConvergence && T.status != Status::singular) {
-      return std::vector<Estimate>(k, Estimate{NAN, INFINITY, T.status});
-    }
-    for (int c = 0; c < k; c++) out[c] = {T.value[c], T.error[c], T.status};
-    return out;
+    return freeEstimates(freeWith(*this, f, g), k);
   }
   return unsupported(k);
+}
+
+FreeTotals freeWith(Oracle::Impl& I, int f, const Integrand& g) {
+  const int k = g.components;
+  const double sense = I.model.faceSameSense(f) ? 1 : -1;
+  return freeIntegral(I, f, k + 1, k, [&](Vec3 p, Vec3 n, double* o) {
+    g.f(p, sense * n, o);
+    o[k] = norm(n);
+  }, [&](const Inner& in, const std::vector<std::array<double, 3>>& samples) { return floors(g, in, samples); },
+    I.options.relTol);
+}
+
+std::vector<Estimate> freeEstimates(const FreeTotals& T, int k) {
+  if (*T.why && T.status != Status::noConvergence && T.status != Status::singular) {
+    return std::vector<Estimate>(k, Estimate{NAN, INFINITY, T.status});
+  }
+  std::vector<Estimate> out(k);
+  for (int c = 0; c < k; c++) out[c] = {T.value[c], T.error[c], T.status};
+  return out;
 }
 
 std::vector<Estimate> Oracle::faceIntegral(int face, const Integrand& g) {

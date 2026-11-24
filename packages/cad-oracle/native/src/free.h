@@ -63,4 +63,14 @@ FreeTotals freeIntegral(Oracle::Impl& I, int face, int K, int area,
     floorFor,
   double relTol);
 
+/**
+ * freeIntegral of faceIntegral's integrand g (oracle.h) on a free-form face: g's k components at the face's sense, the
+ * area |n| riding along as component k. faceIntegral's results on such a face are freeEstimates of it, and
+ * Oracle::face(f, g, ...)'s area is its component k, so the two agree to the bit.
+ */
+FreeTotals freeWith(Oracle::Impl& I, int face, const Integrand& g);
+
+/** g's k components as faceIntegral gives them from freeWith's totals (failed ones NaN, at the totals' status). */
+std::vector<Estimate> freeEstimates(const FreeTotals& T, int k);
+
 } // namespace cadoracle

@@ -39,12 +39,20 @@ void putClass(double* o, const PointClass& c) {
   o[12] = c.checked;
 }
 
+/** The flux integrand about c: (x - cx) n_x, (y - cy) n_y, (z - cz) n_z (co_face_flux, co_face_and_flux). */
+Integrand fluxIntegrand(Vec3 c) {
+  return {3, [c](Vec3 p, Vec3 nv, double* o) {
+    const Vec3 d = p - c;
+    o[0] = d.x * nv.x, o[1] = d.y * nv.y, o[2] = d.z * nv.z;
+  }, {}};
+}
+
 } // namespace
 
 extern "C" {
 
 /** The format's version of this API, for the TypeScript layer to check. */
-int32_t co_api_version() { return 5; }
+int32_t co_api_version() { return 6; }
 
 /**
  * The oracle of `size` bytes at `buffer` (from malloc; owned from now on, freed by co_model_free or here if it isn't
@@ -139,13 +147,29 @@ int32_t co_face_moments(int32_t h, int32_t face, double cx, double cy, double cz
 int32_t co_face_flux(int32_t h, int32_t face, double cx, double cy, double cz, double* out) {
   Entry* e = entry(h);
   if (!e) return -1;
-  const Vec3 c{cx, cy, cz};
-  Integrand g{3, [&](Vec3 p, Vec3 nv, double* o) {
-    const Vec3 d = p - c;
-    o[0] = d.x * nv.x, o[1] = d.y * nv.y, o[2] = d.z * nv.z;
-  }, {}};
+  const Integrand g = fluxIntegrand({cx, cy, cz});
   const std::vector<Estimate> v = e->oracle->faceIntegral(face, g);
   for (int k = 0; k < 3; k++) put(out + 3 * k, v[k]);
+  return 0;
+}
+
+/**
+ * co_face's measure into out[0..9], and where it comes with the area's pass (oracle.h's face with an integrand: a
+ * free-form face) co_face_flux's components about (cx, cy, cz) into out[10..18], the same bits, out[19] 1; else
+ * out[19] 0. Its `why` into *why. 0, or -1 for a bad handle.
+ */
+int32_t co_face_and_flux(int32_t h, int32_t face, double cx, double cy, double cz, double* out, const char** why) {
+  Entry* e = entry(h);
+  if (!e) return -1;
+  const Integrand g = fluxIntegrand({cx, cy, cz});
+  std::vector<Estimate> v;
+  FaceMeasure m = e->oracle->face(face, g, v);
+  put(out, m.area), put(out + 3, m.perimeter);
+  out[6] = static_cast<double>(m.method), out[7] = static_cast<double>(m.flags), out[8] = m.offSurface;
+  out[9] = m.boundary;
+  out[19] = v.size() == 3 ? 1 : 0;
+  for (int k = 0; k < 3 && out[19]; k++) put(out + 10 + 3 * k, v[k]);
+  *why = m.why;
   return 0;
 }
 
