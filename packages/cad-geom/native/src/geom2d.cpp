@@ -23,15 +23,16 @@
 //   crossing), a crossing otherwise; its point is where the gap is least (at a crossing, where it's 0). A
 //   closed curve's contact across its seam is one contact.
 // Classification. A point within tol of the boundary (or on a pole line the face reaches) is on. Otherwise a ray from
-// it decides: the nearest boundary it meets has the region on its left (outer loops counterclockwise, holes
-// clockwise), so p is in iff it's on that piece's left (orient2d for straight pieces, exact). Rays run along a
-// non-periodic direction to beyond the boundary, or one period along a periodic one. One meeting nothing decides
-// nothing (a band's loops run along a period, a polar cap's region is unbounded toward its pole), nor does one whose
-// first hit is tangent, overlapping, or at a corner (p on different sides of the pieces meeting there): another at a
-// different angle is cast; p is out only if none meets anything. A point beyond a pole line the boundary lies all on
-// one side of (a cone's other nappe) is out. In periodic directions the pieces are copied by multiples of the periods
-// to cover the ray. Loop pieces that don't meet are closed by a straight segment where the jump lies along a pole
-// line (Periods), or are a band closing around its period (a whole period apart, no segment).
+// it decides: the nearest boundary it meets has the region on its left (outer loops counterclockwise, holes clockwise),
+// so p is in iff it's on that piece's left (orient2d for straight pieces, exact). Rays run along a non-periodic
+// direction to beyond the boundary, or one period along a periodic one. One meeting nothing decides nothing (a band's
+// loops run along a period, a polar cap's region is unbounded toward its pole), nor does one whose first hit is
+// tangent, overlapping, or at a corner (p on different sides of the pieces meeting there): another at a different angle
+// is cast; p is out only if none meets anything. A point beyond a pole line the boundary lies all on one side of (a
+// cone's other nappe) is out, and so is one in a band between pole lines across a period (a spindle torus's other
+// sheet) that the boundary doesn't enter, where it enters another. In periodic directions the pieces are copied by
+// multiples of the periods to cover the ray. Loop pieces that don't meet are closed by a straight segment where the
+// jump lies along a pole line (Periods), or are a band closing around its period (a whole period apart, no segment).
 #include "cad_geom/geom2d.h"
 
 #include <algorithm>
@@ -1080,6 +1081,43 @@ Side classifyOne(const std::vector<Loop2>& loops, const std::vector<std::vector<
     if (!(periods.v > 0))
       for (double c : periods.poleV)
         if (beyond(p.y, all.y0, all.y1, c)) return Side::out;
+    // Across a period, two or more pole lines part it into bands, each a sheet of the surface (a spindle
+    // torus's v): a point in a band the boundary doesn't enter, where it enters another, is out. (A ray from it,
+    // clipped at the pole lines, would meet the boundary's closures along them as from inside the face.) A boundary
+    // only along pole lines enters none: left to the rays.
+    auto bands = [&](double x, double period, std::vector<double> poles, bool alongU) {
+      if (!(period > 0) || poles.size() < 2) return false;
+      for (double& c : poles) c = c - period * std::floor(c / period);
+      std::sort(poles.begin(), poles.end());
+      const double y = x - period * std::floor(x / period);
+      // p's band (a, b): the poles either side of it, a period on where it wraps.
+      size_t k = 0;
+      while (k < poles.size() && poles[k] <= y) k++;
+      const double a = k == 0 ? poles.back() - period : poles[k - 1], b = k == poles.size() ? poles[0] + period
+        : poles[k];
+      if (y <= a + tol || y >= b - tol) return false;
+      // Whether [lo, hi] meets (c0 + tol, c1 - tol) in any period's copy.
+      auto meets = [&](double lo, double hi, double c0, double c1) {
+        if (hi - lo >= period) return true;
+        const double s = std::floor((lo - c0) / period) * period;
+        for (double sh : {s, s + period}) {
+          const double l = lo - sh, h = hi - sh;
+          if (h > c0 + tol && l < c1 - tol) return true;
+        }
+        return false;
+      };
+      bool inOurs = false, inOther = false;
+      for (const Bbox& bx : bd.boxes) {
+        const double lo = alongU ? bx.x0 : bx.y0, hi = alongU ? bx.x1 : bx.y1;
+        inOurs = inOurs || meets(lo, hi, a, b);
+        for (size_t j = 0; j < poles.size(); j++) {
+          const double c0 = poles[j], c1 = j + 1 < poles.size() ? poles[j + 1] : poles[0] + period;
+          if (c0 != a && c0 != a + period && c0 != a - period) inOther = inOther || meets(lo, hi, c0, c1);
+        }
+      }
+      return !inOurs && inOther;
+    };
+    if (bands(p.y, periods.v, periods.poleV, false) || bands(p.x, periods.u, periods.poleU, true)) return Side::out;
   }
   Side s = classifyBoundary(bd, p, periods, tol, status);
   return s;
