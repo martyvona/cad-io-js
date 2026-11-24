@@ -14,8 +14,13 @@ export const ERROR_RATIO = 5;
 /** The share of the part's size (its vertices' box diagonal) a grown tolerance may reach and still be a warning. */
 export const SIZE_SHARE = 0.01;
 
-/** A grown tolerance at most this (mm), or the part's tolerance where larger, is an info, unless an error. */
+/**
+ * A grown tolerance at most this (mm), or the part's tolerance where larger, is an info, unless an error; so is a
+ * p-curve kept off its edge's curve by at most as much (curves.ts).
+ */
 export const SMALL_FLOOR = 1e-3;
+/** The limit under which healing's findings are infos, not warnings: max(SMALL_FLOOR, the part's tolerance). */
+export const smallLimit = (part: number) => Math.max(SMALL_FLOOR, part);
 
 /** The fixes that grow tolerances, in the order the message lists them. */
 const GROWERS = ['edgeTolerance', 'vertexTolerance', 'pcurveEnds'] as const satisfies readonly HealFix[];
@@ -49,7 +54,7 @@ export class Growth {
   /** `size`: the part's (its vertices' box diagonal); `part`: its tolerance (measure.ts's tolerances' `part`). */
   constructor(size: number, part: number) {
     this.size = size;
-    this.small = Math.max(SMALL_FLOOR, part);
+    this.small = smallLimit(part);
   }
 
   /** An edge's or vertex's tolerance grown from `start` (the shared function's) to `grown`, by `fixes`. */

@@ -12,7 +12,7 @@ import { planeImage } from './fix/plane.ts';
 import { curveEndGaps, gapTo } from './fix/ends.ts';
 import { evalCurve2, intoDomain, overshoot } from './fix/domain.ts';
 import { curveOffSurface, type Grids, GROWTH } from './fix/tolerance.ts';
-import { Growth } from './fix/growth.ts';
+import { Growth, smallLimit } from './fix/growth.ts';
 import { type HealFix, PCURVE_FIT_TOLERANCE } from './options.ts';
 import { edgeRange, measureGiven, pcurveImage, tolerances } from './measure.ts';
 import { stubTracer, type Trace, type Tracer } from './trace.ts';
@@ -92,7 +92,9 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   const clampTo = new Map<number, [number, number]>();
   // pcurveMissingOnElementary's and pcurveMissingOnFreeForm's p-curves made, and the uses left without (by why).
   const made = new Map<HealFix, { t: Tally; worst: number }>(), notMade = new Map<HealFix, Map<string, Tally>>();
-  const notReplaced = new Map<string, Tally>();
+  // (Kept off their edges' curves by at most smallLimit both ways: an info apart from the warning.)
+  const notReplaced = new Map<string, Tally>(), notReplacedSmall = new Map<string, Tally>();
+  const small = smallLimit(tol.part);
   const madeOnPlane = new Tally(), notMadeOnPlane = new Map<string, Tally>();
   let worstOnPlane = 0;
   const add = (m: Map<string, Tally>, why: string, c: number) =>
@@ -408,8 +410,10 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         }
         const given = m.kind === 'off' ? Math.max(m.deviation, Number.isNaN(m.ends) ? 0 : m.ends) : Infinity;
         const r = replacement(g, c, onPlane, given);
+        // Where it's kept: an info within smallLimit, else a warning.
+        const keptBy = given <= small ? notReplacedSmall : notReplaced;
         if (r.kind === 'none') {
-          add(notReplaced, r.why, c);
+          add(keptBy, r.why, c);
           keep();
           continue;
         }
@@ -425,7 +429,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         } else {
           const curve = onRange(r.curve, r.range);
           if (!curve) {
-            add(notReplaced, 'on another range', c);
+            add(keptBy, 'on another range', c);
             keep();
             continue;
           }
@@ -552,6 +556,10 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   for (const [why, t] of notReplaced) {
     diagnostics.push({ severity: 'warning', message: `pcurveReplace: ${t.n} p-curves off their edges' curves kept `
       + `(the projection ${why}): ${t.ex.join(', ')}${t.more()}` });
+  }
+  for (const [why, t] of notReplacedSmall) {
+    diagnostics.push({ severity: 'info', message: `pcurveReplace: ${t.n} p-curves off their edges' curves by at most `
+      + `${small.toPrecision(3)} mm kept (the projection ${why}): ${t.ex.join(', ')}${t.more()}` });
   }
   return record;
 }
