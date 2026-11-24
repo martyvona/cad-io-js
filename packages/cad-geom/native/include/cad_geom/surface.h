@@ -45,6 +45,14 @@ public:
   virtual SurfaceDomain domain() const = 0;
   /** S(u, v) and partials up to `order` (0 to 2); periodic directions reduced; outside the domain outOfDomain. */
   virtual Status eval(double u, double v, int order, SurfacePoint& out) const = 0;
+  /**
+   * eval at n points of an iso-line, (fixed, ts[i]) where alongV, else (ts[i], fixed), into out[i] and st[i], bit for
+   * bit as eval gives them: a B-spline finds the fixed direction's span and basis once.
+   */
+  virtual void evalRow(bool alongV, double fixed, int n, const double* ts, int order, SurfacePoint* out,
+    Status* st) const {
+    for (int i = 0; i < n; i++) st[i] = alongV ? eval(fixed, ts[i], order, out[i]) : eval(ts[i], fixed, order, out[i]);
+  }
   /** The unit normal S_u x S_v / |S_u x S_v|; Status::singular where it vanishes (a limit may be given then). */
   virtual Status normal(double u, double v, Vec3& out) const = 0;
   /** The u and v parameters in ru, rv where the surface is less smooth (knots, a profile's breaks), sorted, ends in. */

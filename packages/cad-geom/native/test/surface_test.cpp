@@ -15,6 +15,7 @@
 #include <random>
 #include <string>
 #include <tuple>
+#include <typeinfo>
 
 #include "../src/curve_impl.h"
 #include "../src/surface_impl.h"
@@ -424,6 +425,48 @@ TEST_CASE("singularities: each iso-line given is one point on the surface, its p
   }
   CHECK(bad == 0);
   CHECK(n > 50);
+}
+
+TEST_CASE("evalRow: every surface's rows along u and along v bit for bit as eval, in its domain and past it, as made "
+  "and closed in fact") {
+  std::mt19937_64 rng(11);
+  int bad = 0, n = 0, splines = 0;
+  for (bool close : {false, true}) {
+    std::vector<Made> z = zoo({"s1", "far", "mirror"});
+    for (Made& m : raw()) z.push_back(std::move(m));
+    for (Made& m : z) {
+      std::unique_ptr<Surface> s = close ? closeInFact(std::move(m.s), 1e-9) : std::move(m.s);
+      splines += m.name.find("raw") == 0 || std::strstr(typeid(*impl(s.get())).name(), "BSpline") != nullptr;
+      SurfaceDomain d = s->domain();
+      Range ru, rv;
+      sampleRange(d, ru, rv);
+      std::uniform_real_distribution<double> U(-0.1, 1.1);
+      for (bool alongV : {true, false})
+        for (int order = 0; order <= 2; order++)
+          for (int trial = 0; trial < 3; trial++) {
+            const Range rf = alongV ? ru : rv, rt = alongV ? rv : ru;
+            // The fixed parameter at a side, inside, or past the domain; the row's points across and past it.
+            const double fixed = trial == 0 ? rf.lo : rf.lo + (rf.hi - rf.lo) * U(rng);
+            std::vector<double> ts(37);
+            for (size_t i = 0; i < ts.size(); i++) ts[i] = i == 0 ? rt.hi : rt.lo + (rt.hi - rt.lo) * U(rng);
+            std::vector<SurfacePoint> got(ts.size());
+            std::vector<Status> st(ts.size());
+            s->evalRow(alongV, fixed, static_cast<int>(ts.size()), ts.data(), order, got.data(), st.data());
+            for (size_t i = 0; i < ts.size(); i++) {
+              SurfacePoint want;
+              const Status ws = alongV ? s->eval(fixed, ts[i], order, want) : s->eval(ts[i], fixed, order, want);
+              if (ws != st[i] || std::memcmp(&want, &got[i], sizeof want) != 0) {
+                if (bad++ < 10) std::printf("  %s%s: row along %s at %.17g, point %.17g, order %d differs from eval\n",
+                  m.name.c_str(), close ? " (closed)" : "", alongV ? "v" : "u", fixed, ts[i], order);
+              }
+              n++;
+            }
+          }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(n > 20000);
+  CHECK(splines > 8);
 }
 
 TEST_CASE("partials to order 3 agree with central differences of the order below") {
