@@ -29,8 +29,25 @@ test('heal: true heals every part, an analysis on each, its diagnostics the scen
   for (const p of h.parts.values()) assert.ok(p.brep!.analysis, p.name);
   assert.notEqual(h.parts.get('stray')!.brep!.model, asImported.parts.get('stray')!.brep!.model);
   assert.ok(h.said.includes('strayPole') && h.said.includes('tolerances grown'), h.said.join());
-  assert.deepEqual(h.healing.map((p) => p.done), [0, 1, 2, 3, 4]);
+  // Each part done, and between them where healing is within a part (`detail`, as healScene's progress says it).
+  const counts = h.healing.filter((p) => p.detail === undefined), details = h.healing.filter((p) => p.detail);
+  assert.deepEqual(counts.map((p) => p.done), [0, 1, 2, 3, 4]);
   assert.ok(h.healing.every((p) => p.total === 4));
+  assert.ok(details.length >= 4 * 6, `${details.length}`);
+  for (const p of details) assert.match(p.detail!, /^part \d+ of \d+(: .+)?$/);
+  assert.ok(details.some((p) => /: orientShells: faces$/.test(p.detail!)));
+  // A detail's done is the parts done when it was said: never past the next count.
+  let k = 0;
+  for (const p of h.healing) {
+    if (p.detail === undefined) k = p.done!;
+    else assert.equal(p.done, k);
+  }
+});
+
+test('heal.progress is still told healing\'s own progress beside the import\'s', async () => {
+  const told: string[] = [];
+  const h = await imported({ heal: { heal: true, progress: (w) => told.push(w) } });
+  assert.deepEqual(told, h.healing.filter((p) => p.detail).map((p) => p.detail));
 });
 
 test('the default is HEAL_BY_DEFAULT\'s', async () => {

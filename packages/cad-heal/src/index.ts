@@ -117,6 +117,11 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
     // Faces whose loops run against their sense, where their neighbours agree with the loops, flipped first: a
     // shell's volume and sides are by its faces' senses.
     progress('orientShells: faces');
+    // (Told again at most every PROGRESS_MS as the faces are measured: a large part's take a while, LMP1 #172440's
+    // over 10 s, and a viewer and a pool's CPU limit hear from it meanwhile.)
+    const nf = rowCount(healed, 'face');
+    let sensed = 0;
+    const tickFaces = ticker(progress);
     // (At judging's relTol, which the shells step's volumes take: the measures are kept for it, but for the faces
     // flipped here.)
     const measured = new Map<number, FaceMeasure>();
@@ -137,6 +142,8 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       // tori of 1e-14 mm^2 flagged, and flipping them turned OCCT's mesh of the whole shell inside out.)
       const tol = tolerances(healed).part;
       return faceSenses(healed, (f) => {
+        tickFaces(() => `orientShells: faces, ${sensed} of ${nf} measured`);
+        sensed++;
         const c = centre.get(f);
         const both = c ? o.faceAndFlux(f, c) : undefined, m = both ? both.measure : o.face(f);
         measured.set(f, m);
@@ -177,7 +184,14 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       + `uses a shared edge the same way): ${list(fs.disputed)}` });
     progress('orientShells: shells');
     using sides = new RayShellSide(om, { checkSecondRay: true, relTol: JUDGE_REL_TOL });
-    const v = shellVerdicts(healed, om, sides, (f) => measured.get(f), (f, c) => {
+    // (Told again at most every PROGRESS_MS, as each face's measure is asked for the shells' volumes.)
+    let asked = 0;
+    const tickShells = ticker(progress);
+    const v = shellVerdicts(healed, om, sides, (f) => {
+      tickShells(() => `orientShells: shells, ${asked} faces' measures asked`);
+      asked++;
+      return measured.get(f);
+    }, (f, c) => {
       const x = fluxes.get(f);
       return x && x.c.every((k, i) => k === c[i]) ? x.flux : undefined;
     });
@@ -397,6 +411,21 @@ export type PartHealer = (req: HealRequest, progress: (what: string) => void) =>
 /** healPart for a worker: tess-workers' pool runs it as the job `{ module: 'cad-heal', export: 'healJob' }`. */
 export function healJob(req: HealRequest, progress: (what: string) => void): Promise<HealedPart> {
   return healPart(req.model, { ...req.options, progress }, undefined, req.source, req.analysis);
+}
+
+/** The least time between the progress messages a step sends from within (the faces and shells steps'). */
+export const PROGRESS_MS = 1000;
+
+/**
+ * A step's progress from within: told `what()` at most every PROGRESS_MS (the first one PROGRESS_MS after the step
+ * began, so a quick step adds nothing).
+ */
+function ticker(progress: (what: string) => void): (what: () => string) => void {
+  let last = performance.now();
+  return (what) => {
+    const now = performance.now();
+    if (now - last >= PROGRESS_MS) last = now, progress(what());
+  };
 }
 
 /**
