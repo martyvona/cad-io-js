@@ -118,7 +118,7 @@ RayFace Oracle::Impl::rayFace(int face, Vec3 o, Vec3 d, Range tr) {
     return out;
   }
   // The face API's tolerance for the face (its own, widened by its edges'), in 3D.
-  double info[8];
+  double info[16];
   if (cg_face_info(h, face, 0, info) != 0) return out;
   const double tol = info[0];
   const cadgeom::SurfaceDomain D = S->domain();

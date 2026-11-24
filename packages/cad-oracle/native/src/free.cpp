@@ -92,7 +92,7 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
     basis = cadgeom::makeSurface(model, model.surfaceInts(s)[0], st);
     if (basis) basis = cadgeom::closeInFact(std::move(basis), tol);
   }
-  double info[7];
+  double info[16];
   if (int32_t r = cg_face_info(I.h, f, NAN, info)) return fail(Status::invalidModel, faceStatusWhy(r));
   const double Pu = info[1], Pv = info[2];
   std::vector<double> poleU, poleV;
@@ -101,6 +101,7 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
     for (int i = 0; i < static_cast<int>(info[4]); i++) (sc[2 * i] == 0 ? poleV : poleU).push_back(sc[2 * i + 1]);
   }
   if (info[6] > 0) T.flags |= flagProjectedBoundary;
+  if (info[7] + info[8] > 0) T.flags |= flagEdgesPlaced;
   const SurfaceDomain dom = S->domain();
   Frame fr;
   fr.swap = Pv > 0 && !(Pu > 0);

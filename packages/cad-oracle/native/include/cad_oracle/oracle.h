@@ -66,6 +66,12 @@ enum Flag : uint32_t {
    * strips (an offset folding, a singular evaluation), so each band's inner integral starts at its own row.
    */
   flagCells = 1u << 7,
+  /**
+   * A projected p-curve isn't within its edge's tolerance (its curve off the surface within offSurfaceLimit, or no fit
+   * within it): the face API placed the edge on its feet, as the mesher does. Said, not refused: the p-curve's error,
+   * the curve's distance, is in FaceMeasure::boundary.
+   */
+  flagEdgesPlaced = 1u << 8,
 };
 
 /** A loop's point this far from the surface, relative to the loops' size (their box's diagonal), flags the face. */
@@ -107,14 +113,14 @@ struct FaceMeasure {
 };
 
 /**
- * A measure to rely on: computed (status ok), no flags but projectedBoundary, its boundary's error known, and its error
- * (the boundary's included) within `relative` of its value. The type says only that much: an untrusted measure is
- * still a value or not, which false doesn't tell; what users see is the value and its error, the flags no estimate
- * covers (sphereSide, loose, orientation, winds, noLoops) said beside them.
+ * A measure to rely on: computed (status ok), no flags but projectedBoundary and edgesPlaced, its boundary's error
+ * known, and its error (the boundary's included) within `relative` of its value. The type says only that much: an
+ * untrusted measure is still a value or not, which false doesn't tell; what users see is the value and its error, the
+ * flags no estimate covers (sphereSide, loose, orientation, winds, noLoops) said beside them.
  */
 inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
-  return m.area.status == Status::ok && (m.flags & ~flagProjectedBoundary) == 0 && std::isfinite(m.boundary)
-    && m.area.error <= relative * m.area.value;
+  return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced)) == 0 &&
+    std::isfinite(m.boundary) && m.area.error <= relative * m.area.value;
 }
 
 /**

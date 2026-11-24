@@ -202,6 +202,13 @@ export interface FaceInfo {
   ownRanges: number;
   /** Its coedges without a p-curve, their edges' curves projected. */
   projected: number;
+  /**
+   * Of those, the ones placed on their feet though not within the edge's tolerance (project.h's offSurfaceLimit, the
+   * mesher's rule): the curve off the surface, or no fit within it; and the worst such p-curve's deviation.
+   */
+  placedOffSurface: number;
+  placedUnfitted: number;
+  placedError: number;
 }
 
 /** One piece of a p-curve (project.h's PcurvePiece): a 2D curve over t, or a jump along a pole line. */
@@ -649,6 +656,15 @@ export class Geometry {
     return this.fn('model_projections')(this.live()) as number;
   }
 
+  /**
+   * The deflection of the mesh the caller makes (0: none, the default): a projected edge's curve off its face's
+   * surface is placed on it within project.h's offSurfaceLimit, as the mesher's (100 x the edge's tolerance, or 10 x
+   * this where more). Before any face is asked of.
+   */
+  setDeflection(deflection: number): void {
+    if (this.fn('model_deflection')(this.live(), deflection) !== 0) throw new RangeError(`deflection ${deflection}`);
+  }
+
   // -- Faces: 2D geometry on a face's loops (geom2d.h; cad_geom_api.cpp says how the loops, periods, pole lines and
   // tolerances are made). tol3d, where given (> 0), is the 3D tolerance; else the model's (tolerance.h: the largest of
   // the part's uncertainty (else 1e-5 mm), the face's or edges' own and 1e-9 x the part's size).
@@ -666,15 +682,15 @@ export class Geometry {
 
   /** The face's loops as geom2d sees them: the 3D tolerance used, the periods, the edge loops, the pole lines. */
   faceInfo(face: number, tol3d = NaN): FaceInfo {
-    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 7 });
+    const [s, out] = this.call('face_info', face, tol3d, { out: 'f64', n: 10 });
     if (s !== 0) {
       return { status: faceStatus(s), tolerance: NaN, uPeriod: 0, vPeriod: 0, loops: 0, poles: [], ownRanges: 0,
-        projected: 0 };
+        projected: 0, placedOffSurface: 0, placedUnfitted: 0, placedError: 0 };
     }
     const o = out as Float64Array, v = this.scratch(), poles: FaceInfo['poles'] = [];
     for (let i = 0; i < o[4]!; i++) poles.push({ isoU: v[2 * i] === 1, at: v[2 * i + 1]! });
     return { status: 'ok', tolerance: o[0]!, uPeriod: o[1]!, vPeriod: o[2]!, loops: o[3]!, poles, ownRanges: o[5]!,
-      projected: o[6]! };
+      projected: o[6]!, placedOffSurface: o[7]!, placedUnfitted: o[8]!, placedError: o[9]! };
   }
 
   /**
