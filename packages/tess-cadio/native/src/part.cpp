@@ -823,10 +823,10 @@ struct PartMesher::Impl {
   /**
    * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
    * normals, as shipped where the output's origin is known: PartOptions::outputOrigin) fail as one past its deflection
-   * does (PartOptions::failTurnedOver): wrong output however small. Such a
-   * triangle is one its criteria refused that refinement didn't mend (they refuse a facet turned against any corner's
-   * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
-   * (the normal there a limit, on a strongly curved patch).
+   * does (PartOptions::failTurnedOver): wrong output however small. Such a triangle is one its criteria refused that
+   * refinement didn't mend (they refuse a facet turned against any corner's normal above the refinement floor), or
+   * one within the floor, which they accept. Not judged so: a pole's fans, and a triangle with a corner within the
+   * face's tolerance of a pole or apex (the normal there a limit, on a strongly curved patch).
    */
   /**
    * The faces' requests whose point is inside the ring of a pole the face hasn't (EdgeMesh::split drops them; a

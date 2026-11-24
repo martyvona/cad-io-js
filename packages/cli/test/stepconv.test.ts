@@ -295,8 +295,9 @@ test('stepconv: cadio, --min-angle, --keep-failing', { skip: skip || (!cadioBuil
   const failing = path.join(root,
     'test_corpus/third_party/occt-import-js/test/testfiles/conical-surface/conical-surface.step');
   if (!fs.existsSync(failing)) return;
-  // (At 1.2e-6 its face #77 reaches its point cap, its mesh within tess-cadio's keepDefects limits: kept, said.)
-  const kept = /warning: #12: faces kept with defects: 1 \(#77 \(at its point cap\)\)\n/;
+  // (At 1.2e-6 its face #77 reaches its point cap: kept with its defects said, past keepDefects' limits or not, as
+  // tess-cadio keeps every face it has a manifold mesh of, with no fallback to prefer.)
+  const kept = /warning: #12: faces kept with defects: 1 \(#77 \([^()]*at its point cap[^()]*\)\)\n/;
   for (const workers of ['2', '0']) {
     const r = await run([failing, '-o', out, '-d', '1.2e-6', '-b', 'cadio', '--fallback', 'none', '-j', workers]);
     assert.match(r.stderr, kept);

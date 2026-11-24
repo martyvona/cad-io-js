@@ -220,17 +220,19 @@ public:
   }
 
   bool accept(const Vec2 t[3]) const override {
-    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over on the
-    // surface's points: nothing is refined below it for its size or its normals' angles, but a facet against its
-    // surface is wrong output however small. Not judged there on the boundary's own points (setBoundaryPoints): a
-    // boundary off its surface turns slivers that refinement, only thinning them, turns further, to the point cap (a
-    // healed fitted p-curve 0.024 off, bug24594_284965 #13); the part's check of its output fails what's left. Every
-    // check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation alone).
+    // A triangle whose patch is within the refinement floor (belowFloor) is accepted: nothing is refined below it,
+    // for its size, its normals' angles or a facet turned against its surface. Below the floor a facet turns where the
+    // surface folds back within it (LMP1 #172427's face 1039663: its normal through 164 degrees across 2e-5 mm) or
+    // where its corners as shipped round to float32 (LMP1 #172440's face 1042389, 143 mm from the part's origin), and
+    // splitting only makes more such triangles, to the point cap; the part's check of its output (failTurnedOver)
+    // judges what's shipped, a few such triangles kept with the defect said (keepDefects). Every check applies above
+    // the floor, near an apex too (a pole's fans, poles.h, are judged by the deviation alone; acceptFan still refuses
+    // a fan's turned facet below the floor).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    if (belowFloor(t, p, evaluated)) return true;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, p, q));
   }
@@ -270,7 +272,8 @@ public:
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
+    if (belowFloor(t, p, evaluated))
+      return fan && normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
@@ -983,6 +986,9 @@ private:
     if (!(det > 1e-12 * (E + G) * (E + G)) || !(nl > 0) || !std::isfinite(det)) return false;
     Vec3 n = (1 / nl) * nn;
     double L = dot(n, q.duu), M = dot(n, q.duv), N = dot(n, q.dvv);
+    // (In a run of narrow spans, the normal curvature across it at most the run's mean: runCurvature.)
+    if (const Span* a = spanAt(spansU_, p.x); a && std::fabs(L) > a->run * E) L = std::copysign(a->run * E, L);
+    if (const Span* a = spanAt(spansV_, p.y); a && std::fabs(N) > a->run * G) N = std::copysign(a->run * G, N);
     // Principal curvatures: H +- sqrt(H^2 - K), H = (E N - 2 F M + G L) / (2 det), K = (L N - M^2) / det.
     double H = (E * N - 2 * F * M + G * L) / (2 * det), K = (L * N - M * M) / det;
     double r = std::sqrt(std::max(0.0, H * H - K)), k1 = H + r, k2 = H - r;
@@ -1008,15 +1014,20 @@ private:
     return std::isfinite(out.a) && std::isfinite(out.b) && std::isfinite(out.c);
   }
 
-  /** A knot span (between consecutive breaks) and whether its 3D width is within the floor (narrow). */
+  /**
+   * A knot span (between consecutive breaks) and whether its 3D width is within the floor (narrow); in a run of such
+   * spans wider than the floor together, the most the run's normal curvature across it may be taken as (run).
+   */
   struct Span {
     double lo, hi;
     bool narrow;
+    double run = INFINITY;
   };
   /**
    * The spans between consecutive breaks k one way (u if inU), each narrow where its width there in 3D is within the
    * floor and so is that of the run of such spans it's in: knots halving toward a side (LMP1 #172768's face 1060536,
-   * five spans of 0.02 to 0.04 mm under a floor of 0.15, 0.16 together, its curvature all there) keep their own.
+   * five spans of 0.02 to 0.04 mm under a floor of 0.15, 0.16 together, its curvature all there) keep their own, at
+   * most the run's mean (runCurvature).
    */
   void spans(const std::vector<double>& k, bool inU, const SurfaceDomain& D, std::vector<Span>& out) const {
     std::vector<double> width;
@@ -1032,11 +1043,48 @@ private:
       size_t j = i;
       double run = 0;
       while (j < out.size() && out[j].narrow) run += width[j++];
-      if (run > floor_)
-        for (size_t l = i; l < j; l++) out[l].narrow = false;
+      if (run > floor_) {
+        const double k = j > i ? runCurvature(out[i].lo, out[j - 1].hi, inU, D) : INFINITY;
+        for (size_t l = i; l < j; l++) out[l].narrow = false, out[l].run = k;
+      }
       i = std::max(j, i + 1);
     }
     if (std::all_of(out.begin(), out.end(), [](const Span& x) { return x.narrow; })) out.clear();
+  }
+  /**
+   * A run of narrow spans' mean normal curvature across it, [lo, hi] (u if inU): its normal's turn from a hair inside
+   * one end to a hair inside the other over the chord between them, the most along 9 lines across it; infinite where
+   * any can't be evaluated. A double knot's span may bend sharply and back inside a run (LMP1 #172440's face 1042281:
+   * k 90 /mm over 0.003 mm of v, its normal 1.9 degrees apart across it), which taken pointwise asks a size hundreds of
+   * times below its neighbours', a jump in the metric that refinement's thin triangles pile up along to the point cap;
+   * a run that bends the surface (LMP1 #172768's face 1060536, kinkStripRun) turns it in proportion.
+   */
+  double runCurvature(double lo, double hi, bool inU, const SurfaceDomain& D) const {
+    const double h = 1e-9 * (hi - lo);
+    const Range other = inU ? D.v : D.u;
+    double most = 0;
+    for (int k = 0; k < 9; k++) {
+      const double o = other.lo + (k + 0.5) / 9 * (other.hi - other.lo);
+      SurfacePoint q[2];
+      Vec3 n[2];
+      for (int e = 0; e < 2; e++) {
+        const double x = e ? hi - h : lo + h;
+        if ((inU ? s_.eval(x, o, 1, q[e]) : s_.eval(o, x, 1, q[e])) != Status::ok) return INFINITY;
+        const Vec3 c = cross(q[e].du, q[e].dv);
+        const double l = norm(c);
+        if (!(l > 0) || !std::isfinite(l)) return INFINITY;
+        n[e] = (1 / l) * c;
+      }
+      const double chord = norm(q[1].p - q[0].p), turn = std::acos(std::clamp(dot(n[0], n[1]), -1.0, 1.0));
+      if (!(chord > 0)) return INFINITY;
+      most = std::max(most, turn / chord);
+    }
+    return most;
+  }
+  /** The span x lies in (the last whose end is past it), null if none. */
+  static const Span* spanAt(const std::vector<Span>& sp, double x) {
+    auto it = std::lower_bound(sp.begin(), sp.end(), x, [](const Span& a, double v) { return a.hi < v; });
+    return it == sp.end() || x < it->lo ? nullptr : &*it;
   }
   /**
    * x, or where it lies in a narrow span, the nearest point inside a span that isn't (a hair past the knot between,
