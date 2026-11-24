@@ -17,12 +17,13 @@
 // materials: a hidden face's triangles get a geometry group of their own with an invisible material, a transparent
 // face's or placement's a material at that opacity.
 
-import { openBrep, type BrepData } from 'cad-brep';
+import { openAnalysis, openBrep, type BrepAnalysis, type BrepData } from 'cad-brep';
 import * as THREE from 'three';
 import { biasTowardCamera } from './depth-bias.ts';
 import { faceFailures, instances, partInstances, placedName, stretchWords, type FaceFailure, type Mat4, type Measures,
   type Mesh, type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
+import type { PartModel } from './part-model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
@@ -86,10 +87,11 @@ export class SceneGraph implements Looks {
   /** Each part's placements, by part index. */
   readonly placements = new Map<number, Placement[]>();
   /**
-   * The parts' B-rep models the page holds, by part (model-load.ts's handOver: each with its part's mesh, whether it
-   * meshed or failed); absent while lent to the model worker (Mesh again, export) or not yet handed over.
+   * The parts' B-rep models the page holds, with their analyses where they have one (healing's), by part
+   * (model-load.ts's handOver: each with its part's mesh, whether it meshed or failed); absent while lent to the model
+   * worker (Mesh again, export) or not yet handed over.
    */
-  private readonly models = new Map<number, BrepData>();
+  private readonly models = new Map<number, { model: BrepData; analysis?: BrepAnalysis }>();
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
@@ -108,17 +110,26 @@ export class SceneGraph implements Looks {
 
   /** A part's B-rep model, where the page holds it now (see `models`). */
   modelOf(part: number): BrepData | undefined {
-    return this.models.get(part);
+    return this.models.get(part)?.model;
   }
 
-  /** A part's model handed over by the model worker (its buffer, transferred). */
-  holdModel(part: number, buffer: ArrayBuffer): void {
-    this.models.set(part, openBrep(buffer));
+  /** A part's B-rep model's analysis, where the page holds the model and it has one (see `models`). */
+  analysisOf(part: number): BrepAnalysis | undefined {
+    return this.models.get(part)?.analysis;
   }
 
-  /** Every model the page holds, lent to the model worker: their buffers by part, to transfer; none held after. */
-  lendModels(): [number, ArrayBuffer][] {
-    const out = [...this.models].map(([part, m]): [number, ArrayBuffer] => [part, m.buffer]);
+  /** A part's model and analysis handed over by the model worker (their buffers, transferred). */
+  holdModel(part: number, m: PartModel): void {
+    this.models.set(part, { model: openBrep(m.model), ...(m.analysis ? { analysis: openAnalysis(m.analysis) } : {}) });
+  }
+
+  /**
+   * Every model the page holds, lent to the model worker with its analysis: their buffers by part, to transfer
+   * (partModelBuffers); none held after.
+   */
+  lendModels(): [number, PartModel][] {
+    const out = [...this.models].map(([part, m]): [number, PartModel] =>
+      [part, { model: m.model.buffer, ...(m.analysis ? { analysis: m.analysis.buffer } : {}) }]);
     this.models.clear();
     return out;
   }
