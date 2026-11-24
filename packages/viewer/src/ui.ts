@@ -1131,14 +1131,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     selectChildren: (ids = selected) => {
       const nodes = viewer.nodes;
-      if (!nodes || !panel) return;
-      // A part's children are its detail, which has nodes only with the tree's detail on.
-      if (!nodes.hasDetail() && ids.some((id) => nodes.nodes[id]!.kind === 'part')) {
-        tree.detail = true;
-        panel.setDetail(true);
-        detailControl?.updateDisplay();
-      }
-      select([...new Set(ids.flatMap((id) => nodes.children(id)))]);
+      if (!nodes) return;
+      // What the tree shows below each: a part's faces, edges and curves only with its detail on (children() gives
+      // none without). None at all: the selection as it was.
+      const children = [...new Set(ids.flatMap((id) => nodes.children(id)))];
+      if (children.length) select(children);
     },
     selectAll: () => {
       const ids = everything();

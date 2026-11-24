@@ -2613,7 +2613,8 @@ await check('picks unfold the tree', async () => {
 // Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent, Select
 // children and Select none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted
 // exactly as the selection is (none stale), the tree scrolled to show a selected row. Select children: the assemblies'
-// children, then a part's faces, edges and curves (the tree's detail turned on). The tree's menu: Select parent and
+// children; a part's nothing while the tree's detail is off (the selection kept, the detail left off), its faces,
+// edges and curves once it's on. The tree's menu: Select parent and
 // Select children on the row right-clicked (not the selection), the rest as the buttons.
 await check('selection buttons in the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
@@ -2647,6 +2648,11 @@ await check('selection buttons in the tree', async () => {
     const part = m.nodes.find((n) => n.kind === 'part').id;
     out.detailBefore = m.hasDetail();
     ui.select([part]);
+    press('Select children');
+    out.kept = JSON.stringify(ui.selected()) === JSON.stringify([part]) && !m.hasDetail();
+    const detail = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves');
+    detail.setValue(true);
+    detail._callOnFinishChange();
     press('Select children'); out.detail = await look();
     out.kinds = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
     out.detailAfter = m.hasDetail();
@@ -2683,8 +2689,9 @@ await check('selection buttons in the tree', async () => {
   }
   expect(a.none!.selected === 0 && a.none!.stale === 0, `none: ${j}`);
   expect(o.childrenOk === true, `the parents' children: ${j}`);
-  expect(o.detailBefore === false && o.detailAfter === true && (o.kinds as string[]).includes('face'),
-    `a part's children, its detail: ${j}`);
+  expect(o.detailBefore === false && o.kept === true, `a part's children with the detail off: none, the selection `
+    + `kept: ${j}`);
+  expect(o.detailAfter === true && (o.kinds as string[]).includes('face'), `with it on, its detail: ${j}`);
   expect(o.menuParent === true && o.menuChildren === true && o.menuAll === true && o.menuNone === true,
     `the tree's menu: ${j}`);
   return undefined;
