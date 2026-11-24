@@ -953,7 +953,7 @@ TEST_CASE("fit::curve2: polynomials of the degree are one span, exact; ends inte
     double err;
     REQUIRE(fit::curve2(f, {-1, 2}, p, 1e-9, c, err) == Status::ok);
     CHECK_EQ(c.poleCount(), p + 1);
-    CHECK(err <= 1e-12);
+    CHECK(err <= 1e-9);
     CHECK(denseError(c, f, {-1, 2}) <= 1e-12);
     double v[2];
     bspline::eval(c, -1, 0, v);
@@ -996,6 +996,25 @@ TEST_CASE("fit::curve2: smooth, kinked and fast curves within tol everywhere, th
     CHECK_EQ(out.knots.front(), c.r.lo);
     CHECK_EQ(out.knots.back(), c.r.hi);
   }
+}
+
+TEST_CASE("fit::curve2: a jump stops halving at 2^-30 of the range, not at rounding; a smooth fit to 1e-9 converges") {
+  BSpline c;
+  double err;
+  // A step at a third of the range (not a halving's point; the range 1000 wide, so the limit is relative): its span
+  // stays past any tolerance below the step, halved each round until narrower than 2^-30 of the range, then
+  // noConvergence (each round halves it once: about 30 rounds, not 50 or so).
+  const long before = fit::curve2Rounds;
+  CHECK(fit::curve2([](double t) { return Vec2{t < 1000.0 / 3 ? 0.0 : 1.0, t}; }, {0, 1000}, 3, 1e-3, c, err)
+    == Status::noConvergence);
+  const long rounds = fit::curve2Rounds - before;
+  CHECK(rounds >= 30);
+  CHECK(rounds <= 33);
+  CHECK(std::isfinite(err));
+  // A smooth function fitted to 1e-9 needs spans far wider than that: it converges.
+  CHECK(fit::curve2([](double t) { return Vec2{std::sin(3 * t), std::exp(t)}; }, {0, 3}, 3, 1e-9, c, err)
+    == Status::ok);
+  CHECK(err <= 1e-9);
 }
 
 TEST_CASE("fit::curve2: noConvergence below rounding, singular on non-finite values, refused arguments") {

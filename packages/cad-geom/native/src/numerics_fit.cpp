@@ -21,6 +21,10 @@ namespace fit {
 namespace {
 
 constexpr int CHECKS = 33;       // error checks per span
+// The narrowest span halved, relative to the range (2^-30): narrower and still past the tolerance, f has a kink or a
+// jump there (a smooth f's error falls as the span's fourth power or so long before), and halving on toward floating
+// point only re-solves and re-checks every span each round, a few dozen rounds more to the same noConvergence.
+constexpr double MIN_SPAN = 0x1p-30;
 
 struct Fitter {
   const std::function<Vec2(double)>& f;
@@ -149,18 +153,22 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
     BSpline c = fit.solve(br);
     std::vector<double> next{br.front()};
     double worst = 0;
+    bool narrow = false;
     for (size_t s = 0; s + 1 < br.size(); s++) {
       double e = fit.spanError(c, br[s], br[s + 1]);
       worst = std::max(worst, e);
-      if (e > tol) next.push_back(0.5 * (br[s] + br[s + 1]));
+      if (e > tol) {
+        narrow = narrow || br[s + 1] - br[s] < MIN_SPAN * (r.hi - r.lo);
+        next.push_back(0.5 * (br[s] + br[s + 1]));
+      }
       next.push_back(br[s + 1]);
     }
     if (!fit.finite) return Status::singular;
     out = std::move(c);
     maxError = worst;
     if (worst <= tol) return Status::ok;
-    // Halving stops where the spans are too many, or too narrow to halve in floating point.
-    bool narrow = false;
+    // Halving stops where the spans are too many, or a span past the tolerance is narrower than MIN_SPAN of the range
+    // or too narrow to halve in floating point.
     for (size_t s = 0; s + 1 < next.size(); s++) narrow = narrow || !(next[s] < next[s + 1]);
     if (static_cast<int>(next.size()) - 1 > maxSpans || narrow) return Status::noConvergence;
     br = std::move(next);
