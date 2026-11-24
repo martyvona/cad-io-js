@@ -1278,3 +1278,25 @@ TEST_CASE("a point inserted exactly on an interior edge splits both triangles be
     check(want);
   }
 }
+
+TEST_CASE("seeds go in along a Morton curve, a heartbeat every 1024: the order the finite ones by their curve key") {
+  // Four corners of a square and a non-finite point: the curve takes (0, 0), (1, 0), (0, 1), (1, 1), the NaN left out.
+  const std::vector<Vec2> pts{{1, 1}, {0, 1}, {NAN, 0}, {1, 0}, {0, 0}};
+  CHECK(cdt::mortonOrder(pts) == std::vector<int32_t>({4, 3, 1, 0}));
+  // Seeds on a jittered grid in a scattered order, the size far above their spacing: all kept, and onWork called once
+  // per 1024 of them (the seed loop's own heartbeat; refinement here, a few splits by the boundary, adds too few).
+  Domain2 d = square(1);
+  std::mt19937 rng(7);
+  std::uniform_real_distribution<double> jitter(-0.002, 0.002);
+  for (int i = 1; i < 64; i++)
+    for (int j = 1; j < 64; j++) d.seeds.push_back({i / 64.0 + jitter(rng), j / 64.0 + jitter(rng)});
+  std::shuffle(d.seeds.begin(), d.seeds.end(), rng);
+  int beats = 0;
+  MeshOptions o;
+  o.onWork = [&] { beats++; };
+  Mesh2 m = mesh2(d, Uniform(10), o);
+  CHECK(m.status == cadgeom::Status::ok);
+  CHECK(m.points.size() >= 4 + d.seeds.size());
+  CHECK_EQ(validate(d, m, "seeds"), 0);
+  CHECK(beats >= static_cast<int>(d.seeds.size() / 1024));
+}

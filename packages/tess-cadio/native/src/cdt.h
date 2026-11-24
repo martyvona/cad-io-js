@@ -51,6 +51,13 @@ struct Tri {
   uint32_t gen = 0;
 };
 
+/**
+ * Indices of the finite points along a Morton curve over their box: consecutive ones close in the plane, so a walk
+ * from the last one's triangle to the next (Triangulation::locate) takes a few steps where the given order (a
+ * refinement's, by its queue) would cross the mesh each time.
+ */
+std::vector<int32_t> mortonOrder(const std::vector<Vec2>& points);
+
 class Triangulation {
 public:
   /** The points, in the order they will be indexed; rank[i] is point i's simulation-of-simplicity priority. */

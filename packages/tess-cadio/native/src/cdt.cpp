@@ -2,6 +2,7 @@
 #include "cdt.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <random>
 #include <unordered_map>
@@ -31,6 +32,25 @@ uint64_t morton(Vec2 p, Vec2 lo, Vec2 span) {
 }
 
 } // namespace
+
+std::vector<int32_t> mortonOrder(const std::vector<Vec2>& points) {
+  Vec2 lo{0, 0}, hi{0, 0};
+  bool any = false;
+  std::vector<int32_t> order;
+  for (int32_t i = 0; i < static_cast<int32_t>(points.size()); i++) {
+    Vec2 p = points[i];
+    if (!(std::isfinite(p.x) && std::isfinite(p.y))) continue;
+    lo = any ? Vec2{std::min(lo.x, p.x), std::min(lo.y, p.y)} : p;
+    hi = any ? Vec2{std::max(hi.x, p.x), std::max(hi.y, p.y)} : p;
+    any = true;
+    order.push_back(i);
+  }
+  Vec2 span{hi.x - lo.x, hi.y - lo.y};
+  std::vector<uint64_t> key(points.size());
+  for (int32_t i : order) key[i] = morton(points[i], lo, span);
+  std::stable_sort(order.begin(), order.end(), [&](int32_t a, int32_t b) { return key[a] < key[b]; });
+  return order;
+}
 
 Triangulation::Triangulation(std::vector<Vec2> points) : pts_(std::move(points)) {}
 
