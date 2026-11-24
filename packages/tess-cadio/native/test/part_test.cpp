@@ -1742,21 +1742,26 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     CHECK(under > 500);
   }
   // A triangle within the refinement floor (its patch's bound within max(tolerance, 0.1 x the deflection), 1e-3
-  // here): accepted, by accept() and acceptDeviation(), the right way round; its corners in (u, v) the wrong way round,
-  // its facet turned over: refused for that by accept(), however small (wrong output), its deviation still accepted
-  // by acceptDeviation(). belowFloor() says so either way.
+  // here): accepted, by accept() and acceptDeviation(), either way round: its corners in (u, v) the wrong way round,
+  // its facet turned over, accepted too (nothing refined below the floor; the part's check of its output judges what's
+  // shipped), refusal() saying none; as a pole's fan (acceptFan, refusal's fan) still refused. belowFloor() says so
+  // either way.
   {
     auto c = criteria("seamCylinder", 0, {{0, 2 * M_PI}, {0, 5}}, 0.01, 0.26, s);
     const Vec2 tiny[3] = {{1, 2}, {1, 2 + 1e-12}, {1 + 1e-12, 2}};
     const Vec2 tinyOk[3] = {{1, 2}, {1 + 1e-12, 2}, {1, 2 + 1e-12}};
-    CHECK(!c->accept(tiny));
-    CHECK(c->refusal(tiny) == Refusal::normalFacet);
+    CHECK(c->accept(tiny));
+    CHECK(c->refusal(tiny) == Refusal::none);
+    CHECK(!c->acceptFan(tiny));
+    CHECK(c->refusal(tiny, true, true) == Refusal::normalFacet);
     CHECK(c->accept(tinyOk));
+    CHECK(c->acceptFan(tinyOk));
     // Just within it: 2e-4 in (u, v) on the radius 2 cylinder, its patch's bound about 6e-4 mm across.
     const Vec2 within[3] = {{1, 2}, {1, 2 + 2e-4}, {1 + 2e-4, 2}};
     const Vec2 withinOk[3] = {{1, 2}, {1 + 2e-4, 2}, {1, 2 + 2e-4}};
     CHECK(c->belowFloor(within));
-    CHECK(!c->accept(within));
+    CHECK(c->accept(within));
+    CHECK(!c->acceptFan(within));
     CHECK(c->acceptDeviation(within));
     CHECK(c->belowFloor(withinOk));
     CHECK(c->accept(withinOk));
@@ -1768,7 +1773,8 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     // (Refused for its facet against its corners' normals: the deviation passes.)
     CHECK(c->refusal(big) == Refusal::normalFacet);
     CHECK(c->refusal(big, false) == Refusal::none);
-    CHECK(c->refusal(within) == Refusal::normalFacet);
+    CHECK(c->refusal(within) == Refusal::none);
+    CHECK(c->refusal(within, true, true) == Refusal::normalFacet);
     CHECK(c->refusal(within, false) == Refusal::none);
     // Its corners within 1e-6 of one point in 3D across the seam, its patch the whole circle: judged by the patch's
     // bound, not within the floor, refused.
@@ -1777,7 +1783,8 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     CHECK(!c->accept(round));
   }
   // Below the floor, a turned-over facet with a corner within the tolerance of a pole: not judged, accepted (at a
-  // degenerate spot refinement would chase it to the point cap); the same facet away from the pole refused.
+  // degenerate spot refinement would chase it to the point cap); away from the pole accepted too, as any within the
+  // floor, but as a fan's refused (one of the pair).
   {
     auto sp = criteria("spheres", 1, {{0, 2 * M_PI}, {0, M_PI / 2}}, 0.01, 0.26, s);
     const double e = 2e-4;
@@ -1787,10 +1794,14 @@ TEST_CASE("the criteria's metric: sizes from the principal curvatures, every dir
     const Vec2 awayOver[3] = {away[0], away[2], away[1]};
     REQUIRE(sp->belowFloor(atPoleOver));
     REQUIRE(sp->belowFloor(awayOver));
-    // (One of each pair is turned over: away from the pole exactly one is refused, at it neither.)
-    CHECK(sp->accept(away) != sp->accept(awayOver));
+    // (One of each pair is turned over: as fans, away from the pole exactly one is refused, at it neither.)
+    CHECK(sp->accept(away));
+    CHECK(sp->accept(awayOver));
+    CHECK(sp->acceptFan(away) != sp->acceptFan(awayOver));
     CHECK(sp->accept(atPole));
     CHECK(sp->accept(atPoleOver));
+    CHECK(sp->acceptFan(atPole));
+    CHECK(sp->acceptFan(atPoleOver));
   }
   // Thin triangles (twice the area over the longest side within the refinement floor, max(tolerance, 0.1 x d) = 0.1
   // at d 1): the facet not held to the angle, only to its corners' side. On the radius 2 cylinder three points round

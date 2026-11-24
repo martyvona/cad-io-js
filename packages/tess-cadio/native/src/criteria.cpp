@@ -220,17 +220,19 @@ public:
   }
 
   bool accept(const Vec2 t[3]) const override {
-    // A triangle whose patch is within the refinement floor (belowFloor) is accepted unless turned over on the
-    // surface's points: nothing is refined below it for its size or its normals' angles, but a facet against its
-    // surface is wrong output however small. Not judged there on the boundary's own points (setBoundaryPoints): a
-    // boundary off its surface turns slivers that refinement, only thinning them, turns further, to the point cap (a
-    // healed fitted p-curve 0.024 off, bug24594_284965 #13); the part's check of its output fails what's left. Every
-    // check applies everywhere else, near an apex too (a pole's fans, poles.h, are judged by the deviation alone).
+    // A triangle whose patch is within the refinement floor (belowFloor) is accepted: nothing is refined below it,
+    // for its size, its normals' angles or a facet turned against its surface. Below the floor a facet turns where the
+    // surface folds back within it (LMP1 #172427's face 1039663: its normal through 164 degrees across 2e-5 mm) or
+    // where its corners as shipped round to float32 (LMP1 #172440's face 1042389, 143 mm from the part's origin), and
+    // splitting only makes more such triangles, to the point cap; the part's check of its output (failTurnedOver)
+    // judges what's shipped, a few such triangles kept with the defect said (keepDefects). Every check applies above
+    // the floor, near an apex too (a pole's fans, poles.h, are judged by the deviation alone; acceptFan still refuses
+    // a fan's turned facet below the floor).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
+    if (belowFloor(t, p, evaluated)) return true;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, p, q));
   }
@@ -270,7 +272,8 @@ public:
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
-    if (belowFloor(t, p, evaluated)) return normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
+    if (belowFloor(t, p, evaluated))
+      return fan && normals && turnedOver(t, p) ? Refusal::normalFacet : Refusal::none;
     const bool sampled = sampledAny_;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);

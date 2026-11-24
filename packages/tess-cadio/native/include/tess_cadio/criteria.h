@@ -34,8 +34,8 @@ inline double refinementFloor(double partTolerance, double deflection) {
 
 /**
  * A facet (its corners' cross product) turned against a normal: past 90 degrees from it, however little. The
- * criteria refuse a facet so against any corner's normal (below the refinement floor too); PartMesher fails a face
- * whose triangle is so against its corners' mean normal (PartOptions::failTurnedOver).
+ * criteria refuse a facet so against any corner's normal (above the refinement floor; below it a pole's fans only);
+ * PartMesher fails a face whose triangle is so against its corners' mean normal (PartOptions::failTurnedOver).
  */
 inline bool facetAgainst(cadgeom::Vec3 facet, cadgeom::Vec3 normal) { return cadgeom::dot(facet, normal) < 0; }
 
