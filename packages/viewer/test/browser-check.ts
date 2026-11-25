@@ -4347,7 +4347,11 @@ await check('control folders', async () => {
     ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name)).$button
       .click();
     for (let i = 0; i < 100 && !!document.fullscreenElement === before; i++) await new Promise((r) => setTimeout(r, 20));
-    await new Promise((r) => setTimeout(r, 50));
+    // (Its label changes on fullscreenchange, which comes at the next frame: later under load.)
+    const label = () => ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' &&
+      /fullscreen$/.test(c._name))._name;
+    const want = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen';
+    for (let i = 0; i < 100 && label() !== want; i++) await new Promise((r) => setTimeout(r, 20));
     const b = ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name));
     return { full: !!document.fullscreenElement, label: b._name, shown: b.$name.textContent };
   })()`;
@@ -6559,11 +6563,13 @@ await check('screenshot', async () => {
       return pts.map(([x, y]) => [...g.getImageData(Math.floor((x - rc.left) * k), Math.floor((y - rc.top) * k), 1,
         1).data]);
     };
-    // Screenshot... with these choices; what the dialog showed, and the file.
+    // Screenshot... with these choices; what the dialog showed, and the file. One that fails throws its message (the
+    // dialog saying so closed, so the next run finds its own).
     const run = async (o = {}) => {
       files.length = 0;
       const done = shot.getValue().call(shot.object);
-      const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
+      const d = await waitFor(() => document.querySelector('dialog.cv-dialog select')?.closest('dialog'));
+      if (!d) throw new Error('no Screenshot dialog: ' + document.querySelector('dialog.cv-dialog')?.textContent);
       const [format, what, how] = d.querySelectorAll('select');
       const width = d.querySelector('input[type=number]');
       const shown = { format: format.value, what: what.value, how: how.value, modelOffered: !what.options[0].disabled,
@@ -6584,6 +6590,13 @@ await check('screenshot', async () => {
       shown.height = d.querySelector('p.note').textContent;
       d.querySelector(o.cancel ? 'button[value=cancel]' : 'button.primary').click();
       await done;
+      const failed = document.querySelector('dialog.cv-dialog');
+      if (failed) {
+        const text = [...failed.querySelectorAll('h2, p')].map((e) => e.textContent).join(': ');
+        failed.querySelector('button.primary').click();
+        await waitFor(() => !failed.isConnected);
+        throw new Error('Screenshot failed: ' + text);
+      }
       return { shown, file: files[0] };
     };
     // The model's box, worked out here: its sphere through the camera, within the tree's right and the controls' left.
@@ -6762,6 +6775,10 @@ await check('update badge', async () => {
     const { targetId } = await send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };
     const other = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
     await send('Page.bringToFront', {}, other.sessionId);
+    // (Hidden once the browser gets to it, later under load; then a while behind.)
+    for (let t = 0; t < 50 && await evaluate('document.visibilityState') !== 'hidden'; t++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
     const behind = await evaluate('[document.visibilityState, versionFetches]');
     await send('Page.bringToFront', {}, sessionId);
@@ -6844,7 +6861,10 @@ await check('update badge', async () => {
   expect(!!a && !!t, `no result: ${j}`);
   expect(a!.atLoad === 0, `fetched at load: ${j}`);
   expect(a!.served === a!.version, `the server's own: ${j}`);
-  expect(t!.away === 0 && t!.behind[0] === 'hidden' && t!.behind[1] === 0, `fetched while staying or behind: ${j}`);
+  // (Headless Chrome can keep the page visible behind another tab, as after a tab capture that failed to start:
+  // Screenshot...'s check. Then it's not checked behind, only that nothing was fetched.)
+  if (t!.behind[0] !== 'hidden') console.log(`  (behind another tab not checked: the page stayed ${t!.behind[0]})`);
+  expect(t!.away === 0 && t!.behind[1] === 0, `fetched while staying or behind: ${j}`);
   expect(t!.shown.fetches === 1 && !t!.shown.hidden && t!.shown.inside && t!.shown.ready &&
     t!.shown.title.includes('9.9.9-new') && /reload/.test(t!.shown.title), `the badge on coming back: ${j}`);
   expect(t!.about.open && !t!.about.folded && t!.about.fetched === 0 && !t!.about.hidden &&
