@@ -2,6 +2,8 @@
 #include "cdt.h"
 
 #include <algorithm>
+#include <array>
+#include <functional>
 #include <cstdint>
 #include <random>
 #include <unordered_map>
@@ -87,6 +89,14 @@ bool Triangulation::inCircleSoS(int32_t a, int32_t b, int32_t c, int32_t d) cons
     if (o != 0) return o > 0;
   }
   return false;
+}
+
+bool Triangulation::inCircleSoS(int32_t a, int32_t b, int32_t c, int32_t d, const Map2& raw) const {
+  if (raw.identity()) return inCircleSoS(a, b, c, d);
+  const Map2 map = {1, raw.l12 / raw.l11, raw.l22 / raw.l11};
+  const double s = cadgeom::incircle(map(pts_[a]), map(pts_[b]), map(pts_[c]), map(pts_[d]));
+  if (s != 0) return s > 0;
+  return inCircleSoS(a, b, c, d);
 }
 
 bool Triangulation::inCircle(int32_t t, int32_t d) const {
@@ -296,6 +306,67 @@ bool Triangulation::build(int32_t duplicate[2]) {
   return true;
 }
 
+bool Triangulation::flipToMetric(const std::function<Map2(Vec2)>& metricAt) {
+  // Each quad judged in the metric at its diagonals' crossing (one evaluation; its corners' metrics averaged across a
+  // long chord mix far-apart metrics). The flips settle where the metric is about uniform over the face, and cycle
+  // on apex cones and uneven B-splines (MeshOptions::metricBuild is off).
+  auto test = [&](int32_t t, int i, Map2& map) {
+    // t = (r, x, y) counterclockwise, the edge x to y; u = (s, y, x): whether to flip, the quad convex.
+    const int32_t u = tris_[t].n[i];
+    if (u < 0 || tris_[t].v[2] == kGhost || tris_[u].v[2] == kGhost || tris_[t].c[i] != kFree) return false;
+    const int32_t r = tris_[t].v[i], x = tris_[t].v[(i + 1) % 3], y = tris_[t].v[(i + 2) % 3];
+    int j = 0;
+    while (tris_[u].n[j] != t) j++;
+    const int32_t s = tris_[u].v[j];
+    if (orient(r, x, s) <= 0 || orient(r, s, y) <= 0) return false;
+    // (The diagonals' crossing: x + w (y - x), w from the orientations of r and s about xy.)
+    const Vec2 X = pts_[x], Y = pts_[y], R = pts_[r], S = pts_[s];
+    const double dr = std::fabs(cadgeom::orient2d(X, Y, R)), ds = std::fabs(cadgeom::orient2d(X, Y, S));
+    const double w = dr + ds > 0 ? dr / (dr + ds) : 0.5;
+    map = metricAt({R.x + w * (S.x - R.x), R.y + w * (S.y - R.y)});
+    return inCircleSoS(r, x, y, s, map);
+  };
+  // (Lawson's stack of edges, a budget of flips; where it runs out, the triangulation as it was.)
+  std::vector<std::pair<int32_t, int32_t>> stack;
+  for (const Tri& T : tris_)
+    if (!T.dead && T.v[2] != kGhost)
+      for (int k = 0; k < 3; k++)
+        if (T.v[(k + 1) % 3] < T.v[(k + 2) % 3]) stack.push_back({T.v[(k + 1) % 3], T.v[(k + 2) % 3]});
+  const std::vector<Tri> tris0 = tris_;
+  const std::vector<int32_t> free0 = free_, vtri0 = vtri_;
+  const int32_t last0 = last_;
+  for (size_t budget = kFlipBudget * stack.size(); !stack.empty() && budget > 0; budget--) {
+    const auto [a, b] = stack.back();
+    stack.pop_back();
+    const auto [t, i] = findEdge(a, b);
+    Map2 map;
+    if (t < 0 || !test(t, i, map)) continue;
+    const int32_t u = tris_[t].n[i];
+    const int32_t r = tris_[t].v[i], x = tris_[t].v[(i + 1) % 3], y = tris_[t].v[(i + 2) % 3];
+    int j = 0;
+    while (tris_[u].n[j] != t) j++;
+    const int32_t s = tris_[u].v[j];
+    std::vector<std::pair<int32_t, int>> outside;
+    for (int32_t w : {t, u})
+      for (int k = 0; k < 3; k++) {
+        const int32_t o = tris_[w].n[k];
+        if (o == t || o == u) continue;
+        int m = tris_[o].n[0] == w ? 0 : tris_[o].n[1] == w ? 1 : 2;
+        outside.push_back({o, m});
+      }
+    kill(t), kill(u);
+    std::vector<int32_t> made = {newTri(r, x, s), newTri(r, s, y)};
+    link(made, outside);
+    for (auto [p, q] : {std::pair{r, x}, std::pair{x, s}, std::pair{s, y}, std::pair{y, r}})
+      stack.push_back({std::min(p, q), std::max(p, q)});
+  }
+  if (!stack.empty()) {
+    tris_ = tris0, free_ = free0, vtri_ = vtri0, last_ = last0;
+    return false;
+  }
+  return true;
+}
+
 void Triangulation::cavity(Vec2 p, int32_t t, const Map2& raw, std::vector<int32_t>& cav,
   std::vector<std::pair<int32_t, int>>& outside, std::vector<std::pair<int32_t, int32_t>>& bnd) const {
   // The map scaled to l11 = 1 (the incircle's sign doesn't change under a uniform scale): an isotropic metric's is
@@ -384,7 +455,7 @@ size_t Triangulation::cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair
 }
 
 void Triangulation::retriangulate(int32_t a, int32_t b, const std::vector<int32_t>& chain,
-  std::vector<int32_t>& created) {
+  std::vector<int32_t>& created, const Map2& map) {
   // Each pseudo-polygon an edge (a, b) and a run of the chain, split at the run's vertex whose circle through a and b
   // holds no other (its Delaunay triangle on ab) into the run before it, on (a, c), and the run after, on (c, b). An
   // explicit stack, the left part taken first (the triangles made in the order a recursion makes them): a segment
@@ -397,7 +468,7 @@ void Triangulation::retriangulate(int32_t a, int32_t b, const std::vector<int32_
     if (P.lo >= P.hi) continue;
     size_t k = P.lo;
     for (size_t i = P.lo + 1; i < P.hi; i++)
-      if (inCircleSoS(P.a, P.b, chain[k], chain[i])) k = i;
+      if (inCircleSoS(P.a, P.b, chain[k], chain[i], map)) k = i;
     const int32_t c = chain[k];
     created.push_back(newTri(P.a, P.b, c));
     stack.push_back({c, P.b, k + 1, P.hi});
@@ -405,7 +476,7 @@ void Triangulation::retriangulate(int32_t a, int32_t b, const std::vector<int32_
   }
 }
 
-bool Triangulation::insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t other[2]) {
+bool Triangulation::insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t other[2], const Map2& map) {
   other[0] = other[1] = -1;
   auto [e, ei] = findEdge(a, b);
   if (e >= 0) {
@@ -479,9 +550,9 @@ bool Triangulation::insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t o
     }
   for (int32_t u : cut) kill(u);
   std::vector<int32_t> created;
-  retriangulate(a, b, left, created);
+  retriangulate(a, b, left, created, map);
   std::vector<int32_t> rr(right.rbegin(), right.rend());
-  retriangulate(b, a, rr, created);
+  retriangulate(b, a, rr, created, map);
   link(created, outside);
   auto [f, fi] = findEdge(a, b);
   if (f < 0) return false;

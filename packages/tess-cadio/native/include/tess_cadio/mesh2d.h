@@ -109,6 +109,13 @@ struct MeshOptions {
    * the criteria evaluated again on each refused triangle queued); false counts them all as refused alike.
    */
   bool refusalKinds = true;
+  /**
+   * The first triangulation of the domain's points, and the triangles each of its segments cuts, Delaunay in the
+   * field's metric (each point's cavity in its own, a segment's in its middle's), as refinement's insertions are;
+   * false: plain Delaunay in (u, v), whose chords across a face long in 3D but narrow in (u, v) refinement never
+   * revisits.
+   */
+  bool metricBuild = false;
 };
 
 /**

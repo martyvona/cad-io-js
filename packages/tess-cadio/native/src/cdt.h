@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <utility>
+#include <functional>
 #include <vector>
 
 #include "cad_geom/vec.h"
@@ -29,7 +30,11 @@ using cadgeom::Vec2;
 struct Map2 {
   double l11 = 1, l12 = 0, l22 = 1;
   Vec2 operator()(Vec2 p) const { return {l11 * p.x + l12 * p.y, l22 * p.y}; }
+  bool identity() const { return l11 == 1 && l12 == 0 && l22 == 1; }
 };
+
+/** flipToMetric's flips at most, per edge at the start. */
+constexpr size_t kFlipBudget = 20;
 
 /** The ghost vertex: a triangle holding it is outside the convex hull. */
 constexpr int32_t kGhost = -1;
@@ -63,11 +68,21 @@ public:
   bool build(int32_t duplicate[2]);
 
   /**
+   * Before any segment: Lawson's flips (a convex pair's diagonal) in the metric `metricAt` gives (its Cholesky factor)
+   * at each quad's diagonals' crossing, while the far vertex is in the circle on the other side, so the triangulation
+   * is about Delaunay in the metric, not in (u, v): a face narrow in (u, v) but not in 3D keeps no chords across many
+   * boundary points. At most kFlipBudget flips tested an edge at the start: where they don't settle within that (a
+   * varying metric cycles), the triangulation as it was and false.
+   */
+  bool flipToMetric(const std::function<Map2(Vec2)>& metricAt);
+
+  /**
    * Makes the segment (a, b) an edge of the triangulation with these flags. False where it can't be without
    * splitting: it crosses a constrained edge (`other` names it as a point pair) or passes through a vertex
-   * (`other` holds that vertex and -1).
+   * (`other` holds that vertex and -1). The triangles it cuts are made again Delaunay in `map`'s metric (the
+   * segment's), plain Delaunay by default.
    */
-  bool insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t other[2]);
+  bool insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t other[2], const Map2& map = {});
 
   /** Labels triangles inside or outside the domain: outside from the ghosts, flipping across each boundary edge. */
   void label();
@@ -104,6 +119,8 @@ public:
   bool inCircle(int32_t t, Vec2 d) const;
   /** incircle(a, b, c, d) > 0 with exact ties broken by the points' ranks (never 0 for distinct points). */
   bool inCircleSoS(int32_t a, int32_t b, int32_t c, int32_t d) const;
+  /** The same on the points mapped by `map` (scaled to l11 = 1, as cavity's), a mapped tie decided unmapped. */
+  bool inCircleSoS(int32_t a, int32_t b, int32_t c, int32_t d, const Map2& map) const;
 
   const std::vector<Vec2>& points() const { return pts_; }
   const std::vector<Tri>& tris() const { return tris_; }
@@ -119,7 +136,8 @@ private:
   void link(const std::vector<int32_t>& created, const std::vector<std::pair<int32_t, int>>& outside);
   /** A triangle with vertex v (kept per vertex, refreshed lazily). */
   int32_t triOf(int32_t v) const;
-  void retriangulate(int32_t a, int32_t b, const std::vector<int32_t>& chain, std::vector<int32_t>& created);
+  void retriangulate(int32_t a, int32_t b, const std::vector<int32_t>& chain, std::vector<int32_t>& created,
+    const Map2& map);
   /**
    * The cavity of a point at p from t in the metric `map` (the triangles whose mapped circumcircle holds mapped p,
    * bounded by constrained edges and the outside), then shrunk until every boundary edge is visible from p, so the

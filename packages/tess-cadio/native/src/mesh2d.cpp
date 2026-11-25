@@ -137,15 +137,25 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
 
   cdt::Triangulation T(domain.points);
   int32_t dup[2];
+  // (MeshOptions::metricBuild: each point's metric's Cholesky factor, as refinement's mapAt.)
+  auto mapOf = [&](Vec2 q) {
+    const Metric2 Mq = field.metric(q);
+    const double l11 = std::sqrt(std::max(Mq.a, 1e-300)), l12 = Mq.b / l11;
+    return cdt::Map2{l11, l12, std::sqrt(std::max(Mq.c - l12 * l12, 1e-300))};
+  };
   if (!T.build(dup)) {
     if (dup[0] >= 0) out.rejected = {dup[0], dup[1]};
     return out;
   }
+  if (options.metricBuild) T.flipToMetric(mapOf);
   // The boundary, then the interior segments; every failure named (the segment and what stops it).
   bool ok = true;
   auto constrain = [&](int32_t a, int32_t b, uint8_t flags) {
     int32_t other[2];
-    if (a == b || T.insertSegment(a, b, flags, other)) return;
+    const Vec2 A = domain.points[a], B = domain.points[b];
+    if (a == b || T.insertSegment(a, b, flags, other,
+      options.metricBuild ? mapOf({0.5 * (A.x + B.x), 0.5 * (A.y + B.y)}) : cdt::Map2{}))
+      return;
     ok = false;
     out.rejected.insert(out.rejected.end(), {a, b});
     if (other[0] >= 0 && other[1] >= 0) out.rejected.insert(out.rejected.end(), {other[0], other[1]});
