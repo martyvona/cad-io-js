@@ -7,7 +7,10 @@ import { pick } from '../src/pick.ts';
 import { faceOfTriangle, Highlighter, instancesOf, measure, nodeForPick, piecesOf,
   sphereOf } from '../src/selection.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
-import { plate, scene, wire } from './fixtures.ts';
+import { detailOf, plate, scene, wire } from './fixtures.ts';
+import { BrepBuilder } from 'cad-brep';
+import { VERTICES } from '../src/style.ts';
+import { DiscMaterial } from '../src/vertex-points.ts';
 
 function stepModel() {
   const graph = new SceneGraph(scene(), 'model');
@@ -18,7 +21,7 @@ function stepModel() {
   graph.root.updateMatrixWorld(true);
   const [left, sub, hidden] = model.children(model.roots[0]!);
   const partOf = (placement: number, i: number) => model.children(placement)[i]!;
-  const find = (part: number, name: string) => model.children(part).find((c) => model.nodes[c]!.name === name)!;
+  const find = (part: number, name: string) => detailOf(model, part).find((c) => model.nodes[c]!.name === name)!;
   return { graph, model, left: left!, sub: sub!, hidden: hidden!, partOf, find };
 }
 
@@ -104,7 +107,7 @@ test('faceOfTriangle: the range holding a triangle, at the boundaries; none past
   assert.equal(faceOfTriangle([], 0), undefined);
 });
 
-test('the node a pick stands for: the part, its assembly, or the face, edges or curves hit', () => {
+test('the node a pick stands for: the part, its assembly, or the face hit, or the group of the lines hit', () => {
   const { model, left, partOf, find } = stepModel();
   const plateLeft = partOf(left, 0);
   const mesh = model.nodes[plateLeft]!.object!.children[0]!;
@@ -116,7 +119,7 @@ test('the node a pick stands for: the part, its assembly, or the face, edges or 
   assert.equal(nodeForPick(model, edges, undefined, 'detail'), find(plateLeft, 'edges'));
   assert.equal(nodeForPick(model, edges, undefined, 'part'), plateLeft);
   const curves = model.nodes[partOf(left, 1)]!.object!.children[0]!.children[0]!;
-  assert.equal(nodeForPick(model, curves, undefined, 'detail'), find(partOf(left, 1), 'curves'));
+  assert.equal(nodeForPick(model, curves, undefined, 'detail'), find(partOf(left, 1), 'edges'));
   assert.equal(nodeForPick(model, new THREE.Object3D(), undefined, 'part'), undefined);
   // An object above any part (the root): its own node, at every level.
   assert.equal(nodeForPick(model, model.nodes[left]!.object!, undefined, 'part'), left);
@@ -336,4 +339,62 @@ test('pick: what\'s drawn in front of the camera\'s position (a negative near pl
   behind.visible = false;
   assert.equal(at(0), undefined);
   assert.ok(beyond);
+});
+
+test('edges, curves, points and vertices: their ranges of their objects, measured, highlighted by overlays (lines '
+  + 'on their layers and drawn fat, dots shown whatever Vertices is)', () => {
+  const { graph, model, left, partOf, find } = stepModel();
+  const plateLeft = partOf(left, 0);
+  let mesh = model.nodes[plateLeft]!.object!.children[0] as THREE.Mesh;
+  let lines = mesh.children.find((c) => c.name === 'edges') as THREE.LineSegments;
+  // The plate's edge 4: one segment, (0,0,0) to (1,1,0) inches.
+  const edge = find(plateLeft, 'edge #4');
+  assert.deepEqual(piecesOf(model, [edge]).map((p) => [p.object, p.ranges]), [[lines, [{ start: 0, count: 2 }]]]);
+  const m = measure(piecesOf(model, [edge]));
+  assert.deepEqual([m.lines, m.segments], [1, 1]);
+  assert.ok(Math.abs(m.length - Math.SQRT2 * Math.fround(25.4)) < 1e-6);
+  // Of two edges, one: its segments alone (the plate with a free edge 5, (1,1,0) to (2,2,2) inches, beside it).
+  const two = plate();
+  two.edges = [...two.edges!, { source: 5, start: 3, count: 2, kind: 'free' }];
+  graph.addMesh(0, two);
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  const one = measure(piecesOf(model, [find(plateLeft, 'edge #4')]));
+  const both = measure(piecesOf(model, [find(plateLeft, 'edges')]));
+  assert.deepEqual([one.segments, both.segments], [1, 2]);
+  assert.ok(Math.abs(one.length - Math.SQRT2 * Math.fround(25.4)) < 1e-6 && both.length > one.length + 25);
+  mesh = model.nodes[plateLeft]!.object!.children[0] as THREE.Mesh;
+  lines = mesh.children.find((c) => c.name === 'edges') as THREE.LineSegments;
+  // The wire's point: one of one.
+  const point = find(partOf(left, 1), 'point #11');
+  assert.equal(measure(piecesOf(model, [point])).points, 1);
+  // Its B-rep vertices, once its model is held: a dot each.
+  const b = new BrepBuilder();
+  b.addVertex({ point: [25.4, 0, 0], id: 21 });
+  b.addVertex({ point: [50.8, 25.4, 0], id: 22 });
+  graph.holdModel(0, { model: b.finish().buffer });
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  const dots = mesh.children.find((c) => c.name === 'vertices') as THREE.Points;
+  const vertex = find(plateLeft, 'vertex #22');
+  assert.deepEqual(piecesOf(model, [vertex]).map((p) => [p.object, p.ranges]), [[dots, [{ start: 1, count: 1 }]]]);
+  // The group: its objects whole.
+  assert.deepEqual(piecesOf(model, [find(plateLeft, 'vertices')]).map((p) => [p.object, p.ranges]),
+    [[dots, undefined]]);
+  // Highlighted: the edge's overlay on the lines' layer, marked for fat edges, drawn toward the camera; the vertex's a
+  // tinted copy of the dots' material on the default layer; the change said.
+  let changes = 0;
+  const h = new Highlighter(() => changes++);
+  h.apply(piecesOf(model, [edge, vertex]));
+  const lineOverlay = lines.children.find((c) => c.userData.highlight) as THREE.LineSegments;
+  assert.deepEqual(Array.from(lineOverlay.geometry.index!.array), [0, 1]);
+  assert.ok(lineOverlay.isLineSegments && lineOverlay.layers.mask === lines.layers.mask &&
+    lineOverlay.userData.fatHighlight === true && (lineOverlay.material as THREE.Material).userData.depthBias);
+  const dotOverlay = dots.children.find((c) => c.userData.highlight) as THREE.Points;
+  assert.deepEqual(Array.from(dotOverlay.geometry.index!.array), [1]);
+  const tint = dotOverlay.material as DiscMaterial;
+  assert.ok(tint instanceof DiscMaterial && tint !== dots.material && tint.color.getHex() !== 0);
+  assert.ok(dotOverlay.layers.mask === 1 && dots.layers.mask === 1 << VERTICES);
+  assert.ok(changes > 0);
+  const before = changes;
+  h.clear();
+  assert.ok(!lines.children.length && !dots.children.length && changes > before);
 });

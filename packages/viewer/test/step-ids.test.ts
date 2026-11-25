@@ -5,7 +5,7 @@ import { NodeModel } from '../src/model.ts';
 import { problemIds } from '../src/problems.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
 import { formatIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from '../src/step-ids.ts';
-import { plate, scene } from './fixtures.ts';
+import { detailOf, plate, scene } from './fixtures.ts';
 
 test('parse ids: whitespace or commas, # or not, #a#b as two; anything else not understood; each once', () => {
   assert.deepEqual(parseIds(' #12 345\n#6,7\t#12#34 '), { ids: [12, 345, 6, 7, 34], bad: [] });
@@ -95,6 +95,6 @@ test('step ids: assemblies (occurrence, then component), parts (representation),
   fm.setDetail(true);
   const fplates = fm.nodes.filter((n) => n.name === 'plate').map((n) => n.id);
   assert.deepEqual(partsWithFaces(fm, new Set([7])), []);
-  const fface = fm.children(fplates[0]!).find((c) => fm.nodes[c]!.kind === 'face')!;
+  const fface = detailOf(fm, fplates[0]!).find((c) => fm.nodes[c]!.kind === 'face')!;
   assert.deepEqual(stepIdsOf(fm, [fface]), []);
 });

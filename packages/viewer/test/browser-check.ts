@@ -1682,12 +1682,18 @@ await check('tree', async () => {
     await frame();
     const all = spacerRows(), nodes = m.nodes.length;
     const click = (row, ctrlKey = false) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
-    const parts = () => rows().filter((r) => m.nodes[+r.dataset.id].kind === 'part');
     const display = getComputedStyle(rows()[0]).display;
     const label = rows()[0].getAttribute('aria-label');
-    click(parts()[0]);
+    // (A part's row brought into view first: the first part's detail, every edge and vertex a row, fills the panel.)
+    const partIds = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    const rowOf = async (id) => {
+      p.scrollToRow(id, 0);
+      await frame();
+      return rows().find((r) => +r.dataset.id === id);
+    };
+    click(await rowOf(partIds[0]));
     await frame();
-    click(parts()[1], true);
+    click(await rowOf(partIds[1]), true);
     await frame();
     const selected = [...p.selected()];
     const afterClicks = spacerRows();
@@ -2259,7 +2265,7 @@ await check('item errors and warnings', async () => {
     if (${face}) { ui.setTree({ detail: true }); for (const n of [...m.nodes]) m.children(n.id); }
     // The ids each node holds, found here: its own (step-ids' sources, a face's source), a part's model's.
     const ownIds = (n) => {
-      if (n.face) return graph.scene.parts[n.face.part] && m.nodes[n.parent].object.userData.stepFaces
+      if (n.face) return graph.scene.parts[n.face.part] && m.nodes[m.nodes[n.parent].parent].object.userData.stepFaces
         ? [n.face.source] : [];
       const own = n.object?.userData.sources ?? [];
       if (n.kind !== 'part') return own;
@@ -2278,7 +2284,7 @@ await check('item errors and warnings', async () => {
     const expected = (n) => diagnostics.filter((d) => {
       if (d.severity !== 'error' && d.severity !== 'warning') return false;
       if (n.face) return d.source?.format === 'step' && (d.source.id === n.face.source
-        || (m.nodes[n.parent].object.userData.sources ?? []).includes(d.source.id)
+        || (m.nodes[m.nodes[n.parent].parent].object.userData.sources ?? []).includes(d.source.id)
         && new RegExp('#' + n.face.source + '(?!\\\\d)').test(d.message));
       const hs = holders(d);
       // (A face's id is its part's too.)
@@ -2613,8 +2619,8 @@ await check('picks unfold the tree', async () => {
 // Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent, Select
 // children and Select none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted
 // exactly as the selection is (none stale), the tree scrolled to show a selected row. Select children: the assemblies'
-// children; a part's nothing while the tree's detail is off (the selection kept, the detail left off), its faces,
-// edges and curves once it's on. The tree's menu: Select parent and
+// children; a part's nothing while the tree's detail is off (the selection kept, the detail left off), its groups
+// (faces, edges, vertices) once it's on, and theirs the faces, edges and vertices. The tree's menu: Select parent and
 // Select children on the row right-clicked (not the selection), the rest as the buttons.
 await check('selection buttons in the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
@@ -2650,15 +2656,19 @@ await check('selection buttons in the tree', async () => {
     ui.select([part]);
     press('Select children');
     out.kept = JSON.stringify(ui.selected()) === JSON.stringify([part]) && !m.hasDetail();
-    const detail = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves');
+    const detail = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves, vertices');
     detail.setValue(true);
     detail._callOnFinishChange();
     press('Select children'); out.detail = await look();
     out.kinds = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
     out.detailAfter = m.hasDetail();
+    press('Select children');
+    out.items = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
     press('Select none'); out.none = await look();
     // The menu: on a row not selected, Select parent selects that row's parent; Select children, its children.
     const menu = async (id, choose) => {
+      // (Its row in view: a selection of every edge and vertex scrolls far down.)
+      ui.panel().scrollToRow(id, 0);
       for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res));
       const row = [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === id);
       const b = row.getBoundingClientRect();
@@ -2691,7 +2701,8 @@ await check('selection buttons in the tree', async () => {
   expect(o.childrenOk === true, `the parents' children: ${j}`);
   expect(o.detailBefore === false && o.kept === true, `a part's children with the detail off: none, the selection `
     + `kept: ${j}`);
-  expect(o.detailAfter === true && (o.kinds as string[]).includes('face'), `with it on, its detail: ${j}`);
+  expect(o.detailAfter === true && (o.kinds as string[]).join() === 'edges,faces,vertices' &&
+    (o.items as string[]).join() === 'edge,face,vertex', `with it on, its detail's groups, then theirs: ${j}`);
   expect(o.menuParent === true && o.menuChildren === true && o.menuAll === true && o.menuNone === true,
     `the tree's menu: ${j}`);
   return undefined;
@@ -2765,11 +2776,13 @@ await check('failed faces', async () => {
     viewer.display.traverse((o) => { if (o.name === 'outline') outlines++; });
     const partly = parts.filter((n) => m.failure(n.id) === 'partly');
     ui.setTree({ detail: true });
-    // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area.)
-    const faces = partly.flatMap((n) => m.children(n.id)).map((c) => m.failure(c)).filter((f) => f);
+    // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area. Its faces in its
+    // faces group.)
+    const facesOf = (id) => m.children(id).filter((g) => m.nodes[g].kind === 'faces').flatMap((g) => m.children(g));
+    const faces = partly.flatMap((n) => facesOf(n.id)).map((c) => m.failure(c)).filter((f) => f);
     // Rows that failed partly red too, with the broken icon: a partly failed part's, and a face of it short of its
     // area, each selected (so revealed and drawn).
-    const shortFace = partly.flatMap((n) => m.children(n.id)).find((c) => m.failure(c) === 'partly');
+    const shortFace = partly.flatMap((n) => facesOf(n.id)).find((c) => m.failure(c) === 'partly');
     const rows = [];
     for (const id of [partly[0].id, ...(shortFace === undefined ? [] : [shortFace])]) {
       ui.select([id]);
@@ -3315,7 +3328,9 @@ await check('mesh again', async () => {
     const lost = { status: document.getElementById('status').textContent,
       notRestored: JSON.parse(document.body.dataset.report).notRestored, paths: lostPaths };
     // A face selected: after meshing again, its overlay is on the face's new mesh, sharing that mesh's positions.
-    const face = viewer.nodes.nodes.find((n) => n.face && viewer.nodes.nodes[n.parent].object.children[0]?.geometry);
+    // (A face's parent its part's faces group: the part above that.)
+    const face = viewer.nodes.nodes.find((n) => n.face && !n.dead &&
+      viewer.nodes.nodes[viewer.nodes.nodes[n.parent].parent].object.children[0]?.geometry);
     const facePath = viewer.nodes.pathOf(face.id);
     ui.select([face.id]);
     const faceModel = viewer.nextLoad();
@@ -3924,9 +3939,9 @@ await check('mesh again in place', async () => {
   return undefined;
 });
 // Every slot of the appearance overrides drawn alike after Mesh again: an assembly hidden with a child shown, a part
-// transparent with one face back to the file's and one hidden, a part's triangle edges on with one face off, a face's
-// on and its part's edges hidden; what's drawn, face by face in every placement (shown, opacity, triangle edges) and
-// every line object, the same after meshing at another deflection, and the state's overrides too.
+// transparent with one face back to the file's and one hidden, a part's triangle edges on with one face off and one
+// edge hidden, a face's on and its part's edges hidden; what's drawn, face by face in every placement (shown, opacity,
+// triangle edges) and every line object, the same after meshing at another deflection, and the state's overrides too.
 await check('overrides after mesh again', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
@@ -3940,10 +3955,13 @@ await check('overrides after mesh again', async () => {
     const size = (id) => m.nodes[id].kind === 'part' ? 1 : m.children(id).reduce((k, c) => k + size(c), 0);
     const asm = m.nodes.filter((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).length > 1)
       .sort((x, y) => size(x.id) - size(y.id))[0].id;
-    const parts = m.nodes.filter((n) => n.kind === 'part' && !under(n.id, asm) &&
-      m.children(n.id).filter((c) => m.nodes[c].kind === 'face').length >= 2).map((n) => n.id);
+    // (A part's faces, edges: its groups' nodes.)
+    const inGroup = (id, kind) => m.children(id).filter((g) => m.nodes[g].kind === kind)
+      .flatMap((g) => m.children(g));
+    const faces = (id) => inGroup(id, 'faces');
+    const parts = m.nodes.filter((n) => n.kind === 'part' && !under(n.id, asm) && faces(n.id).length >= 2)
+      .map((n) => n.id);
     const [p, q, s] = parts;
-    const faces = (id) => m.children(id).filter((c) => m.nodes[c].kind === 'face');
     ui.setHidden([asm], true);
     ui.setHidden([m.children(asm)[0]], false);
     ui.setOverride(p, { transparent: true, alpha: 0.4 });
@@ -3951,6 +3969,7 @@ await check('overrides after mesh again', async () => {
     ui.setOverride(faces(p)[1], { hidden: true });
     ui.setOverride(q, { triangleEdges: true });
     ui.setOverride(faces(q)[0], { triangleEdges: false });
+    ui.setOverride(inGroup(q, 'edges')[0], { hidden: true });
     ui.setOverride(faces(s)[0], { triangleEdges: true });
     const edges = m.children(s).find((c) => m.nodes[c].kind === 'edges');
     if (edges !== undefined) ui.setOverride(edges, { hidden: true });
@@ -3970,7 +3989,17 @@ await check('overrides after mesh again', async () => {
         const rec = { visible: on, lines: {}, faces: {} };
         for (const obj of g.children) {
           for (const c of obj.children) {
-            if (['edges', 'curves', 'points'].includes(c.name)) rec.lines[c.name] = on && c.visible;
+            // (Shown, and how many of its items: hidden one by one, items.ts. Lines: each item a run of chained
+            // segments, however many the deflection gives it; dots one index each.)
+            const items = (o) => {
+              const x = o.geometry.index?.array ?? [];
+              if (!o.isLineSegments) return x.length;
+              let k = x.length ? 1 : 0;
+              for (let i = 2; i < x.length; i += 2) if (x[i] !== x[i - 1]) k++;
+              return k;
+            };
+            if (['edges', 'curves', 'points', 'vertices'].includes(c.name)) rec.lines[c.name] = on && c.visible &&
+              items(c);
           }
           const pair = pairs.find((x) => x.source === obj);
           const index = obj.geometry.index?.array;
@@ -4092,7 +4121,9 @@ await check('triangle edges', async () => {
     ui.setHidden([part.id], false);
     // A face hidden: its group's edges not drawn.
     ui.setTree({ detail: true });
-    const face = m.children(part.id).map((id) => m.nodes[id]).find((n) => n.kind === 'face');
+    // (In its faces group.)
+    const face = m.children(part.id).flatMap((g) => m.children(g)).map((id) => m.nodes[id])
+      .find((n) => n.kind === 'face');
     ui.setHidden([face.id], true);
     await cadViewer.idle();
     const k = meshes.findIndex((x) => Array.isArray(x.material) && x.material.some((y) => !y.visible));
@@ -4488,10 +4519,13 @@ await check('tree scrolls sideways', async () => {
     scroller.scrollLeft = scroller.scrollWidth;
     await frames();
     const scrolled = scroller.scrollLeft > 0;
-    // Down the tree and back: the widest so far kept.
+    // Down the tree (to the long name's row: every edge and vertex a row, the tree is long) and back: the widest so
+    // far kept.
     const ranges = [narrow.range], longs = [narrow.long];
-    for (const top of [scroller.scrollHeight / 2, scroller.scrollHeight, 0]) {
-      scroller.scrollTop = top;
+    const long = viewer.nodes.nodes.find((n) => n.name.includes(${JSON.stringify(longName)})).id;
+    for (const to of ['long', scroller.scrollHeight, 0]) {
+      if (to === 'long') ui.panel().scrollToRow(long, 0);
+      else scroller.scrollTop = to;
       await frames();
       const l = look();
       ranges.push(l.range);
@@ -4610,7 +4644,12 @@ await check('auto hide and select all', async () => {
     // (Ids change once the tree has detail: compared by path.)
     return { ...out, part, shown, assembly, parents: [...new Set(shown.map((id) => m.nodes[id].parent))],
       detailCount: detail.length, kinds, shownPaths: shown.map((id) => m.pathOf(id)).sort(),
-      detailParents: [...new Set(detail.map((id) => n.pathOf(n.nodes[id].parent)))].sort(),
+      // (Each one's part: a face's above its faces group.)
+      detailParents: [...new Set(detail.map((id) => {
+        let p = n.nodes[id].parent;
+        while (n.nodes[p].kind !== 'part') p = n.nodes[p].parent;
+        return n.pathOf(p);
+      }))].sort(),
       detailHidden: detail.filter((id) => n.hiddenInTree(id)).length, tree: cadViewer.state().tree };
   })()`) as { after: Record<string, unknown> & { part: number[]; shown: number[]; assembly: number[];
     parents: number[]; detailCount: number; kinds: string[]; shownPaths: string[]; detailParents: string[];
@@ -4628,7 +4667,9 @@ await check('auto hide and select all', async () => {
     JSON.stringify(a.invertedBack) === JSON.stringify([a.shown[0]]), `invert selection: ${j}`);
   expect(JSON.stringify([...a.part].sort()) === JSON.stringify([...a.shown].sort()), `select all, parts: ${j}`);
   expect(JSON.stringify([...a.assembly].sort()) === JSON.stringify([...a.parents].sort()), `assemblies: ${j}`);
-  expect(a.tree.detail && a.detailCount > a.shown.length && a.kinds.includes('face') && a.detailHidden === 0 &&
+  // (What a click selects at the detail level: a face, or the group of the lines or dots clicked.)
+  expect(a.tree.detail && a.detailCount > a.shown.length && a.kinds.join() === 'edges,face,vertices' &&
+    a.detailHidden === 0 &&
     JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
   return undefined;
 });
@@ -5205,13 +5246,14 @@ await check('vertices', async () => {
     const isDark = (c) => c.every((v) => v < 60);
     set({ edges: false });
     const off = frame();
-    out.drawnOff = viewer.vertexPoints.group.visible;
+    out.drawnOff = viewer.camera.layers.isEnabled(2);
     // How many vertices' own pixel is dark: on, and not before.
     const darkened = (on) => inView.filter((v) => isDark(on(v.x, v.y)) && !isDark(off(v.x, v.y)));
     set({ vertices: true });
     out.checkedOn = control.getValue();
     let on = frame();
-    out.count = viewer.vertexPoints.group.children.reduce((n, c) => n + c.geometry.getAttribute('position').count, 0);
+    out.count = 0;
+    viewer.display.traverse((o) => { if (o.name === 'vertices' && o.isPoints) out.count += o.geometry.index.count; });
     out.vertices = vertices.length;
     const lit = darkened(on);
     out.lit = lit.length;
@@ -5302,6 +5344,144 @@ await check('vertices', async () => {
   expect(a.hidden.mine > 0 && a.hidden.dark === 0, `none for a hidden part: ${j}`);
   expect(a.cut.planes === 1 && a.cut.away > 0 && a.cut.awayDark === 0 && a.cut.kept > 0 &&
     a.cut.keptDark > a.cut.kept / 2, `cut by a section plane: ${j}`);
+  return undefined;
+});
+// The tree's detail (Faces, edges, curves, vertices): below a part, its faces, edges and vertices groups, in that
+// order, each with a node per face, edge and vertex. One edge selected: the frame changes only along that edge (its
+// polyline as its part's mesh gives it, projected here), in the selection's tint, thin and fat (fat wider); one hidden:
+// only along it, the rest of its part's edges drawn. One vertex selected with Vertices off: a tinted dot at its point
+// (its part's B-rep model's vertex table), nothing else changed. Select by ID with an edge's id, the tree's detail off:
+// that edge (the detail turned on).
+await check('edges and vertices in the tree', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&ao=0&smaa=0`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const byId = (() => {
+      const [part, mesh] = [...viewer.graph.meshes].find(([, x]) => x.edges?.some((e) => e.source !== null));
+      const source = mesh.edges.find((e) => e.source !== null && e.kind !== 'seam').source;
+      const before = viewer.nodes.hasDetail();
+      ui.selectByIds(String(source));
+      const sel = ui.selected().map((id) => viewer.nodes.nodes[id]);
+      return { before, after: viewer.nodes.hasDetail(), n: sel.length, kinds: [...new Set(sel.map((n) => n.kind))],
+        sources: [...new Set(sel.map((n) => n.item?.source))].join() === String(source),
+        parts: sel.every((n) => viewer.graph.placements.get(part).some((p) => {
+          let q = n.parent;
+          while (viewer.nodes.nodes[q].kind !== 'part') q = viewer.nodes.nodes[q].parent;
+          return viewer.nodes.nodes[q].object === p.group;
+        })) };
+    })();
+    ui.select([]);
+    const control = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves, vertices');
+    control.setValue(true);
+    control._callOnFinishChange();
+    viewer.setBackground(0xffffff);
+    const m = viewer.nodes, graph = viewer.graph;
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const V3 = viewer.camera.position.constructor;
+    // (A part in view with edges and vertices: the plate, the largest.)
+    const part = m.nodes.find((n) => n.kind === 'part' && n.name.startsWith('plate'));
+    const groups = m.children(part.id).map((g) => m.nodes[g].kind);
+    const inGroup = (kind) => m.children(m.children(part.id).find((g) => m.nodes[g].kind === kind));
+    const counts = { faces: inGroup('faces').length, edges: inGroup('edges').length,
+      vertices: inGroup('vertices').length };
+    const index = part.object.userData.part, mesh = graph.meshes.get(index), model = graph.modelOf(index);
+    const group = part.object;
+    // A point of the part's mesh (its coordinates minus its origin) or model (its own) in canvas pixels.
+    const toPx = (x, y, z, origin = [0, 0, 0]) => {
+      const q = new V3(x + origin[0], y + origin[1], z + origin[2]).applyMatrix4(group.matrixWorld)
+        .project(viewer.camera);
+      return [(q.x + 1) / 2 * canvas.width, (q.y + 1) / 2 * canvas.height];
+    };
+    // An edge's polyline in canvas pixels, by its source id.
+    const polyline = (source) => {
+      const e = mesh.edges.find((x) => x.source === source), p = mesh.edgePositions;
+      return Array.from({ length: e.count }, (_, i) => toPx(p[3 * (e.start + i)], p[3 * (e.start + i) + 1],
+        p[3 * (e.start + i) + 2], mesh.origin));
+    };
+    const distTo = (pts, x, y) => {
+      let d = Infinity;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+        d = Math.min(d, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+      }
+      return d;
+    };
+    const frame = () => {
+      viewer.draw();
+      const px = new Uint8Array(4 * canvas.width * canvas.height);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    // The pixels that differ between two frames (by more than 40 in a channel): where, and whether orange (the tint).
+    const changed = (a, b) => {
+      const out = [];
+      for (let i = 0; i < a.length; i += 4) {
+        const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+        if (d <= 40) continue;
+        const k = i / 4;
+        out.push({ x: k % canvas.width + 0.5, y: Math.floor(k / canvas.width) + 0.5,
+          orange: b[i] > 180 && b[i + 1] > 80 && b[i + 1] < 200 && b[i + 2] < 120 });
+      }
+      return out;
+    };
+    const set = (r) => ui.setRender({ ...viewer.render, ...r });
+    // The edge: the one whose polyline is longest on screen.
+    const len = (pts) => pts.reduce((t, p, i) => i ? t + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : t, 0);
+    const edge = inGroup('edges').map((id) => m.nodes[id]).filter((n) => n.item.source !== null)
+      .sort((a, b) => len(polyline(b.item.source)) - len(polyline(a.item.source)))[0];
+    const line = polyline(edge.item.source);
+    const along = (cs, within) => ({ n: cs.length, near: cs.filter((c) => distTo(line, c.x, c.y) <= within).length,
+      orange: cs.filter((c) => c.orange).length });
+    const out = { byId, groups, counts, path: m.pathOf(edge.id), length: len(line) };
+    for (const style of ['thin', 'fat']) {
+      set({ edgeStyle: style });
+      ui.select([]);
+      const before = frame();
+      ui.select([edge.id]);
+      out[style] = along(changed(before, frame()), 4 * viewer.renderer.getPixelRatio() + 3);
+    }
+    // Hidden: only along it (the rest of the part's edges still drawn), thin and fat (fat edges following the lines'
+    // geometry without it).
+    ui.select([]);
+    set({ edgeStyle: 'fat' });
+    const fatShown = frame();
+    ui.setHidden([edge.id], true);
+    out.hiddenFat = along(changed(fatShown, frame()), 4 * viewer.renderer.getPixelRatio() + 3);
+    ui.setHidden([edge.id], false);
+    set({ edgeStyle: 'thin' });
+    const shown = frame();
+    ui.setHidden([edge.id], true);
+    out.hidden = along(changed(shown, frame()), 4);
+    let lines; group.traverse((o) => { if (!lines && o.name === 'edges') lines = o; });
+    out.edgesDrawn = lines.visible && lines.geometry.index.count > 0;
+    ui.setHidden([edge.id], false);
+    // A vertex, Vertices off: a dot in the tint at its point, nothing else changed.
+    const vertex = inGroup('vertices').map((id) => m.nodes[id]).find((n) => n.item.source !== null);
+    const row = Array.from(model.vertex.id).indexOf(vertex.item.source);
+    const at = toPx(model.vertex.point[3 * row], model.vertex.point[3 * row + 1], model.vertex.point[3 * row + 2]);
+    ui.select([]);
+    const plain = frame();
+    ui.select([vertex.id]);
+    const dot = changed(plain, frame());
+    out.vertex = { on: viewer.render.vertices, n: dot.length, near: dot.filter((c) => Math.hypot(c.x - at[0],
+      c.y - at[1]) <= 6 * viewer.renderer.getPixelRatio()).length, orange: dot.filter((c) => c.orange).length };
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(!a.byId.before && a.byId.after && a.byId.n > 0 && a.byId.kinds.join() === 'edge' && a.byId.sources &&
+    a.byId.parts, `Select by ID, an edge's: ${j}`);
+  expect(a.groups.join() === 'faces,edges,vertices' && a.counts.faces > 3 && a.counts.edges > 3 &&
+    a.counts.vertices > 3, `the part's groups: ${j}`);
+  expect(/\/edges\/edge#\d+$/.test(a.path), `an edge's path: ${j}`);
+  for (const s of ['thin', 'fat']) {
+    expect(a[s].n > a.length / 2 && a[s].near === a[s].n && a[s].orange > a[s].n / 2, `${s}: only along the edge, ` +
+      `in the tint: ${j}`);
+  }
+  expect(a.fat.n > a.thin.n * 1.3, `fat wider: ${j}`);
+  expect(a.hidden.n > a.length / 3 && a.hidden.near === a.hidden.n && a.edgesDrawn, `one edge hidden: ${j}`);
+  expect(a.hiddenFat.n > a.length / 3 && a.hiddenFat.near === a.hiddenFat.n, `one edge hidden, fat: ${j}`);
+  expect(a.vertex.on === false && a.vertex.n > 4 && a.vertex.near === a.vertex.n && a.vertex.orange > 0,
+    `a vertex selected with Vertices off: ${j}`);
   return undefined;
 });
 // The axes gnomon (gnomon.ts): drawn in its box (#gnomon) over the view, X red, Y green, Z blue; each axis's
@@ -5895,7 +6075,7 @@ await check('snapshot: meshing and hidden faces', async () => {
     const nuts = m.nodes.filter((n) => n.kind === 'part' && partOf(n) === 'nut');
     const source = nuts[0].object.children[0].userData.faces[0];
     // (One face in every placement: faces are hidden per placement.)
-    const want = nuts.map((n) => m.pathOf(n.id) + '/face#' + source);
+    const want = nuts.map((n) => m.pathOf(n.id) + '/faces/face#' + source);
     cadViewer.hide(want);
     ui.setTree({ detail: false });
     const hidden = cadViewer.state().hidden;
@@ -5905,10 +6085,11 @@ await check('snapshot: meshing and hidden faces', async () => {
     cadViewer.view('top');
     await cadViewer.idle();
     const rec = cadViewer.record(false);
-    // A face hidden by a state with no node made for it (the tree without detail), then a state hiding nothing.
+    // A face hidden by a state with no node made for it (the tree without detail), by an older link's path (the face
+    // straight below its part), given back as it's named now; then a state hiding nothing.
     const bolt = m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'bolt');
     cadViewer.apply({ hidden: [m.pathOf(bolt.id) + '/face#' + bolt.object.children[0].userData.faces[0]] });
-    const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/face#')).length;
+    const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/faces/face#')).length;
     cadViewer.apply({ hidden: [] });
     const cleared = cadViewer.state().hidden;
     return { want, hidden, meshing: st.meshing, meshedWith: st.model.meshedWith, triangles: st.model.triangles, rec,
@@ -6000,7 +6181,7 @@ await check('automation', async () => {
     const other = cadViewer.screenshot();
     cadViewer.view('iso');
     // A view to link: top, a cut, no AO, a part hidden, a face selected (a path below a part, detail not shown).
-    const face = parts[2] + '/face#' + viewer.nodes.nodes[viewer.nodes.find(parts[2])].object.children[0]
+    const face = parts[2] + '/faces/face#' + viewer.nodes.nodes[viewer.nodes.find(parts[2])].object.children[0]
       .userData.faces[0];
     const problems = cadViewer.apply({ view: 'top', cut: { x: { at: 50, flip: true } }, render: { ao: false },
       hidden: [parts[3]], selected: [face] });

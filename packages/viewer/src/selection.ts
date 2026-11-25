@@ -7,7 +7,8 @@
 
 import * as THREE from 'three';
 import { boxesSphere, type Box } from 'cad-scene';
-import { keepBias } from './depth-bias.ts';
+import { biasTowardCamera, keepBias } from './depth-bias.ts';
+import { rangeOf } from './items.ts';
 import type { NodeModel } from './model.ts';
 
 export type PickLevel = 'assembly' | 'part' | 'detail';
@@ -30,26 +31,41 @@ function placementMesh(group: THREE.Object3D): THREE.Mesh | undefined {
   return group.children.find((c) => (c as THREE.Mesh).isMesh && c.userData.faceRanges) as THREE.Mesh | undefined;
 }
 
-/** The pieces nodes cover, once each: an object covered whole and in part counts whole. */
+/**
+ * The pieces nodes cover, once each: an object covered whole and in part counts whole. A face is its ranges of its
+ * placement's mesh (and its outline, if it failed); an edge, curve, vertex or point its range of its line or point
+ * object as drawn now (none while hidden: items.ts); the faces group its placement's mesh and outlines, the edges and
+ * vertices groups their objects.
+ */
 export function piecesOf(model: NodeModel, ids: Iterable<number>): Piece[] {
   const whole = new Set<Drawable>();
   const partial = new Map<Drawable, { start: number; count: number }[]>();
+  const some = (o: Drawable, ranges: readonly { start: number; count: number }[]) => {
+    if (!ranges.length) return;
+    const list = partial.get(o) ?? [];
+    list.push(...ranges.map(({ start, count }) => ({ start, count })));
+    partial.set(o, list);
+  };
   for (const id of ids) {
     const n = model.nodes[id];
-    if (!n) continue;
+    if (!n || n.dead) continue;
+    const part = model.nodes[model.partOf(id)]!.object!;
     if (n.face) {
       // A face that failed to mesh: its outline, whole (scene-graph.ts).
-      model.nodes[n.parent]!.object!.traverse((o) => {
-        if (o.userData.outlineFace === n.face!.source && isDrawable(o)) whole.add(o);
+      part.traverse((o) => { if (o.userData.outlineFace === n.face!.source && isDrawable(o)) whole.add(o); });
+      const mesh = placementMesh(part);
+      const ranges = (mesh?.userData.faceRanges ?? []) as FaceRange[];
+      if (mesh) some(mesh, ranges.filter((f) => f.source === n.face!.source));
+    } else if (n.item) {
+      const r = rangeOf(n.item.object, n.item.k);
+      if (r) some(n.item.object as Drawable, [r]);
+    } else if (n.kind === 'faces') {
+      part.traverse((o) => {
+        const face = (o as THREE.Mesh).isMesh || o.userData.outlineFace !== undefined;
+        if (isDrawable(o) && face && !o.userData.highlight) whole.add(o);
       });
-      const mesh = placementMesh(model.nodes[n.parent]!.object!);
-      const ranges = ((mesh?.userData.faceRanges ?? []) as FaceRange[]).filter((f) => f.source === n.face!.source);
-      if (mesh && ranges.length) {
-        const list = partial.get(mesh) ?? [];
-        list.push(...ranges.map(({ start, count }) => ({ start, count })));
-        partial.set(mesh, list);
-      }
-    } else n.object?.traverse((o) => { if (isDrawable(o) && !o.userData.highlight) whole.add(o); });
+    } else if (n.members) for (const m of n.members) whole.add(m as Drawable);
+    else n.object?.traverse((o) => { if (isDrawable(o) && !o.userData.highlight) whole.add(o); });
   }
   const out: Piece[] = [...whole].map((object) => ({ object }));
   for (const [object, ranges] of partial) if (!whole.has(object)) out.push({ object, ranges });
@@ -92,11 +108,13 @@ export function measure(pieces: readonly Piece[]): Measures {
     } else if ((object as THREE.Line).isLine) {
       m.lines++;
       const step = (object as THREE.LineSegments).isLineSegments ? 2 : 1;
-      for (let i = 0; i + 1 < n; i += step) {
-        m.length += world(a, i).distanceTo(world(b, i + 1));
-        m.segments++;
+      for (const r of ranges ?? [{ start: 0, count: n }]) {
+        for (let i = r.start; i + 1 < r.start + r.count; i += step) {
+          m.length += world(a, i).distanceTo(world(b, i + 1));
+          m.segments++;
+        }
       }
-    } else m.points += n;
+    } else m.points += ranges ? ranges.reduce((t, r) => t + r.count, 0) : n;
   }
   return m;
 }
@@ -145,7 +163,7 @@ export function faceOfTriangle(ranges: readonly FaceRange[], triangle: number): 
 
 /**
  * The node a pick stands for at a level: the part (or the nearest node above, if the object isn't in a part), its
- * assembly, or the face, edges, curves, points or drawable picked (detail: the model must show detail).
+ * assembly, or the face picked, or the group of the lines or points picked (detail: the model must show detail).
  */
 export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex: number | undefined,
   level: PickLevel): number | undefined {
@@ -159,18 +177,22 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
     return up >= 0 ? up : part;
   }
   if (level === 'part') return part;
-  if (id !== part) return id;
-  const children = model.children(part);
+  // (Its detail made first, if it isn't yet: a line or point object then finds its group.)
+  const groups = model.children(part);
+  const own = model.nodeOf(object);
+  if (own !== undefined && own !== part) return own;
+  const group = groups.find((c) => model.nodes[c]!.kind === 'faces');
+  const faces = group === undefined ? [] : model.children(group);
   // A failed face's outline (scene-graph.ts) picks its face.
   const outlined = object.userData.outlineFace as number | undefined;
-  if (outlined !== undefined) return children.find((c) => model.nodes[c]!.face?.source === outlined) ?? part;
+  if (outlined !== undefined) return faces.find((c) => model.nodes[c]!.face?.source === outlined) ?? part;
   const ranges = object.userData.faceRanges as FaceRange[] | undefined;
   if (ranges && faceIndex !== undefined) {
     const f = faceOfTriangle(ranges, faceIndex);
-    const face = children.find((c) => model.nodes[c]!.face?.source === f?.source);
+    const face = faces.find((c) => model.nodes[c]!.face?.source === f?.source);
     if (face !== undefined) return face;
   }
-  return children.find((c) => model.nodes[c]!.object === object) ?? part;
+  return part;
 }
 
 /** The placements of a part node's part: the part nodes of the same scene part. */
@@ -182,11 +204,20 @@ export function instancesOf(model: NodeModel, part: number): number[] {
 
 /**
  * Highlights pieces: whole objects by swapping in tinted copies of their materials (shared, cached per material),
- * partial meshes by an overlay of their selected triangles; `secondary` pieces (other instances) more lightly.
+ * parts of objects by an overlay of their selected ranges: a mesh's triangles in a translucent tint; lines in the
+ * tint, drawn toward the camera over the lines they cover and on their layers (so fat edges draw them fat too:
+ * `fatHighlight`); points (vertices' dots: vertex-points.ts) in a tinted copy of their material on the default layer,
+ * so a selected vertex shows whether Vertices is on or not. `secondary` pieces (other instances) more lightly.
+ * `changed` after each change of the overlays (fat edges make theirs again).
  */
 export class Highlighter {
+  private readonly changed: () => void;
+  constructor(changed: () => void = () => {}) {
+    this.changed = changed;
+  }
+
   private readonly swapped = new Map<Drawable, THREE.Material | THREE.Material[]>();
-  private readonly overlays: THREE.Mesh[] = [];
+  private readonly overlays: (THREE.Mesh | THREE.LineSegments | THREE.Points)[] = [];
   private readonly tints = [new Map<THREE.Material, THREE.Material>(), new Map<THREE.Material, THREE.Material>()];
   private readonly colors = [new THREE.Color(0xff9a2e), new THREE.Color(0x59c1ff)];
   // A tint over the face, writing no depth: pulled toward the camera, it would otherwise hide what's drawn after it at
@@ -194,6 +225,7 @@ export class Highlighter {
   private readonly overlayMaterials = this.colors.map((color) => new THREE.MeshBasicMaterial({ color,
     transparent: true, opacity: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
     depthWrite: false }));
+  private readonly lineOverlays = this.colors.map((color) => biasTowardCamera(new THREE.LineBasicMaterial({ color })));
 
   private tint(m: THREE.Material, which: number): THREE.Material {
     if (!m.visible) return m;
@@ -222,7 +254,13 @@ export class Highlighter {
           const sub: number[] = [];
           for (const r of ranges) for (let i = r.start; i < r.start + r.count; i++) sub.push(index.getX(i));
           g.setIndex(sub);
-          const overlay = new THREE.Mesh(g, this.overlayMaterials[which]);
+          let overlay: THREE.Mesh | THREE.LineSegments | THREE.Points;
+          if ((object as THREE.Mesh).isMesh) overlay = new THREE.Mesh(g, this.overlayMaterials[which]);
+          else if ((object as THREE.Line).isLine) {
+            overlay = new THREE.LineSegments(g, this.lineOverlays[which]);
+            overlay.layers.mask = object.layers.mask;
+            overlay.userData.fatHighlight = true;
+          } else overlay = new THREE.Points(g, this.tint(object.material as THREE.Material, which));
           overlay.name = 'highlight';
           // Not part of the model: not a node, not pickable, not counted.
           overlay.userData.highlight = true;
@@ -237,6 +275,7 @@ export class Highlighter {
           : this.tint(object.material, which);
       }
     }
+    this.changed();
   }
 
   clear(): void {
@@ -246,7 +285,9 @@ export class Highlighter {
       o.removeFromParent();
       o.geometry.dispose();
     }
+    const had = this.overlays.length > 0;
     this.overlays.length = 0;
+    if (had) this.changed();
   }
 
   /** The material an object had before it was highlighted (for whoever needs the real one). */

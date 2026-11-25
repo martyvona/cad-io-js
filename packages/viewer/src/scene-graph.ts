@@ -24,8 +24,9 @@ import { faceFailures, instances, partInstances, placedName, stretchWords, type 
   type Mesh, type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
 import type { PartModel } from './part-model.ts';
-import { DEFAULT_RENDER, EDGES } from './style.ts';
-import type { VertexSet } from './vertex-points.ts';
+import { setItems, type Item } from './items.ts';
+import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
+import { DiscMaterial } from './vertex-points.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
 export const DEFAULT_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
@@ -41,6 +42,17 @@ const stepIds = (sources: readonly SourceId[]) => [...new Set(sources.flatMap((s
 function setMatrix(o: THREE.Object3D, m: Mat4): void {
   o.matrix.copy(matrix(m));
   o.matrix.decompose(o.position, o.quaternion, o.scale);
+}
+
+/** Each polyline's range of polylineSegments's index, with its source. */
+export function polylineItems(lines: readonly { source: number | null; start: number; count: number }[]): Item[] {
+  let at = 0;
+  return lines.map((l) => {
+    const n = 2 * Math.max(0, l.count - 1);
+    const item = { source: l.source, start: at, count: n };
+    at += n;
+    return item;
+  });
 }
 
 /** Segment pairs for polylines given as point ranges. */
@@ -93,10 +105,13 @@ export class SceneGraph implements Looks {
    * worker (Mesh again, export) or not yet handed over.
    */
   private readonly models = new Map<number, { model: BrepData; analysis?: BrepAnalysis }>();
-  /** Each part's B-rep vertices (its model's vertex table's points, mm), copied, so they stay while it's lent. */
-  private readonly vertices = new Map<number, Float64Array>();
-  /** vertexSets's answer, until the models or meshes change. */
-  private sets: VertexSet[] | undefined;
+  /**
+   * Each part's B-rep vertices (its model's vertex table's points, mm, and ids), copied, so they stay while it's
+   * lent.
+   */
+  private readonly vertices = new Map<number, { points: Float64Array; ids: Uint32Array }>();
+  /** The vertices' dots' material (vertex-points.ts), black as the edges. */
+  private readonly vertexMaterial = new DiscMaterial();
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
@@ -123,24 +138,53 @@ export class SceneGraph implements Looks {
     return this.models.get(part)?.analysis;
   }
 
-  /** A part's model and analysis handed over by the model worker (their buffers, transferred). */
-  holdModel(part: number, m: PartModel): void {
+  /**
+   * A part's model and analysis handed over by the model worker (their buffers, transferred). Returns the objects
+   * whose vertices' dots it changed (a mesh's drawn already, a model with other vertices: the node model's detail is
+   * stale), none when they're the same (a model back from an export).
+   */
+  holdModel(part: number, m: PartModel): THREE.Object3D[] {
     const model = openBrep(m.model);
     this.models.set(part, { model, ...(m.analysis ? { analysis: openAnalysis(m.analysis) } : {}) });
-    this.vertices.set(part, Float64Array.from(model.vertex.point));
-    this.sets = undefined;
+    const was = this.vertices.get(part);
+    const now = { points: Float64Array.from(model.vertex.point), ids: Uint32Array.from(model.vertex.id) };
+    const same = (a: ArrayLike<number>, b: ArrayLike<number>) => a.length === b.length &&
+      Array.prototype.every.call(a, (x: number, i: number) => Object.is(x, b[i]));
+    if (was && same(was.points, now.points) && same(was.ids, now.ids)) return [];
+    this.vertices.set(part, now);
+    const objs = this.made.get(part) ?? [];
+    for (const obj of objs) this.addVertices(part, obj);
+    return [...objs];
   }
 
-  /** Each placement's B-rep vertices, for vertex-points.ts: the parts with a mesh and a model handed over. */
-  vertexSets(): readonly VertexSet[] {
-    return this.sets ??= [...this.made].flatMap(([part, objs]) => {
-      const points = this.vertices.get(part);
-      if (!points) return [];
-      return objs.map((obj) => {
-        const edges = obj.children.find((c) => c.name === 'edges') as THREE.LineSegments | undefined;
-        return { obj, points, ...(edges ? { edges } : {}) };
-      });
-    });
+  /** The objects drawn for a part's placements (its mesh's, one per placement), none without a mesh. */
+  madeFor(part: number): readonly THREE.Object3D[] {
+    return this.made.get(part) ?? [];
+  }
+
+  /**
+   * A placement's B-rep vertices as dots (vertex-points.ts: drawn on the VERTICES layer, which the Viewer shows with
+   * Rendering's Vertices), in place of any it had; an item each (items.ts), by its id. Not picked.
+   */
+  private addVertices(part: number, obj: THREE.Object3D): void {
+    for (const old of obj.children.filter((c) => c.name === 'vertices')) obj.remove(old);
+    const v = this.vertices.get(part);
+    if (!v || !v.ids.length) return;
+    const o = obj.position, n = v.ids.length;
+    const positions = new Float32Array(3 * n);
+    for (let i = 0; i < 3 * n; i += 3) {
+      positions[i] = v.points[i]! - o.x;
+      positions[i + 1] = v.points[i + 1]! - o.y;
+      positions[i + 2] = v.points[i + 2]! - o.z;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    g.setIndex(new THREE.BufferAttribute(Uint32Array.from({ length: n }, (_, i) => i), 1));
+    const dots = Object.assign(new THREE.Points(g, this.vertexMaterial), { name: 'vertices' });
+    dots.layers.set(VERTICES);
+    dots.raycast = () => {};
+    setItems(dots, Array.from({ length: n }, (_, i) => ({ source: v.ids[i] || null, start: i, count: 1 })));
+    obj.add(dots);
   }
 
   /**
@@ -237,13 +281,17 @@ export class SceneGraph implements Looks {
     if (!meshed) return [];
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const n = positions.length / 3;
+    g.setIndex(new THREE.BufferAttribute(Uint32Array.from({ length: n }, (_, i) => i), 1));
     for (const { obj } of meshed.objects) {
       for (const old of obj.children.filter((c) => c.name === 'edges')) obj.remove(old);
       const e = Object.assign(new THREE.LineSegments(g, this.lineMaterial), { name: 'edges' });
       e.layers.set(EDGES);
+      // (One item, all of them: they're no B-rep edges.)
+      e.userData.found = true;
+      setItems(e, [{ source: null, start: 0, count: n }]);
       obj.add(e);
     }
-    this.sets = undefined;
     return meshed.objects.map((o) => o.obj);
   }
 
@@ -263,6 +311,7 @@ export class SceneGraph implements Looks {
       | undefined;
     const geometries = new Map<string, THREE.BufferGeometry>();
     let edges: THREE.BufferGeometry | undefined;
+    let edgeItems: Item[] | undefined;
     if (triangles) {
       attrs = { position: new THREE.BufferAttribute(mesh.positions, 3), index: new THREE.BufferAttribute(mesh.indices,
         1) };
@@ -273,6 +322,7 @@ export class SceneGraph implements Looks {
         edges = new THREE.BufferGeometry();
         edges.setAttribute('position', new THREE.BufferAttribute(mesh.edgePositions, 3));
         edges.setIndex(new THREE.BufferAttribute(polylineSegments(kept), 1));
+        edgeItems = polylineItems(kept);
       }
     }
     let curves: THREE.BufferGeometry | undefined;
@@ -282,9 +332,14 @@ export class SceneGraph implements Looks {
       curves.setIndex(new THREE.BufferAttribute(polylineSegments(mesh.curves), 1));
     }
     let points: THREE.BufferGeometry | undefined;
+    let pointItems: Item[] | undefined;
     if (mesh.points?.length) {
       points = new THREE.BufferGeometry();
       points.setAttribute('position', new THREE.BufferAttribute(mesh.points, 3));
+      const n = mesh.points.length / 3;
+      points.setIndex(new THREE.BufferAttribute(Uint32Array.from({ length: n }, (_, i) => i), 1));
+      pointItems = Array.from({ length: n }, (_, i) => ({ source: mesh.pointSources?.[i] ?? null, start: i,
+        count: 1 }));
     }
 
     const meshed: MeshedPart | undefined = attrs ? { mesh, attrs, geometries, objects: [] } : undefined;
@@ -337,12 +392,22 @@ export class SceneGraph implements Looks {
       if (edges) {
         const e = Object.assign(new THREE.LineSegments(edges, this.lineMaterial), { name: 'edges' });
         e.layers.set(EDGES);
+        setItems(e, edgeItems!);
         obj.add(e);
       }
-      if (curves) obj.add(Object.assign(new THREE.LineSegments(curves, this.material(instance.material, 'curve')),
-        { name: 'curves' }));
-      if (points) obj.add(Object.assign(new THREE.Points(points, this.material(instance.material, 'point')),
-        { name: 'points' }));
+      if (curves) {
+        const c = Object.assign(new THREE.LineSegments(curves, this.material(instance.material, 'curve')),
+          { name: 'curves' });
+        setItems(c, polylineItems(mesh.curves!));
+        obj.add(c);
+      }
+      if (points) {
+        const d = Object.assign(new THREE.Points(points, this.material(instance.material, 'point')),
+          { name: 'points' });
+        setItems(d, pointItems!);
+        obj.add(d);
+      }
+      this.addVertices(part, obj);
       // (On the edges' layer too, so fat edges draw them fat; picked as their face.)
       for (const [source, g] of outlines) {
         const l = Object.assign(new THREE.LineSegments(g, OUTLINE), { name: 'outline' });
@@ -355,7 +420,6 @@ export class SceneGraph implements Looks {
       made.push(obj);
     }
     this.made.set(part, made);
-    this.sets = undefined;
     return made;
   }
 
@@ -385,7 +449,6 @@ export class SceneGraph implements Looks {
     }
     for (const g of this.meshed.get(part)?.geometries.values() ?? []) g.dispose();
     this.made.delete(part);
-    this.sets = undefined;
     this.meshes.delete(part);
     this.meshed.delete(part);
   }

@@ -17,9 +17,9 @@ const mm = (x: number) => x.toLocaleString('en-US', { maximumFractionDigits: x <
 const plural = (n: number, one: string, many = `${one}s`) => `${num(n)} ${n === 1 ? one : many}`;
 
 const KIND_NAMES: Record<Kind, [string, string]> = {
-  assembly: ['assembly', 'assemblies'], part: ['part', 'parts'], face: ['face', 'faces'],
-  edges: ['set of edges', 'sets of edges'], curves: ['set of curves', 'sets of curves'],
-  points: ['set of points', 'sets of points'],
+  assembly: ['assembly', 'assemblies'], part: ['part', 'parts'], faces: ['set of faces', 'sets of faces'],
+  edges: ['set of edges', 'sets of edges'], vertices: ['set of vertices', 'sets of vertices'], face: ['face', 'faces'],
+  edge: ['edge', 'edges'], curve: ['curve', 'curves'], vertex: ['vertex', 'vertices'], point: ['point', 'points'],
 };
 
 export function details(model: NodeModel, ids: readonly number[], causes?: ReadonlyMap<number, string>): string[] {
@@ -99,7 +99,7 @@ export function details(model: NodeModel, ids: readonly number[], causes?: Reado
 
 /** A face node's report (scene-graph.ts's faceReport), from its part's mesh object. */
 function faceReportOf(model: NodeModel, id: number): FaceReport | undefined {
-  const n = model.nodes[id]!, part = model.nodes[n.parent];
+  const n = model.nodes[id]!, part = model.nodes[model.partOf(id)];
   const m = part?.object?.children.find((c) => c.userData.faceReport);
   return (m?.userData.faceReport as Record<number, FaceReport> | undefined)?.[n.face!.source];
 }

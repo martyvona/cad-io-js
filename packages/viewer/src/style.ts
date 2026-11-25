@@ -8,6 +8,8 @@ import type { TriangleEdgesMode } from './triangle-edges.ts';
 
 /** The layer edges are drawn on (and only on). */
 export const EDGES = 1;
+/** The layer the B-rep vertices' dots are drawn on (vertex-points.ts), which the camera shows while Vertices is on. */
+export const VERTICES = 2;
 
 export interface RenderSettings {
   /** Ambient occlusion. */

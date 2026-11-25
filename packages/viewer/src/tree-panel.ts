@@ -17,11 +17,17 @@ export const ICONS: Record<Kind, string> = {
   assembly: svg('<rect x="1.5" y="1.5" width="5" height="5"/><rect x="9.5" y="9.5" width="5" height="5"/>' +
     '<path d="M4 6.5v5.5h5.5"/>'),
   part: svg('<path d="M8 1.5l6 3.2v6.6L8 14.5l-6-3.2V4.7z"/><path d="M2 4.7l6 3.2 6-3.2M8 7.9v6.6"/>'),
-  face: svg('<path d="M2 12l3-9h9l-3 9z" fill="currentColor" fill-opacity="0.25"/>'),
+  faces: svg('<path d="M5 9.5l2-7h7.5l-2 7z"/><path d="M1.5 14l2-7h7.5l-2 7z" fill="currentColor" ' +
+    'fill-opacity="0.25"/>'),
   edges: svg('<path d="M2 12l3-9h9l-3 9z"/>'),
-  curves: svg('<path d="M1.5 12c3-9 6 3 13-8"/>'),
-  points: svg('<circle cx="4" cy="11" r="1.5" fill="currentColor"/>' +
+  vertices: svg('<circle cx="4" cy="11" r="1.5" fill="currentColor"/>' +
     '<circle cx="8" cy="5" r="1.5" fill="currentColor"/><circle cx="12.5" cy="10" r="1.5" fill="currentColor"/>'),
+  face: svg('<path d="M2 12l3-9h9l-3 9z" fill="currentColor" fill-opacity="0.25"/>'),
+  edge: svg('<path d="M2.5 13.5l11-11"/><circle cx="2.5" cy="13.5" r="1" fill="currentColor"/>' +
+    '<circle cx="13.5" cy="2.5" r="1" fill="currentColor"/>'),
+  curve: svg('<path d="M1.5 12c3-9 6 3 13-8"/>'),
+  vertex: svg('<circle cx="8" cy="8" r="2.5" fill="currentColor"/>'),
+  point: svg('<circle cx="8" cy="8" r="2.5"/>'),
 };
 
 /** A node that failed to mesh (model.ts's failure): a shape with a crack, drawn in the failure colour. */
@@ -189,7 +195,7 @@ export class TreePanel {
     this.view.scrollToRow(String(id), offset);
   }
 
-  /** Parts show their faces, edges, curves and points, or not. */
+  /** Parts show their faces, edges and vertices, or not. */
   setDetail(on: boolean): void {
     this.model.setDetail(on);
     this.view.refresh();
