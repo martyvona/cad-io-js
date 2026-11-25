@@ -2503,6 +2503,40 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   }
 }
 
+TEST_CASE("sectorWall: a split inside another face's pole ring shrinks the ring, whatever the faces' kinds: the wall "
+  "within d") {
+  // The flat sector's ring is wide (its fans flat), K bending through it: the cylinder's triangles on K's span inside
+  // the ring sag off the cylinder. Its request shrinks the ring, the wall elementary or a B-spline (sectorWallSpline:
+  // a free-form face asking at a free-form pole), so the wall meshes with nothing refused, every triangle within d of
+  // the cylinder at its centroid and sides' middles (by the distance from its axis), the sector's on its plane.
+  for (const char* name : {"sectorWall", "sectorWallSpline"})
+    for (double d : {0.1, 0.01, 0.003, 0.001}) {
+      cadgeom::Model m = load(name);
+      REQUIRE(m.ok());
+      PartMesher pm(m, options(d, 0.26));
+      int far = 0;
+      for (int f = 0; f < 2; f++) {
+        const FaceMesh& fm = pm.face(f);
+        REQUIRE(fm.status == cadgeom::Status::ok);
+        CHECK(fm.rejected.empty());
+        CHECK_EQ(fm.defectDeviation, 0.0);
+        for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+          const int32_t* v = &fm.triangles[t];
+          Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+          for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]),
+                 0.5 * (p[2] + p[0])})
+            far += (f == 0 ? std::fabs(q.z) : std::fabs(std::hypot(q.x - 0.5, q.y + 0.5) - M_SQRT1_2)) > d * (1 + 1e-9);
+        }
+      }
+      if (far || pm.ringsShrunk() < 1)
+        std::printf("  %s at %g: %d points beyond d, %d rings shrunk, %zu and %zu refused\n", name, d, far,
+          pm.ringsShrunk(), pm.face(0).rejected.size(), pm.face(1).rejected.size());
+      CHECK_EQ(far, 0);
+      CHECK(pm.ringsShrunk() >= 1);
+      CHECK_EQ(sharedEdges(m, pm, name), 0);
+    }
+}
+
 TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's: within d, its refinement unblocked") {
   // The boundary meets the apex's row over v 0.6 to 0.4, its curves crossing the ring near v 0.95 and 0.05: pieces
   // over the run alone would leave the ring a chord across most of v, which refinement asks to split and can't.
