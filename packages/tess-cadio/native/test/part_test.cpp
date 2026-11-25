@@ -2582,6 +2582,43 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   }
 }
 
+TEST_CASE("apexSector: a cone face reaching its apex and crossing u's seam, meshed in its development: its boundary "
+  "the edges' samples bit for bit, every triangle within d of the cone, nothing refused, in few rounds") {
+  // (apexSector(2.5): seamCone's cone between the rulings at u = -2.5 and 2.5, from its apex to its base circle. Its
+  // distance from the cone at a point: |rho - (z + 1)| / sqrt 2, rho the distance from the axis, z above -1.)
+  cadgeom::Model m = load("apexSector");
+  REQUIRE(m.ok());
+  for (double d : {0.1, 0.01, 0.001}) {
+    PartMesher pm(m, options(d, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.rejected.empty());
+    CHECK_EQ(fm.defectDeviation, 0.0);
+    CHECK(pm.rounds() <= 2);
+    int far = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const int32_t* v = &fm.triangles[t];
+      Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+      for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]),
+             0.5 * (p[2] + p[0])})
+        far += std::fabs(std::hypot(q.x, q.y) - (q.z + 1)) * M_SQRT1_2 > d * (1 + 1e-9);
+    }
+    // (Each edge's samples among the mesh's points, bit for bit.)
+    int missing = 0;
+    for (int e = 0; e < m.edges(); e++)
+      for (const Vec3& q : pm.edges().edge(e).points) {
+        bool in = false;
+        for (const Vec3& p : fm.points) in = in || (p.x == q.x && p.y == q.y && p.z == q.z);
+        missing += !in;
+      }
+    if (far || missing || !fm.rejected.empty() || pm.rounds() > 2)
+      std::printf("  apexSector at %g: %d points beyond d, %d samples missing, %zu refused, %d rounds\n", d, far,
+        missing, fm.rejected.size(), pm.rounds());
+    CHECK_EQ(far, 0);
+    CHECK_EQ(missing, 0);
+  }
+}
+
 TEST_CASE("sectorWall: a split inside another face's pole ring shrinks the ring, whatever the faces' kinds: the wall "
   "within d") {
   // The flat sector's ring is wide (its fans flat), K bending through it: the cylinder's triangles on K's span inside

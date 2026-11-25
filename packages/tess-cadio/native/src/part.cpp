@@ -1689,12 +1689,18 @@ struct PartMesher::Impl {
   }
 
   /**
-   * Face f's developed plane (PartOptions::develop) for domain d: the upper Cholesky factor of the mean first
-   * fundamental form over a 9 x 9 grid of the domain's box, scaled so v keeps its unit; none where that form is
-   * degenerate or the identity, or the face has a pole's ring.
+   * Face f's developed plane (PartOptions::develop) for domain d: a cone's exact development (developCone), its apex
+   * in the face or not; else the upper Cholesky factor of the mean first fundamental form over a 9 x 9 grid of the
+   * domain's box, scaled so v keeps its unit; none where that form is degenerate or the identity, or the face has a
+   * pole's ring (the form vanishing towards it, one map for the face far off near it).
    */
-  AffineMap developedMap(int f, const Domain2& d) const {
-    if (!surfaces[f] || !rings[f].empty()) return {};
+  Development developedMap(int f, const Domain2& d) const {
+    if (!surfaces[f]) return {};
+    if (m.surfaceKind(m.faceSurface(f)) == CBR_SURFACE_CONE) {
+      ConeMap cone;
+      if (developCone(f, d, cone)) return Development(cone);
+    }
+    if (!rings[f].empty()) return {};
     double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
     for (Vec2 q : d.points)
       ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
@@ -1710,8 +1716,24 @@ struct PartMesher::Impl {
       }
     if (!(k > 0 && E > 0 && G * E - F * F > 1e-12 * (E + G) * (E + G))) return {};
     const double a = std::sqrt(E), cc = std::sqrt(G - F * F / E);
-    const AffineMap m{a / cc, F / a / cc, 1};
-    return m.s == 1 && m.b == 0 ? AffineMap{} : m;
+    const AffineMap map{a / cc, F / a / cc, 1};
+    return map.s == 1 && map.b == 0 ? Development{} : Development(map);
+  }
+
+  /**
+   * Face f's cone developed (develop.h's coneFromSamples) over domain d: |S_u| = |R| at the box's middle u and its
+   * lowest and highest v, |S_v| for the ruling's speed. False where the samples give no slope.
+   */
+  bool developCone(int f, const Domain2& d, ConeMap& out) const {
+    double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+    for (Vec2 q : d.points)
+      ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
+    if (!(vhi > vlo) || !(uhi >= ulo)) return false;
+    const double um = 0.5 * (ulo + uhi);
+    SurfacePoint a, b;
+    if (surfaces[f]->eval(um, vlo, 1, a) != Status::ok || surfaces[f]->eval(um, vhi, 1, b) != Status::ok) return false;
+    out = coneFromSamples(um, vlo, vhi, norm(a.du), norm(b.du), norm(a.dv));
+    return out.slope != 0;
   }
 
   /** Whether face f is one to retry (PartOptions::retryStretch): ok but far over its patch, or its meshing failed. */
@@ -2003,13 +2025,15 @@ struct PartMesher::Impl {
     }
     // (PartOptions::develop: the domain mapped to its developed plane, the result mapped back, the domain's points
     // exactly as given, the splits it wants at their fraction.)
-    const AffineMap affine = o.develop && !d.points.empty() ? developedMap(f, d) : AffineMap{};
+    const Development developed = o.develop && !d.points.empty() ? developedMap(f, d) : Development{};
     auto mesh2In = [&](const Domain2& dd) {
-      if (!(affine.s > 0)) return detailed ? mesh2Detailed(dd, *field, mo, &detail) : mesh2(dd, *field, mo);
-      Development dev(affine);
+      if (!developed.active()) return detailed ? mesh2Detailed(dd, *field, mo, &detail) : mesh2(dd, *field, mo);
+      Development dev = developed;
       DevelopedField devField(*field, dev);
       Domain2 dx = dd;
       for (Vec2& q : dx.points) q = dev.own(q);
+      // (Two of the domain's points at one image: meshed in (u, v).)
+      if (dev.collided()) return detailed ? mesh2Detailed(dd, *field, mo, &detail) : mesh2(dd, *field, mo);
       for (Vec2& q : dx.seeds) q = dev.fwd(q);
       Mesh2 r = detailed ? mesh2Detailed(dx, devField, mo, &detail) : mesh2(dx, devField, mo);
       for (size_t i = 0; i < r.points.size(); i++)

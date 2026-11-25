@@ -1236,6 +1236,29 @@ function seamCone(degenerate: boolean, turned = false): BrepBuilder {
 export const seamConeTurned = (): BrepBuilder => seamCone(false, true);
 
 /**
+ * seamCone's cone (radius 1 at z = 0, semi-angle 45 degrees, its apex (0, 0, -1) at v = -1) between the rulings at
+ * u = -`half` and `half`, from the apex up to its base circle: a face that reaches the apex and crosses u's seam. Area
+ * half sqrt 2 (its sector of the development, radius sqrt 2, angle 2 half sin 45 degrees).
+ */
+export function apexSector(half = 0.6): BrepBuilder {
+  const b = new BrepBuilder();
+  const at = (u: number) => [Math.cos(u), Math.sin(u), 0];
+  const va = b.addVertex({ point: [0, 0, -1] }), vm = b.addVertex({ point: at(-half) }),
+    vp = b.addVertex({ point: at(half) });
+  const ruling = (u: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: [0, 0, -1],
+    direction: [Math.cos(u) * Math.SQRT1_2, Math.sin(u) * Math.SQRT1_2, Math.SQRT1_2], magnitude: 1 }), start: va,
+    end, sameSense: true, range: [0, Math.SQRT2] });
+  const rm = ruling(-half, vm), rp = ruling(half, vp);
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 1 }), start: vm, end: vp,
+    sameSense: true, range: [2 * Math.PI - half, 2 * Math.PI + half] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cone', position: AXIS, radius: 1, semiAngle: Math.PI / 4 }),
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: rp, orientation: 'forward' }, { edge: arc, orientation: 'reversed' },
+      { edge: rm, orientation: 'reversed' }] }] }));
+  return b;
+}
+
+/**
  * seamCone's side bounded by its base circle and, in a loop of its own, an edge with no curve whose vertices are both
  * the apex (bug26451's drill points: the source's degenerate edge, not flagged so). Area pi sqrt 2. Turned: its sense
  * false, its loops as they are (a face turned in the source).
@@ -2804,7 +2827,7 @@ function oneFace(text: string): BrepBuilder {
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true), pleatStrip, thinTube,
   foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge, poleRowFan, poleRowShort, poleRowNear,
   sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true), narrowArcStrip: () => narrowArcStrip(),
-  pentagramLoop, lanternBand5: () => lanternBand(0, 5),
+  pentagramLoop, lanternBand5: () => lanternBand(0, 5), apexSector: () => apexSector(2.5),
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
