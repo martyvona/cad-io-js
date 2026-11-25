@@ -219,10 +219,14 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
   int steiner = 0;
   std::vector<int32_t> created;
   {
-    // The seeds, each where it lands from the last one's triangle.
+    // The seeds in their given order, each where it lands from the last one's triangle; a heartbeat every 1024, the
+    // loop's only one. (The order is the mesh: insertion is Delaunay in each point's metric, and along a Morton
+    // curve, shorter walks, refinement then ran away on some anisotropic faces.)
     int32_t hint = 0;
+    uint32_t seeded = 0;
     for (Vec2 q : domain.seeds) {
       if (steiner >= options.maxPoints) break;
+      if (options.onWork && (++seeded & 1023) == 0) options.onWork();
       if (!(std::isfinite(q.x) && std::isfinite(q.y))) continue;
       if (hint >= static_cast<int32_t>(T.tris().size()) || T.tris()[hint].dead) hint = 0;
       while (T.tris()[hint].dead) hint++;

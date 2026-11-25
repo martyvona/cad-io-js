@@ -66,6 +66,12 @@ enum Flag : uint32_t {
    * strips (an offset folding, a singular evaluation), so each band's inner integral starts at its own row.
    */
   flagCells = 1u << 7,
+  /**
+   * A projected p-curve isn't within its edge's tolerance (its curve off the surface within offSurfaceLimit, or no fit
+   * within it): the face API placed the edge on its feet, as the mesher does. Said, not refused: the p-curve's error,
+   * the curve's distance, is in FaceMeasure::boundary.
+   */
+  flagEdgesPlaced = 1u << 8,
 };
 
 /** A loop's point this far from the surface, relative to the loops' size (their box's diagonal), flags the face. */
@@ -107,14 +113,14 @@ struct FaceMeasure {
 };
 
 /**
- * A measure to rely on: computed (status ok), no flags but projectedBoundary, its boundary's error known, and its error
- * (the boundary's included) within `relative` of its value. The type says only that much: an untrusted measure is
- * still a value or not, which false doesn't tell; what users see is the value and its error, the flags no estimate
- * covers (sphereSide, loose, orientation, winds, noLoops) said beside them.
+ * A measure to rely on: computed (status ok), no flags but projectedBoundary and edgesPlaced, its boundary's error
+ * known, and its error (the boundary's included) within `relative` of its value. The type says only that much: an
+ * untrusted measure is still a value or not, which false doesn't tell; what users see is the value and its error, the
+ * flags no estimate covers (sphereSide, loose, orientation, winds, noLoops) said beside them.
  */
 inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
-  return m.area.status == Status::ok && (m.flags & ~flagProjectedBoundary) == 0 && std::isfinite(m.boundary)
-    && m.area.error <= relative * m.area.value;
+  return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced)) == 0 &&
+    std::isfinite(m.boundary) && m.area.error <= relative * m.area.value;
 }
 
 /**
@@ -217,9 +223,10 @@ struct PointClass {
 
 /**
  * Which side of closed shell `shell` a point just outside face `face` lies on, the point at a point well inside the
- * face moved eps along the face's normal (its sense applied): outside, the face's normal points out of the shell;
- * inside, into it (a void's faces, rightly, face into the void, so a void shell's are inside); unknown where it can't
- * be told (no point well inside the face, no offset clear of the other faces, or the point unknown).
+ * face (a narrow face's: in at its tolerance) moved eps along the face's normal (its sense applied): outside, the
+ * face's normal points out of the shell; inside, into it (a void's faces, rightly, face into the void, so a void
+ * shell's are inside); unknown where it can't be told (no point in the face, no offset clear of the other faces, the
+ * point unknown, or the point off the other side, where its offset is clear too, classified the same).
  */
 struct ShellSide {
   enum Side : uint8_t { outside, inside, unknown };
@@ -256,6 +263,13 @@ public:
    */
   std::vector<Estimate> faceIntegral(int face, const Integrand& g);
   /**
+   * face(face), with faceIntegral(face, g) into gOut where it comes with the area's pass: on a free-form face, one pass
+   * for both, which spares the other's surface evaluations (most of a measure's cost), g's results the same bits as
+   * faceIntegral's and the area its |n| component (which could differ from face(face)'s in the last bits, that pass's
+   * panels settled over g's components too; on the corpus it doesn't). Elsewhere face(face) alone, gOut empty.
+   */
+  FaceMeasure face(int face, const Integrand& g, std::vector<Estimate>& gOut);
+  /**
    * The line o + t d, t in tr (finite), against the face: cad-geom's intersectLine on its surface (as the face API
    * closes it in fact) at the face API's tolerance for the face, each contact classified against its loops by the face
    * API (a tangency at that tolerance widened by half its span, so one reaching into the face isn't left out); a
@@ -285,6 +299,7 @@ public:
   struct Impl;
 
 private:
+  FaceMeasure face(int face, const Integrand* g, std::vector<Estimate>* gOut);
   std::unique_ptr<Impl> impl_;
 };
 

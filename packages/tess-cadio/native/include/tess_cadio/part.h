@@ -23,7 +23,7 @@ namespace tesscadio {
  * items (faces, or edges and their uses) are done of how many, row the face (a use's) or -1 (an edge).
  */
 struct PartProgress {
-  /** In order; deviation the check after the rounds (PartOptions::maxDeviationFactor), its round the last's. */
+  /** In order; deviation the check after the rounds (PartOptions::checkDeviation), its round the last's. */
   enum Phase : uint8_t { surfaces, edges, criteria, meshing, splitting, deviation } phase = meshing;
   int row = 0, round = 0, facesDone = 0, facesTotal = 0;
 };
@@ -63,14 +63,14 @@ struct PartOptions {
   /** EdgeOptions::projectMissingPcurves: uses without p-curves projected (else by inversion). */
   bool projectMissingPcurves = true;
   /**
-   * A face whose mesh, when the rounds end, is farther from its surface than this times the larger of the linear
-   * deflection and the face's tolerance (cad-geom's Tolerances::face) fails (Status::noConvergence, its triangles
-   * dropped, the measure and the limit in its cause): its refused triangles measured, each at the points of its
-   * barycentric lattice of order 4 but its corners, inverted onto the face's surface (accepted ones are within the
-   * deflection by the criteria), but those its criteria's bound puts within (deviationBound), and only until a point
-   * past it. 0 or less: never.
+   * A face whose mesh, when the rounds end, is farther from its surface than the larger of the linear deflection and
+   * the face's tolerance (cad-geom's Tolerances::face) fails (Status::noConvergence, its triangles dropped, the
+   * measure and the limit in its cause; or kept, keepDefects): its refused triangles measured, each at the points of
+   * its barycentric lattice of order 4 but its corners, inverted onto the face's surface (accepted ones are within
+   * the deflection by the criteria), but those its criteria's bound puts within (deviationBound), and only until a
+   * point past the limit. False: never checked.
    */
-  double maxDeviationFactor = 1.0;
+  bool checkDeviation = true;
   /**
    * A face whose mesher's triangles include one turned against its surface (its facet against the mean of its
    * corners' normals; a corner at a pole or apex aside, where the normal is a limit) fails with Status::noConvergence
@@ -84,6 +84,21 @@ struct PartOptions {
    * triangles there.
    */
   bool failFoldedFans = true;
+  /**
+   * A face that would fail as past its deflection (checkDeviation), turned (failTurnedOver) or at its point cap
+   * (failCapped) is kept, its mesh as meshed (manifold, on its edges' shared samples), its defect recorded
+   * (FaceMesh::defectDeviation, defectTurned, defectCapped), where the defect is small: its refused triangles'
+   * measured deviation at most keepDeviation x max(d, the face's tolerance), and at most keepTurned triangles turned,
+   * their area no more than keepTurnedShare of the face's; a capped face where its mesh passes both. Past them it is
+   * kept too, marked (FaceMesh::defectPastLimits), for a fallback backend to replace where its own mesh of the face is
+   * better (cad-scene's fallback.ts): a hole is itself not manifold. Folded fans (not manifold once welded), and every
+   * failure before meshing (its boundary, its edges far off, healing's limits), fail as without. False: each fails
+   * as without.
+   */
+  bool keepDefects = true;
+  double keepDeviation = 2.0;
+  int keepTurned = 16;
+  double keepTurnedShare = 0.01;
   /**
    * Two rules against such folds, each on by default (off for tests and measuring): `consistentFans`, a fan whose
    * triangles' directions by their normals disagree has every one against the mesher's use of its ring segment;
@@ -159,8 +174,11 @@ struct PartOptions {
    * apex C one of the mesher's own points and its longest edge AB a boundary span where a split at the edge's point
    * nearest C's projection would leave AP or PB under the refinement floor: C collapsed onto the nearer end of AB,
    * its triangles taking that point (FaceMesh::collapsed). Every triangle at that point rechecked for facing as
-   * shipped and for its deviation (maxDeviationFactor x max(d, the face's tolerance)), the collapse undone where any
-   * fails. Faces at their point cap that failCapped fails aren't tried.
+   * shipped and for its deviation (within max(d, the face's tolerance)), the collapse undone where any
+   * fails. Then any triangle still turned: one of its corners that is the mesher's own point collapsed onto each of
+   * that point's neighbours, nearest first, until one holds the same checks with the result manifold and no (u, v)
+   * area changing sign (a bounded number of tries a face). Only faces that would otherwise fail for a turned triangle
+   * change. Faces at their point cap that failCapped fails aren't tried.
    */
   bool collapseTurned = true;
 };
@@ -194,10 +212,21 @@ struct FaceMesh {
    */
   std::vector<int32_t> rejected;
   /**
-   * Its refused triangles' largest measured deviation (PartOptions::maxDeviationFactor): where it failed, the first
+   * Its refused triangles' largest measured deviation (PartOptions::checkDeviation): where it failed, the first
    * point found past the limit, a lower bound on the worst; 0 where nothing was measured.
    */
   double worstDeviation = 0;
+  /**
+   * The defects it was kept with (PartOptions::keepDefects), none where it meets every check: its measured deviation
+   * over max(d, tol) where past the check's limit (a lower bound on the worst, 0 if not past), its turned triangles,
+   * and whether it is at its point cap.
+   */
+  double defectDeviation = 0;
+  int defectTurned = 0;
+  bool defectCapped = false;
+  /** Whether a defect is past PartOptions::keepDeviation, keepTurned or keepTurnedShare (its deviation then a lower
+   * bound: measured until past the limit). */
+  bool defectPastLimits = false;
   /** Its refused triangles measured for the deviation check, the rest within it by their bound. */
   int deviationMeasured = 0;
   /** The refused triangles by why the criteria refused each (criteria.h's Refusal, as indices; [0] unused). */
@@ -231,6 +260,11 @@ struct FaceMesh {
    * which a ring's never is (it stays as the ring was cut): its triangles there refused for good.
    */
   int ringBlocked = 0;
+  /**
+   * Splits its refinement asked for, over its meshings, of a segment that is no edge's span, crease's segment or
+   * ring's (none should be: each is a bug, its triangles there refused for good).
+   */
+  int splitsDropped = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
   bool sampled = false;
   /**

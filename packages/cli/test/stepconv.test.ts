@@ -35,10 +35,12 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
     const r = await run([assembly, '-o', out, '--with-edges', '--with-curves', '-j', workers]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
+    // (Healed by default: healing's time, and its warnings on the five parts, each grown tolerances and p-curves
+    // kept.)
     assert.match(r.stderr, new RegExp(String.raw`^5 parts \(5 of 5 brep parts tessellated\), 18 placed; `
-      + String.raw`8048 triangles; 0\.2 MB written\nimport [\d.]+ s, tessellation [\d.]+ s \(medium: 0\.1 mm, `
-      + String.raw`15 deg\), export [\d.]+ s\n`
-      + String.raw`0 errors, 0 warnings, 0 notes\n$`));
+      + String.raw`8048 triangles; 0\.2 MB written\nimport [\d.]+ s, healing [\d.]+ s, tessellation [\d.]+ s `
+      + String.raw`\(medium: 0\.1 mm, 15 deg\), export [\d.]+ s\n`
+      + String.raw`0 errors, 10 warnings, 0 notes\n(  warning: #\d+: (tolerances grown|pcurveReplace): .*\n){10}$`));
   }
   const loaded = load(expected);
   assert.equal(loaded.name, 'as1-oc-214-mat');
@@ -215,7 +217,9 @@ test('stepconv: --fallback: a part OCCT meshes badly meshed by SMLib (the defaul
   // Its notes listed only with --verbose.
   assert.doesNotMatch(none.stderr, /\n {2}info: /);
   const verbose = await run([overArea, '-o', out, '-j', '1', '--fallback', 'none', '-v']);
-  assert.match(verbose.stderr, /1 errors, 1 warnings, 1 notes\n {2}error: #593: .*\n {2}warning: .*\n {2}info: .*\n$/);
+  // (Healed by default: its grown tolerance among the warnings.)
+  assert.match(verbose.stderr, new RegExp(String.raw`1 errors, 2 warnings, 1 notes\n {2}error: #593: .*\n`
+    + String.raw` {2}warning: #593: tolerances grown: .*\n {2}warning: .*\n {2}info: .*\n$`));
   // bug28118_18547.stp #11: OCCT leaves 2 edges open that the join closes, so it isn't sent to the fallback.
   const joined = await run([opensUp, '-o', out, '-j', '1', '-v']);
   assert.match(joined.stderr, /\n {2}info: #11: 2 edges joined exactly/);
@@ -291,10 +295,13 @@ test('stepconv: cadio, --min-angle, --keep-failing', { skip: skip || (!cadioBuil
   const failing = path.join(root,
     'test_corpus/third_party/occt-import-js/test/testfiles/conical-surface/conical-surface.step');
   if (!fs.existsSync(failing)) return;
-  const failed = /error: #12: 1 faces failed to mesh: #77\n/;
+  // (At 1.2e-6 its face #77 reaches its point cap: kept with its defects said, past keepDefects' limits or not, as
+  // tess-cadio keeps every face it has a manifold mesh of, with no fallback to prefer.)
+  const kept = /warning: #12: faces kept with defects: 1 \(#77 \([^()]*at its point cap[^()]*\)\)\n/;
   for (const workers of ['2', '0']) {
     const r = await run([failing, '-o', out, '-d', '1.2e-6', '-b', 'cadio', '--fallback', 'none', '-j', workers]);
-    assert.match(r.stderr, failed);
+    assert.match(r.stderr, kept);
+    assert.doesNotMatch(r.stderr, /failed to mesh/);
     assert.doesNotMatch(r.stderr, /debugging/);
     const k = await run([failing, '-o', out, '-d', '1.2e-6', '-b', 'cadio', '--fallback', 'none', '--keep-failing',
       '-j', workers]);
@@ -393,7 +400,8 @@ test('stepconv: STEP, the same as the library, nothing meshed; --step-meshes mes
       assert.equal(r.code, 0, r.stderr);
       assert.equal(r.stdout, '');
       assert.match(r.stderr,
-        /^5 parts \(5 brep parts, not tessellated\), 18 placed; [\d.]+ MB written\nimport [\d.]+ s, export /);
+        new RegExp(String.raw`^5 parts \(5 brep parts, not tessellated\), 18 placed; [\d.]+ MB written\n`
+          + String.raw`import [\d.]+ s, healing [\d.]+ s, export `));
       assert.deepEqual(fs.readFileSync(out), concat(exportStep(scene, { name: 'as1-oc-214-mat', schema }).chunks));
     }
     // With meshes: tessellated (a worker pool), each B-rep part's mesh beside it, read back as a source level.
@@ -449,7 +457,8 @@ test("stepconv: a broken file's problems are warnings, nothing printed but the o
     assert.equal(r.status, 0);
     assert.ok(JSON.parse(r.stdout).object, `workers ${workers}`);
     assert.doesNotMatch(r.stderr, /\*\*\*/);
-    assert.match(r.stderr, /\n3 errors, 16 warnings, 0 notes\n/);
+    // (Healed by default: healing's warnings among them.)
+    assert.match(r.stderr, /\n3 errors, 39 warnings, 0 notes\n/);
     assert.match(r.stderr,
       /\n  warning: #392938: 13 references to instances the file doesn't define: #11, #393036, .*, #393179, \.\.\.\n/);
   }

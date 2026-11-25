@@ -341,3 +341,71 @@ TEST_CASE("intersectLine: lines on the search's shared sides, from a segment's e
   CHECK(ends == 2 * sides);
   CHECK(oblique > 100);
 }
+
+TEST_CASE("intersectLine: lines along a normal of a surface curved within a few tol, a crossing each, no tangency") {
+  // A cylinder of radius 0.15, a sphere of 0.15 and a torus (1, 0.15) at tol 0.05 (a narrow face's, its point moved
+  // off along the normal): rectangles reach tol's size before Krawczyk's test settles the root, and being transversal
+  // they're split on, not taken as contacts. From 10 tol off to 2 tol past: from outside one crossing, at the point;
+  // from inside (10 tol is past the far wall) two, one at the point. (The sphere's points with |v| <= 0.6: nearer a
+  // pole, its rectangles there, never transversal, are contacts within the reach that takes the crossing in.)
+  const double tol = 0.05, R = 0.15;
+  std::vector<double> fr{0, 0, 0, 0, 0, 1, 1, 0, 0, R}, tr{0, 0, 0, 0, 0, 1, 1, 0, 0, 1, R};
+  std::vector<std::pair<const char*, std::unique_ptr<SurfaceImpl>>> ss;
+  ss.emplace_back("cylinder", surfaces::makeCone(fr.data(), R, 0));
+  ss.emplace_back("sphere", surfaces::makeSphere(fr.data()));
+  ss.emplace_back("torus", surfaces::makeTorus(tr.data()));
+  std::mt19937_64 rng(5);
+  std::uniform_real_distribution<double> U(0, 1);
+  int bad = 0, lines = 0;
+  for (auto& [name, s] : ss) {
+    const SurfaceDomain d = s->domain();
+    for (int i = 0; i < 40; i++) {
+      const bool sphere = std::strcmp(name, "sphere") == 0;
+      const Vec2 uv{d.u.lo + (d.u.hi - d.u.lo) * U(rng), sphere ? -0.6 + 1.2 * U(rng)
+        : std::isfinite(d.v.lo) ? d.v.lo + (d.v.hi - d.v.lo) * U(rng) : -1 + 2 * U(rng)};
+      SurfacePoint sp;
+      Vec3 n;
+      if (s->eval(uv.x, uv.y, 0, sp) != Status::ok || s->normal(uv.x, uv.y, n) != Status::ok) continue;
+      const Range ru = d.u, rv = std::isfinite(d.v.lo) ? d.v : Range{-3, 3};
+      for (int side : {1, -1}) {
+        const Vec3 o = sp.p + (side * 10 * tol) * n, dir = -(side * 12 * tol) * n;
+        const LineIntersection li = intersectLine(*s, o, dir, {0, 1}, ru, rv, tol);
+        lines++;
+        int at = 0;
+        for (const LineHit& h : li.crossings) at += norm(h.point - sp.p) <= 1e-9;
+        const bool good = li.status == Status::ok && li.crossings.size() == (side > 0 ? 1u : 2u)
+          && li.tangencies.empty() && at == 1;
+        if (!good && bad++ < 20)
+          std::printf("  %s (%.6g, %.6g) side %d: %zu crossings, %zu tangencies\n", name, uv.x, uv.y, side,
+            li.crossings.size(), li.tangencies.size());
+      }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(lines >= 200);
+}
+
+TEST_CASE("intersectLine: a transversal crossing exactly on the search range's side, a tangency there, settled") {
+  // A cylinder of radius 0.15 at tol 0.05, searched over u in [0, 1] (a range cut short, not the period): lines along
+  // the normal at u = 0 cross on the range's side, where Krawczyk's test has no room past the root; the rectangles
+  // there split down to their coordinates' rounding and end as a contact, a tangency holding the point, within the
+  // budget.
+  const double tol = 0.05, R = 0.15;
+  std::vector<double> fr{0, 0, 0, 0, 0, 1, 1, 0, 0, R};
+  const std::unique_ptr<SurfaceImpl> s = surfaces::makeCone(fr.data(), R, 0);
+  int bad = 0;
+  for (double v : {-0.7, -0.2, 0.0, 0.4, 0.9}) {
+    SurfacePoint sp;
+    Vec3 n;
+    REQUIRE(s->eval(0, v, 0, sp) == Status::ok && s->normal(0, v, n) == Status::ok);
+    const Vec3 o = sp.p + (10 * tol) * n, dir = -(12 * tol) * n;
+    const LineIntersection li = intersectLine(*s, o, dir, {0, 1}, {0, 1}, {-3, 3}, tol);
+    bool held = false;
+    for (const LineHit& h : li.tangencies) held = held || (h.span.lo <= 10.0 / 12 && h.span.hi >= 10.0 / 12);
+    for (const LineHit& h : li.crossings) held = held || norm(h.point - sp.p) <= 1e-9;
+    if ((li.status != Status::ok || !held) && bad++ < 20)
+      std::printf("  v %g: status %d, %zu crossings, %zu tangencies\n", v, int(li.status), li.crossings.size(),
+        li.tangencies.size());
+  }
+  CHECK(bad == 0);
+}

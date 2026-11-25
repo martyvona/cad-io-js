@@ -558,6 +558,11 @@ void trace(const Job& job, Pcurve& out) {
 
   std::vector<double> folds;
   std::vector<std::pair<double, SurfaceInversion>> checks;
+  // Which checks were searched until ambiguous (invertSurface's untilAmbiguous: a segment seeded at a known end, so
+  // the checks don't seed it): searched in full (wholeWhereFar) where the trace's foot is farther than tol from the
+  // curve, the only place the retrace and the nearer-foot mark read a check's foot and distance; elsewhere a check
+  // reaches only the ambiguity mark.
+  std::vector<char> early;
   bool allOk = true;
   // The first stop along the range, and the feet's distance from the curve where the trace had them.
   Stop first;
@@ -609,9 +614,11 @@ void trace(const Job& job, Pcurve& out) {
     int bestScore = -1;
     for (int i = 0; i < K; i++) {
       const double t = sg.t.lo + (sg.t.hi - sg.t.lo) * (i + 0.5) / K;
-      SurfaceInversion inv = invertSurface(job.s, curveAt(job.c, t), job.dom.u, job.dom.v, job.tol);
+      SurfaceInversion inv = invertSurface(job.s, curveAt(job.c, t), job.dom.u, job.dom.v, job.tol, nullptr, nullptr,
+        false, known);
       if (inv.status != Status::ok) continue;
       checks.push_back({t, inv});
+      early.push_back(known);
       const int central = K - std::abs(2 * i + 1 - K);
       const int score = (inv.certainty == Certainty::unique ? 4 * K : 0) + (inv.atSingularity ? 0 : 2 * K)
         + (inv.onSeamU || inv.onSeamV ? 0 : K) + central;
@@ -630,6 +637,27 @@ void trace(const Job& job, Pcurve& out) {
     for (const Node& n : sg.nodes) reached = std::max(reached, norm(pointOf(job.s, n.uv) - curveAt(job.c, n.t)));
     allOk = allOk && sg.ok;
   }
+  // The checks searched until ambiguous at a t where the trace's foot is farther than tol from the curve searched in
+  // full (dropped where that fails, as the seeding loop drops a check).
+  auto wholeWhereFar = [&]() {
+    for (size_t k = 0; k < checks.size(); k++) {
+      if (!early[k]) continue;
+      const double t = checks[k].first;
+      for (const Segment& sg : segs) {
+        if (!sg.ok || t < sg.t.lo || t > sg.t.hi) continue;
+        if (norm(pointOf(job.s, footAt(job, sg.nodes, t)) - curveAt(job.c, t)) > job.tol) {
+          checks[k].second = invertSurface(job.s, curveAt(job.c, t), job.dom.u, job.dom.v, job.tol);
+          early[k] = false;
+          if (checks[k].second.status != Status::ok) checks[k].first = NAN;
+        }
+        break;
+      }
+    }
+    for (size_t k = 0; k < checks.size();)
+      if (std::isnan(checks[k].first)) checks.erase(checks.begin() + k), early.erase(early.begin() + k);
+      else k++;
+  };
+  wholeWhereFar();
   // A segment whose feet a unique global foot beats at a check by more than tol and a factor of 4 (the traced branch
   // spurious: beside a sharply uneven parameterization a foot can be a local minimum the march follows from its seed,
   // LMP1 #172428 coedge 45 from its end vertex, 558 mm off by its end against 0.02): traced again from the global foot
@@ -683,6 +711,8 @@ void trace(const Job& job, Pcurve& out) {
     if (job.dom.vPeriod > 0) dv = job.dom.vPeriod * std::floor((a.y - b.y) / job.dom.vPeriod + 0.5);
     for (Node& n : segs[k].nodes) n.uv = n.uv + Vec2{du, dv};
   }
+
+  wholeWhereFar();
 
   // The global checks: a foot nearer than the traced one by more than tol, or another within tol, is a second branch.
   auto mark = [&](double t) {
@@ -789,9 +819,7 @@ void trace(const Job& job, Pcurve& out) {
       // their cap.)
       double tol3 = out.offSurface > job.tol ? 0.25 * fitTol : fitTol;
       std::function<Vec2(double)> f = [&](double t) { return foot(t); };
-      const std::function<double(Vec2, Vec2)> in3d = [&](Vec2 a, Vec2 b) {
-        return norm(pointOf(job.s, a) - pointOf(job.s, b));
-      };
+      const std::function<Vec3(Vec2)> in3d = [&](Vec2 uv) { return pointOf(job.s, uv); };
       PcurvePiece best;
       double bestErr = kInf, bestWorstT = NAN, bestLocal = NAN;
       Status bestSt = Status::ok;

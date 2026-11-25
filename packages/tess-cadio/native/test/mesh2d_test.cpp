@@ -1278,3 +1278,43 @@ TEST_CASE("a point inserted exactly on an interior edge splits both triangles be
     check(want);
   }
 }
+
+TEST_CASE("seeds go in in their given order, a heartbeat every 1024: a rotating-metric mesh's bits, and another order "
+  "another mesh") {
+  // Seeds on a grid in a scattered order, the size far above their spacing: all kept, and onWork called once per 1024
+  // of them (the seed loop's own heartbeat; refinement here, a few splits by the boundary, adds too few).
+  Domain2 d = square(1);
+  for (int k = 0; k < 63 * 63; k++) {
+    const int s = (k * 1999) % (63 * 63);
+    d.seeds.push_back({(1 + s % 63) / 64.0, (1 + s / 63) / 64.0});
+  }
+  int beats = 0;
+  MeshOptions o;
+  o.onWork = [&] { beats++; };
+  Mesh2 m = mesh2(d, Uniform(10), o);
+  CHECK(m.status == cadgeom::Status::ok);
+  CHECK(m.points.size() >= 4 + d.seeds.size());
+  CHECK_EQ(validate(d, m, "seeds"), 0);
+  CHECK(beats >= static_cast<int>(d.seeds.size() / 1024));
+  // In a rotating metric (insertion Delaunay in each point's metric) the order is the mesh: a mesh's own Steiner
+  // points as seeds in a scattered order, pinned (the same natively and as WebAssembly), and reversed another mesh.
+  struct Rotating : SizeField {
+    Metric2 metric(Vec2 p) const override {
+      double t = 2 * p.x, c = 1 - t * t / 2 + t * t * t * t / 24, s = t - t * t * t / 6, l1 = 2500, l2 = 100;
+      return {l1 * c * c + l2 * s * s, (l1 - l2) * c * s, l1 * s * s + l2 * c * c};
+    }
+    bool accept(const Vec2*) const override { return true; }
+  } field;
+  Domain2 r = square(30, 1);
+  const Mesh2 first = mesh2(r, field, {1000000, 0.35});
+  REQUIRE(first.points.size() > r.points.size());
+  const size_t n = first.points.size() - r.points.size();
+  for (size_t k = 0; k < n; k++) r.seeds.push_back(first.points[r.points.size() + (k * 389) % n]);
+  const Mesh2 given = mesh2(r, field, {1000000, 0.35});
+  std::reverse(r.seeds.begin(), r.seeds.end());
+  const Mesh2 reversed = mesh2(r, field, {1000000, 0.35});
+  REQUIRE(given.status == cadgeom::Status::ok);
+  CHECK_EQ(given.points.size(), 1080u);
+  CHECK_EQ(meshHash(given), 0x4e69dfcce6c065a4ull);
+  CHECK(meshHash(reversed) != meshHash(given));
+}

@@ -40,6 +40,13 @@ int foldedEdges(const std::vector<int32_t>& triangles, const std::vector<int32_t
   const std::vector<char>& near);
 
 /**
+ * The edges of `triangles` (corners indices into `weld`) used twice the same way, or more than twice, anywhere: a
+ * triangle wound against its neighbours, which shows as a hole where back faces are culled. A triangle two of whose
+ * corners weld to one point is degenerate (no area: dropped downstream) and left out whole.
+ */
+int windingFaults(const std::vector<int32_t>& triangles, const std::vector<int32_t>& weld);
+
+/**
  * The indices of a fan chain's inside points kept (part.cpp's makeFans): the chain from angle ta through th to tb
  * (radians about the pole, in order), measured by the turn along it (each step's wrapped into (-pi, pi], so a sector
  * past half a turn is whole), its direction that of the whole turn; a point kept where it turns past the last kept by

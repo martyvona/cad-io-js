@@ -15,6 +15,7 @@
 #include <random>
 #include <string>
 #include <tuple>
+#include <typeinfo>
 
 #include "../src/curve_impl.h"
 #include "../src/surface_impl.h"
@@ -424,6 +425,71 @@ TEST_CASE("singularities: each iso-line given is one point on the surface, its p
   }
   CHECK(bad == 0);
   CHECK(n > 50);
+}
+
+TEST_CASE("evalRow: every surface's rows along u and along v as eval gives them (the same statuses; a B-spline's "
+  "partials within rounding, the others bit for bit), in its domain and past it, as made and closed in fact") {
+  std::mt19937_64 rng(11);
+  int bad = 0, n = 0, splines = 0;
+  for (bool close : {false, true}) {
+    std::vector<Made> z = zoo({"s1", "far", "mirror"});
+    for (Made& m : raw()) z.push_back(std::move(m));
+    for (Made& m : z) {
+      std::unique_ptr<Surface> s = close ? closeInFact(std::move(m.s), 1e-9) : std::move(m.s);
+      splines += m.name.find("raw") == 0 || std::strstr(typeid(*impl(s.get())).name(), "BSpline") != nullptr;
+      SurfaceDomain d = s->domain();
+      Range ru, rv;
+      sampleRange(d, ru, rv);
+      std::uniform_real_distribution<double> U(-0.1, 1.1);
+      for (bool alongV : {true, false})
+        for (int order = 0; order <= 2; order++)
+          for (int trial = 0; trial < 3; trial++) {
+            const Range rf = alongV ? ru : rv, rt = alongV ? rv : ru;
+            // The fixed parameter at a side, inside, or past the domain; the row's points across and past it.
+            const double fixed = trial == 0 ? rf.lo : rf.lo + (rf.hi - rf.lo) * U(rng);
+            std::vector<double> ts(37);
+            for (size_t i = 0; i < ts.size(); i++) ts[i] = i == 0 ? rt.hi : rt.lo + (rt.hi - rt.lo) * U(rng);
+            std::vector<SurfacePoint> got(ts.size());
+            std::vector<Status> st(ts.size());
+            s->evalRow(alongV, fixed, static_cast<int>(ts.size()), ts.data(), order, got.data(), st.data());
+            std::vector<SurfacePoint> want(ts.size());
+            std::vector<Status> ws(ts.size());
+            for (size_t i = 0; i < ts.size(); i++)
+              ws[i] = alongV ? s->eval(fixed, ts[i], order, want[i]) : s->eval(ts[i], fixed, order, want[i]);
+            // Rounding: a partial's within 1e-12 of the row's largest partial (one can be 0 all along it), the
+            // point's of the row's extent (and 8 ulp of where it is).
+            const bool spline = std::strstr(typeid(*impl(s.get())).name(), "BSpline") != nullptr ||
+              m.name.find("raw") == 0 || close;
+            auto field = [](const SurfacePoint& q, int f) {
+              const Vec3 v[6] = {q.p, q.du, q.dv, q.duu, q.duv, q.dvv};
+              return v[f];
+            };
+            double big[6] = {0, 0, 0, 0, 0, 0};
+            for (size_t i = 0; i < ts.size(); i++)
+              for (int f = 0; f < 6; f++)
+                big[f] = std::fmax(big[f], f ? norm(field(want[i], f)) : norm(want[i].p - want[0].p));
+            for (size_t i = 0; i < ts.size(); i++) {
+              bool same = ws[i] == st[i];
+              if (!spline) same = same && std::memcmp(&want[i], &got[i], sizeof(SurfacePoint)) == 0;
+              for (int f = 0; f < 6 && spline; f++) {
+                const double scale = f ? std::fmax(std::fmax(big[1], big[2]), std::fmax(big[3], std::fmax(big[4], big[5])))
+                  : big[0];
+                const double tol = 1e-12 * scale + (f ? 0 : 8 * 2.2e-16 * norm(want[i].p)) + 1e-300;
+                const Vec3 d = field(got[i], f) - field(want[i], f);
+                same = same && norm(d) <= tol;
+              }
+              if (!same) {
+                if (bad++ < 10) std::printf("  %s%s: row along %s at %.17g, point %.17g, order %d differs from eval\n",
+                  m.name.c_str(), close ? " (closed)" : "", alongV ? "v" : "u", fixed, ts[i], order);
+              }
+              n++;
+            }
+          }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(n > 20000);
+  CHECK(splines > 8);
 }
 
 TEST_CASE("partials to order 3 agree with central differences of the order below") {
@@ -1817,4 +1883,90 @@ TEST_CASE("rational B-spline boxes about the rectangle: a narrow strip far from 
     CHECK(far(bu) <= 6 * most[0]);
     CHECK(far(buu) <= 3 * most[1]);
   }
+}
+
+TEST_CASE("inversion until ambiguous: on a folded patch it stops early, ambiguous; elsewhere the whole "
+  "search bit for bit") {
+  // S(u, v) = (1000 (2u - 1)^2, 10 v, 0.01 u) on [0, 1]^2, folded back over itself along u: p = (500, 5, 0.005) has
+  // two feet, at u = (1 -/+ sqrt(0.5)) / 2, each about 0.0035 from p and 0.0071 apart (more than tol = 0.005).
+  auto S = rawSpline(2, 1, {0, 1}, {3, 3}, {0, 1}, {2, 2},
+    {{{1000, 0, 0}, {1000, 10, 0}}, {{-1000, 0, 0.005}, {-1000, 10, 0.005}}, {{1000, 0, 0.01}, {1000, 10, 0.01}}});
+  REQUIRE(S);
+  const SurfaceDomain d = S->domain();
+  const Vec3 p{500, 5, 0.005};
+  const double tol = 0.005;
+  long r0 = surfaces::inversionRects;
+  const SurfaceInversion full = invertSurface(*S, p, d.u, d.v, tol);
+  long r1 = surfaces::inversionRects;
+  const SurfaceInversion fast = invertSurface(*S, p, d.u, d.v, tol, nullptr, nullptr, false, true);
+  long r2 = surfaces::inversionRects;
+  CHECK(full.status == Status::ok);
+  CHECK(full.certainty == Certainty::ambiguous);
+  CHECK(fast.status == Status::ok);
+  CHECK(fast.certainty == Certainty::ambiguous);
+  CHECK(fast.distance <= tol);
+  CHECK(!fast.alternatives.empty());
+  // Its feet points of S within tol of p, and some two of them (the foot and an alternative, or two alternatives)
+  // more than tol apart.
+  std::vector<Vec3> pts{fast.foot};
+  for (Vec2 uv : fast.alternatives) {
+    SurfacePoint q;
+    S->eval(uv.x, uv.y, 0, q);
+    CHECK(norm(q.p - p) <= 2 * tol);
+    pts.push_back(q.p);
+  }
+  double spread = 0;
+  for (Vec3 a : pts)
+    for (Vec3 b : pts) spread = std::max(spread, norm(a - b));
+  CHECK(spread > tol);
+  CHECK(r2 - r1 < r1 - r0);
+
+  // The reference models' B-splines at points near and off them: where the search doesn't stop it is the whole
+  // search (the same (u, v), distance and certainty, bit for bit); where it does, a point within tol of p, the whole
+  // search's nearest within tol of it, and two of the points it found within tol of p more than tol apart.
+  std::mt19937_64 rng(37);
+  std::uniform_real_distribution<double> U(0, 1), D(-1, 1);
+  int same = 0, stopped = 0, bad = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& ref = fixtures::references[i];
+    const Model m(ref.data, ref.size);
+    for (int row = 0; row < m.surfaces(); row++) {
+      if (m.surfaceKind(row) != CBR_SURFACE_BSPLINE) continue;
+      Status st;
+      auto s = makeSurface(m, row, st);
+      if (!s) continue;
+      const SurfaceDomain dom = s->domain();
+      Box3 bb;
+      s->bound(dom.u, dom.v, bb);
+      const double size = std::hypot(bb.x.width(), std::hypot(bb.y.width(), bb.z.width()));
+      for (int k = 0; k < 16; k++) {
+        const double t = (k % 2 ? 1e-2 : 1e-6) * size;
+        SurfacePoint q;
+        s->eval(dom.u.lo + U(rng) * (dom.u.hi - dom.u.lo), dom.v.lo + U(rng) * (dom.v.hi - dom.v.lo), 0, q);
+        const Vec3 dir{D(rng), D(rng), D(rng)};
+        const Vec3 x = q.p + (0.2 * size * U(rng) * (k % 4 < 2 ? 0 : 1) / std::fmax(norm(dir), 1e-9)) * dir;
+        const SurfaceInversion a = invertSurface(*s, x, dom.u, dom.v, t);
+        std::vector<SurfaceFoot> found;
+        const SurfaceInversion b = invertSurface(*s, x, dom.u, dom.v, t, nullptr, &found, false, true);
+        const bool identical = a.status == b.status && a.uv.x == b.uv.x && a.uv.y == b.uv.y
+          && a.distance == b.distance && a.certainty == b.certainty && a.alternatives.size() == b.alternatives.size();
+        if (identical) {
+          same++;
+          continue;
+        }
+        stopped++;
+        // (Stopped only once it held two points within tol of p more than tol apart: among what it found.)
+        bool apart = false;
+        for (const SurfaceFoot& f : found)
+          for (const SurfaceFoot& g : found)
+            apart = apart || (f.distance <= t && g.distance <= t && norm(f.foot - g.foot) > t);
+        const bool ok = b.status == Status::ok && b.distance <= t && a.distance <= b.distance + t && apart;
+        if (!ok && bad++ < 8)
+          std::printf("  %s %d: whole %.17g (%d, %d), until ambiguous %.17g (%d, %d)\n", ref.file, row, a.distance,
+            int(a.status), int(a.certainty), b.distance, int(b.status), int(b.certainty));
+      }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(same > 0);
 }

@@ -17,7 +17,8 @@
 import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, FACING, FACING_FROM, faceOutlines, LOOP_KIND,
   modelHash, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
-import { init as initOracle, Oracle } from 'cad-oracle';
+import { type Estimate, type FaceMeasure, init as initOracle, JUDGE_REL_TOL, Oracle, shellBox, solidShells }
+  from 'cad-oracle';
 import { RayShellSide } from 'cad-oracle/shell-side';
 import type { Brep, Diagnostic, Scene, SourceId, Vec3 } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
@@ -115,15 +116,38 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       + `an edge twice the same way, left as built: ${x.why}` });
     // Faces whose loops run against their sense, where their neighbours agree with the loops, flipped first: a
     // shell's volume and sides are by its faces' senses.
+    progress('orientShells: faces');
+    // (Told again at most every PROGRESS_MS as the faces are measured: a large part's take a while, LMP1 #172440's
+    // over 10 s, and a viewer and a pool's CPU limit hear from it meanwhile.)
+    const nf = rowCount(healed, 'face');
+    let sensed = 0;
+    const tickFaces = ticker(progress);
+    // (At judging's relTol, which the shells step's volumes take: the measures are kept for it, but for the faces
+    // flipped here.)
+    const measured = new Map<number, FaceMeasure>();
+    // (On a free-form face with its flux about its solid shell's centre, which the shells step's volumes take, from
+    // the same pass: about half the two's cost. Elsewhere, and for a face's second solid shell, the shells step takes
+    // the flux itself where it needs it. The centre is the shell's vertices' box's, which no flip moves.)
+    const centre = new Map<number, [number, number, number]>();
+    for (const s of solidShells(healed)) {
+      const b = shellBox(healed, s);
+      for (const f of b.faces) if (!centre.has(f)) centre.set(f, b.c);
+    }
+    const fluxes = new Map<number, { c: [number, number, number]; flux: [Estimate, Estimate, Estimate] }>();
     const fs = (() => {
-      using o = new Oracle(om, healed.buffer);
+      using o = new Oracle(om, healed.buffer, { relTol: JUDGE_REL_TOL });
       using g2 = new Geometry(geom, new Uint8Array(healed.buffer));
       // (Only where the face has area enough for its loops' sign to mean something: more than 4 x its error and
       // than its perimeter times the part's tolerance. A sliver's signed sum is rounding: the bicycle's #2757 has
       // tori of 1e-14 mm^2 flagged, and flipping them turned OCCT's mesh of the whole shell inside out.)
       const tol = tolerances(healed).part;
       return faceSenses(healed, (f) => {
-        const m = o.face(f);
+        tickFaces(() => `orientShells: faces, ${sensed} of ${nf} measured`);
+        sensed++;
+        const c = centre.get(f);
+        const both = c ? o.faceAndFlux(f, c) : undefined, m = both ? both.measure : o.face(f);
+        measured.set(f, m);
+        if (both?.flux) fluxes.set(f, { c: c!, flux: both.flux });
         // (Its only flag, but for a projected boundary: where its loops wind a torus's minor circle (`winds`), or the
         // face has another caveat, the loops' signed sum doesn't say which way they run. LMP1 #172807's three such
         // tori flipped turned every backend's mesh of the shell inside out.)
@@ -144,6 +168,7 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
         ? 'face\'s' : 'faces\''} sense flipped to their loops' (the loops ran against it, the neighbours agreeing with `
         + `the loops; ${fs.inClosed.length} in closed shells, ${fs.inSheets.length} in sheets): ${list(flipped)}` });
       healed = flipSenses(healed, flipped);
+      for (const f of flipped) measured.delete(f), fluxes.delete(f);
     }
     if (fs.alone.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.alone.length} `
       + `${fs.alone.length === 1 ? 'face' : 'faces'} whose loops run against their sense left as built (no neighbour `
@@ -157,8 +182,19 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
     if (fs.disputed.length) diagnostics.push({ severity: 'info', message: `orientShells: ${fs.disputed.length} `
       + `${fs.disputed.length === 1 ? 'face' : 'faces'} whose loops run against their sense left as built (a neighbour `
       + `uses a shared edge the same way): ${list(fs.disputed)}` });
-    using sides = new RayShellSide(om, { checkSecondRay: true });
-    const v = shellVerdicts(healed, om, sides);
+    progress('orientShells: shells');
+    using sides = new RayShellSide(om, { checkSecondRay: true, relTol: JUDGE_REL_TOL });
+    // (Told again at most every PROGRESS_MS, as each face's measure is asked for the shells' volumes.)
+    let asked = 0;
+    const tickShells = ticker(progress);
+    const v = shellVerdicts(healed, om, sides, (f) => {
+      tickShells(() => `orientShells: shells, ${asked} faces' measures asked`);
+      asked++;
+      return measured.get(f);
+    }, (f, c) => {
+      const x = fluxes.get(f);
+      return x && x.c.every((k, i) => k === c[i]) ? x.flux : undefined;
+    });
     diagnostics.push(...v.diagnostics);
     const wrong = v.verdicts.filter((x) => x.wrong);
     shells = { verdicts: v.verdicts, flipped, turnedFaces, ...(perm ? { perm } : {}) };
@@ -375,6 +411,21 @@ export type PartHealer = (req: HealRequest, progress: (what: string) => void) =>
 /** healPart for a worker: tess-workers' pool runs it as the job `{ module: 'cad-heal', export: 'healJob' }`. */
 export function healJob(req: HealRequest, progress: (what: string) => void): Promise<HealedPart> {
   return healPart(req.model, { ...req.options, progress }, undefined, req.source, req.analysis);
+}
+
+/** The least time between the progress messages a step sends from within (the faces and shells steps'). */
+export const PROGRESS_MS = 1000;
+
+/**
+ * A step's progress from within: told `what()` at most every PROGRESS_MS (the first one PROGRESS_MS after the step
+ * began, so a quick step adds nothing).
+ */
+function ticker(progress: (what: string) => void): (what: () => string) => void {
+  let last = performance.now();
+  return (what) => {
+    const now = performance.now();
+    if (now - last >= PROGRESS_MS) last = now, progress(what());
+  };
 }
 
 /**

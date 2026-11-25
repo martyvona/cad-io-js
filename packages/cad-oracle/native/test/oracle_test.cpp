@@ -3,12 +3,14 @@
 // models changed to have each defect.
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "../src/geom_api.h"
+#include "../src/inner.h"
 #include "brep_models.h"
 #include "cad_geom/model.h"
 #include "cad_oracle/oracle.h"
@@ -46,6 +48,37 @@ struct Copy {
 };
 
 } // namespace
+
+TEST_CASE("Inner::H with a PieceCache: as without one, across pieces, rows of u, panel counts and spans' panels") {
+  // F oscillating in t (so 2 and 4 panels give different values) and depending on u; pieces between the cuts 0.5,
+  // 1.5 and 2.5, shared by H's from 0 up to points past them.
+  Inner in;
+  in.K = 2;
+  in.F = [](double u, double t, double* o) { o[0] = std::cos(40 * t + u), o[1] = u * t * t; };
+  in.cuts = {0.5, 1.5, 2.5};
+  PieceCache cache;
+  int bad = 0, n = 0;
+  for (int pass = 0; pass < 2; pass++)
+    for (int m : {2, 4, 2})
+      for (double u : {0.1, 0.7, 0.1})
+        for (double v : {1.7, 2.9, 0.3, 2.9}) {
+          // Every span's panels m, then the middle span's 2 m.
+          in.panels = pass == 0 ? std::vector<int>{} : std::vector<int>{m, 2 * m, m, m};
+          double want[2], got[2];
+          in.cache = nullptr, in.H(u, 0, v, m, want);
+          in.cache = &cache, in.H(u, 0, v, m, got);
+          for (int q = 0; q < 2; q++) {
+            if (!(std::fabs(got[q] - want[q]) <= 1e-14 * (std::fabs(want[q]) + 1))) {
+              if (bad++ < 5) std::printf("  pass %d m %d u %g v %g component %d: %.17g, want %.17g\n", pass, m, u, v, q,
+                got[q], want[q]);
+            }
+            n++;
+          }
+        }
+  CHECK(bad == 0);
+  CHECK(n == 2 * 3 * 3 * 4 * 2);
+  CHECK(!cache.at.empty());
+}
 
 TEST_CASE("every reference face's area, by kind, at every variant") {
   std::map<std::string, int> checked, unsupported;
@@ -135,6 +168,21 @@ TEST_CASE("a box's face perimeters: their edges' lengths from the facts, each co
       CHECK(m.perimeter.status == Status::ok);
       CHECK_NEAR(m.perimeter.value, expected, 1e-12, 1e-12 * r.scale);
     }
+  }
+}
+
+TEST_CASE("trusted: projectedBoundary and edgesPlaced said, not refused; any other flag refused") {
+  // A measure of 1 within 1e-9, its boundary's error known: trusted with either or both of those flags, not with
+  // another beside them; and not at a relative bound under its error.
+  FaceMeasure m;
+  m.area.value = 1, m.area.error = 1e-9, m.area.status = Status::ok, m.boundary = 1e-10;
+  for (uint32_t f : {0u, uint32_t(flagProjectedBoundary), uint32_t(flagEdgesPlaced),
+         uint32_t(flagProjectedBoundary | flagEdgesPlaced)}) {
+    m.flags = f;
+    CHECK(trusted(m, 1e-6));
+    CHECK(!trusted(m, 1e-10));
+    m.flags = f | flagOrientation;
+    CHECK(!trusted(m, 1e-6));
   }
 }
 

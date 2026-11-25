@@ -54,7 +54,8 @@ struct Oracle::Impl {
 
   FaceMeasure closedForm(int face);
   FaceMeasure swept(int face);
-  FaceMeasure freeForm(int face);
+  /** With g: g integrated in the same pass (freeWith), into *gOut, the area its |n| component. */
+  FaceMeasure freeForm(int face, const Integrand* g = nullptr, std::vector<Estimate>* gOut = nullptr);
   /** faceIntegral (oracle.h), on the faces closedForm, swept and freeForm measure. */
   std::vector<Estimate> integral(int face, const Integrand& g);
   /** The face's surface as the face API closes it in fact (at its tolerance), made once; null where it can't be. */
@@ -70,10 +71,11 @@ struct Oracle::Impl {
   bool shellBox(int shell, Vec3& lo, Vec3& hi);
   /**
    * A point well inside the face: of a grid over its loops' (u, v) box (its surface's domain where it has none), the
-   * one nearest the box's middle that the face API classifies in at 100 times the face's tolerance, else at 10 times;
-   * false where none is.
+   * one nearest the box's middle that the face API classifies in (at the face's tolerance, else the first of 10 and 100
+   * times it that's settled) and not on at 100 times it, else at 10 times; else, `shallow`, the one nearest the middle
+   * in at the tolerance itself (settled there); false where none is.
    */
-  bool interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n);
+  bool interiorPoint(int face, cadgeom::Vec2& uv, Vec3& p, Vec3& n, bool shallow = false);
   /**
    * A box holding the face, widened by twice its tolerance and its edges' (where rayFace could find a hit or a
    * contact within them): its surface's bound over its domain where that's finite, else (a plane, cylinder, cone or
@@ -88,7 +90,7 @@ struct Oracle::Impl {
   std::vector<int>* met = nullptr;
   /** interiorPoint's grid over a (u, v) box. */
   bool gridPoint(int face, const Surface& surface, double ulo, double uhi, double vlo, double vhi, cadgeom::Vec2& uv,
-    Vec3& p, Vec3& n);
+    Vec3& p, Vec3& n, bool shallow);
 
 private:
   std::vector<std::unique_ptr<Surface>> faceSurfaces_;

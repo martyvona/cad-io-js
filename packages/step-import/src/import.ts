@@ -49,12 +49,14 @@ export interface ImportOptions extends OpenOptions {
  * A phase of the import: `reading` the file (the lexical scan and index), `structure` (binding to the schema and
  * the products, representations and styles), `parts` (each representation made a part, with its model; most of a
  * large file's time), `assembly` (components, occurrences, overrides, layers), `healing` (the parts' models healed:
- * `done` of `total` parts with models, where healing is on).
+ * `done` of `total` parts with models, where healing is on; `detail` where healing is within a part, as healScene's
+ * `progress` says it: "part i of n: <step>", told at least every second or so through a slow part).
  */
 export interface ImportProgress {
   phase: 'reading' | 'structure' | 'parts' | 'assembly' | 'healing';
   done?: number;
   total?: number;
+  detail?: string;
 }
 
 export interface ImportResult {
@@ -83,10 +85,15 @@ export async function healImported(scene: Scene, opts: Pick<ImportOptions, 'heal
   if (!(heal.heal ?? HEAL_BY_DEFAULT)) return;
   const total = scene.parts.filter((p) => p.brep).length;
   if (!total) return;
+  let healed = 0;
   opts.onProgress?.({ phase: 'healing', done: 0, total });
   await healScene(scene, { ...heal, heal: true, onPart: (done, all) => {
+    healed = done;
     opts.onProgress?.({ phase: 'healing', done, total: all });
     heal.onPart?.(done, all);
+  }, progress: (detail) => {
+    opts.onProgress?.({ phase: 'healing', done: healed, total, detail });
+    heal.progress?.(detail);
   } }, opts.geomModule);
 }
 

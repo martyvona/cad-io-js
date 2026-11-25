@@ -47,6 +47,11 @@ public:
    * breaks down there (an offset where its basis's normal vanishes: the basis's point then).
    */
   virtual Status derivs(double u, double v, int order, Vec3* out) const = 0;
+  /**
+   * derivs at n points of an iso-line (as evalRow), point i's partials at out[i * (pidx(0, order) + 1) + pidx(k, l)],
+   * bit for bit as derivs gives them.
+   */
+  virtual void derivsRow(bool alongV, double fixed, int n, const double* ts, int order, Vec3* out, Status* st) const;
   /** A box certainly holding S^(k,l) over ru x rv, k + l < kMaxOrder (infinite with a status where none is known). */
   virtual Status derivBox(Range ru, Range rv, int k, int l, Box3& out) const = 0;
   /**
@@ -96,6 +101,8 @@ public:
   virtual bool splitByBoxes() const { return false; }
 
   Status eval(double u, double v, int order, SurfacePoint& out) const final;
+  void evalRow(bool alongV, double fixed, int n, const double* ts, int order, SurfacePoint* out,
+    Status* st) const final;
   Status normal(double u, double v, Vec3& out) const override;
   Status bound(Range ru, Range rv, Box3& out) const final { return derivBox(ru, rv, 0, 0, out); }
   Status derivBound(Range ru, Range rv, int order, double out[3]) const final;

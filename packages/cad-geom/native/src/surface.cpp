@@ -22,6 +22,7 @@
 #include <cmath>
 #include <queue>
 
+#include "scratch.h"
 #include "surface_impl.h"
 
 namespace cadgeom {
@@ -35,6 +36,33 @@ Status SurfaceImpl::eval(double u, double v, int order, SurfacePoint& out) const
   out = {d[0], order >= 1 ? d[pidx(1, 0)] : Vec3{}, order >= 1 ? d[pidx(0, 1)] : Vec3{},
     order >= 2 ? d[pidx(2, 0)] : Vec3{}, order >= 2 ? d[pidx(1, 1)] : Vec3{}, order >= 2 ? d[pidx(0, 2)] : Vec3{}};
   return s;
+}
+
+void SurfaceImpl::derivsRow(bool alongV, double fixed, int n, const double* ts, int order, Vec3* out,
+  Status* st) const {
+  // Through a full array: a kind's derivs may use out beyond the order asked as scratch.
+  const int stride = pidx(0, order) + 1;
+  Vec3 d[kPartials];
+  for (int i = 0; i < n; i++) {
+    st[i] = alongV ? derivs(fixed, ts[i], order, d) : derivs(ts[i], fixed, order, d);
+    std::copy(d, d + stride, out + static_cast<size_t>(i) * stride);
+  }
+}
+
+void SurfaceImpl::evalRow(bool alongV, double fixed, int n, const double* ts, int order, SurfacePoint* out,
+  Status* st) const {
+  if (order < 0 || order > 2) {
+    std::fill(st, st + n, Status::unsupported);
+    return;
+  }
+  const int stride = pidx(0, order) + 1;
+  Scratch<Vec3, 16 * 6> d(static_cast<size_t>(n) * stride, Scratch<Vec3, 16 * 6>::uninitialized);
+  derivsRow(alongV, fixed, n, ts, order, d.data(), st);
+  for (int i = 0; i < n; i++) {
+    const Vec3* e = d.data() + static_cast<size_t>(i) * stride;
+    out[i] = {e[0], order >= 1 ? e[pidx(1, 0)] : Vec3{}, order >= 1 ? e[pidx(0, 1)] : Vec3{},
+      order >= 2 ? e[pidx(2, 0)] : Vec3{}, order >= 2 ? e[pidx(1, 1)] : Vec3{}, order >= 2 ? e[pidx(0, 2)] : Vec3{}};
+  }
 }
 
 Status SurfaceImpl::normal(double u, double v, Vec3& out) const {
@@ -432,7 +460,7 @@ LocalFoot localFoot(const Surface& s, Vec3 p, Vec2 start) {
 }
 
 SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, double tol, const Vec2* hint,
-  std::vector<SurfaceFoot>* all, bool distanceOnly) {
+  std::vector<SurfaceFoot>* all, bool distanceOnly, bool untilAmbiguous) {
   SurfaceInversion out;
   const SurfaceImpl* impl = dynamic_cast<const SurfaceImpl*>(&s0);
   if (!impl) return out;
@@ -493,6 +521,22 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
   };
   int budget = 40000;
   bool exhausted = false;
+  // untilAmbiguous: the points within tol of p so far, the candidates' (scanned from `scanned`) and those offered by
+  // rectangles (`offered`: apart from the candidates, so a search that doesn't stop is the whole search, bit for bit),
+  // and whether two are more than tol apart.
+  std::vector<Vec3> near;
+  std::vector<Candidate> offered;
+  size_t scanned = 0;
+  bool apart = false;
+  auto nearPoint = [&](Vec3 f) {
+    for (size_t i = 0; i < near.size() && !apart; i++) apart = norm(f - near[i]) > tol;
+    near.push_back(f);
+  };
+  auto ambiguous = [&]() {
+    for (; scanned < cands.size(); scanned++)
+      if (cands[scanned].d <= tol) nearPoint(cands[scanned].foot);
+    return apart;
+  };
   double leftLb = kInf;
   std::vector<Vec2> known;
   if (s.footCandidates(p, ru, rv, tol, known)) {
@@ -522,12 +566,26 @@ SurfaceInversion invertSurface(const Surface& s0, Vec3 p, Range ru, Range rv, do
         queue.push({{us[i], us[i + 1]}, {vs[j], vs[j + 1]}, grid.ok[k] ? boxDistance(grid.box[k], p) : 0.0});
       }
     while (!queue.empty()) {
+      if (untilAmbiguous && !distanceOnly && ambiguous()) {
+        // Stopped: the result made from every point found, the offered ones too.
+        cands.insert(cands.end(), offered.begin(), offered.end());
+        break;
+      }
       Node n = queue.top();
       queue.pop();
       if (n.lb > ub + slack) continue;
       inversionRects++;
       Range a = n.u, b = n.v;
       Vec2 mid{0.5 * a.lo + 0.5 * a.hi, 0.5 * b.lo + 0.5 * b.hi};
+      // Stopping once ambiguous: a rectangle that could hold a point within tol of p offers its local minimum, so two
+      // such points far apart are found long before the boxes are tiny (on a surface nearly folded flat, a strip of
+      // rectangles within tol of p stays open until then).
+      if (untilAmbiguous && !distanceOnly && n.lb <= tol) {
+        const Vec2 x = convexMinimum(s, p, a, b, mid);
+        const Vec3 f = at(x);
+        const double d = norm(f - p);
+        if (d <= tol) offered.push_back({x, d, f}), nearPoint(f);
+      }
       if (--budget < 0) {
         // A continuum of feet (a centre of curvature) or a search too fine: what's left sampled at its middles.
         exhausted = true;

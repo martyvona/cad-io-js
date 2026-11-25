@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { type BrepData, BrepBuilder, curveEvaluator, decode, edgeParams, type Loop, openBrep, rowCount } from 'cad-brep';
 import { modelFaceArea, trustedArea } from '../../cad-scene/src/area-oracle.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
+import { bsplineCylinder, line2 } from '../../cad-heal/test/models.ts';
 import { type Estimate, type FaceMeasure, init, MAX_MOMENT_DEGREE, Oracle, trusted } from '../src/index.ts';
 
 const pkg = path.join(import.meta.dirname, '..');
@@ -668,6 +669,24 @@ test('moments of a face far from the origin, about a point of it: within its poi
   }
 });
 
+test('faceFlux: faceMoments\' degree-1 x n_x, y n_y, z n_z, the same bits (each component integrated alone)',
+  { skip }, async () => {
+    const c: V = [0.3, -0.2, 0.5];
+    const models: [string, BrepData][] = [['a zone', band(2, -0.5, 0.8, 'zone', false)],
+      ['a cap as a revolution', band(2, -0.5, 0.8, 'north', true)], ['a double cone', doubleCone()],
+      ['a square', square(0, 0)]];
+    for (const [what, d] of models) {
+      using o = new Oracle(await init(), d.buffer);
+      const m = o.faceMoments(0, { center: c, degree: 1 }).slice(1), x = o.faceFlux(0, c);
+      assert.deepEqual(x, [m[0]!.n[0], m[1]!.n[1], m[2]!.n[2]], what);
+      assert.ok(x.every((e) => e.status === 'ok'), what);
+    }
+    // The default centre is the origin.
+    using o = new Oracle(await init(), square(0, 0).buffer);
+    assert.deepEqual(o.faceFlux(0), o.faceFlux(0, [0, 0, 0]));
+    assert.notDeepEqual(o.faceFlux(0, [0, 0, 1]), o.faceFlux(0));
+  });
+
 test('faceMoments takes degrees 0 to MAX_MOMENT_DEGREE', { skip }, async () => {
   using o = new Oracle(await init(), square(0, 0).buffer);
   assert.equal(o.faceMoments(0, { degree: MAX_MOMENT_DEGREE }).length, 35);
@@ -733,3 +752,34 @@ test('the vector area of sphere patches not winding the axis, south, across and 
       }
     }
   });
+
+test('faceAndFlux: on a free-form face faceFlux\'s bits and face\'s measure from one pass (its area within rounding), '
+  + 'the area unsigned and flagged where the loops run against the face\'s sense', { skip }, async () => {
+  const c: V = [0.3, -0.2, 0.5];
+  const same = (a: FaceMeasure, b: FaceMeasure, what: string) => {
+    const { area: aa, ...ra } = a, { area: ab, ...rb } = b;
+    assert.deepEqual(ra, rb, what);
+    assert.equal(aa.status, ab.status, what);
+    assert.ok(Math.abs(aa.value - ab.value) <= 1e-12 * ab.value, `${what}: ${aa.value} against ${ab.value}`);
+    assert.ok(Math.abs(aa.error - ab.error) <= 1e-6 * ab.error + 1e-15, `${what}: ${aa.error} against ${ab.error}`);
+  };
+  for (const flip of [false, true]) {
+    const d = bsplineCylinder(line2([1, 0], [0, 1])).finish();
+    // (Its loops then run against its sense: face reports the area's size with the orientation flag, as the healing
+    // faces step reads it.)
+    if (flip) d.face.sameSense[0] = 0;
+    using o = new Oracle(await init(), d.buffer);
+    const m = o.face(0), x = o.faceFlux(0, c), both = o.faceAndFlux(0, c), what = flip ? 'flipped' : 'as built';
+    assert.equal(m.method, 'freeForm');
+    assert.deepEqual(both.flux, x, what);
+    assert.ok(x.every((e) => e.status === 'ok'), what);
+    same(both.measure, m, what);
+    assert.ok(both.measure.area.value > 0, what);
+    assert.equal(both.measure.flags.includes('orientation'), flip, what);
+  }
+  // Elsewhere the measure alone, its bits face's, and no flux (the shells step takes it where it needs it).
+  for (const [what, d] of [['a square', square(0, 0)], ['a double cone', doubleCone()]] as const) {
+    using o = new Oracle(await init(), d.buffer);
+    assert.deepEqual(o.faceAndFlux(0, c), { measure: o.face(0) }, what);
+  }
+});

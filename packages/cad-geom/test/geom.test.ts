@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { BrepBuilder, LOOP_KIND, openBrep, rowCount, SURFACE_KIND } from '../../cad-brep/src/index.ts';
 import { curveEvaluator, surfaceEvaluator } from '../../cad-brep/src/geometry.ts';
 import { MODELS } from '../../cad-brep/test/models.ts';
-import { CERTAINTY, Geometry, init, STATUS } from '../src/index.ts';
+import { CERTAINTY, Geometry, init, meshDeviationJudge, STATUS } from '../src/index.ts';
 
 const dist = path.join(import.meta.dirname, '../dist');
 const built = fs.existsSync(path.join(dist, 'cad_geom.wasm')) && fs.existsSync(path.join(dist, 'cad_geom.mjs'));
@@ -552,9 +552,11 @@ test('tolerances: floored at 1e-9 x the part\'s size, a rounding-level gap withi
   for (const [gap, uncertainty, ok, why, edgeTol] of [
     [2.5e-11, 1e-13, true, 'a rounding-level gap over the part\'s uncertainty (trj6_as1-tu\'s)'],
     [1.3e-7, 1e-13, true, 'just under the floor'], [1.6e-7, 1e-13, false, 'just over the floor'],
+    [1.5e-5, 1e-13, false, 'past 100 x the floor'],
     [1.3e-7, undefined, true, 'under the floor, no uncertainty'],
     [8e-6, undefined, true, 'no uncertainty: under the 1e-5 default'],
     [2e-5, undefined, false, 'no uncertainty: over the 1e-5 default'],
+    [1.1e-3, undefined, false, 'no uncertainty: past 100 x the 1e-5 default'],
     [2.6e-5, 1e-7, false, 'a real gap (trj4_k1_top\'s, 2.6e-5 at 1e-7)'],
     [1.3e-7, 1e-13, true, 'under the floor, the edge\'s own tolerance smaller', 1e-12],
     [3e-7, 1e-13, true, 'over the floor, within the edge\'s own tolerance', 5e-7]] as [number, number | undefined,
@@ -563,11 +565,14 @@ test('tolerances: floored at 1e-9 x the part\'s size, a rounding-level gap withi
     const p = g.projectCoedge(0);
     assert.ok('pieces' in p, why);
     assert.equal(p.status, ok ? 'ok' : 'invalidModel', why);
+    // A gap over the tolerance is placed on the plane within 100 x it (offSurfaceLimit, the mesher's rule), counted;
+    // past that (trj4_k1_top's, about 180 x) the face fails.
+    const want = Math.max(floor, uncertainty ?? 1e-5, edgeTol ?? 0), placed = !ok && gap <= 100 * want;
     const info = g.faceInfo(0);
-    assert.equal(info.status, ok ? 'ok' : 'pcurveProjectionFailed', why);
-    if (ok) {
-      const want = Math.max(floor, uncertainty ?? 1e-5, edgeTol ?? 0);
+    assert.equal(info.status, ok || placed ? 'ok' : 'pcurveProjectionFailed', why);
+    if (ok || placed) {
       assert.ok(Math.abs(info.tolerance - want) <= 1e-20, `${why}: ${info.tolerance}`);
+      assert.equal(info.placedOffSurface, placed ? 1 : 0, why);
     }
   }
 });
@@ -955,12 +960,14 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   const tilt = 0.5, ellipse = b.addCurve({ kind: 'ellipse', position: { origin: [0, 0, 0],
     axis: [0, -Math.sin(tilt), Math.cos(tilt)], xDir: [0, Math.cos(tilt), Math.sin(tilt)] },
   semiAxis1: 1 / Math.cos(tilt), semiAxis2: 1 });
-  // Unit disks on z = 0 bounded by a closed circle without a p-curve: one on the plane, one 0.001 above it.
+  // Unit disks on z = 0 bounded by a closed circle without a p-curve: one on the plane, one 0.002 above it (its edge's
+  // tolerance 1.5e-5, past the part's 1e-5; the gap past 100 x that, offSurfaceLimit: its face refused; within it,
+  // the edge is placed: the lifted side test).
   const plane = b.addSurface({ kind: 'plane', position: axes });
-  for (const z of [0, 1e-3]) {
+  for (const z of [0, 2e-3]) {
     const v = b.addVertex({ point: [1, 0, z] });
     const c = b.addCurve({ kind: 'circle', position: { ...axes, origin: [0, 0, z] }, radius: 1 });
-    const e = b.addEdge({ curve: c, start: v, end: v, sameSense: true });
+    const e = b.addEdge({ curve: c, start: v, end: v, sameSense: true, ...(z ? { tolerance: 1.5e-5 } : {}) });
     const f = b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
       coedges: [{ edge: e, orientation: 'forward' }] }] });
     b.addItem({ kind: 'face', ref: f });
@@ -1033,10 +1040,20 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   assert.deepEqual([...e.statuses], [0, STATUS.indexOf('outOfDomain')]);
   assert.equal(g.faceInfo(1).status, 'pcurveProjectionFailed');
   const c1 = g.projectCoedge(1);
-  assert.ok('pieces' in c1 && c1.status === 'invalidModel' && Math.abs(c1.offSurface - 1e-3) <= 1e-12);
+  assert.ok('pieces' in c1 && c1.status === 'invalidModel' && Math.abs(c1.offSurface - 2e-3) <= 1e-12);
   // At a tolerance the gap is within, it's made.
   const c2 = g.projectCoedge(1, 2e-3);
   assert.ok('pieces' in c2 && c2.status === 'ok');
+  // At its edge's tolerance the kept projection, made once; at another (the part's among them), made each call.
+  const made = g.projectionsMade();
+  assert.deepEqual(g.projectCoedge(1, 1.5e-5), c1);
+  assert.deepEqual(g.projectCoedge(1), c1);
+  assert.equal(g.projectionsMade(), made);
+  g.projectCoedge(1, 2e-3);
+  assert.equal(g.projectionsMade(), made + 1);
+  g.projectCoedge(1, 1e-5);
+  g.projectCoedge(1, 1.5e-5 * (1 + 1e-15));
+  assert.equal(g.projectionsMade(), made + 3);
   // Not traced: unchecked. The ellipse's coedge, traced once round: its start the vertex's foot, its end the same a
   // period over.
   assert.deepEqual([c0.endCheck, c0.endAlternatives.map((a) => a.length)], [['unchecked', 'unchecked'], [0, 0]]);
@@ -1061,6 +1078,145 @@ test('projection: project and projectCoedge through the API (samples, ends, a se
   g.setProjectMissingPcurves(true);
   assert.equal(g.faceInfo(0).status, 'ok');
 });
+
+/**
+ * The unit square on the plane z = 0, its bottom side a quadratic B-spline from (0, 0, 0) to (1, 0, 0) whose middle
+ * pole is at height 2 h (the curve h off the plane at its middle), no p-curves, its edges' tolerance `tol`.
+ */
+function liftedSide(h: number, tol: number): Uint8Array {
+  const b = new BrepBuilder();
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const [A, B, C, D] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]].map((p) => b.addVertex({ point: p }));
+  const bulge = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3],
+    poles: [[0, 0, 0], [0.5, 0, 2 * h], [1, 0, 0]], closed: false, selfIntersect: false, form: 'unspecified' });
+  const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p,
+    direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 });
+  const edges = [b.addEdge({ curve: bulge, start: A!, end: B!, sameSense: true, tolerance: tol }),
+    b.addEdge({ curve: line([1, 0, 0], [1, 1, 0]), start: B!, end: C!, sameSense: true, tolerance: tol }),
+    b.addEdge({ curve: line([1, 1, 0], [0, 1, 0]), start: C!, end: D!, sameSense: true, tolerance: tol }),
+    b.addEdge({ curve: line([0, 1, 0], [0, 0, 0]), start: D!, end: A!, sameSense: true, tolerance: tol })];
+  b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+  return new Uint8Array(b.finish().buffer);
+}
+
+test('an edge off its face\'s surface: placed within offSurfaceLimit (the mesher\'s), refused past it', { skip },
+  async () => {
+    // Its curve 0.01 off the plane, its tolerance 1e-5: past 100 x the tolerance (1e-3), refused; within it at a
+    // tolerance of 2e-4 (0.02), placed: counted, its error the curve's distance. With a deflection, 10 x it.
+    const module = await init();
+    {
+      using g = new Geometry(module, liftedSide(0.01, 1e-5));
+      assert.equal(g.faceInfo(0).status, 'pcurveProjectionFailed');
+    }
+    {
+      using g = new Geometry(module, liftedSide(0.01, 2e-4));
+      const i = g.faceInfo(0);
+      assert.equal(i.status, 'ok');
+      assert.deepEqual([i.placedOffSurface, i.placedUnfitted], [1, 0]);
+      assert.ok(Math.abs(i.placedError - 0.01) < 1e-4, `${i.placedError}`);
+    }
+    // The deflection's term at its edge, on the same projection (the deflection doesn't change it): exactly 10 x it
+    // placed, a little less refused.
+    let e: number;
+    {
+      using g = new Geometry(module, liftedSide(0.01, 1e-5));
+      g.setDeflection(0.002);
+      const i = g.faceInfo(0);
+      assert.equal(i.status, 'ok');
+      e = i.placedError;
+    }
+    for (const [d, want] of [[e / 10, 'ok'], [e / 10 * (1 - 1e-9), 'pcurveProjectionFailed']] as const) {
+      using g = new Geometry(module, liftedSide(0.01, 1e-5));
+      g.setDeflection(d);
+      assert.equal(g.faceInfo(0).status, want, `deflection ${d}`);
+    }
+    {
+      using g = new Geometry(module, liftedSide(0.01, 1e-5));
+      assert.throws(() => g.setDeflection(-1), /deflection/);
+    }
+    // The tolerance's term at its edge, with no deflection: the curve's distance at a tolerance of a hundredth of it
+    // placed, at a little less refused (the projection's distance the same at both).
+    let o: number;
+    {
+      using g = new Geometry(module, liftedSide(0.01, 1e-4));
+      const p = g.projectCoedge(0);
+      assert.ok('pieces' in p && p.status === 'invalidModel');
+      o = p.offSurface;
+    }
+    for (const [tol, want] of [[o / 100, 'ok'], [o / 100 * (1 - 1e-9), 'pcurveProjectionFailed']] as const) {
+      using g = new Geometry(module, liftedSide(0.01, tol));
+      const p = g.projectCoedge(0);
+      assert.ok('pieces' in p && p.offSurface === o, `tolerance ${tol}: ${'pieces' in p ? p.offSurface : p.status}`);
+      assert.equal(g.faceInfo(0).status, want, `tolerance ${tol}`);
+    }
+  });
+
+test('an edge whose projection has no fit within its tolerance (noConvergence): placed on its feet, as the mesher does',
+  { skip }, async () => {
+    // A cylinder's face between two cubic B-splines that approximate arcs across it (modelled on bug25912_GDT_exc
+    // #6338's face #4118's shape), their 3D curves within the part's uncertainty of the surface but the first's fit
+    // not: built, its edge counted as unfitted, the fit's error the face's placed error.
+    const module = await init();
+    const b = new BrepBuilder({ uncertainty: 0.00625 });
+    const cylinder = b.addSurface({ kind: 'cylinder', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
+      radius: 8.52511 });
+    const spline = (knots: number[], multiplicities: number[], poles: number[][]) => b.addCurve({ kind: 'bspline',
+      degree: 3, knots, multiplicities, poles, closed: false, selfIntersect: false, form: 'unspecified' });
+    const straight = (p: number[], q: number[]) => spline([0, 1], [4, 4],
+      [0, 1, 2, 3].map((i) => p.map((x, k) => x + (q[k]! - x) * i / 3)));
+    const poles1 =
+      [[0, 8.52511, -2.5], [-2.29579, 8.54969, -2.50001], [-5.68511, 7.06136, -2.5],
+       [-8.18303, 3.1201, -2.50002], [-8.75182, -0.33147, -2.50002], [-7.92361, -3.73014, -2.49999],
+       [-5.1347, -7.47116, -2.50001], [-1.64247, -8.69882, -2.50002], [0.64486, -8.50068, -2.5]];
+    const poles3 =
+      [[0, 8.52511, 0], [-2.03732, 8.54074, 2e-05], [-5.06304, 7.38194, -2e-05], [-7.64929, 4.16235, -1e-05],
+       [-8.62233, 1.22293, 1e-05], [-8.50513, -1.87162, 2e-05], [-7.3125, -4.72901, 0],
+       [-4.49016, -7.74375, 0], [-1.38546, -8.67036, 2e-05], [0.64486, -8.50068, 0]];
+    const [p0, p1, p2, p3] = [poles3.at(-1)!, poles1.at(-1)!, poles1[0]!, poles3[0]!];
+    const v = [p0, p1, p2, p3].map((p) => b.addVertex({ point: p }));
+    const arc1 = spline([0, 0.25, 0.375, 0.5, 0.625, 0.75, 1], [4, 1, 1, 1, 1, 1, 4], poles1);
+    const arc3 = spline([0, 2, 3, 4, 5, 6, 7, 9].map((x) => x / 9), [4, 1, 1, 1, 1, 1, 1, 4], poles3);
+    const e = [b.addEdge({ curve: straight(p0, p1), start: v[0]!, end: v[1]!, sameSense: true }),
+      b.addEdge({ curve: arc1, start: v[2]!, end: v[1]!, sameSense: true }),
+      b.addEdge({ curve: straight(p3, p2), start: v[3]!, end: v[2]!, sameSense: true }),
+      b.addEdge({ curve: arc3, start: v[3]!, end: v[0]!, sameSense: true })];
+    b.addFace({ surface: cylinder, sameSense: false, loops: [{ kind: 'edge', bound: 'outer', coedges: [
+      { edge: e[0]!, orientation: 'forward' }, { edge: e[1]!, orientation: 'reversed' },
+      { edge: e[2]!, orientation: 'reversed' }, { edge: e[3]!, orientation: 'forward' }] }] });
+    using g = new Geometry(module, new Uint8Array(b.finish().buffer));
+    const p = g.projectCoedge(1);
+    assert.ok('pieces' in p && p.status === 'noConvergence' && p.pieces.length > 0);
+    assert.ok(p.offSurface < 0.00625 && p.error > 0.00625, `${p.offSurface} ${p.error}`);
+    const i = g.faceInfo(0);
+    assert.deepEqual([i.status, i.placedUnfitted, i.placedOffSurface], ['ok', 1, 0]);
+    assert.equal(i.placedError, p.error);
+  });
+
+test('an edge whose projection fails with no pieces (its curve 2D, as a malformed buffer has it): its face refused',
+  { skip }, async () => {
+    // invalidModel at a distance of 0, within any limit, but nothing to place: the face isn't built with a side
+    // missing.
+    const module = await init();
+    const b = new BrepBuilder();
+    const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+    const [A, B, C, D] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]].map((p) => b.addVertex({ point: p }));
+    const flat = segment(b, [0, 0], [1, 0]);
+    const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p,
+      direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 });
+    const edges = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]].map((p, i, all) =>
+      b.addEdge({ curve: line(p, all[(i + 1) % 4]!), start: [A, B, C, D][i]!, end: [A, B, C, D][(i + 1) % 4]!,
+        sameSense: true }));
+    b.addFace({ surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+      coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+    const d = b.finish();
+    d.edge.curve[0] = flat;
+    using g = new Geometry(module, new Uint8Array(d.buffer));
+    const p = g.projectCoedge(0);
+    assert.ok('pieces' in p);
+    assert.deepEqual([p.status, p.pieces.length, p.offSurface], ['invalidModel', 0, 0]);
+    assert.equal(g.faceInfo(0).status, 'pcurveProjectionFailed');
+  });
 
 test('projection: a use against its curve through a sphere\'s pole (pieces in the use\'s order)', { skip },
   async () => {
@@ -1122,4 +1278,33 @@ test('a revolution of a line crossing its axis: the apex a pole, and a curve thr
   assert.deepEqual(p.pieces.map((q) => q.t), [[0, 0.5], [0.5, 1]]);
   const want = [0, 1.5 / s, 0, 2.5 / s];
   want.forEach((w, i) => assert.ok(Math.abs(p.uv[i]! - w) < 1e-9, `uv[${i}] ${p.uv[i]}`));
+});
+
+test('meshDeviationJudge: a face\'s triangles\' worst sampled distance from its surface (centroids, sides\' middles); '
+  + 'undefined for a face not in the model or without triangles', { skip }, async () => {
+  // Two whole unit spheres, faces #5 about the origin and #6 about (10, 0, 0).
+  const bb = new BrepBuilder();
+  for (const [id, x] of [[5, 0], [6, 10]] as const) {
+    const position = { origin: [x, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+    const face = bb.addFace({ surface: bb.addSurface({ kind: 'sphere', position, radius: 1 }), sameSense: true,
+      loops: [], id });
+    const shell = bb.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    bb.addItem({ kind: 'body', ref: bb.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  }
+  const model = openBrep(bb.finish().buffer);
+  const judge = meshDeviationJudge(await init());
+  // The octant triangle: its centroid 1 - 1/sqrt(3) inside, its sides' middles 1 - 1/sqrt(2); on each sphere, given
+  // as positions minus an origin.
+  const [whole, half] = [5, 6];
+  const tri = (dx: number, origin: [number, number, number]) => ({ origin,
+    positions: Float32Array.from([1 + dx, 0, 0, dx, 1, 0, dx, 0, 1].map((x, i) => x - origin[i % 3]!)),
+    indices: Uint32Array.from([0, 1, 2]) });
+  const want = 1 - 1 / Math.sqrt(3);
+  const a = judge.worst(model, { ...tri(0, [0, 0, 0]), faces: [{ entityId: whole, start: 0, count: 3 }] }, whole);
+  assert.ok(Math.abs(a! - want) < 1e-6, String(a));
+  const b = judge.worst(model, { ...tri(10, [10, 0, 0]), faces: [{ entityId: half, start: 0, count: 3 }] }, half);
+  assert.ok(Math.abs(b! - want) < 1e-6, String(b));
+  assert.equal(judge.worst(model, { ...tri(0, [0, 0, 0]), faces: [{ entityId: whole, start: 0, count: 0 }] }, whole),
+    undefined);
+  assert.equal(judge.worst(model, { ...tri(0, [0, 0, 0]), faces: [] }, 99999), undefined);
 });

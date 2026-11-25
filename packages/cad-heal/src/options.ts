@@ -45,11 +45,10 @@ export function fixesNamed(name: string): readonly HealFix[] {
 }
 
 /**
- * Whether importers heal unless told (step-import's ImportOptions.heal, stepconv, the viewer's Heal B-reps). Off
- * while healing costs far more than the import it follows (the 39 slowest files: 3,320 s of CPU against an import of
- * 37.5 s). healPart and healScene heal whenever called: their callers asked for it.
+ * Whether importers heal unless told (step-import's ImportOptions.heal, stepconv, the viewer's Heal B-reps).
+ * healPart and healScene heal whenever called: their callers asked for it.
  */
-export const HEAL_BY_DEFAULT: boolean = false;
+export const HEAL_BY_DEFAULT: boolean = true;
 
 export interface HealOptions {
   /**

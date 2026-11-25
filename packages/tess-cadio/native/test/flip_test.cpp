@@ -212,6 +212,22 @@ TEST_CASE("foldedEdges: an edge at the pole used twice the same way counted (mor
   CHECK_EQ(foldedEdges({0, 1, 3, 2, 1, 3}, std::vector<int32_t>{0, 1, 2, 1, 4}, std::vector<char>{1, 1, 0, 1, 0}), 0);
 }
 
+TEST_CASE("windingFaults: a face's triangles each wound as their neighbours none; one triangle's winding swapped, its "
+  "edges each used twice the same way counted, anywhere; points welded as one") {
+  // A fan of four triangles about centre 0 over the square 1-2-3-4, each counterclockwise.
+  const std::vector<int32_t> fan{0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1}, weld{0, 1, 2, 3, 4};
+  CHECK_EQ(windingFaults(fan, weld), 0);
+  // (0, 3, 2) for (0, 2, 3): its edges to the centre each used twice the same way, with its neighbours'.
+  std::vector<int32_t> swapped = fan;
+  std::swap(swapped[4], swapped[5]);
+  CHECK_EQ(windingFaults(swapped, weld), 2);
+  // Point 4 a copy of point 1 as shipped (welded): (0, 4, 1) degenerate, left out; (0, 3, 4) then runs 1 -> 0
+  // against (0, 1, 2)'s 0 -> 1: none.
+  CHECK_EQ(windingFaults(fan, std::vector<int32_t>{0, 1, 2, 3, 1}), 0);
+  // An edge used three times (a fin): counted once.
+  CHECK_EQ(windingFaults({0, 1, 2, 1, 0, 3, 0, 1, 4}, std::vector<int32_t>{0, 1, 2, 3, 4}), 1);
+}
+
 TEST_CASE("sectorKeep: a fan chain's points kept where they turn one way within the sector its ends bound; a step "
   "back, one past the far end and a needle left out; a sector past half a turn whole; either direction") {
   const double d = M_PI / 180, minTurn = 1e-3;

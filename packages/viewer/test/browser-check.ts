@@ -278,6 +278,8 @@ interface PageOptions {
   dark?: boolean;
   /** The query as it is: not thin edges unless it says (page's default). */
   asIs?: boolean;
+  /** Healing as the viewer has it by default (page's default: heal=0 unless the query says, below). */
+  healDefault?: boolean;
   /** The page focused, as a tab in front is (headless Chrome's tabs aren't). */
   focus?: boolean;
 }
@@ -318,9 +320,14 @@ async function page(query: string, after?: string, opts: PageOptions = {}): Prom
   if (opts.first) await send('Page.addScriptToEvaluateOnNewDocument', { source: opts.first }, sessionId);
   // Thin edges unless the check asks: fat ones cost several times as much in software rendering (SwiftShader), which
   // the timing checks would feel (the fat edges check asks for them).
+  // Models as imported unless the check asks: these checks' counts of warnings and failed faces are of the files as
+  // written, and healing's own (on by default) are the healing checks' (heal B-reps). Not a recording's page: its
+  // replay opens the model in a page of its own, with healing as by default (heal= is the address's model's alone).
   const thin = opts.asIs || /[?&]edgeStyle=/.test(query) || !query.startsWith('?') ? query
     : `${query}&edgeStyle=thin`;
-  await send('Page.navigate', { url: `http://localhost:${port}${base}${thin}` }, sessionId);
+  const healed = opts.asIs || opts.healDefault || /[?&](heal(On|Off|Fit)?=|record\b)/.test(thin)
+    || !thin.startsWith('?') ? thin : `${thin}&heal=0`;
+  await send('Page.navigate', { url: `http://localhost:${port}${base}${healed}` }, sessionId);
   try {
     for (let t = 0; t < 3000; t++) {
       const r = await send('Runtime.evaluate', { expression: 'document.body?.dataset.report ?? null',
@@ -926,8 +933,12 @@ await check('hide others and transparency', async () => {
 // The tree's context menu ends with Selection's actions: what's before them (else the whole menu, so it doesn't match).
 const SELECT_ITEMS = ['Select parent', 'Select children', 'Select none', 'Select all', 'Invert selection',
   'Select by ID...'];
-const ownItems = (items: string[]) => (JSON.stringify(items.slice(-SELECT_ITEMS.length)) ===
-  JSON.stringify(SELECT_ITEMS) ? items.slice(0, -SELECT_ITEMS.length) : items);
+// (A node's problems item, last where it has any, healing's warnings among them, left out too.)
+const ownItems = (all: string[]) => {
+  const items = /^\d+ Errors?, \d+ Warnings?\.\.\.$/.test(all.at(-1) ?? '') ? all.slice(0, -1) : all;
+  return JSON.stringify(items.slice(-SELECT_ITEMS.length)) === JSON.stringify(SELECT_ITEMS)
+    ? items.slice(0, -SELECT_ITEMS.length) : items;
+};
 await check('override appearance', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -3438,7 +3449,7 @@ await check('heal B-reps', async () => {
   const d = await page(`?url=${encodeURIComponent('/content/heal.stp')}&check`, `(async () => {
     await cadViewer.idle();
     return { said: ${healingSaid}, heal: viewer.settings.heal };
-  })()`) as { after: { said: string[]; heal: boolean } };
+  })()`, { healDefault: true }) as { after: { said: string[]; heal: boolean } };
   expect(d.after.heal === HEAL_BY_DEFAULT && (d.after.said.length > 0) === HEAL_BY_DEFAULT, `the default: ${
     JSON.stringify(d.after)}`);
   return undefined;
@@ -3721,12 +3732,15 @@ await check('tess-cadio', async () => {
       await ui.openUrl('/content/conical-surface.step');
       await cadViewer.idle();
       return { parts: viewer.model.parts, errors: viewer.model.diagnostics.filter((d) => d.severity === 'error')
-        .map((d) => d.message), deflection: viewer.model.meshedWith.linearDeflection };
+        .map((d) => d.message), deflection: viewer.model.meshedWith.linearDeflection,
+        kept: viewer.model.diagnostics.filter((d) => d.message.startsWith('faces kept with defects: '))
+          .map((d) => d.message) };
     })()`) as { after: { parts: { total: number; done: number; failed: number }; errors: string[];
-      deflection: number } };
+      deflection: number; kept: string[] } };
     const g = f.after, m = JSON.stringify(g);
-    expect(g.deflection === 1.2e-6 && (keep === '1' ? !g.errors.some((x) => /failed to mesh/.test(x))
-      : g.errors.includes('1 faces failed to mesh: #77')), `conical-surface at 1.2e-6, keepFailing=${keep}: ${m}`);
+    // (At its point cap: kept with its defect said by default, keepDefects; kept as it is, unjudged, keepFailing=1.)
+    expect(g.deflection === 1.2e-6 && !g.errors.some((x) => /failed to mesh/.test(x)) && (keep === '1'
+      || (g.kept.length === 1 && g.kept[0]!.includes('#77'))), `conical-surface at 1.2e-6, keepFailing=${keep}: ${m}`);
   }
   const o = await page(`?url=${encodeURIComponent('/content/as1.stp')}&minAngle=5&check`, `(async () => {
     await cadViewer.idle();
@@ -3848,7 +3862,9 @@ await check('go to a face', async () => {
     const out = { rows, selected: sel.map((id) => nodes.pathOf(id)), detail: nodes.hasDetail(),
       details: ui.details(), panel: document.getElementById('details').textContent,
       height: (viewer.camera.top - viewer.camera.bottom) / viewer.camera.zoom,
-      meshedWith: viewer.model.meshedWith, link: ui.link?.() };
+      meshedWith: viewer.model.meshedWith, link: ui.link?.(),
+      kept: viewer.model.diagnostics.filter((x) => x.message.startsWith('faces kept with defects: '))
+        .map((x) => x.severity + ': ' + x.message) };
     viewer.zoomAll();
     await cadViewer.idle();
     out.all = (viewer.camera.top - viewer.camera.bottom) / viewer.camera.zoom;
@@ -3857,22 +3873,21 @@ await check('go to a face', async () => {
     return out;
   })()`;
   type Got = { rows: string[][]; selected: string[]; detail: boolean; details: string[]; panel: string;
-    height: number; all: number; status: string; link?: string;
+    height: number; all: number; status: string; link?: string; kept: string[];
     meshedWith: { backend: string; keepFailing: boolean; heal: boolean; profile: string; linearDeflection: number } };
   const url = `?url=${encodeURIComponent('/content/conical-surface.step')}&backend=cadio&fallback=none`
     + '&linearDeflection=1.2e-6';
-  const cause = 'Cause: noConvergence: refinement stopped at its point cap';
   const f = (await page(`${url}&face=77&check=dialogs`, look) as { after: Got }).after, j = JSON.stringify(f);
   expect(f.meshedWith.profile === 'custom' && f.meshedWith.linearDeflection === 1.2e-6
     && new URL(f.link ?? 'x:').searchParams.get('linearDeflection') === '0.0000012', `the address's deflection, `
     + `meshed with and linked: ${j}`);
   expect(f.selected.length === 1 && f.selected[0]!.endsWith('/face#77') && f.detail, `face=77 selected: ${j}`);
   expect(f.height < f.all, `zoomed to it: ${j}`);
-  expect(f.details.includes('Failed to mesh: its outline is drawn in red')
-    && f.details.some((l) => l.startsWith(cause)) && f.panel.includes(cause), `its Details: ${j}`);
-  const row = f.rows.find((r) => r[1] === '1 faces failed to mesh: #77');
-  expect(row?.[0] === 'error #12' && row.length === 3 && row[2]!.startsWith('noConvergence: refinement stopped at '
-    + 'its point cap') && row[2]!.endsWith(' (#77)'), `the problems dialog's cause: ${j}`);
+  // (At its point cap there, the face is kept with its mesh, tess-cadio's keepDefects: a warning, no error.)
+  expect(f.details.some((x) => /^Triangles: [1-9]/.test(x)) && !f.details.some((x) => x.startsWith('Failed')),
+    `its Details: ${j}`);
+  expect(f.rows.length === 0 && f.kept.length === 1 && f.kept[0]!.startsWith('warning: faces kept with defects: 1 ')
+    && f.kept[0]!.includes('#77') && /point cap/.test(f.kept[0]!), `kept with its defect said: ${j}`);
   expect(!f.status.includes('the address'), `nothing said: ${j}`);
   const k = (await page(`${url}&keepFailing=1&heal=1&face=77&check`, look) as { after: Got }).after;
   const l = JSON.stringify(k);

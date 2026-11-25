@@ -138,8 +138,8 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
       }
     }, () => false);
     // The import's phases first, in order, before the scene (each told as it begins, and again only after
-    // PROGRESS_MS within it: how often depends on the machine's speed).
-    assert.deepEqual([...new Set(told)], ['reading', 'structure', 'parts', 'assembly']);
+    // PROGRESS_MS within it: how often depends on the machine's speed), then healing's (on by default).
+    assert.deepEqual([...new Set(told)], ['reading', 'structure', 'parts', 'assembly', 'healing']);
     assert.deepEqual(events.map((e) => e.type), ['scene', ...requests.map(() => 'mesh'), 'done']);
     assert.equal(requests.length, 5);
     const scene = (events[0] as { scene: Scene }).scene;
@@ -148,8 +148,9 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     // representation's id, not one of the file's faces, so every face of the file counts as failed: outlined from
     // the file); a profile's deflections exactly (not through degrees).
     // (And the edges found from their triangles, as the fake backend gives none: its buffer too.)
-    // (And each part's B-rep model's buffer, handed over to the page with its mesh: its own, to transfer.)
-    assert.ok(transfers.slice(1, -1).every((t) => t.length === 5));
+    // (And each part's B-rep model's buffer, handed over to the page with its mesh: its own, to transfer; and its
+    // analysis's, healing on by default.)
+    assert.ok(transfers.slice(1, -1).every((t) => t.length === 6));
     const meshes = events.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
     assert.ok(meshes.every((e, k) => e.model.byteLength > 0 && transfers[k + 1]!.includes(e.model)));
     assert.equal(new Set(meshes.map((e) => e.model)).size, meshes.length);
@@ -380,7 +381,7 @@ test('meshModelIn: the scene kept by a load meshed again (Mesh again): a mesh pe
 
 test('handOver and takeBack: one copy, moved; the stand-in throws on any use; outlines made from the model taken '
   + 'back; parts sharing a buffer given their own', { skip }, async () => {
-  const scene = await importModel(stepInput());
+  const scene = await importModel(stepInput(), {}, { heal: { heal: false } });
   const part = meshable(scene)[0]!, brep = scene.parts[part]!.brep!;
   const before = [...new Uint8Array(brep.model.buffer)].join();
   const outlined = (s: Scene) => s.parts[part]!.brep!.outline!({ linearDeflection: 0.5, angularDeflection: 0.5 });

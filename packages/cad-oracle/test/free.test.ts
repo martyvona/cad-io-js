@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import { type BrepData, BrepBuilder, type Coedge, type Loop } from 'cad-brep';
 import { circleAngle, multiplicities, unitCircle, unitHalfCircle } from '../../cad-brep/test/reference/bezier.ts';
 import { Geometry, init as initGeom } from '../../cad-geom/src/index.ts';
-import { type Estimate, type FaceMeasure, init, Oracle } from '../src/index.ts';
+import { type Estimate, type FaceMeasure, init, Oracle, trusted } from '../src/index.ts';
 
 const pkg = path.join(import.meta.dirname, '..');
 const built = fs.existsSync(path.join(pkg, 'dist/cad_oracle.wasm'));
@@ -448,4 +448,54 @@ test('an offset of a surface periodic in v only, folding off the face: bands alo
     }
     g.dispose();
     near(await measure(data), expected, 'the cylinder\'s bump\'s offset', ['cells'], 1e-8);
+  });
+
+/**
+ * The unit square as a bilinear B-spline on z = 0, its bottom side a quadratic B-spline from (0, 0, 0) to (1, 0, 0)
+ * whose middle pole is at 2 h (the curve h off the surface), no p-curves, its edges' tolerance `tol`.
+ */
+function liftedSquare(h: number, tol: number, swept = false): BrepData {
+  const b = new BrepBuilder();
+  const surface = swept ? b.addSurface({ kind: 'extrusion', curve: b.addCurve({ kind: 'line', point: [0, 0, 0],
+    direction: [1, 0, 0], magnitude: 1 }), direction: [0, 1, 0], magnitude: 1 })
+    : b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+      uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 1, 0]], [[1, 0, 0], [1, 1, 0]]],
+      uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const [A, B, C, D] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]].map((p) =>
+    b.addVertex({ point: p as [number, number, number] }));
+  const bulge = b.addCurve({ kind: 'bspline', degree: 2, knots: [0, 1], multiplicities: [3, 3],
+    poles: [[0, 0, 0], [0.5, 0, 2 * h], [1, 0, 0]], closed: false, selfIntersect: false, form: 'unspecified' });
+  const line = (p: number[], q: number[]) => b.addCurve({ kind: 'line', point: p as [number, number, number],
+    direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 });
+  const edges = [b.addEdge({ curve: bulge, start: A!, end: B!, sameSense: true, tolerance: tol }),
+    b.addEdge({ curve: line([1, 0, 0], [1, 1, 0]), start: B!, end: C!, sameSense: true, tolerance: tol }),
+    b.addEdge({ curve: line([1, 1, 0], [0, 1, 0]), start: C!, end: D!, sameSense: true, tolerance: tol }),
+    b.addEdge({ curve: line([0, 1, 0], [0, 0, 0]), start: D!, end: A!, sameSense: true, tolerance: tol })];
+  b.addFace({ surface, sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] });
+  return b.finish();
+}
+
+test('an edge placed off its surface (the mesher\'s rule): flagged edgesPlaced, its distance in the area\'s error',
+  { skip }, async () => {
+    // 1e-4 off at a tolerance of 1e-5: placed (within 100 x), the area's error about that times the side's length,
+    // so trusted at 1e-3 but not at 1e-6; 5e-3 off at 1e-4: placed, untrusted at 1e-3 too; past 100 x, not built.
+    // On a B-spline (the free-form engine) and the same square as an extrusion (the swept one).
+    const module = await init();
+    for (const [h, tol, at3, at6, swept] of [[1e-4, 1e-5, true, false, false], [5e-3, 1e-4, false, false, false],
+      [1e-4, 1e-5, true, false, true]] as const) {
+      using o = new Oracle(module, liftedSquare(h, tol, swept).buffer);
+      const m = o.face(0);
+      assert.ok(m.flags.includes('edgesPlaced') && m.flags.includes('projectedBoundary'),
+        `${h}${swept ? ' swept' : ''}: ${m.flags}`);
+      assert.equal(m.area.status, 'ok');
+      assert.ok(Math.abs(m.area.value - 1) <= 2 * h, `${h}: ${m.area.value}`);
+      assert.ok(m.boundary >= 0.5 * h && m.boundary <= 4 * h, `${h}: boundary ${m.boundary}`);
+      assert.equal(trusted(m, 1e-3), at3, `${h}: ${JSON.stringify(m)}`);
+      assert.equal(trusted(m, 1e-6), at6, `${h}`);
+    }
+    using o = new Oracle(module, liftedSquare(1e-2, 1e-5).buffer);
+    const m = o.face(0);
+    assert.notEqual(m.area.status, 'ok');
+    assert.ok(!m.flags.includes('edgesPlaced'));
   });

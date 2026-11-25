@@ -86,24 +86,87 @@ public:
     };
     add(U_, p_, ru, true), add(V_, q_, rv, false);
   }
+  /** A basis's values and derivatives, on the stack to order 2 (evaluation) and a degree up to kStackDegree. */
+  using B = Scratch<double, 3 * (kStackDegree + 1)>;
   Status derivs(double u, double v, int order, Vec3* out) const override {
     SurfaceDomain d = domain();
     Status st = Status::ok;
     if (u < d.u.lo || u > d.u.hi || v < d.v.lo || v > d.v.hi) st = Status::outOfDomain;
     u = std::clamp(u, d.u.lo, d.u.hi), v = std::clamp(v, d.v.lo, d.v.hi);
     int su = bspline::findSpan(p_, U_, nu_, u), sv = bspline::findSpan(q_, V_, nv_, v);
-    int n = order;
-    // On the stack to order 2 (evaluation) and a degree up to kStackDegree: no allocation in the hot path.
     // (Not zero-filled: basisDerivs writes every entry.)
-    using B = Scratch<double, 3 * (kStackDegree + 1)>;
-    B Nu((n + 1) * (p_ + 1), B::uninitialized), Nv((n + 1) * (q_ + 1), B::uninitialized);
-    bspline::basisDerivs(su, u, p_, n, U_, Nu.data());
-    bspline::basisDerivs(sv, v, q_, n, V_, Nv.data());
-    // The active poles' centroid: the span's local origin.
+    B Nu((order + 1) * (p_ + 1), B::uninitialized), Nv((order + 1) * (q_ + 1), B::uninitialized);
+    bspline::basisDerivs(su, u, p_, order, U_, Nu.data());
+    bspline::basisDerivs(sv, v, q_, order, V_, Nv.data());
+    at(su, sv, Nu.data(), Nv.data(), order, out);
+    return st;
+  }
+  /**
+   * The fixed direction's span and basis found once, and per span of the row its poles summed along the fixed
+   * direction about the span's centroid (as derivs takes them), so each point sums one direction's q + 1 (or p + 1)
+   * terms, not (p + 1) (q + 1): the same partials but for rounding.
+   */
+  void derivsRow(bool alongV, double fixed, int n, const double* ts, int order, Vec3* out,
+    Status* st) const override {
+    const SurfaceDomain d = domain();
+    const Range rf = alongV ? d.u : d.v, rt = alongV ? d.v : d.u;
+    const int pf = alongV ? p_ : q_, pt = alongV ? q_ : p_, nf = alongV ? nu_ : nv_, nt = alongV ? nv_ : nu_;
+    const std::vector<double>& Kf = alongV ? U_ : V_;
+    const std::vector<double>& Kt = alongV ? V_ : U_;
+    const bool fixedOut = fixed < rf.lo || fixed > rf.hi;
+    fixed = std::clamp(fixed, rf.lo, rf.hi);
+    const int sf = bspline::findSpan(pf, Kf, nf, fixed);
+    B Nf((order + 1) * (pf + 1), B::uninitialized), Nt((order + 1) * (pt + 1), B::uninitialized);
+    bspline::basisDerivs(sf, fixed, pf, order, Kf, Nf.data());
+    const int stride = pidx(0, order) + 1, nf1 = pf + 1, nt1 = pt + 1;
+    // The current span's sums: R[k * nt1 + j] = sum_i Nf^(k)_i w_ij (P_ij - o), Rw likewise of w_ij, i along the
+    // fixed direction, j along the row (alongV: i in u, j in v).
+    std::vector<Vec3> R(static_cast<size_t>(order + 1) * nt1);
+    std::vector<double> Rw(R.size());
+    int span = -1;
     Vec3 o{};
-    for (int i = 0; i <= p_; i++)
-      for (int j = 0; j <= q_; j++) o = o + read3(P_.data() + 3 * ((su - p_ + i) * nv_ + (sv - q_ + j)));
-    o = (1.0 / ((p_ + 1) * (q_ + 1))) * o;
+    for (int i = 0; i < n; i++) {
+      double t = ts[i];
+      st[i] = fixedOut || t < rt.lo || t > rt.hi ? Status::outOfDomain : Status::ok;
+      t = std::clamp(t, rt.lo, rt.hi);
+      const int s = bspline::findSpan(pt, Kt, nt, t);
+      bspline::basisDerivs(s, t, pt, order, Kt, Nt.data());
+      if (s != span) {
+        span = s, o = alongV ? centroid(sf, s) : centroid(s, sf);
+        for (int k = 0; k <= order; k++)
+          for (int j = 0; j < nt1; j++) {
+            Vec3 a{};
+            double w = 0;
+            for (int ii = 0; ii < nf1; ii++) {
+              const int idx = alongV ? (sf - p_ + ii) * nv_ + (s - q_ + j) : (s - p_ + j) * nv_ + (sf - q_ + ii);
+              const double b = Nf[k * nf1 + ii] * W_[idx];
+              a = a + b * (read3(P_.data() + 3 * idx) - o);
+              w += b;
+            }
+            R[k * nt1 + j] = a, Rw[k * nt1 + j] = w;
+          }
+      }
+      Vec3 A[kPartials];
+      double W[kPartials];
+      for (int tt = 0; tt <= order; tt++)
+        for (int l = 0; l <= tt; l++) {
+          const int k = tt - l;
+          // k in u, l in v: the fixed direction's order and the row's (alongV), else the other way round.
+          const int kf = alongV ? k : l, kt = alongV ? l : k;
+          Vec3 a{};
+          double w = 0;
+          for (int j = 0; j < nt1; j++) {
+            const double b = Nt[kt * nt1 + j];
+            a = a + b * R[kf * nt1 + j], w += b * Rw[kf * nt1 + j];
+          }
+          A[pidx(k, l)] = a, W[pidx(k, l)] = w;
+        }
+      finish(A, W, order, o, out + static_cast<size_t>(i) * stride);
+    }
+  }
+  /** derivs's partials from the spans su, sv and their basis functions' derivatives Nu, Nv to order n. */
+  void at(int su, int sv, const double* Nu, const double* Nv, int n, Vec3* out) const {
+    const Vec3 o = centroid(su, sv);
     Vec3 A[kPartials];
     double W[kPartials];
     for (int t = 0; t <= n; t++)
@@ -123,6 +186,17 @@ public:
         }
         A[pidx(k, l)] = a, W[pidx(k, l)] = w;
       }
+    finish(A, W, n, o, out);
+  }
+  /** The active poles' centroid of the spans su, sv: their local origin. */
+  Vec3 centroid(int su, int sv) const {
+    Vec3 o{};
+    for (int i = 0; i <= p_; i++)
+      for (int j = 0; j <= q_; j++) o = o + read3(P_.data() + 3 * ((su - p_ + i) * nv_ + (sv - q_ + j)));
+    return (1.0 / ((p_ + 1) * (q_ + 1))) * o;
+  }
+  /** The partials to order n from the homogeneous ones A, W about o, by the quotient rule. */
+  void finish(Vec3* A, double* W, int n, Vec3 o, Vec3* out) const {
     // A polynomial surface's weights are 1: their partials are 0 exactly (summed basis functions would round).
     if (!rational_) {
       W[0] = 1;
@@ -138,7 +212,6 @@ public:
         out[pidx(k, l)] = (1 / W[0]) * s;
       }
     out[0] = out[0] + o + c_;
-    return st;
   }
   /** A rectangle within one span: its partial's hull met with the centred form; false where a hull fails. */
   bool centred(Range ru, Range rv, int k, int l, Box3& out) const {

@@ -21,25 +21,34 @@ namespace fit {
 namespace {
 
 constexpr int CHECKS = 33;       // error checks per span
+// The narrowest span halved, relative to the range (2^-30): narrower and still past the tolerance, f has a kink or a
+// jump there (a smooth f's error falls as the span's fourth power or so long before), and halving on toward floating
+// point only re-solves and re-checks every span each round, a few dozen rounds more to the same noConvergence.
+constexpr double MIN_SPAN = 0x1p-30;
 
 struct Fitter {
   const std::function<Vec2(double)>& f;
   int p;
-  const std::function<double(Vec2, Vec2)>* measure = nullptr;  // the caller's error, else the (u, v) distance
+  const std::function<Vec3(Vec2)>* lift = nullptr;  // the caller's map the error is measured in, else (u, v)
   bool finite = true;
   // f's values by parameter, kept across the rounds: a span a round doesn't halve keeps its ends, so its samples and
   // checks are at the same parameters (the same doubles) the next round. f is a caller's foot (a Newton each), most
-  // of a fit's cost, and deterministic.
-  std::unordered_map<double, Vec2> seen;
+  // of a fit's cost, and deterministic; its lift (a surface point) is kept with it once asked.
+  struct Seen {
+    Vec2 v;
+    Vec3 lifted;
+    bool hasLift = false;
+  };
+  std::unordered_map<double, Seen> seen;
 
-  Vec2 at(double t) {
+  Seen& sample(double t) {
     auto it = seen.find(t);
     if (it != seen.end()) return it->second;
     Vec2 v = f(t);
     finite = finite && std::isfinite(v.x) && std::isfinite(v.y);
-    seen.emplace(t, v);
-    return v;
+    return seen.emplace(t, Seen{v, {}, false}).first->second;
   }
+  Vec2 at(double t) { return sample(t).v; }
 
   /** The least-squares spline on these breakpoints (r's ends first and last), the ends interpolated. */
   BSpline solve(const std::vector<double>& br) {
@@ -92,8 +101,10 @@ struct Fitter {
   double error(const BSpline& c, double t) {
     double v[2];
     bspline::eval(c, t, 0, v);
-    Vec2 q = at(t);
-    return measure && *measure ? (*measure)(Vec2{v[0], v[1]}, q) : std::hypot(v[0] - q.x, v[1] - q.y);
+    Seen& q = sample(t);
+    if (!(lift && *lift)) return std::hypot(v[0] - q.v.x, v[1] - q.v.y);
+    if (!q.hasLift) q.lifted = (*lift)(q.v), q.hasLift = true;
+    return norm((*lift)(Vec2{v[0], v[1]}) - q.lifted);
   }
 
   /** The largest error found on [a, b]: the checks, then golden-section search around the worst. */
@@ -131,29 +142,33 @@ Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double 
 }
 
 Status curve2(const std::function<Vec2(double)>& f, Range r, int degree, double tol, BSpline& out, double& maxError,
-  const std::function<double(Vec2, Vec2)>& error, int maxSpans) {
+  const std::function<Vec3(Vec2)>& lift, int maxSpans) {
   maxError = std::numeric_limits<double>::infinity();
   if (!(degree >= 1 && degree <= 9) || !(tol > 0) || !std::isfinite(r.lo) || !std::isfinite(r.hi) || !(r.lo < r.hi))
     return Status::invalidModel;
-  Fitter fit{f, degree, &error, true, {}};
+  Fitter fit{f, degree, &lift, true, {}};
   std::vector<double> br{r.lo, r.hi};
   while (true) {
     curve2Rounds++;
     BSpline c = fit.solve(br);
     std::vector<double> next{br.front()};
     double worst = 0;
+    bool narrow = false;
     for (size_t s = 0; s + 1 < br.size(); s++) {
       double e = fit.spanError(c, br[s], br[s + 1]);
       worst = std::max(worst, e);
-      if (e > tol) next.push_back(0.5 * (br[s] + br[s + 1]));
+      if (e > tol) {
+        narrow = narrow || br[s + 1] - br[s] < MIN_SPAN * (r.hi - r.lo);
+        next.push_back(0.5 * (br[s] + br[s + 1]));
+      }
       next.push_back(br[s + 1]);
     }
     if (!fit.finite) return Status::singular;
     out = std::move(c);
     maxError = worst;
     if (worst <= tol) return Status::ok;
-    // Halving stops where the spans are too many, or too narrow to halve in floating point.
-    bool narrow = false;
+    // Halving stops where the spans are too many, or a span past the tolerance is narrower than MIN_SPAN of the range
+    // or too narrow to halve in floating point.
     for (size_t s = 0; s + 1 < next.size(); s++) narrow = narrow || !(next[s] < next[s + 1]);
     if (static_cast<int>(next.size()) - 1 > maxSpans || narrow) return Status::noConvergence;
     br = std::move(next);

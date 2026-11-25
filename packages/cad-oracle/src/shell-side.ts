@@ -30,7 +30,8 @@ export interface ShellSideResult {
 export interface ShellSide {
   /**
    * For closed shell row `shell` of the model: which side of it a point just outside face row `face` lies on, the
-   * point at a point well inside the face moved `eps` (about 10 x the tolerance) along its normal.
+   * point at a point well inside the face (a narrow face's: in at its tolerance) moved `eps` (about 10 x the
+   * tolerance) along its normal.
    */
   side(model: BrepData, shell: number, face: number, eps: number): ShellSideResult;
 }
@@ -39,14 +40,18 @@ export interface ShellSide {
 export class RayShellSide implements ShellSide {
   private readonly oracles = new Map<ArrayBuffer, Oracle>();
   private readonly module: OracleModule;
-  private readonly opts: { checkSecondRay?: boolean };
+  private readonly opts: { checkSecondRay?: boolean; relTol?: number };
 
-  constructor(module: OracleModule, opts: { checkSecondRay?: boolean } = {}) {
+  /**
+   * `relTol` the oracles' (Options' relTol): shellSide measures the faces the rays meet for their orientation flag, at
+   * the native default (1e-10) slow on some free-form faces (minutes), at judging's (JUDGE_REL_TOL) not.
+   */
+  constructor(module: OracleModule, opts: { checkSecondRay?: boolean; relTol?: number } = {}) {
     this.module = module, this.opts = opts;
   }
 
   /** A RayShellSide on the default module (init()). */
-  static async create(opts: { checkSecondRay?: boolean } = {}): Promise<RayShellSide> {
+  static async create(opts: { checkSecondRay?: boolean; relTol?: number } = {}): Promise<RayShellSide> {
     return new RayShellSide(await init(), opts);
   }
 

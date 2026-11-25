@@ -406,4 +406,10 @@ test("importPhase: the STEP import's phases in the status line, the parts' share
     importPhase({ phase: 'parts', done: 0, total: 3 }), importPhase({ phase: 'parts', done: 2, total: 3 }),
     importPhase({ phase: 'parts' }), importPhase({ phase: 'assembly' })],
   ['reading', 'reading its structure', 'making parts, 0 %', 'making parts, 66 %', 'making parts', 'assembling']);
+  // Healing: the parts healed, and where a part's healing is where told.
+  assert.deepEqual([importPhase({ phase: 'healing', done: 3, total: 12 }), importPhase({ phase: 'healing' }),
+    importPhase({ phase: 'healing', done: 3, total: 12, detail: 'part 4 of 12: orientShells: faces, 1 of 8 measured' }),
+    importPhase({ phase: 'healing', detail: 'part 1 of 1: curves' })],
+  ['healing 3 of 12 parts', 'healing', 'healing 3 of 12 parts: part 4 of 12: orientShells: faces, 1 of 8 measured',
+    'healing: part 1 of 1: curves']);
 });

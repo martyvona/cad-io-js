@@ -92,7 +92,7 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
     basis = cadgeom::makeSurface(model, model.surfaceInts(s)[0], st);
     if (basis) basis = cadgeom::closeInFact(std::move(basis), tol);
   }
-  double info[7];
+  double info[16];
   if (int32_t r = cg_face_info(I.h, f, NAN, info)) return fail(Status::invalidModel, faceStatusWhy(r));
   const double Pu = info[1], Pv = info[2];
   std::vector<double> poleU, poleV;
@@ -101,6 +101,7 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
     for (int i = 0; i < static_cast<int>(info[4]); i++) (sc[2 * i] == 0 ? poleV : poleU).push_back(sc[2 * i + 1]);
   }
   if (info[6] > 0) T.flags |= flagProjectedBoundary;
+  if (info[7] + info[8] > 0) T.flags |= flagEdgesPlaced;
   const SurfaceDomain dom = S->domain();
   Frame fr;
   fr.swap = Pv > 0 && !(Pu > 0);
@@ -124,6 +125,8 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
   bool bad = false;
   Inner in;
   in.K = K;
+  PieceCache cache;
+  in.cache = &cache;
   in.F = [&](double a, double t, double* o) {
     // Once a strip isn't sound the run is thrown away (bands follow): cut it short, not through the fold.
     if (bad) {
@@ -139,6 +142,33 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
       if (basis->eval(uv.x, uv.y, 1, qb) == Status::ok && dot(n, cross(qb.du, qb.dv)) <= 0) bad = true;
     }
     fn(q.p, n, o);
+  };
+  // F along a row: the surface evaluated at the row's points at once, each then as F takes it.
+  in.Frow = [&](double a, int n, const double* ts, double* o) {
+    if (bad) {
+      std::fill(o, o + static_cast<size_t>(n) * K, 0.0);
+      return;
+    }
+    std::vector<double> bs(n);
+    for (int i = 0; i < n; i++) bs[i] = fr.b0 + fr.dir * ts[i];
+    std::vector<SurfacePoint> q(n);
+    std::vector<Status> st(n);
+    S->evalRow(!fr.swap, a, n, bs.data(), 1, q.data(), st.data());
+    for (int i = 0; i < n; i++) {
+      double* oi = o + static_cast<size_t>(i) * K;
+      if (bad) {
+        std::fill(oi, oi + K, 0.0);
+        continue;
+      }
+      if (st[i] == Status::singular) bad = true;
+      const Vec3 nn = cross(q[i].du, q[i].dv);
+      if (basis) {
+        SurfacePoint qb;
+        const Vec2 uv = fr.uvOf(a, ts[i]);
+        if (basis->eval(uv.x, uv.y, 1, qb) == Status::ok && dot(nn, cross(qb.du, qb.dv)) <= 0) bad = true;
+      }
+      fn(q[i].p, nn, oi);
+    }
   };
   in.P = [&](double a, double t) {
     const Vec2 uv = fr.uvOf(a, t);
@@ -593,7 +623,7 @@ FreeTotals freeIntegral(Oracle::Impl& I, int f, int K, int area,
 
   Run R;
   for (int n = 1;; n = n == 1 ? 4 : 2 * n) {
-    bad = false;
+    bad = false, cache.clear();
     R = run(n);
     if (!ok) return fail(Status::invalidModel, "a p-curve not evaluated");
     if (!bad || n >= kMaxBands) {
@@ -640,11 +670,15 @@ static FreeTotals freeArea(Oracle::Impl& I, int f, double relTol) {
     }, relTol);
 }
 
-FaceMeasure Oracle::Impl::freeForm(int f) {
+FaceMeasure Oracle::Impl::freeForm(int f, const Integrand* g, std::vector<Estimate>* gOut) {
   FaceMeasure m;
   m.offSurface = NAN;
   m.method = Method::freeForm;
-  const FreeTotals T = freeArea(*this, f, options.relTol);
+  // With g: its pass's area (component k), which differs from the area's own pass in the last bits at most (its panels
+  // settled over g's components too).
+  const FreeTotals T = g ? freeWith(*this, f, *g) : freeArea(*this, f, options.relTol);
+  const int ai = g ? g->components : 0;
+  if (g) *gOut = freeEstimates(T, g->components);
   m.flags = T.flags;
   m.offSurface = T.offSurface;
   if (*T.why && T.status != Status::ok && T.status != Status::noConvergence && T.status != Status::singular) {
@@ -653,9 +687,9 @@ FaceMeasure Oracle::Impl::freeForm(int f) {
     return m;
   }
   m.why = T.why;
-  double a = T.value[0];
+  double a = T.value[ai];
   if (a < 0 && !(m.flags & flagSphereSide)) m.flags |= flagOrientation, a = -a;
-  m.area = {a, T.error[0], T.status};
+  m.area = {a, T.error[ai], T.status};
   return m;
 }
 

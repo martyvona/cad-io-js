@@ -78,7 +78,7 @@ SweptFace sweptFace(Oracle::Impl& I, int f) {
   const double* R = model.surfaceReals(s);
   F.C = I.curve(model.surfaceInts(s)[0]);
   if (!F.C) return fail(Status::unsupported, "a profile curve not supported");
-  double info[7];
+  double info[16];
   if (int32_t r = cg_face_info(I.h, f, NAN, info)) return fail(Status::invalidModel, faceStatusWhy(r));
   F.Pu = info[1], F.Pv = info[2];
   {
@@ -100,6 +100,7 @@ SweptFace sweptFace(Oracle::Impl& I, int f) {
     }
   }
   if (info[6] > 0) F.flags |= flagProjectedBoundary;
+  if (info[7] + info[8] > 0) F.flags |= flagEdgesPlaced;
   LoopPieces L = loopPieces(I, f, F.Pu, F.Pv);
   if (*L.why) return fail(L.status, L.why);
   F.pieces = std::move(L.pieces);

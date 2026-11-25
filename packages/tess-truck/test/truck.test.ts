@@ -22,9 +22,12 @@ const skip = !fs.existsSync(wasm) ? 'tess-truck not built (run packages/tess-tru
   cube) ? 'corpus not fetched' : false;
 const occtBuilt = fs.existsSync(path.join(root, 'packages/tess-occt/dist/occt_tess.wasm'));
 
-/** A request for each B-rep part of STEP bytes: its model (`rootId` its representation's id, to find it by). */
+/**
+ * A request for each B-rep part of STEP bytes: its model as imported, not healed (truck's own handling of the source's
+ * shells and faces, orientResult's included, is what's tested), `rootId` its representation's id, to find it by.
+ */
 async function requestsOf(bytes: Uint8Array, linear = 0.05, edges = true): Promise<TessellationRequest[]> {
-  const { scene } = await importStep(bytes);
+  const { scene } = await importStep(bytes, { heal: { heal: false } });
   return scene.parts.flatMap((p) => p.brep ? [{ format: 'cad-brep' as const,
     data: new Uint8Array(p.brep.model.buffer), rootId: p.sources[0]!.id, origin: p.origin,
     linearDeflection: linear, angularDeflection: 0.5, edges }] : []);

@@ -28,6 +28,8 @@ namespace tesscadio {
 constexpr int kDeviationReport = 64;
 /** PartOptions::keepSteiner: a face meshed this many times already is seeded with its last mesh's points. */
 constexpr int kKeepSteinerFrom = 3;
+/** collapseAround's tries (a collapse checked) at most, a face: a needle field's hundreds of turned triangles. */
+constexpr int kCollapseTries = 2048;
 
 using namespace cadgeom;
 
@@ -153,18 +155,39 @@ struct PartMesher::Impl {
   std::vector<FaceMesh> faces;
   /** Per face, the edges (model and pseudo) its boundary has points of, and the splits its mesh wants. */
   std::vector<std::set<int>> edgesOf;
+  /**
+   * Face f's cuts into edgesOf[f]: each pseudo-edge whose ends are among `pts` (the face's boundary points). Not only
+   * those with a pseudoSample: a straight cut is sampled at its ends alone, both of them its loops' points (where the
+   * cut crosses them), so none of its boundary points names it, and its span would be no edge's to split.
+   */
+  void addCuts(int f, const std::vector<const BoundaryPoint*>& pts) {
+    std::set<std::tuple<double, double, double>> at;
+    for (const BoundaryPoint* p : pts) {
+      if (p->kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p->edgeIndex);
+      at.insert({p->point.x, p->point.y, p->point.z});
+    }
+    for (int e = m.edges(); e < em->edgeCount(); e++) {
+      if (!em->isPseudo(e) || edgesOf[f].count(e)) continue;
+      const std::vector<Vec3>& q = em->edge(e).points;
+      if (q.size() >= 2 && at.count({q.front().x, q.front().y, q.front().z}) && at.count({q.back().x, q.back().y,
+        q.back().z}))
+        edgesOf[f].insert(e);
+    }
+  }
   std::vector<std::vector<SplitRequest>> wanted;
   /** Per face, how many of its mesh's triangles are the mesher's (the fans' come after them). */
   std::vector<size_t> mesherTriangles;
   /** Each face's rounds with refinement blocked by a ring's segment (FaceMesh::ringBlocked). */
   std::vector<int> ringBlocked;
+  /** Each face's split requests dropped, over its meshings (FaceMesh::splitsDropped). */
+  std::vector<int> splitsDropped;
   /** The refinement floor (criteria.h): an edge's span whose chord is no longer is never split (EdgeMesh::split). */
   double floor = 0;
   /** Per face, its poles' rings (poles.h), shared across faces and cut into their edges before any face is meshed. */
   std::vector<std::vector<PoleRing>> rings;
   /**
    * Per face, its refused triangles (FaceMesh::rejected, in order): their (u, v) corners and their vertices' indices
-   * into the face's points, for the deviation check (PartOptions::maxDeviationFactor).
+   * into the face's points, for the deviation check (PartOptions::checkDeviation).
    */
   struct Refused {
     Vec2 uv[3];
@@ -562,9 +585,10 @@ struct PartMesher::Impl {
         if (m.loopKind(l) == CBR_LOOP_EDGE)
           for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
       }
+      std::vector<const BoundaryPoint*> pts;
       for (const auto& L : fb.loops)
-        for (const BoundaryPoint& p : L)
-          if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
+        for (const BoundaryPoint& p : L) pts.push_back(&p);
+      addCuts(f, pts);
       const Surface& s = *surfaces[f];
       Range ru{INFINITY, -INFINITY}, rv{INFINITY, -INFINITY};
       for (const auto& L : fb.loops)
@@ -702,7 +726,7 @@ struct PartMesher::Impl {
   }
 
   /**
-   * Faces left farther from their surfaces than maxDeviationFactor x the larger of the deflection and the face's
+   * Faces left farther from their surfaces than the larger of the deflection and the face's
    * tolerance (cad-geom's Tolerances::face: the part's, widened by the face's own; the limit) fail: below its
    * tolerance the model doesn't say where the surface is. A refused
    * triangle is settled without measuring where its criteria's bound (deviationBound) plus its corners' distances from
@@ -712,13 +736,15 @@ struct PartMesher::Impl {
    * the measure in its cause a lower bound on the worst.
    */
   void checkDeviation() {
-    if (!(o.maxDeviationFactor > 0)) return;
+    if (!o.checkDeviation) return;
     const cadgeom::Tolerances tols(m);
     const int nf = static_cast<int>(faces.size());
     for (int f = 0; f < nf; f++) {
       FaceMesh& fm = faces[f];
       if (fm.status != Status::ok || fm.rejected.empty() || !surfaces[f]) continue;
-      const double within = std::fmax(o.d.linear, tols.face(f)), limit = o.maxDeviationFactor * within;
+      const double within = std::fmax(o.d.linear, tols.face(f)), limit = within;
+      // (Kept past the limit up to keepDeviation x within: measured on to that, the defect's size.)
+      const double keepLimit = o.keepDefects ? std::fmax(limit, o.keepDeviation * within) : limit;
       const Surface& s = *surfaces[f];
       const SurfaceDomain D = s.domain();
       const PartProgress here{PartProgress::deviation, f, rounds, f, nf};
@@ -773,17 +799,22 @@ struct PartMesher::Impl {
               invertSurface(s, x, D.u, D.v, o.d.linear, haveUv ? &uv : nullptr, nullptr, true);
             if (inv.status != Status::ok) continue;
             worst = std::fmax(worst, inv.distance);
-            past = worst > limit;
+            past = worst > keepLimit;
           }
       }
       fm.worstDeviation = worst;
-      if (!past) continue;
+      if (worst <= limit) continue;
+      if (o.keepDefects) {
+        fm.defectDeviation = worst / within;
+        fm.defectPastLimits = fm.defectPastLimits || past;
+        continue;
+      }
       char why[240];
       std::snprintf(why, sizeof why, "meshed past its deflection: at least %.3g x the deflection (a refused triangle's "
         "point inverted onto its surface), past %.3g x max(d, tol) = %.3g x %.3g mm", worst / o.d.linear,
-        o.maxDeviationFactor, o.maxDeviationFactor, within);
+        keepLimit / within, keepLimit / within, within);
       fm.status = Status::noConvergence;
-      fm.cause = why;
+      fm.cause = failedFor(fm, why);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
       refused[f].clear();
     }
@@ -792,10 +823,10 @@ struct PartMesher::Impl {
   /**
    * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
    * normals, as shipped where the output's origin is known: PartOptions::outputOrigin) fail as one past its deflection
-   * does (PartOptions::failTurnedOver): wrong output however small. Such a
-   * triangle is one its criteria refused that refinement didn't mend (they refuse a facet turned against any corner's
-   * normal). Not judged so: a pole's fans, and a triangle with a corner within the face's tolerance of a pole or apex
-   * (the normal there a limit, on a strongly curved patch).
+   * does (PartOptions::failTurnedOver): wrong output however small. Such a triangle is one its criteria refused that
+   * refinement didn't mend (they refuse a facet turned against any corner's normal above the refinement floor), or
+   * one within the floor, which they accept. Not judged so: a pole's fans, and a triangle with a corner within the
+   * face's tolerance of a pole or apex (the normal there a limit, on a strongly curved patch).
    */
   /**
    * The faces' requests whose point is inside the ring of a pole the face hasn't (EdgeMesh::split drops them; a
@@ -1012,15 +1043,15 @@ struct PartMesher::Impl {
   }
 
   /**
-   * Whether the flat triangle p (its corners' (u, v) uv) of face f is within maxDeviationFactor x max(d, the face's
-   * tolerance) of its surface at its barycentric lattice of order 4: each point's surface point at its lattice (u, v)
-   * first (an upper bound on its distance), inverted only where that isn't within. True where the factor is 0.
+   * Whether the flat triangle p (its corners' (u, v) uv) of face f is within max(d, the face's tolerance) of its
+   * surface at its barycentric lattice of order 4: each point's surface point at its lattice (u, v) first (an upper
+   * bound on its distance), inverted only where that isn't within. True where checkDeviation is off.
    */
   bool deviationWithin(int f, const Vec3 p[3], const Vec2 uv[3]) const {
-    if (!(o.maxDeviationFactor > 0)) return true;
+    if (!o.checkDeviation) return true;
     const Surface& s = *surfaces[f];
     const SurfaceDomain D = s.domain();
-    const double limit = o.maxDeviationFactor * std::fmax(o.d.linear, cadgeom::Tolerances(m).face(f));
+    const double limit = std::fmax(o.d.linear, cadgeom::Tolerances(m).face(f));
     for (int i = 0; i <= 4; i++)
       for (int j = 0; i + j <= 4; j++) {
         const double wa = i / 4.0, wb = j / 4.0, wc = (4 - i - j) / 4.0;
@@ -1176,7 +1207,136 @@ struct PartMesher::Impl {
           t--;  // (the triangle at t erased, the last mesher triangle moved into its place: t again next)
         }
       }
+      collapseAround(f, sings[f], near);
     }
+  }
+
+  /**
+   * collapseTurned's general case on face f: each triangle still turned as shipped, in index order, once, has an
+   * interior corner (the mesher's own point, in no fixed segment, at no fan) collapsed onto each of that corner's
+   * neighbours, nearest first in 3D, until one holds: the result manifold (the two points sharing exactly two
+   * neighbours), no triangle's (u, v) area changing sign or vanishing, and collapseHolds of every triangle at the
+   * merged point. At most kCollapseTries tries a face. On points and triangles near the turned ones only, through a
+   * point-to-triangles index; the triangles a collapse leaves are dropped at the end.
+   */
+  void collapseAround(int f, const std::vector<Singularity>& sing, double near) {
+    FaceMesh& fm = faces[f];
+    const CollapseInfo& si = collapseInfo[f];
+    const size_t nm = mesherTriangles[f], np = si.uv.size();
+    std::vector<std::vector<size_t>> at(np);
+    std::vector<char> pinned(np, 0), dead(nm, 0);
+    for (size_t t = 0; t < nm; t++)
+      for (int k = 0; k < 3; k++)
+        if (static_cast<size_t>(fm.triangles[3 * t + k]) < np) at[fm.triangles[3 * t + k]].push_back(t);
+    for (size_t t = nm; 3 * t + 2 < fm.triangles.size(); t++)
+      for (int k = 0; k < 3; k++)
+        if (static_cast<size_t>(fm.triangles[3 * t + k]) < np) pinned[fm.triangles[3 * t + k]] = 1;
+    for (auto [a, b] : si.fixed) {
+      if (static_cast<size_t>(a) < np) pinned[a] = 1;
+      if (static_cast<size_t>(b) < np) pinned[b] = 1;
+    }
+    auto has = [&](size_t t, int32_t v) {
+      return fm.triangles[3 * t] == v || fm.triangles[3 * t + 1] == v || fm.triangles[3 * t + 2] == v;
+    };
+    auto live = [&](int32_t v) {
+      std::vector<size_t> out;
+      for (size_t t : at[v])
+        if (!dead[t] && has(t, v) && std::find(out.begin(), out.end(), t) == out.end()) out.push_back(t);
+      return out;
+    };
+    auto uvArea = [&](const int32_t v[3]) {
+      const Vec2 a = si.uv[v[0]], b = si.uv[v[1]], c = si.uv[v[2]];
+      return (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+    };
+    // C onto E: true where it holds (the triangles changed), else everything as it was.
+    auto collapse = [&](int32_t C, int32_t E) {
+      const std::vector<size_t> atC = live(C), atE = live(E);
+      std::vector<size_t> both, keep;
+      for (size_t t : atC) (has(t, E) ? both : keep).push_back(t);
+      if (both.size() != 2) return false;
+      std::set<int32_t> nc, ne;
+      for (size_t t : atC) for (int k = 0; k < 3; k++) nc.insert(fm.triangles[3 * t + k]);
+      for (size_t t : atE) for (int k = 0; k < 3; k++) ne.insert(fm.triangles[3 * t + k]);
+      int common = 0;
+      for (int32_t x : nc) common += x != C && x != E && ne.count(x);
+      if (common != 2) return false;
+      for (size_t t : keep) {
+        int32_t v[3] = {fm.triangles[3 * t], fm.triangles[3 * t + 1], fm.triangles[3 * t + 2]};
+        const double before = uvArea(v);
+        for (int32_t& x : v) x = x == C ? E : x;
+        if (!(before * uvArea(v) > 0)) return false;
+      }
+      for (size_t t : keep) for (int k = 0; k < 3; k++) if (fm.triangles[3 * t + k] == C) fm.triangles[3 * t + k] = E;
+      for (size_t t : both) dead[t] = 1;
+      std::vector<size_t> now;
+      for (size_t t : atE) if (!dead[t]) now.push_back(t);
+      now.insert(now.end(), keep.begin(), keep.end());
+      if (!collapseHolds(f, now, sing, near)) {
+        for (size_t t : keep) for (int k = 0; k < 3; k++) if (fm.triangles[3 * t + k] == E && !has(t, C)) {
+          // (Back to C: the corner that was C is the one E took in this triangle, E not among its others.)
+          fm.triangles[3 * t + k] = C;
+          break;
+        }
+        for (size_t t : both) dead[t] = 0;
+        return false;
+      }
+      for (size_t t : keep) at[E].push_back(t);
+      return true;
+    };
+    int tries = 0, done = 0;
+    for (size_t t = 0; t < nm && tries < kCollapseTries; t++) {
+      if (dead[t]) continue;
+      const int32_t* v = &fm.triangles[3 * t];
+      if (!turnedAsShipped(f, v[0], v[1], v[2], sing, near)) continue;
+      bool fixedOne = false;
+      for (int k = 0; k < 3 && !fixedOne && tries < kCollapseTries; k++) {
+        const int32_t C = fm.triangles[3 * t + k];
+        if (static_cast<size_t>(C) >= np || si.sample[C].first != -1 || pinned[C]) continue;
+        std::vector<int32_t> nb;
+        for (size_t u : live(C))
+          for (int j = 0; j < 3; j++)
+            if (fm.triangles[3 * u + j] != C && std::find(nb.begin(), nb.end(), fm.triangles[3 * u + j]) == nb.end())
+              nb.push_back(fm.triangles[3 * u + j]);
+        std::sort(nb.begin(), nb.end(), [&](int32_t a, int32_t b) {
+          return norm(fm.points[a] - fm.points[C]) < norm(fm.points[b] - fm.points[C]);
+        });
+        for (int32_t E : nb) {
+          if (static_cast<size_t>(E) >= np || tries >= kCollapseTries) continue;
+          tries++;
+          if (collapse(C, E)) {
+            fixedOne = true;
+            break;
+          }
+        }
+      }
+      done += fixedOne;
+    }
+    if (!done) return;
+    // The dropped triangles out, the rest in order; the refused list renumbered (a dropped one's refusal gone).
+    std::vector<int64_t> to(nm, -1);
+    size_t n = 0;
+    for (size_t t = 0; t < nm; t++)
+      if (!dead[t]) {
+        to[t] = static_cast<int64_t>(n);
+        if (n != t)
+          std::copy(fm.triangles.begin() + 3 * t, fm.triangles.begin() + 3 * t + 3, fm.triangles.begin() + 3 * n);
+        n++;
+      }
+    fm.triangles.erase(fm.triangles.begin() + 3 * n, fm.triangles.begin() + 3 * nm);
+    const bool haveRef = refused[f].size() == fm.rejected.size();
+    std::vector<int32_t> rej;
+    std::vector<Refused> ref;
+    for (size_t k = 0; k < fm.rejected.size(); k++) {
+      const size_t r = static_cast<size_t>(fm.rejected[k]);
+      const int64_t nr = r < nm ? to[r] : static_cast<int64_t>(r - (nm - n));
+      if (nr < 0) continue;
+      rej.push_back(static_cast<int32_t>(nr));
+      if (haveRef) ref.push_back(refused[f][k]);
+    }
+    fm.rejected = std::move(rej);
+    if (haveRef) refused[f] = std::move(ref);
+    mesherTriangles[f] = n;
+    fm.collapsed += done;
   }
 
   /**
@@ -1219,7 +1379,7 @@ struct PartMesher::Impl {
       std::snprintf(why, sizeof why, "a pole's fan folds over itself: %d %s used twice the same way", folded,
         folded == 1 ? "edge" : "edges");
       fm.status = Status::noConvergence;
-      fm.cause = why;
+      fm.cause = failedFor(fm, why);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
@@ -1247,38 +1407,96 @@ struct PartMesher::Impl {
         return false;
       };
       int against = 0;
+      // (The turned triangles' area and the face's, for keepTurnedShare.)
+      double turnedArea = 0, area = 0;
       for (size_t t = 0; t + 2 < fm.triangles.size() && t / 3 < mesherTriangles[f]; t += 3) {
         const int32_t* v = &fm.triangles[t];
+        const double a = 0.5 * norm(cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]));
+        area += a;
         if (atSingular(fm.points[v[0]]) || atSingular(fm.points[v[1]]) || atSingular(fm.points[v[2]])) continue;
+        bool turned;
         if (shipped) {
           Vec3 q[3], n{0, 0, 0};
           for (int k = 0; k < 3; k++) q[k] = asShipped(fm.points[v[k]]), n = n + asFloat(fm.normals[v[k]]);
-          against += facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
-          continue;
+          turned = facetAgainst(cross(q[1] - q[0], q[2] - q[0]), n);
+        } else {
+          const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
+          turned = facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
         }
-        const Vec3 g = cross(fm.points[v[1]] - fm.points[v[0]], fm.points[v[2]] - fm.points[v[0]]);
-        against += facetAgainst(g, fm.normals[v[0]] + fm.normals[v[1]] + fm.normals[v[2]]);
+        against += turned;
+        if (turned) turnedArea += a;
       }
       if (!against) continue;
+      if (o.keepDefects) {
+        fm.defectTurned = against;
+        fm.defectPastLimits = fm.defectPastLimits || against > o.keepTurned || turnedArea > o.keepTurnedShare * area;
+        continue;
+      }
       char why[160];
       std::snprintf(why, sizeof why, "meshed with %d triangles turned against its surface (their facets against their "
         "corners' normals, refused and not mended)", against);
+      fm.status = Status::noConvergence;
+      fm.cause = failedFor(fm, why);
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
+  /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
+  /**
+   * A face kept with a defect (PartOptions::keepDefects) fails where its output, welded at its shipped positions,
+   * has an edge used twice the same way or more than twice (windingFaults): a triangle wound backwards, a hole where
+   * back faces are culled. Its (u, v) triangles are counterclockwise, so none is expected; this checks it.
+   */
+  void checkKeptWinding() {
+    if (!o.keepDefects) return;
+    const double* O = o.outputOrigin;
+    const bool shipped = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    for (FaceMesh& fm : faces) {
+      if (fm.status != Status::ok || !(fm.defectTurned || fm.defectDeviation > 0 || fm.defectCapped)) continue;
+      std::map<std::array<float, 3>, int32_t> at;
+      std::vector<int32_t> weld(fm.points.size());
+      for (size_t i = 0; i < fm.points.size(); i++) {
+        const Vec3 p = fm.points[i];
+        const std::array<float, 3> k = shipped
+          ? std::array<float, 3>{static_cast<float>(p.x - O[0]), static_cast<float>(p.y - O[1]),
+            static_cast<float>(p.z - O[2])}
+          : std::array<float, 3>{static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)};
+        weld[i] = at.emplace(k, static_cast<int32_t>(at.size())).first->second;
+      }
+      const int faults = windingFaults(fm.triangles, weld);
+      if (!faults) continue;
+      char why[200];
+      std::snprintf(why, sizeof why, "kept with a defect, but %d %s used twice the same way or more than twice (a "
+        "triangle wound backwards)", faults, faults == 1 ? "edge" : "edges");
       fm.status = Status::noConvergence;
       fm.cause = why;
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
 
-  /** Faces whose refinement stopped at the point cap fail (PartOptions::failCapped). */
+  /** A capped face's cause: its cap, and how many triangles it stopped at. */
+  static std::string capCause(const FaceMesh& fm) {
+    char why[200];
+    std::snprintf(why, sizeof why, "refinement stopped at its point cap, %zu triangles (its cap %.0f: %.0f expected)",
+      fm.triangles.size() / 3, fm.cap, fm.capExpected);
+    return why;
+  }
+  /** A failure's cause, led by the cap's where the face was kept past failCapped and so failed for another defect. */
+  static std::string failedFor(const FaceMesh& fm, const char* why) {
+    return fm.defectCapped ? capCause(fm) + ", and " + why : std::string(why);
+  }
+
   void failCapped() {
     if (!o.failCapped) return;
     for (FaceMesh& fm : faces) {
       if (fm.status != Status::ok || !fm.capped) continue;
+      // (Kept, its mesh judged as any other's by the deviation and facing checks after this one.)
+      if (o.keepDefects) {
+        fm.defectCapped = true;
+        continue;
+      }
       fm.status = Status::noConvergence;
-      char why[200];
-      std::snprintf(why, sizeof why, "refinement stopped at its point cap, %zu triangles (its cap %.0f: %.0f expected)",
-        fm.triangles.size() / 3, fm.cap, fm.capExpected);
-      fm.cause = why;
+      fm.cause = capCause(fm);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
   }
@@ -1288,6 +1506,7 @@ struct PartMesher::Impl {
     if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
     out = {};
+    out.splitsDropped = splitsDropped[f];
     refused[f].clear();
     collapseInfo[f] = {};
     wanted[f].clear();
@@ -1378,16 +1597,15 @@ struct PartMesher::Impl {
             {static_cast<int>(k), static_cast<int>(i)};
         }
       }
-    // Its edges: its loops' model edges, and the pseudo-edges its boundary has.
+    // Its edges: its loops' model edges, and its cuts' pseudo-edges.
     for (int i = 0; i < m.faceLoopCount(f); i++) {
       int l = m.faceFirstLoop(f) + i;
       if (m.loopKind(l) == CBR_LOOP_EDGE)
         for (int k = 0; k < m.loopCount(l); k++) edgesOf[f].insert(m.coedgeEdge(m.loopFirst(l) + k));
     }
-    for (const BoundaryPoint& p : bp) {
-      d.points.push_back(p.uv);
-      if (p.kind == BoundaryPoint::pseudoSample) edgesOf[f].insert(p.edgeIndex);
-    }
+    std::vector<const BoundaryPoint*> pts;
+    for (const BoundaryPoint& p : bp) d.points.push_back(p.uv), pts.push_back(&p);
+    addCuts(f, pts);
     // The segments the edges won't split (an edge's span whose chord is within the refinement floor, or an end
     // span too short to take a point past the edge's near-end drop, as EdgeMesh::split has them): frozen, so the
     // mesher inserts past them rather than asking.
@@ -1526,6 +1744,12 @@ struct PartMesher::Impl {
       // Two edges leaving a vertex nearly tangent (the coarser one's chord across the other's samples), or two loops
       // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
       // a few spans a round wouldn't mend many crossings within the rounds.
+      // (A pair that is one point, or that has a pole line's or a vertex loop's point, is no edge's span and no
+      // request; one between two edges' samples that is none is dropped, counted.)
+      auto sampled = [&](int32_t i) {
+        return i >= 0 && i < static_cast<int32_t>(bp.size()) && (bp[i].kind == BoundaryPoint::edgeSample ||
+          bp[i].kind == BoundaryPoint::pseudoSample);
+      };
       if (mesh.rejected.size() >= 4)
         for (size_t k = 0; k + 1 < mesh.rejected.size(); k += 2) {
           const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
@@ -1534,6 +1758,8 @@ struct PartMesher::Impl {
           if (a >= 0 && b >= 0 && a < static_cast<int32_t>(bp.size()) && b < static_cast<int32_t>(bp.size()) &&
             spanOf(f, bp[a], bp[b], edge, span, forward))
             wanted[f].push_back({edge, span, 0.5});
+          else if (a != b && sampled(a) && sampled(b))
+            out.splitsDropped = ++splitsDropped[f];
         }
       out.splitsWanted = static_cast<int>(wanted[f].size());
       return;
@@ -1563,11 +1789,13 @@ struct PartMesher::Impl {
         wanted[f].push_back({edge, span, forward ? w.fraction : 1 - w.fraction});
       else if (auto c = creaseSegment.find({std::min(a, b), std::max(a, b)}); c != creaseSegment.end())
         creaseSplits[f].insert(c->second);
+      else if (ringSegments.count({std::min(a, b), std::max(a, b)}))
+        blocked = true;
       else
-        blocked = blocked || ringSegments.count({std::min(a, b), std::max(a, b)});
+        out.splitsDropped = ++splitsDropped[f];
     }
     if (blocked) ringBlocked[f]++;
-    out.ringBlocked = ringBlocked[f];
+    out.ringBlocked = ringBlocked[f], out.splitsDropped = splitsDropped[f];
     // (A pole line's segments, which the floored metric can find long, can't be split; a ring is fixed: its segments
     // are this code's own, and the edges' spans inside it are kept empty, cutRings.)
     out.splitsWanted = static_cast<int>(wanted[f].size() + creaseSplits[f].size());
@@ -1789,7 +2017,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
   I.collapseInfo.assign(nf, {});
-  I.ringBlocked.assign(nf, 0);
+  I.ringBlocked.assign(nf, 0), I.splitsDropped.assign(nf, 0);
   I.refused.resize(nf);
   I.last.resize(nf);
   I.creases.assign(nf, {}), I.creaseSplits.assign(nf, {});
@@ -1912,6 +2140,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.checkDeviation();
   I.checkFacing();
   I.checkFoldedFans();
+  I.checkKeptWinding();
 }
 
 PartMesher::~PartMesher() { delete impl_; }

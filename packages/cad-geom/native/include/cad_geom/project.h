@@ -207,6 +207,16 @@ Pcurve projectCurve(const Curve& c, Range r, const Surface& s, double tol, const
   const PcurveSource* source = nullptr, bool withinTolOnly = false);
 
 /**
+ * How far an edge's curve may lie off its face's surface and still be placed on it (its p-curve the feet's, or its
+ * samples inverted): 100 x the edge's tolerance, or 10 x the deflection where the caller meshes at one (`deflection`
+ * > 0) and that's more. Past it the edge is far off its face, a topology error in the source rather than a sloppy
+ * curve. The mesher (tess-cadio's edges.cpp) and the face API (cad_geom_api.cpp) both place edges by this rule.
+ */
+inline double offSurfaceLimit(double tol, double deflection) {
+  return deflection > 0 && 10 * deflection > 100 * tol ? 10 * deflection : 100 * tol;
+}
+
+/**
  * For a p-curve on a seam: whether a use of it takes `seamTwin` (the higher copy) rather than `pieces`. The face's
  * material is to the left of its loops in (u, v) where its sense is the surface's (to the right otherwise), so a use
  * whose left side is +u (seamU) or +v (seamV) has the material above it and takes the lower copy. `useForward`: the

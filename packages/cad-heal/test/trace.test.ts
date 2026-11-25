@@ -188,3 +188,24 @@ test('the face API\'s projection first: a bare coedge within its tolerance neith
     assert.equal(m.coedge.pcurve[BOTTOM]! >= 0, r !== 2, `radius ${r}: the bottom one given the trace's where traced`);
   }
 });
+
+test('a projection that measured the curve farther off than its tolerance: traced without the grid; one that failed '
+  + 'without measuring it off: bounded on the grid first', () => {
+  // The bottom circle lies on the surface, at an edge tolerance (0.5) the grid can bound it within. The face API's
+  // projection stubbed as failing (its fit 1 off), measuring the curve 1 off (past 0.5: the grid can't vouch, so it
+  // isn't asked and the curve is traced) or 0.01 off (the grid vouches: not traced).
+  for (const [off, traced] of [[1, [BOTTOM]], [0.01, []]] as const) {
+    const calls: number[] = [], d = cylinder();
+    d.edge.tolerance[0] = 0.5;
+    const edit = new ModelEdit(d);
+    using g = new Geometry(module, new Uint8Array(d.buffer));
+    const project = g.projectCoedge.bind(g);
+    g.projectCoedge = (...a: Parameters<typeof g.projectCoedge>) => {
+      const p = project(...a);
+      return 'pieces' in p && a[0] === BOTTOM ? { ...p, status: 'noConvergence', error: 1, offSurface: off } : p;
+    };
+    const real = stubTracer(g);
+    healCurves(g, d, new Set(fixesOn()), edit, [], { trace: (c, tol) => (calls.push(c), real.trace(c, tol)) });
+    assert.deepEqual([...new Set(calls)], traced, `measured ${off} off`);
+  }
+});

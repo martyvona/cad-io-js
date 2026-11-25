@@ -152,7 +152,7 @@ test('tessellateScene: an error where a part\'s mesh, as kept, isn\'t a closed, 
 test('fallback: a primary whose mesh isn\'t an oriented manifold falls back, judged so whatever it says', async () => {
   const bad = flipped(quads(d), 21);
   const v = judgeResult(bad, d, 0.1);
-  assert.deepEqual([v.ok, v.rank], [false, [0, 0, 0, 0, 4, 0]]);
+  assert.deepEqual([v.ok, v.rank], [false, [0, 0, 0, 0, 4, 0, 0]]);
   assert.match(v.problems[0]!, /^not a closed, oriented manifold over its closed shells: 4 mesh edges/);
   const a = backend(bad, 'a'), b = backend(quads(d), 'b');
   const t = new FallbackTessellator(a, b, { perFace: false, join: false, fill: false, orient: false });

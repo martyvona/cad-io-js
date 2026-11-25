@@ -13,11 +13,11 @@ export const METHOD = ['none', 'closedForm', 'extrusion', 'revolution', 'freeFor
 export type Method = (typeof METHOD)[number];
 /** oracle.h's Flag bits. */
 export const FLAGS = { orientation: 1, sphereSide: 2, loose: 4, winds: 8, noLoops: 16, offSurface: 32,
-  projectedBoundary: 64, cells: 128 } as const;
+  projectedBoundary: 64, cells: 128, edgesPlaced: 256 } as const;
 export type OracleFlag = keyof typeof FLAGS;
 
 /** The module's C API version this layer speaks (co_api_version). */
-const API_VERSION = 5;
+const API_VERSION = 6;
 
 /** A computed real with an a posteriori estimate of its error (result.h's Estimate). */
 export interface Estimate {
@@ -50,12 +50,13 @@ export interface FaceMeasure {
 }
 
 /**
- * A measure to rely on: computed, no flags but projectedBoundary, its boundary's error known, its error (the
- * boundary's included) within `relative` of its value (oracle.h's trusted). What users see is the value and its error,
- * with the flags no estimate covers said beside them.
+ * A measure to rely on: computed, no flags but projectedBoundary and edgesPlaced, its boundary's error known, its
+ * error (the boundary's included) within `relative` of its value (oracle.h's trusted). What users see is the value and
+ * its error, with the flags no estimate covers said beside them.
  */
 export function trusted(m: FaceMeasure, relative = 1e-6): boolean {
-  return m.area.status === 'ok' && m.flags.every((f) => f === 'projectedBoundary') && Number.isFinite(m.boundary)
+  return m.area.status === 'ok' && m.flags.every((f) => f === 'projectedBoundary' || f === 'edgesPlaced')
+    && Number.isFinite(m.boundary)
     && m.area.error <= relative * m.area.value;
 }
 
@@ -155,6 +156,13 @@ export interface OracleOptions {
   projectMissing?: boolean;
 }
 
+/** co_face's out[0..9] and its why as a FaceMeasure. */
+function faceMeasure(o: Float64Array, why: string): FaceMeasure {
+  return { area: { value: o[0]!, error: o[1]!, status: STATUS[o[2]!]! },
+    perimeter: { value: o[3]!, error: o[4]!, status: STATUS[o[5]!]! }, method: METHOD[o[6]!]!,
+    flags: flagsOf(o[7]!), offSurface: o[8]!, boundary: o[9]!, why };
+}
+
 const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
 
 /** The oracle of one model: its own copy of the buffer in the module, until dispose. */
@@ -187,7 +195,7 @@ export interface PointClass {
 export interface FaceSide {
   side: 'outside' | 'inside' | 'unknown';
   why: string;
-  /** The point well inside the face, the point moved off it (eps along its normal) and that point's class. */
+  /** The point inside the face (well inside, else in at its tolerance), the point moved off it and its class. */
   from: Vec3;
   point: Vec3;
   eps: number;
@@ -282,6 +290,23 @@ export class Oracle {
     }
   }
 
+  /**
+   * Face row `face`'s flux of p - c by components: the integrals of (p - c)_j n_j, j = x, y, z (co_face_flux), the
+   * three of faceMoments' degree 1 a volume needs (a closed shell's signed volume their sum over its faces / 3),
+   * integrated alone, so cheaper.
+   */
+  faceFlux(face: number, center: [number, number, number] = [0, 0, 0]): [Estimate, Estimate, Estimate] {
+    const x = this.x, p = x._malloc(72);
+    try {
+      x._co_face_flux!(this.live(), face, center[0], center[1], center[2], p);
+      const o = x.HEAPF64.subarray(p / 8, p / 8 + 9);
+      const at = (k: number): Estimate => ({ value: o[3 * k]!, error: o[3 * k + 1]!, status: STATUS[o[3 * k + 2]!]! });
+      return [at(0), at(1), at(2)];
+    } finally {
+      x._free(p);
+    }
+  }
+
   /** Point `p` against closed shell row `shell` by rays (oracle.h's classify). */
   classify(shell: number, p: Vec3): PointClass {
     const x = this.x, o = x._malloc(13 * 8 + 8);
@@ -333,11 +358,27 @@ export class Oracle {
     const x = this.x, p = x._malloc(88);
     try {
       x._co_face!(this.live(), face, p, p + 80);
-      const o = x.HEAPF64.subarray(p / 8, p / 8 + 10);
-      const why = x.UTF8ToString(x.HEAP32[(p + 80) / 4]!);
-      return { area: { value: o[0]!, error: o[1]!, status: STATUS[o[2]!]! },
-        perimeter: { value: o[3]!, error: o[4]!, status: STATUS[o[5]!]! }, method: METHOD[o[6]!]!,
-        flags: flagsOf(o[7]!), offSurface: o[8]!, boundary: o[9]!, why };
+      return faceMeasure(x.HEAPF64.subarray(p / 8, p / 8 + 10), x.UTF8ToString(x.HEAP32[(p + 80) / 4]!));
+    } finally {
+      x._free(p);
+    }
+  }
+
+  /**
+   * face(face), with faceFlux(face, center) where it comes with the area's pass (oracle.h's face with an integrand):
+   * on a free-form face one pass for both, about half their cost, the flux the same bits as faceFlux's (the area could
+   * differ from face(face)'s in the last place; on the corpus it doesn't). Elsewhere the measure alone, no flux.
+   */
+  faceAndFlux(face: number, center: [number, number, number] = [0, 0, 0]):
+    { measure: FaceMeasure; flux?: [Estimate, Estimate, Estimate] } {
+    const x = this.x, p = x._malloc(168);
+    try {
+      x._co_face_and_flux!(this.live(), face, center[0], center[1], center[2], p, p + 160);
+      const o = x.HEAPF64.subarray(p / 8, p / 8 + 20);
+      const at = (k: number): Estimate => ({ value: o[10 + 3 * k]!, error: o[11 + 3 * k]!,
+        status: STATUS[o[12 + 3 * k]!]! });
+      const measure = faceMeasure(o, x.UTF8ToString(x.HEAP32[(p + 160) / 4]!));
+      return o[19] ? { measure, flux: [at(0), at(1), at(2)] } : { measure };
     } finally {
       x._free(p);
     }
@@ -345,4 +386,4 @@ export class Oracle {
 }
 export { AREA_ORACLE_ID, areaOracle, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, type JudgedArea, type ModelLike }
   from './judge.ts';
-export { type ShellModel, shellVolumes, type ShellVolume } from './shells.ts';
+export { shellBox, type ShellModel, shellVolumes, type ShellVolume, solidShells } from './shells.ts';

@@ -328,8 +328,9 @@ std::vector<double> sample(const Geom& g, double t0, double t1, bool closed, con
  */
 constexpr double kMeshTolerance = 0.05;
 /**
- * A use without a p-curve whose curve the projection finds farther off its face's surface than both this many edge
- * tolerances and this many deflections fails (projectMissing): no placing it by inversion.
+ * A use whose curve is farther off its face's surface than both this many edge tolerances and this many deflections
+ * fails: without a p-curve by the projection's measure (projectMissing), no placing it by inversion; with one by its
+ * placed samples' (computeCoedge).
  */
 constexpr double kOffSurfaceTolerances = 100, kOffSurfaceDeflections = 10;
 
@@ -383,7 +384,7 @@ struct EdgeMesh::Impl {
     Vec2 vertexUv[2];
     std::map<double, SurfaceInversion> inverted;  // by edge parameter: each sample inverted once
     double givenMiss = 0;                // a given p-curve used: its inside samples' largest distance from their points
-    double offSurface = 0;               // its curve this far off its face's surface (projectMissing): not inverted
+    double offSurface = 0;               // its curve this far off its face's surface (kOffSurfaceTolerances): failed
     double healedTol = 0;                // its given p-curve healing's projection, within this (readAnalysis)
     CoedgeSamples s;
   };
@@ -1049,6 +1050,24 @@ struct EdgeMesh::Impl {
         Range other = d ? F.dom.u : F.dom.v;
         double scale = std::isfinite(other.hi - other.lo) ? other.hi - other.lo : 1;
         C.ambiguous[d] = all && any && hi - lo > 1e-9 * scale;
+      }
+    }
+    // A given p-curve's use whose curve is farther off the face's surface than projectMissing allows a use without
+    // one fails as that would: at its inside samples, each point's distance from the surface at the (u, v) it was
+    // placed at (the p-curve's, moved to its foot where it missed, or its inversion), an upper bound on the
+    // distance; placed, the face's triangles would follow the curve that far off (bm2 #9's edges, 3.6 to 4.15 mm).
+    if (!C.projected && s.status == Status::ok) {
+      const double limit = std::max(kOffSurfaceTolerances * tols.edge(m.coedgeEdge(c)),
+        kOffSurfaceDeflections * o.deflection);
+      double off = 0;
+      for (int i = 1; i + 1 < n; i++)
+        if (poleAt(C.face, E.s.points[s.index[i]]) < 0)
+          off = std::fmax(off, norm(surfaceAt(C.face, s.uv[i]) - E.s.points[s.index[i]]));
+      if (off > limit) {
+        C.offSurface = off;
+        s.status = Status::invalidModel;
+        s.gap = off;
+        return;
       }
     }
     // At a pole the free coordinate is arbitrary: the nearest regular sample's, along the coedge. A projected use's

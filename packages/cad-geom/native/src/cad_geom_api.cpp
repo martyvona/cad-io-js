@@ -53,8 +53,11 @@ struct Entry {
   /** Per coedge: its projection at its edge's tolerance (projection()), made on first use; its face, -1 none. */
   std::vector<std::unique_ptr<Projection>> projected;
   std::vector<int32_t> coedgeFace;
-  /** cg_model_options: the face API projects coedges without p-curves. */
+  /** Coedge projections made (projectCoedge's runs that reached projectCurve), for tests and profiles. */
+  int32_t projections = 0;
+  /** cg_model_options: the face API projects coedges without p-curves; the deflection of the mesh its caller makes. */
   bool project = true;
+  double deflection = 0;
   /** The tolerances its edges and faces are judged by (tolerance.h): made once with the model. */
   Tolerances tols;
   /** The end search's feet by (vertex, face), for cg_face_end_feet. */
@@ -406,8 +409,11 @@ int32_t cg_surface_invert(int32_t h, int32_t row, const double* points, int32_t 
 // Face statuses, besides makeCurve's and makeSurface's codes: FACE_NO_PCURVE (a coedge without a p-curve, none
 // projected: no 3D curve, or projection off), FACE_NO_RANGE (no range given or derivable: no 3D curve or no
 // vertices), FACE_RANGE_OFF (neither the curve's parameters nor the p-curve's own reach the vertices) and
-// FACE_PROJECTION_FAILED (a projection's status isn't ok or singular: the curve off the surface, or no fit within
-// tolerance; or every coedge of a loop singular).
+// FACE_PROJECTION_FAILED (a projection's status isn't ok or singular and its feet's p-curve can't stand in, as the
+// mesher's rule has it: the curve off the surface past offSurfaceLimit (project.h: 100 x the edge's tolerance, or 10 x
+// the deflection cg_model_deflection gives), or no p-curve made; or every coedge of a loop singular). A projection
+// within that limit but not within tolerance (off the surface, or no fit) takes its feet's p-curve: counted by
+// cg_face_info, its deviation the p-curve's error.
 
 namespace {
 
@@ -425,6 +431,10 @@ struct FaceLoops {
   double tol3 = 0;
   int ownRanges = 0;  // coedges whose p-curve range is the p-curve's own (useRange), not its curve's
   int projected = 0;  // coedges without a p-curve, their edge's curve projected (projection())
+  // Of those, the ones whose p-curve is the feet's though not within the edge's tolerance (offSurfaceLimit): their
+  // curve off the surface (invalidModel), or no fit within it (noConvergence); the worst such deviation.
+  int offSurface = 0, unconverged = 0;
+  double placedError = 0;
   std::vector<std::unique_ptr<Curve>> bridges;  // the joints' segments (faceLoops), which loops' pieces point to
 };
 
@@ -779,6 +789,7 @@ void projectCoedge(int32_t h, int c, double tol, Projection& out) {
   ends.checkStart = vlo >= 0, ends.checkEnd = vhi >= 0;
   if (vlo >= 0) ends.startKey = key(vlo), ends.startPoint = m.vertexPoint(vlo);
   if (vhi >= 0) ends.endKey = key(vhi), ends.endPoint = m.vertexPoint(vhi);
+  entry(h)->projections++;
   out.p = projectCurve(*c3, {std::min(t0, t1), std::max(t0, t1)}, *f, tol > 0 ? tol : edgeTolerance(h, e), &ends,
     &source);
   out.t0 = t0, out.t1 = t1, out.made = 0;
@@ -877,9 +888,19 @@ FaceLoops faceLoops(int32_t h, int32_t face, double tol3d) {
         // Singular: the whole edge at one pole (within tol of it), its p-curve a stretch of the pole line its
         // neighbours' ends give: left out, the joint between them bridged below along that line.
         if (pr->p.status == Status::singular) continue;
+        // Not within the edge's tolerance, as the mesher places such an edge (offSurfaceLimit): its curve off the
+        // surface within the limit, or no fit within tol, take the feet's p-curve (its error the curve's distance,
+        // which the oracle counts in its boundary's bound); past the limit, or none made, the face fails.
         if (pr->p.status != Status::ok) {
-          out.status = FACE_PROJECTION_FAILED;
-          return out;
+          const double limit = offSurfaceLimit(e->tols.edge(m.coedgeEdge(c)), e->deflection);
+          const bool off = pr->p.status == Status::invalidModel && pr->p.offSurface <= limit;
+          const bool unfit = pr->p.status == Status::noConvergence;
+          if (!(off || unfit) || pr->p.pieces.empty()) {
+            out.status = FACE_PROJECTION_FAILED;
+            return out;
+          }
+          off ? out.offSurface++ : out.unconverged++;
+          out.placedError = std::max(out.placedError, pr->p.error);
         }
         const std::vector<PcurvePiece>& pieces = pr->twin ? pr->p.seamTwin : pr->p.pieces;
         const bool up = back ? pr->t0 > pr->t1 : pr->t1 > pr->t0;
@@ -1010,7 +1031,9 @@ extern "C" {
  * The face's loops as geom2d sees them: its status (0, or why not: makeCurve's or makeSurface's code, a face
  * status); into out the 3D tolerance used, the periods (u, v), the edge loops' count, and the pole lines' count, those
  * lines (u ones, then v ones) following in the scratch as (isoU, at) pairs, how many coedges' ranges are their
- * p-curves' own (parameterized otherwise than their curves), and how many coedges' p-curves were projected.
+ * p-curves' own (parameterized otherwise than their curves), how many coedges' p-curves were projected, and of those
+ * how many are the feet's though their curve lies off the surface (within offSurfaceLimit), how many are the feet's
+ * without a fit within tolerance, and the worst such p-curve's deviation (10 values: out holds at least 10).
  */
 int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
   FaceLoops f = faceLoops(h, face, tol3d);
@@ -1022,6 +1045,7 @@ int32_t cg_face_info(int32_t h, int32_t face, double tol3d, double* out) {
   out[4] = static_cast<double>(scratch.size() / 2);
   out[5] = f.ownRanges;
   out[6] = f.projected;
+  out[7] = f.offSurface, out[8] = f.unconverged, out[9] = f.placedError;
   return 0;
 }
 
@@ -1149,11 +1173,25 @@ int32_t cg_face_self(int32_t h, int32_t face, int32_t loop, double tol3d, int32_
   return 0;
 }
 
+/** The coedge projections the model's face API has made (each kept one once, each other tolerance's every call). */
+int32_t cg_model_projections(int32_t h) { return entry(h) ? entry(h)->projections : -1; }
+
 /** Options (bits): 1 the face API doesn't project coedges without p-curves (FACE_NO_PCURVE instead). */
 int32_t cg_model_options(int32_t h, int32_t flags) {
   Entry* e = entry(h);
   if (!e) return static_cast<int32_t>(Status::invalidModel);
   e->project = (flags & 1) == 0;
+  return 0;
+}
+
+/**
+ * The deflection of the mesh the caller makes (> 0; 0 none): a projected edge's curve may lie off its face's surface
+ * by up to offSurfaceLimit of it, as the mesher's, and still be placed. Before any face is asked of.
+ */
+int32_t cg_model_deflection(int32_t h, double deflection) {
+  Entry* e = entry(h);
+  if (!e || !(deflection >= 0)) return static_cast<int32_t>(Status::invalidModel);
+  e->deflection = deflection;
   return 0;
 }
 
@@ -1263,16 +1301,17 @@ int32_t cg_face_end_feet(int32_t h, int32_t face, int32_t vertex, double tol) {
 }
 
 /**
- * The coedge's edge curve projected as the face API does (the file's comment), at tol (> 0; else the edge's
- * tolerance, the face API's, kept), into the scratch with the (u, v) at the n parameters t, whether or not the model
- * gives the coedge a p-curve: 0, or why not (a status, a face status).
+ * The coedge's edge curve projected as the face API does (the file's comment), at tol (> 0, else the edge's
+ * tolerance; at the edge's tolerance the face API's projection, made once and kept), into the scratch with the (u, v)
+ * at the n parameters t, whether or not the model gives the coedge a p-curve: 0, or why not (a status, a face status).
  */
 int32_t cg_coedge_project(int32_t h, int32_t coedge, double tol, const double* t, int32_t n) {
   Entry* e = entry(h);
   if (!e || coedge < 0 || coedge >= e->model.coedges()) return static_cast<int32_t>(Status::invalidModel);
+  const bool kept = !(tol > 0) || tol == edgeTolerance(h, e->model.coedgeEdge(coedge));
   Projection fresh;
-  if (tol > 0) projectCoedge(h, coedge, tol, fresh);
-  const Projection& p = tol > 0 ? fresh : projection(h, coedge);
+  if (!kept) projectCoedge(h, coedge, tol, fresh);
+  const Projection& p = kept ? projection(h, coedge) : fresh;
   if (p.made) return p.made;
   putProjection(p.p, p.twin, p.t0, p.t1, t, n);
   return 0;

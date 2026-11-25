@@ -38,7 +38,8 @@ test('progress: each part, each step, and every PROGRESS_EVERY coedges through t
     diagnostics: [] } as unknown as import('cad-scene').Scene;
   await healScene(scene, { progress: (w) => said.push(w) }, await (await import('cad-geom')).init());
   assert.deepEqual(said, ['part 0 of 1', 'part 0 of 1: strayPole', 'part 0 of 1: ranges and vertexTolerance',
-    'part 0 of 1: orientShells', 'part 0 of 1: the healed model and its analysis'],
+    'part 0 of 1: orientShells', 'part 0 of 1: orientShells: faces', 'part 0 of 1: orientShells: shells',
+    'part 0 of 1: the healed model and its analysis'],
     `fewer than ${PROGRESS_EVERY} coedges: no coedge line`);
 });
 
@@ -53,6 +54,35 @@ test('progress through a part of more than PROGRESS_EVERY coedges: a line every 
   assert.equal(lines.length, Math.floor(d.coedge.edge.length / PROGRESS_EVERY));
   assert.match(lines[0]!, new RegExp(`^curves: coedge ${PROGRESS_EVERY} of ${d.coedge.edge.length} \\(face \\d+, `
     + `coedge #\\d+ \\(edge #\\d+\\)\\)$`));
+});
+
+test('progress within the faces and shells steps: at most every PROGRESS_MS, saying how far they are', async () => {
+  const { PROGRESS_MS } = await import('../src/index.ts');
+  const { cube } = await import('../../cad-brep/test/models.ts');
+  const d = cube().finish(), said: string[] = [];
+  const geom = await (await import('cad-geom')).init();
+  // A clock that moves PROGRESS_MS at every reading: every face measured or asked for is past the last message.
+  const real = performance.now;
+  let t = 0;
+  performance.now = () => (t += PROGRESS_MS);
+  try {
+    await healPart(d, { progress: (w) => said.push(w) }, geom);
+  } finally {
+    performance.now = real;
+  }
+  const faces = said.filter((w) => w.startsWith('orientShells: faces, '));
+  assert.deepEqual(faces, Array.from({ length: 6 }, (_, k) => `orientShells: faces, ${k} of 6 measured`));
+  const shells = said.filter((w) => w.startsWith('orientShells: shells, '));
+  assert.ok(shells.length > 0);
+  assert.match(shells[0]!, /^orientShells: shells, 0 faces' measures asked$/);
+  // Each after its step's own line, before the next step's.
+  const at = (w: string) => said.indexOf(w);
+  assert.ok(at('orientShells: faces') < at(faces[0]!) && at(faces[5]!) < at('orientShells: shells'));
+  assert.ok(at('orientShells: shells') < at(shells[0]!));
+  // With the real clock a quick part sends none.
+  const quick: string[] = [];
+  await healPart(d, { progress: (w) => quick.push(w) }, geom);
+  assert.deepEqual(quick.filter((w) => w.includes(', ')), []);
 });
 
 test("healScene: a changed part's outline drawn from its healed model, an unchanged part's kept", async () => {

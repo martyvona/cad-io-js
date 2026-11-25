@@ -7,7 +7,7 @@
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }
   from 'cad-scene';
 import { oracleMeasures, sha256 } from 'cad-scene';
-import { CAUSES_HEAD } from './causes.ts';
+import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
 const API_VERSION = 9;
@@ -96,13 +96,14 @@ interface CadioExports {
   _tc_api_version: Fn;
   _tc_tessellate: Fn;
   _tc_set_project: Fn;
-  _tc_set_deviation_factor: Fn;
+  _tc_set_check_deviation: Fn;
   _tc_set_count_insertions: Fn;
   _tc_set_count_angles: Fn;
   _tc_set_list_poles: Fn;
   _tc_set_count_expected: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_fail_turned_over: Fn;
+  _tc_set_keep_defects: Fn;
   _tc_set_fail_folded_fans: Fn;
   _tc_set_fan_rules: Fn;
   _tc_set_analysis: Fn;
@@ -147,11 +148,12 @@ export interface CadioInitOptions {
    */
   projectMissingPcurves?: boolean;
   /**
-   * A face whose mesh is farther from its surface than this times the larger of the linear deflection and the face's
-   * tolerance fails (part.h's PartOptions::maxDeviationFactor: its refused triangles' points inverted onto its
-   * surface), going the failed faces' way (a fallback, where configured); default 1, 0 never.
+   * Check each face's deviation after the rounds: a face whose mesh is farther from its surface than the larger of the
+   * linear deflection and the face's tolerance fails (part.h's PartOptions::checkDeviation: its refused triangles'
+   * points inverted onto its surface), going the failed faces' way (a fallback, where configured), or is kept with
+   * its defect (keepDefects); default true, false never checked.
    */
-  maxDeviationFactor?: number;
+  checkDeviation?: boolean;
   /**
    * Count the mesher's insertions by what queued them, said in an info diagnostic (INSERTED_HEAD; part.h's
    * PartOptions::countInsertions): the same mesh, up to 2 x the time; default false.
@@ -175,6 +177,11 @@ export interface CadioInitOptions {
    */
   failCapped?: boolean;
   failTurnedOver?: boolean;
+  /**
+   * Keep a face whose defect is small rather than fail it (part.h's PartOptions::keepDefects: a few triangles turned,
+   * a little past its deflection, at its point cap), the defect said in a warning (KEPT_HEAD); default true.
+   */
+  keepDefects?: boolean;
   /**
    * Fail a face whose pole's fan folds over itself, its output welded at shipped positions not manifold there
    * (part.h's PartOptions::failFoldedFans); default true. False keeps them as meshed, for measuring.
@@ -224,7 +231,7 @@ function failedMessage(ids: readonly number[], rows: number): string {
 
 export class CadioTessellator implements Tessellator {
   private project = true;
-  private deviationFactor = 1;
+  private checkDeviation = true;
   private countInsertions = false;
   private countAngles = false;
   private countRounds = false;
@@ -232,6 +239,7 @@ export class CadioTessellator implements Tessellator {
   private countExpected = false;
   private failCapped = true;
   private failTurnedOver = true;
+  private keepDefects = true;
   private failFoldedFans = true;
   private fanRules: [number, number] = [1, 1];
   private maxPoints = 0;
@@ -246,7 +254,7 @@ export class CadioTessellator implements Tessellator {
   async init(opts: CadioInitOptions = {}): Promise<void> {
     const { glue, wasm, version } = opts;
     this.project = opts.projectMissingPcurves ?? true;
-    this.deviationFactor = opts.maxDeviationFactor ?? 1;
+    this.checkDeviation = opts.checkDeviation ?? true;
     this.countInsertions = opts.countInsertions ?? false;
     this.countAngles = opts.countAngles ?? false;
     this.countRounds = opts.countRounds ?? false;
@@ -254,6 +262,7 @@ export class CadioTessellator implements Tessellator {
     this.countExpected = opts.countExpected ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
+    this.keepDefects = opts.keepDefects ?? true;
     this.failFoldedFans = opts.failFoldedFans ?? true;
     this.fanRules = [opts.consistentFans ?? true ? 1 : 0, opts.apexCorners ?? true ? 1 : 0];
     this.maxPoints = opts.maxPointsPerFace ?? 0;
@@ -309,13 +318,14 @@ export class CadioTessellator implements Tessellator {
     let rc: number;
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
     m._tc_set_project(this.project ? 1 : 0);
-    m._tc_set_deviation_factor(this.deviationFactor);
+    m._tc_set_check_deviation(this.checkDeviation ? 1 : 0);
     m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
     m._tc_set_count_angles(this.countAngles ? 1 : 0);
     m._tc_set_list_poles(this.listPoles ? 1 : 0);
     m._tc_set_count_expected(this.countExpected ? 1 : 0);
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
+    m._tc_set_keep_defects(this.keepDefects ? 1 : 0);
     m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);
     m._tc_set_fan_rules(...this.fanRules);
     m._tc_set_max_points(this.maxPoints);
@@ -423,6 +433,24 @@ export class CadioTessellator implements Tessellator {
     if (blocked.length) {
       diagnostics.push({ severity: 'warning', message: `${blocked.length} faces with refinement blocked by a fixed `
         + `ring segment: ${blocked.map((id, i) => `#${id} (${blockedRounds[i]} rounds)`).join(', ')}` });
+    }
+    // (Faces whose refinement asked for a split no edge, crease or ring segment takes: a bug, said.)
+    const dropped = list('splitsDropped'), droppedCount = list('splitsDroppedCount');
+    if (dropped.length) {
+      diagnostics.push({ severity: 'warning', message: `${dropped.length} faces with split requests dropped (no `
+        + `edge's, crease's or ring's segment): ${dropped.map((id, i) => `#${id} (${droppedCount[i]})`).join(', ')}` });
+    }
+    // (Faces kept with a defect rather than failed: [id, turned, deviation over max(d, tol), capped, past the
+    // limits] each; in the result's `defects` too.)
+    const kept = Array.isArray(diag['kept']) ? diag['kept'] as [number, number, number, number, number][] : [];
+    if (kept.length) {
+      const what = ([, turned, dev, capped, past]: [number, number, number, number, number]) => [
+        turned ? `${turned} triangles turned` : '', dev ? `${past ? 'at least ' : ''}${dev} x the larger of d and tol`
+          : '', capped ? 'at its point cap' : '', past ? 'past the limits' : '',
+      ].filter(Boolean).join(', ');
+      result.defects = kept.map((k) => ({ entityId: k[0], pastLimits: k[4] === 1, what: what(k) }));
+      diagnostics.push({ severity: 'warning', message: `${KEPT_HEAD}${kept.length} (`
+        + `${kept.map((k) => `#${k[0]} (${what(k)})`).join(', ')})` });
     }
     const sampled = list('sampled');
     if (sampled.length) {

@@ -39,8 +39,8 @@ struct Result {
 };
 Result result;
 bool project = true;
-// PartOptions::maxDeviationFactor and maxPointsPerFace for the next calls.
-double deviationFactor = 1.0;
+// PartOptions::checkDeviation and maxPointsPerFace for the next calls.
+bool checkDeviation = PartOptions{}.checkDeviation;
 int maxPoints = PartOptions{}.maxPointsPerFace;
 // PartOptions::capFloor, capMultiple and capCeiling for the next calls.
 double capFloor = PartOptions{}.capFloor, capMultiple = PartOptions{}.capMultiple,
@@ -57,6 +57,8 @@ bool listPoles = false;
 bool countExpected = false;
 // PartOptions::failCapped and failTurnedOver for the next calls.
 bool failCapped = true, failTurnedOver = true;
+// PartOptions::keepDefects for the next calls.
+bool keepDefects = PartOptions{}.keepDefects;
 // PartOptions::failFoldedFans for the next calls.
 bool failFoldedFans = PartOptions{}.failFoldedFans;
 // PartOptions::consistentFans and apexCorners for the next calls.
@@ -90,8 +92,8 @@ int tc_api_version() { return 9; }
 /** Whether the next calls project uses without p-curves (PartOptions::projectMissingPcurves; default 1). */
 void tc_set_project(int on) { project = on != 0; }
 
-/** The next calls' PartOptions::maxDeviationFactor (default 1; 0 or less: never). */
-void tc_set_deviation_factor(double factor) { deviationFactor = factor; }
+/** Whether the next calls check each face's deviation after the rounds (PartOptions::checkDeviation); default 1. */
+void tc_set_check_deviation(int on) { checkDeviation = on != 0; }
 
 /** The next calls' PartOptions::maxPointsPerFace (under 1: each face's cap by capFloor and the rest, the default). */
 void tc_set_max_points(int points) { maxPoints = points > 0 ? points : -1; }
@@ -140,6 +142,11 @@ void tc_set_count_expected(int on) { countExpected = on != 0; }
  */
 void tc_set_fail_capped(int on) { failCapped = on != 0; }
 void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
+/**
+ * Whether the next calls keep a face whose defect is small rather than failing it (PartOptions::keepDefects: a few
+ * turned triangles, a little past its deflection, at its point cap; its defect in the diagnostics' "kept"); default 1.
+ */
+void tc_set_keep_defects(int on) { keepDefects = on != 0; }
 /** Whether the next calls fail a face whose pole's fan folds over itself (PartOptions::failFoldedFans; default 1). */
 void tc_set_fail_folded_fans(int on) { failFoldedFans = on != 0; }
 /** Whether the next calls apply the fold rules (PartOptions::consistentFans, apexCorners; default 1 each). */
@@ -170,7 +177,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.d.linear = linear;
   opts.d.angular = angular;
   opts.projectMissingPcurves = project;
-  opts.maxDeviationFactor = deviationFactor;
+  opts.checkDeviation = checkDeviation;
   opts.maxPointsPerFace = maxPoints;
   opts.capFloor = capFloor, opts.capMultiple = capMultiple, opts.capCeiling = capCeiling;
   opts.minAngle = minAngle;
@@ -180,6 +187,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   for (int k = 0; k < 3; k++) opts.outputOrigin[k] = o[k];
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
+  opts.keepDefects = keepDefects;
   opts.failFoldedFans = failFoldedFans;
   opts.consistentFans = consistentFans, opts.apexCorners = apexCorners;
   opts.analysis = analysis, opts.analysisSize = analysisSize;
@@ -190,7 +198,10 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartMesher pm(m, opts);
   std::vector<uint32_t> failed, failedRows, failedStatus, refused, unsplit, unsettled, sampled, againstSense,
     holesOnly;
-  std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped;
+  std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped, dropped, droppedCount;
+  // (Each face kept with a defect, PartOptions::keepDefects: [id, turned, deviation over max(d, tol), capped 0/1, past
+  // the limits 0/1].)
+  std::string kept = "[";
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
   std::string thinArea = "[";
@@ -268,6 +279,13 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
       if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
+      if (fm.splitsDropped) dropped.push_back(faceId[f]), droppedCount.push_back(fm.splitsDropped);
+      if (fm.defectTurned || fm.defectDeviation > 0 || fm.defectCapped) {
+        char row[96];
+        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d,%d]", kept.size() > 1 ? "," : "", faceId[f], fm.defectTurned,
+          fm.defectDeviation, fm.defectCapped ? 1 : 0, fm.defectPastLimits ? 1 : 0);
+        kept += row;
+      }
       if (fm.sampled) sampled.push_back(faceId[f]);
       if (fm.seamUnsettled) unsettled.push_back(faceId[f]);
       if (fm.againstSense) againstSense.push_back(faceId[f]);
@@ -362,8 +380,9 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     ids(failedStatus) + ",\"failedCause\":" + causes + ",\"refused\":" + ids(refused) +
     ",\"unsplit\":" + ids(unsplit) + ",\"unsettled\":" + ids(unsettled) + ",\"sampled\":" + ids(sampled) +
     ",\"againstSense\":" + ids(againstSense) + ",\"holesOnly\":" + ids(holesOnly) + ",\"folded\":" + ids(folded) +
-    ",\"ringBlocked\":" + ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) + ",\"capped\":" +
-    ids(capped) +
+    ",\"ringBlocked\":" + ids(ringBlocked) + ",\"ringBlockedRounds\":" + ids(ringBlockedRounds) +
+    ",\"splitsDropped\":" + ids(dropped) + ",\"splitsDroppedCount\":" + ids(droppedCount) + ",\"capped\":" +
+    ids(capped) + ",\"kept\":" + kept + "]" +
     ",\"refusedBy\":" + ids(refusedBy) + ",\"inserted\":" + ids(inserted) + ",\"thin\":" + ids(thin) +
     ",\"thinArea\":" + thinArea + "]" + ",\"folds\":" +
     std::to_string(folds) + ",\"projections\":[" + std::to_string(pc.withinMesh) + "," +
@@ -407,9 +426,14 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * "traceFallbacks" (each local step that fell back on the global search, [edge id, t, distance, why]), "rounds",
  * "refusedTriangles", "poleSlivers" (refused triangles with a corner at a pole or apex), "ringBlocked" and
  * "ringBlockedRounds" (the faces whose refinement asked for a pole ring's segment to be split, which a ring's never
- * is, and in how many rounds: FaceMesh::ringBlocked), "capped" (the faces failed for refinement stopped at the
- * point cap: FaceMesh::capped), "poles" (with tc_set_list_poles, every face's singularities as its closed surface has
- * them, 5 numbers each [face id, cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
+ * is, and in how many rounds: FaceMesh::ringBlocked), "splitsDropped" and "splitsDroppedCount" (the faces whose
+ * refinement asked for a split of a segment that is no edge's, crease's or ring's, and how many requests:
+ * FaceMesh::splitsDropped; none expected), "capped" (the faces failed for refinement stopped at the
+ * point cap: FaceMesh::capped), "kept" (the faces kept with a defect, PartOptions::keepDefects: [face id, triangles
+ * turned, measured deviation over max(d, tol) where past the limit else 0, 1 if at its point cap, 1 if past the
+ * keep limits] each), "poles"
+ * (with tc_set_list_poles, every face's singularities as its closed surface has them, 5 numbers each [face id,
+ * cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
  * tc_set_count_expected, each face's [face id, triangles its size metric expects: FaceMesh::expectedTriangles,
  * triangles meshed], for every face its mesher meshed, 0 meshed where it failed after: at its point cap, say)}.
  */
