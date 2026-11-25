@@ -1968,6 +1968,7 @@ struct PartMesher::Impl {
     out.points.resize(n);
     out.normals.assign(n, Vec3{0, 0, 0});
     std::vector<char> regular(n, 0);
+    std::vector<Vec2> ats(n);
     for (size_t i = 0; i < n; i++) {
       if (i < bp.size()) {
         out.points[i] = bp[i].point;
@@ -1987,11 +1988,33 @@ struct PartMesher::Impl {
         };
         in(at.x, bu), in(at.y, bv);
       }
+      ats[i] = at;
       Vec3 nn;
       Status ns = s.normal(at.x, at.y, nn);
       if ((ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) && std::fabs(norm(nn) - 1) < 1e-9) {
         out.normals[i] = sense * nn;
         regular[i] = 1;
+      }
+    }
+    // A vertex a facet is against (its normal reversed against its triangles'): where it lies in a fold narrower than
+    // the tolerance, its normal the fold's sides' (criteria.h's foldNormal), as the criteria judged it, so shading
+    // shows no dark speck there (FaceMesh::foldedNormals).
+    if (criteria[f]) {
+      std::vector<char> tried(n, 0);
+      for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+        const int32_t* c = &mesh.triangles[t];
+        const Vec3 g = cross(out.points[c[1]] - out.points[c[0]], out.points[c[2]] - out.points[c[0]]);
+        for (int k = 0; k < 3; k++) {
+          const size_t i = static_cast<size_t>(c[k]);
+          if (tried[i] || !regular[i] || !facetAgainst(sense * g, out.normals[i])) continue;
+          tried[i] = 1;
+          Vec3 nn;
+          bool folded = false;
+          if (criteria[f]->scaleNormal(ats[i], nn, folded) == Status::ok && folded) {
+            out.normals[i] = sense * nn;
+            out.foldedNormals++;
+          }
+        }
       }
     }
     auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };

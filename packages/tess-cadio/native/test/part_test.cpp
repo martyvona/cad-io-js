@@ -3,6 +3,7 @@
 // shell's mesh closed and consistently oriented (each side of a triangle used by exactly one other, the other way),
 // normals unit and finite (a sphere's pole included) and on the side the triangles face, triangles within the
 // deflection of the surface, the faces' areas against their closed forms, the same mesh twice.
+#include <tess_cadio/criteria.h>
 #include <tess_cadio/edges.h>
 #include <tess_cadio/part.h>
 
@@ -974,6 +975,139 @@ TEST_CASE("B-spline faces with no loops meshed over their knot rectangles: open,
     // sides but its apex row.
     CHECK_EQ(pm.edges().edgeCount() - m.edges(), 4 + 3 + 3 + 3);
   }
+}
+
+TEST_CASE("a fold narrower than the tolerance: foldNormal its sides' normal there; the strip meshed, its normals "
+  "the sides'; a tight fillet not one") {
+  // pleatStrip: its section's normal reversed over v 0.45 to 0.55 (the surface running back 1.2e-3 there), its
+  // tolerance 0.2. At v 0.5 the normal is reversed against the surface's 0.2 away on both sides, which agree: the
+  // sides' mean, folded; at v 0.2 and 0.8 the surface's own.
+  cadgeom::Model m = load("pleatStrip");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  for (double v : {0.2, 0.5, 0.8}) {
+    Vec3 plain, n;
+    bool folded = true;
+    REQUIRE(s->normal(0.5, v, plain) == cadgeom::Status::ok);
+    REQUIRE(foldNormal(*s, 0.5, v, 0.2, n, &folded) == cadgeom::Status::ok);
+    CHECK_EQ(folded, v == 0.5);
+    if (v == 0.5) {
+      CHECK(cadgeom::dot(n, plain) < 0);
+      Vec3 a;
+      REQUIRE(s->normal(0.5, 0.2, a) == cadgeom::Status::ok);
+      CHECK(cadgeom::dot(n, a) > 0.99);
+    } else {
+      CHECK(cadgeom::norm(n - plain) == 0);
+    }
+  }
+  // Meshed at medium: no runaway, no face failed or turned past the limits, the strip's area (0.6 x 190 and the
+  // pleat's 3.5e-3 x 190 more: its section's length by the Bezier's arc), the vertices in the pleat its sides'.
+  PartOptions o = options(0.1, 15 * M_PI / 180);
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.triangles.size() / 3 < 1000);
+  CHECK(fm.foldedNormals > 0);
+  double area = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  CHECK(std::fabs(area - 190 * 0.6) < 0.01 * 190 * 0.6);
+  CHECK_EQ(sharedEdges(m, pm, "pleatStrip"), 0);
+  // thinTube: a half cylinder of radius 0.005 at a tolerance of 0.1, its sides at its ends facing apart: no fold.
+  cadgeom::Model c = load("thinTube");
+  REQUIRE(c.ok());
+  auto tube = cadgeom::makeSurface(c, c.faceSurface(0), st);
+  REQUIRE(tube);
+  Vec3 n;
+  bool folded = true;
+  REQUIRE(foldNormal(*tube, M_PI / 2, 0.5, 0.1, n, &folded) == cadgeom::Status::ok);
+  CHECK(!folded);
+}
+
+TEST_CASE("foldNormal on polyline sections: a fold only where the sides agree and both are against the point; its "
+  "sides found by a step that shrinks to the tolerance") {
+  cadgeom::Status st;
+  auto at = [&](const cadgeom::Surface& s, double v) {
+    Vec3 n;
+    REQUIRE(s.normal(0.5, v, n) == cadgeom::Status::ok);
+    return n;
+  };
+  auto verdict = [&](const cadgeom::Surface& s, Vec3& n) {
+    bool folded = false;
+    REQUIRE(foldNormal(s, 0.5, 0.5, 0.2, n, &folded) == cadgeom::Status::ok);
+    return folded;
+  };
+  // foldSidesApart: the short leg's normal against both legs beside it, which are 120 degrees apart.
+  cadgeom::Model apart = load("foldSidesApart");
+  REQUIRE(apart.ok());
+  auto a = cadgeom::makeSurface(apart, apart.faceSurface(0), st);
+  REQUIRE(a);
+  CHECK(cadgeom::dot(at(*a, 0.5), at(*a, 0.1)) < 0);
+  CHECK(cadgeom::dot(at(*a, 0.5), at(*a, 0.9)) < 0);
+  CHECK(cadgeom::dot(at(*a, 0.1), at(*a, 0.9)) < 0);
+  Vec3 n;
+  CHECK(!verdict(*a, n));
+  CHECK(cadgeom::norm(n - at(*a, 0.5)) == 0);
+  // foldOneSide: against the leg before it alone, the two legs agreeing.
+  cadgeom::Model one = load("foldOneSide");
+  REQUIRE(one.ok());
+  auto o = cadgeom::makeSurface(one, one.faceSurface(0), st);
+  REQUIRE(o);
+  CHECK(cadgeom::dot(at(*o, 0.5), at(*o, 0.1)) < 0);
+  CHECK(cadgeom::dot(at(*o, 0.5), at(*o, 0.9)) > 0);
+  CHECK(cadgeom::dot(at(*o, 0.1), at(*o, 0.9)) > 0);
+  CHECK(!verdict(*o, n));
+  // foldStepFar: the short leg (v 0.4 to 0.6) between legs forward (0.2 to 0.4, 0.6 to 0.8), those between legs
+  // back as the short one is; the first step lands past the domain's ends, on the long legs: shrunk, it finds the
+  // forward legs, a fold, its normal theirs.
+  cadgeom::Model far = load("foldStepFar");
+  REQUIRE(far.ok());
+  auto f = cadgeom::makeSurface(far, far.faceSurface(0), st);
+  REQUIRE(f);
+  CHECK(cadgeom::dot(at(*f, 0.5), at(*f, 0.1)) > 0.99);
+  CHECK(verdict(*f, n));
+  CHECK(cadgeom::dot(n, at(*f, 0.3)) > 0.99);
+}
+
+TEST_CASE("a fold's slivers accepted where thinner than the refinement floor across, not wider; LMP1 #1039663 "
+  "pleated at its edge meshed, few turned") {
+  // pleatStrip's criteria at a deflection of 1 (its floor 0.2, the uncertainty; the deviation bound within it): a
+  // triangle from the fold (0.5, 0.5) to v 0.05 and 0.95 (x 0.08 and 0.52) 2 along y, 0.43 across, refused for its
+  // normals; 0.05 along y, 0.05 across, accepted.
+  cadgeom::Model m = load("pleatStrip");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{0, 1}, {0, 1}}, Deflections{1, 15 * M_PI / 180}, st);
+  REQUIRE(c);
+  const Vec2 wide[3] = {{0.5, 0.5}, {0.5 + 2.0 / 190, 0.05}, {0.5 + 2.0 / 190, 0.95}};
+  const Vec2 thin[3] = {{0.5, 0.5}, {0.5 + 0.05 / 190, 0.05}, {0.5 + 0.05 / 190, 0.95}};
+  CHECK(c->refusal(wide) == Refusal::normalFacet);
+  CHECK(c->refusal(thin) == Refusal::none);
+  // pleatAtEdge at medium, judged as shipped (the origin its vertices' box's centre): meshed, its slivers in the
+  // fold kept rather than split (refined, without them accepted turned as shipped, it ships ten times the turned).
+  cadgeom::Model e = load("pleatAtEdge");
+  REQUIRE(e.ok());
+  PartOptions o = options(0.1, 15 * M_PI / 180);
+  o.minAngle = 10 * M_PI / 180;
+  Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
+  for (int i = 0; i < e.vertices(); i++) {
+    const Vec3 p = e.vertexPoint(i);
+    lo = {std::fmin(lo.x, p.x), std::fmin(lo.y, p.y), std::fmin(lo.z, p.z)};
+    hi = {std::fmax(hi.x, p.x), std::fmax(hi.y, p.y), std::fmax(hi.z, p.z)};
+  }
+  o.outputOrigin[0] = 0.5 * (lo.x + hi.x), o.outputOrigin[1] = 0.5 * (lo.y + hi.y);
+  o.outputOrigin[2] = 0.5 * (lo.z + hi.z);
+  PartMesher pm(e, o);
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  pleatAtEdge: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.defectTurned <= 4);
+  CHECK(fm.triangles.size() / 3 < 400);
+  CHECK(fm.foldedNormals > 0);
 }
 
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {

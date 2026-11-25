@@ -275,6 +275,8 @@ struct FaceMesh {
   int splitsWanted = 0;
   /** Its triangles turned as shipped flipped with a neighbour (PartOptions::flipTurned). */
   int turnedFlips = 0;
+  /** Its vertices whose normal is a fold's sides' (criteria.h's foldNormal): in a fold narrower than the tolerance. */
+  int foldedNormals = 0;
   /** Its triangles turned as shipped mended by PartOptions::collapseTurned. */
   int collapsed = 0;
   /**
