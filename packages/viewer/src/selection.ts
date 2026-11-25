@@ -163,10 +163,11 @@ export function faceOfTriangle(ranges: readonly FaceRange[], triangle: number): 
 
 /**
  * The node a pick stands for at a level: the part (or the nearest node above, if the object isn't in a part), its
- * assembly, or the face picked, or the group of the lines or points picked (detail: the model must show detail).
+ * assembly, or the face, edge, curve, vertex or point picked (`item`: its place in the line or point object's items;
+ * without one, the object's group) (detail: the model must show detail).
  */
 export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex: number | undefined,
-  level: PickLevel): number | undefined {
+  level: PickLevel, item?: number): number | undefined {
   const id = model.nodeOf(object);
   if (id === undefined) return undefined;
   let part: number | undefined = id;
@@ -180,7 +181,13 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
   // (Its detail made first, if it isn't yet: a line or point object then finds its group.)
   const groups = model.children(part);
   const own = model.nodeOf(object);
-  if (own !== undefined && own !== part) return own;
+  if (own !== undefined && own !== part) {
+    const one = item === undefined ? undefined : model.children(own).find((c) => {
+      const i = model.nodes[c]!.item;
+      return i?.object === object && i.k === item;
+    });
+    return one ?? own;
+  }
   const group = groups.find((c) => model.nodes[c]!.kind === 'faces');
   const faces = group === undefined ? [] : model.children(group);
   // A failed face's outline (scene-graph.ts) picks its face.
@@ -193,6 +200,34 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
     if (face !== undefined) return face;
   }
   return part;
+}
+
+/**
+ * What the pointer being over a pick highlights at a level (outline.ts): at the part or assembly level, the node's
+ * pieces outlined; at the detail level, a face's ranges (every range of its source) outlined, an edge's, curve's,
+ * vertex's or point's range marked, a failed face's outline marked; a cap, its part outlined. Detail needs no nodes
+ * (the tree's detail may be off).
+ */
+export function highlightForPick(model: NodeModel, hit: { object: THREE.Object3D; faceIndex?: number; item?: number },
+  level: PickLevel): { outline: Piece[]; marks: Piece[] } {
+  const none = { outline: [], marks: [] };
+  const o = hit.object as Drawable;
+  if (level === 'detail') {
+    if (hit.item !== undefined) {
+      const r = rangeOf(o, hit.item);
+      return { outline: [], marks: r ? [{ object: o, ranges: [r] }] : [] };
+    }
+    if (o.userData.outlineFace !== undefined) return { outline: [], marks: [{ object: o }] };
+    const ranges = o.userData.faceRanges as FaceRange[] | undefined;
+    const f = ranges?.length && hit.faceIndex !== undefined ? faceOfTriangle(ranges, hit.faceIndex) : undefined;
+    if (f) {
+      const same = f.source === null ? [f] : ranges!.filter((r) => r.source === f.source);
+      return { outline: [{ object: o, ranges: same.map(({ start, count }) => ({ start, count })) }], marks: [] };
+    }
+  }
+  // (A cap, a pick without a face index: the part.)
+  const id = nodeForPick(model, hit.object, hit.faceIndex, level);
+  return id === undefined ? none : { outline: piecesOf(model, [id]), marks: [] };
 }
 
 /** The placements of a part node's part: the part nodes of the same scene part. */

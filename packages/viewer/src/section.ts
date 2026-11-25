@@ -381,6 +381,8 @@ export class Sections {
         }
         const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.material(hatch, axis));
         quad.renderOrder = order + 1;
+        // (Picked as its part's cap: pick-ids.ts.)
+        quad.userData.capOf = meshes[0];
         quad.onAfterRender = (r) => r.clearStencil();
         this.group.add(quad);
         this.caps.push({ quad, axis, box });

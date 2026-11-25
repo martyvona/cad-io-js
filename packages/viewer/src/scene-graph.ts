@@ -27,6 +27,7 @@ import type { PartModel } from './part-model.ts';
 import type { DetailSources } from './details.ts';
 import { geometryKind, type GeometryKind } from './geometry-info.ts';
 import { setItems, type Item } from './items.ts';
+import { faceIndexAttribute, PICK_INDEX } from './pick-ids.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
 import { DiscMaterial } from './vertex-points.ts';
 
@@ -76,10 +77,22 @@ export interface Placement {
   instance: PartInstance;
 }
 
+/**
+ * A part's mesh's attributes: with each vertex's face (pick-ids.ts's `pickIndex`), or, where faces share vertices, a
+ * copy of the positions and index for picking alone in which they don't (`split`).
+ */
+interface Attributes {
+  position: THREE.BufferAttribute;
+  normal?: THREE.BufferAttribute;
+  index: THREE.BufferAttribute;
+  pickIndex?: THREE.BufferAttribute;
+  split?: { position: THREE.BufferAttribute; pickIndex: THREE.BufferAttribute; index: THREE.BufferAttribute };
+}
+
 /** A meshed part: what assigning faces to geometry groups and materials needs again when faces are hidden. */
 interface MeshedPart {
   mesh: Mesh;
-  attrs: { position: THREE.BufferAttribute; normal?: THREE.BufferAttribute; index: THREE.BufferAttribute };
+  attrs: Attributes;
   /** Geometries by grouping (runs of faces and their materials). */
   geometries: Map<string, THREE.BufferGeometry>;
   objects: { obj: THREE.Mesh; instance: PartInstance }[];
@@ -194,7 +207,7 @@ export class SceneGraph implements Looks {
 
   /**
    * A placement's B-rep vertices as dots (vertex-points.ts: drawn on the VERTICES layer, which the Viewer shows with
-   * Rendering's Vertices), in place of any it had; an item each (items.ts), by its id. Not picked.
+   * Rendering's Vertices), in place of any it had; an item each (items.ts), by its id. Picked while shown.
    */
   private addVertices(part: number, obj: THREE.Object3D): void {
     for (const old of obj.children.filter((c) => c.name === 'vertices')) obj.remove(old);
@@ -337,8 +350,7 @@ export class SceneGraph implements Looks {
     this.removeMesh(part);
     this.meshes.set(part, mesh);
     const triangles = mesh.indices.length > 0;
-    let attrs: { position: THREE.BufferAttribute; normal?: THREE.BufferAttribute; index: THREE.BufferAttribute }
-      | undefined;
+    let attrs: Attributes | undefined;
     const geometries = new Map<string, THREE.BufferGeometry>();
     let edges: THREE.BufferGeometry | undefined;
     let edgeItems: Item[] | undefined;
@@ -346,6 +358,17 @@ export class SceneGraph implements Looks {
       attrs = { position: new THREE.BufferAttribute(mesh.positions, 3), index: new THREE.BufferAttribute(mesh.indices,
         1) };
       if (mesh.normals) attrs.normal = new THREE.BufferAttribute(mesh.normals, 3);
+      const n = mesh.positions.length / 3;
+      const faces = faceIndexAttribute(mesh.indices, mesh.faces, n);
+      if (!faces.split) attrs.pickIndex = new THREE.BufferAttribute(faces.pickIndex, 1);
+      else {
+        const { index, copies } = faces.split;
+        const position = new Float32Array(3 * (n + copies.length));
+        position.set(mesh.positions);
+        copies.forEach((v, i) => position.set(mesh.positions.subarray(3 * v, 3 * v + 3), 3 * (n + i)));
+        attrs.split = { position: new THREE.BufferAttribute(position, 3), index: new THREE.BufferAttribute(index, 1),
+          pickIndex: new THREE.BufferAttribute(faces.pickIndex, 1) };
+      }
       const kept = (mesh.edges ?? []).filter((e) => EDGE_KINDS.has(e.kind));
       // (A mesh without edges of its own gets edges found from its triangles later: setFoundEdges.)
       if (mesh.edgePositions && kept.length) {
@@ -477,7 +500,10 @@ export class SceneGraph implements Looks {
       obj.traverse((o) => { if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments || o instanceof THREE.Points)
         o.geometry.dispose(); });
     }
-    for (const g of this.meshed.get(part)?.geometries.values() ?? []) g.dispose();
+    for (const g of this.meshed.get(part)?.geometries.values() ?? []) {
+      g.dispose();
+      (g.userData.pick as THREE.BufferGeometry | undefined)?.dispose();
+    }
     this.made.delete(part);
     this.meshes.delete(part);
     this.meshed.delete(part);
@@ -508,6 +534,17 @@ export class SceneGraph implements Looks {
       if (meshed.attrs.normal) g.setAttribute('normal', meshed.attrs.normal);
       g.setIndex(meshed.attrs.index);
       runs.forEach((r, i) => g!.addGroup(r.start, r.count, i));
+      if (meshed.attrs.pickIndex) g.setAttribute(PICK_INDEX, meshed.attrs.pickIndex);
+      const split = meshed.attrs.split;
+      if (split) {
+        // (Drawn for picking in place of this one: pick-ids.ts.)
+        const pick = new THREE.BufferGeometry();
+        pick.setAttribute('position', split.position);
+        pick.setAttribute(PICK_INDEX, split.pickIndex);
+        pick.setIndex(split.index);
+        runs.forEach((r, i) => pick.addGroup(r.start, r.count, i));
+        g.userData.pick = pick;
+      }
       meshed.geometries.set(key, g);
     }
     obj.geometry = g;

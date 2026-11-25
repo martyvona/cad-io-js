@@ -16,7 +16,8 @@ import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
-import { Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel } from './selection.ts';
+import { highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
+  from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
@@ -968,7 +969,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       p.setDetail(true);
       detailControl?.updateDisplay();
     }
-    return hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level);
+    return hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level, hit.item);
+  };
+  // What the pointer's over, highlighted at the pick level (the last kept, for a change of level).
+  let hovering: Pick | undefined;
+  const hover = () => {
+    const nodes = viewer.nodes;
+    viewer.setHighlight(hovering && nodes ? highlightForPick(nodes, hovering, selection.level) : undefined);
+  };
+  viewer.onHover = (hit) => {
+    hovering = hit;
+    hover();
   };
   // A right-click or long press on the view: the node there gets the tree's menu and the tree's focus (outlined), the
   // selection left as it is; on nothing, no menu and no focus.
@@ -1207,6 +1218,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     setPickLevel: (level) => {
       selection.level = level;
       for (const c of selFolder.controllersRecursive()) c.updateDisplay();
+      hover();
     },
     setInstances: (on) => {
       selection.instances = on;
@@ -1236,8 +1248,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
   // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
-  selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
-    .name('Pick');
+  selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
+    'Face, edge, curve, vertex': 'detail' }).name('Pick').onChange(hover);
   selFolder.add(selection, 'multi').name('Multi-select (touch)');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
   selFolder.add({ parent: () => ui.selectParent() }, 'parent').name('Select parent');

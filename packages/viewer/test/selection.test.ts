@@ -3,7 +3,12 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { details } from '../src/details.ts';
 import { NodeModel } from '../src/model.ts';
-import { pick } from '../src/pick.ts';
+import { hitsAlong, type ExtraHits } from '../src/pick.ts';
+
+/** The nearest thing drawn along the ray through a point of the view. */
+const pick = (camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
+  clipped?: (p: THREE.Vector3) => boolean, extra?: ExtraHits) => hitsAlong(camera, root, ndc, pixel, clipped, extra)
+  .hits[0];
 import { faceOfTriangle, Highlighter, instancesOf, measure, nodeForPick, piecesOf,
   sphereOf } from '../src/selection.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
@@ -226,7 +231,7 @@ test("details from the part's B-rep and mesh: a face's surface, an edge's curve,
   assert.equal(volume([plateLeft])[0], 'Volume on the exact geometry: not measured (Heal B-reps measures it)');
 });
 
-test('pick: the nearest drawn thing under a point; hidden things, hidden faces and clipped points not', () => {
+test('hits along a ray: the nearest drawn thing first; hidden things, hidden faces and clipped points not', () => {
   const root = new THREE.Group();
   const near = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), [new THREE.MeshBasicMaterial()]);
   near.geometry.addGroup(0, 6, 0);
@@ -244,9 +249,9 @@ test('pick: the nearest drawn thing under a point; hidden things, hidden faces a
   camera.updateMatrixWorld();
   const at = (y = 0.3, pixel = 0.01) => pick(camera, root, new THREE.Vector2(0, y / 10), pixel)?.object;
   assert.equal(at(), near);
-  // An edge within a few pixels of the point, at the face's depth, wins.
-  assert.equal(at(0.05), edge);
-  assert.equal(at(0.3, 0.1), edge);
+  // An edge within a few pixels of the point, at the face's depth, hit too.
+  assert.ok(hitsAlong(camera, root, new THREE.Vector2(0, 0.03 / 10), 0.01).hits.some((h) => h.object === edge));
+  assert.ok(!hitsAlong(camera, root, new THREE.Vector2(0, 0.3 / 10), 0.01).hits.some((h) => h.object === edge));
   near.visible = false;
   assert.equal(at(), far);
   near.visible = true;
@@ -268,55 +273,7 @@ test('pick: the nearest drawn thing under a point; hidden things, hidden faces a
   assert.equal(pick(camera, root, new THREE.Vector2(0.9, 0.9), 0.01, () => true), undefined);
 });
 
-test('pick: the face under the point beats other parts\' lines near it; its own lines and wireframes may win', () => {
-  // Parts as our STEP graph and found edges make them: a group holding a mesh, the mesh's edges its child. A plate
-  // (x -4 to 4, y -4 to 4) with a bracket on it at the same depth (x 1 to 3, y -1 to 1, drawn in front), and a
-  // wireframe part (one curve along y = 3, x -8 to 8), in front of the plate.
-  const root = new THREE.Group();
-  const part = (x0: number, x1: number, y0: number, y1: number, z: number) => {
-    const g = new THREE.Group();
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, y1 - y0));
-    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, z);
-    const [hx, hy] = [(x1 - x0) / 2, (y1 - y0) / 2];
-    const edges = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([[-hx, -hy], [hx, -hy], [hx, -hy],
-      [hx, hy], [hx, hy], [-hx, hy], [-hx, hy], [-hx, -hy]].map(([x, y]) => new THREE.Vector3(x, y, 0))));
-    mesh.add(edges);
-    g.add(mesh);
-    root.add(g);
-    return { mesh, edges };
-  };
-  const plate = part(-4, 4, -4, 4, 0);
-  const bracket = part(1, 3, -1, 1, 0.001);
-  const wire = new THREE.Group();
-  const curve = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-8, 3, 0.5),
-    new THREE.Vector3(8, 3, 0.5)]));
-  wire.add(curve);
-  root.add(wire);
-  root.updateMatrixWorld(true);
-  const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -100, 100);
-  camera.position.set(0, 0, 20);
-  camera.lookAt(0, 0, 0);
-  camera.updateMatrixWorld();
-  // ndc is world / 10 here; a pixel 0.1, so lines are hit within 0.4.
-  const at = (x: number, y: number) => pick(camera, root, new THREE.Vector2(x / 10, y / 10), 0.1)?.object;
-  // On the plate, 0.3 from the bracket's edge (x = 1): the plate (the bracket's edge won before 2026-10-25).
-  assert.equal(at(0.7, 0), plate.mesh);
-  // On the bracket, 0.3 from its own edge: the edge, so edges can be picked.
-  assert.equal(at(1.3, 0), bracket.edges);
-  // On the plate, 0.3 from its own edge: the plate's edge.
-  assert.equal(at(-3.7, 0), plate.edges);
-  // The wireframe, in front of the plate, within reach: it wins.
-  assert.equal(at(0, 2.8), curve);
-  // No face under the point: the nearest line, or nothing.
-  assert.equal(at(-6, 3.2), curve);
-  assert.equal(at(-6, 0), undefined);
-  // The wireframe behind the plate, beyond the depth tolerance (twice the reach): the plate.
-  curve.position.z = -2;
-  root.updateMatrixWorld(true);
-  assert.equal(at(0, 2.8), plate.mesh);
-});
-
-test('pick: lines are hit within the pixels asked under a scaled parent (a file in metres)', () => {
+test('hits along a ray: lines are hit within the pixels asked under a scaled parent (a file in metres)', () => {
   // three.js divides the threshold by the line's own scale only, so under a parent scaling by 1000 a line was hit
   // within 1000 times the reach: a click in empty space picked the nearest part's edges.
   const root = new THREE.Group();
@@ -359,7 +316,8 @@ test('pick: lines are hit within the pixels asked under a scaled parent (a file 
   assert.equal(at(0, 4), undefined);
 });
 
-test('pick: what\'s drawn in front of the camera\'s position (a negative near plane) is hit, nearest first', () => {
+test('hits along a ray: what\'s drawn in front of the camera\'s position (a negative near plane) is hit, nearest '
+  + 'first', () => {
   // Zoom selected puts the camera just beyond the selection, and the near plane follows the whole model (clipTo),
   // so other parts lie between the near plane and the camera: drawn, and before 2026-10-30 not hit (three.js starts
   // an orthographic camera's ray at its position), so a click on them picked what was behind them, or nothing.

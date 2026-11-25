@@ -1228,7 +1228,7 @@ await check('tree menu hide and show', async () => {
 // it, the selection unchanged, the tree's focus (outlined) on its row, revealed in a folded tree; its Hide hides that
 // part alone; on nothing, no menu and no focus; a right-drag (a pan) no menu; a long press with a finger the menu,
 // its lift no pick; a left click moves the focus to what it picks, or clears it on nothing; at the detail level, a
-// face's.
+// face's, edge's or vertex's.
 await check('view context menu', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
@@ -1320,7 +1320,7 @@ await check('view context menu', async () => {
   expect(a.turned.menu.length === 0, `a finger that moves: ${j}`);
   expect(a.left.focused === a.part && JSON.stringify(a.left.selected) === JSON.stringify([a.part]) &&
     a.leftEmpty.focused === null && a.leftEmpty.selected.length === 0, `left clicks: ${j}`);
-  expect(a.detail.menu[0] === 'Hide' && ['face', 'edges', 'curves', 'points'].includes(a.detailKind as string) &&
+  expect(a.detail.menu[0] === 'Hide' && ['face', 'edge', 'curve', 'vertex', 'point'].includes(a.detailKind as string) &&
     a.detail.selected.length === 0, `at the detail level: ${j}`);
   return undefined;
 });
@@ -1877,7 +1877,8 @@ await check('rendering', async () => {
     const c = viewer.composer;
     const names = new Map([[c.n8ao, 'N8AOPass'], [c.smaa, 'SMAAPass'], [c.plain, 'RenderPass'],
       [c.output, 'OutputPass']]);
-    const passes = () => c.composer.passes.map((p) => names.get(p) ?? 'other');
+    // (Those drawn: the highlights' silhouette is there, off, without one.)
+    const passes = () => c.composer.passes.filter((p) => p.enabled).map((p) => names.get(p) ?? 'other');
     const gl = viewer.renderer.getContext();
     const edgesShown = () => viewer.camera.layers.isEnabled(1);
     const edgeHits = () => { let n = 0; viewer.display.traverse((o) => { if (o.isLine && o.name === 'edges' &&
@@ -4846,18 +4847,29 @@ await check('transforms', async () => {
       const n = m.nodes.find((k) => k.kind === 'part' && k.name === name);
       ui.select([n.id]);
       ui.hideOthers();
+      // (Edges off: the circle at the far end of a nut's hole, seen through it, is picked within a few pixels.)
+      ui.setRender({ edges: false });
       await cadViewer.idle();
       // (A placed part's object holds its mesh.)
       const o = n.object.children.find((c) => c.isMesh);
       o.geometry.computeBoundingSphere();
       const c = o.geometry.boundingSphere.center.clone().applyMatrix4(o.matrixWorld);
       const at = c.clone().project(viewer.camera);
-      const hit = cadViewer.pickAt((at.x + 1) / 2, (1 - at.y) / 2);
-      const depth = hit && c.clone().set(...hit.point).project(viewer.camera).z;
+      // The pixel nearest the centre on the part's front, nearer than its centre (the centre is in its hole, which can
+      // be clear through, and next to the hole its far wall shows): none if its faces were drawn inside out.
+      let hit, depth;
+      const R = viewer.renderer.domElement.getBoundingClientRect();
+      for (let r = 0; r < 40 && !hit; r++) for (let k = 0; k < 8 && !hit; k++) {
+        const h = cadViewer.pickAt((at.x + 1) / 2 + r * Math.cos(k * Math.PI / 4) / R.width, (1 - at.y) / 2 + r *
+          Math.sin(k * Math.PI / 4) / R.height);
+        const d = h && c.clone().set(...h.point).project(viewer.camera).z;
+        if (h?.path?.endsWith(name) && d < at.z) [hit, depth] = [h, d];
+      }
       ui.selection.details = true;
       const stretched = ui.details().find((l) => l.startsWith('Stretched: ')) ?? null;
       ui.showAll();
       ui.select([]);
+      ui.setRender({ edges: true });
       await cadViewer.idle();
       return { det: Math.sign(o.matrixWorld.determinant()), path: hit?.path, near: hit ? depth < at.z : null,
         stretched };
@@ -5220,11 +5232,290 @@ await check('fat edges', async () => {
   expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
   return undefined;
 });
+// Hover highlights (outline.ts): the mouse over a part outlines it in the highlight's blue, outside the part (nothing
+// strong over its own pixels), dim where another part is in front (an x-ray: the bracket's outline behind the rod); at
+// the detail level a face outlined, an edge marked (thin and fat edges), a vertex marked (Vertices on); a drag, or the
+// mouse gone, nothing.
+await check('hover highlights', async () => {
+  const frames = '(async () => { for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r)); ' +
+    'await settled(); })()';
+  // The canvas drawn now against `base`: changed pixels by how far each moved toward the highlight's blue (1: all the
+  // way), strong (over 0.7) or dim (0.15 to 0.5) with no strong pixel beside it (not a line in sight's antialiased
+  // edge: an x-ray), and the strong ones over the hovered placement's own ids.
+  const SCAN = `globalThis.scan = (own) => {
+    const c = viewer.renderer.domElement; viewer.snapshot();
+    const g = Object.assign(document.createElement('canvas'), { width: c.width, height: c.height }).getContext('2d');
+    g.drawImage(c, 0, 0); const px = g.getImageData(0, 0, c.width, c.height).data;
+    if (!globalThis.base) return (globalThis.base = px, {});
+    const t = viewer.idPass.target, ids = new Uint8Array(4 * t.width * t.height);
+    viewer.renderer.readRenderTargetPixels(t, 0, 0, t.width, t.height, ids);
+    const tone = [0x1f, 0x6f, 0xff], was = globalThis.base;
+    let changed = 0, strong = 0, dim = 0, inside = 0;
+    const strength = new Float32Array(c.width * c.height);
+    for (let i = 0; i < px.length; i += 4) {
+      const d = Math.abs(px[i] - was[i]) + Math.abs(px[i + 1] - was[i + 1]) + Math.abs(px[i + 2] - was[i + 2]);
+      const all = Math.abs(tone[0] - was[i]) + Math.abs(tone[1] - was[i + 1]) + Math.abs(tone[2] - was[i + 2]);
+      strength[i / 4] = d < 12 ? 0 : d / Math.max(1, all);
+    }
+    const besideStrong = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (strength[(y + dy) * c.width + x + dx] > 0.7) return true; } return false; };
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+      const i = 4 * (y * c.width + x);
+      const d = Math.abs(px[i] - was[i]) + Math.abs(px[i + 1] - was[i + 1]) + Math.abs(px[i + 2] - was[i + 2]);
+      if (d < 12) continue;
+      changed++;
+      const all = Math.abs(tone[0] - was[i]) + Math.abs(tone[1] - was[i + 1]) + Math.abs(tone[2] - was[i + 2]);
+      const s = d / Math.max(1, all);
+      if (s > 0.7) strong++;
+      else if (s > 0.15 && s < 0.5 && !besideStrong(x, y)) dim++;
+      const k = 4 * ((c.height - 1 - y) * t.width + x);
+      const id = (ids[k] | ids[k + 1] << 8 | ids[k + 2] << 16 | ids[k + 3] << 24) >>> 0;
+      const at = id && viewer.idPass.ids.resolve(id);
+      if (own && s > 0.7 && at && at.placement === own) inside++;
+    }
+    // The marked pieces' lines' length on the canvas (device pixels).
+    let length = 0;
+    const p = new viewer.camera.position.constructor(), q = p.clone();
+    for (const { object, ranges } of viewer.highlights.highlight.marks) {
+      const pos = object.geometry.attributes.position, index = object.geometry.index;
+      const xy = (v, i) => v.fromBufferAttribute(pos, index.getX(i)).applyMatrix4(object.matrixWorld)
+        .project(viewer.camera).multiply({ x: c.width / 2, y: c.height / 2, z: 1 });
+      for (const r of ranges ?? []) for (let i = r.start; i + 1 < r.start + r.count; i += 2) {
+        length += xy(p, i).distanceTo(xy(q, i + 1));
+      }
+    }
+    return { changed, strong, dim, inside, length, outline: viewer.highlights.outlinePieces.length,
+      marks: viewer.highlights.group.children.length };
+  }`;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    ${SCAN};
+    const m = ui.panel().model, rect = viewer.renderer.domElement.getBoundingClientRect();
+    const at = (x, y) => [rect.left + x * rect.width, rect.top + y * rect.height];
+    // A spot on the left bracket (behind the rod), and one on an edge, by picks over the view; a vertex's spot once
+    // they're shown.
+    let spot, edge;
+    for (let y = 0.2; y < 0.8 && !spot; y += 0.02) for (let x = 0.2; x < 0.8 && !spot; x += 0.02) {
+      const hit = viewer.pickAt(...at(x, y));
+      if (hit?.object.isMesh && hit.faceIndex !== undefined && /bracket/.test(hit.object.name)) spot = at(x, y);
+    }
+    for (let y = 0.2; y < 0.8 && !edge; y += 0.01) for (let x = 0.2; x < 0.8 && !edge; x += 0.01) {
+      const hit = viewer.pickAt(...at(x, y));
+      if (hit?.item !== undefined && hit.object.name === 'edges') edge = at(x, y);
+    }
+    scan();
+    globalThis.first = globalThis.base;
+    return { spot, edge };
+  })()`, { then: async (sessionId, after) => {
+    const a = after as { spot?: [number, number]; edge?: [number, number] };
+    const ev = async (expression: string) => ((await send('Runtime.evaluate', { expression, returnByValue: true,
+      awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+    const mouse = (type: string, [x, y]: [number, number], buttons = 0) => send('Input.dispatchMouseEvent',
+      { type, x, y, buttons, ...(type !== 'mouseMoved' || buttons ? { button: 'left', clickCount: 1 } : {}) },
+      sessionId);
+    // Moved there, and what it's over found (frames, in software rendering).
+    // (Not settled while a button's down: the view isn't idle while it's dragged.)
+    const over = async (p: [number, number], buttons = 0) => {
+      await mouse('mouseMoved', p, buttons);
+      await ev(`(async () => { for (let i = 0; i < 100 && viewer.hoverQueued; i++) await new Promise((r) =>
+        requestAnimationFrame(r)); ${buttons ? 'for (let i = 0; i < 5; i++) await new Promise((r) => ' +
+        'requestAnimationFrame(r));' : `await ${frames};`} })()`);
+    };
+    const shot = async (name: string) => {
+      if (!process.env.SHOTS) return;
+      // (The canvas, not the tab: with tab captures between them, later moves weren't found as hover.)
+      const data = (await ev('viewer.snapshot()') as string).split(',')[1]!;
+      fs.mkdirSync(process.env.SHOTS, { recursive: true });
+      fs.writeFileSync(path.join(process.env.SHOTS, `hover-${name}.png`), Buffer.from(data, 'base64'));
+    };
+    const out: Record<string, unknown> = {};
+    if (!a.spot || !a.edge) return out;
+    // Off the canvas: over the controls.
+    const gui = await ev(`(() => { const b = ui.gui.domElement.getBoundingClientRect();
+      return [b.left + b.width / 2, b.top + 10]; })()`) as [number, number];
+    await over(a.spot);
+    await shot('part');
+    out.part = await ev(`scan(viewer.pickAt(${a.spot}).object)`);
+    await ev(`ui.setPickLevel('detail')`);
+    await ev(frames);
+    await shot('face');
+    out.face = await ev('scan()');
+    await over(a.edge);
+    await shot('edge');
+    out.edge = await ev('scan()');
+    await ev(`(ui.setRender({ edgeStyle: 'fat' }), ${frames})`);
+    await over([a.edge[0] + 1, a.edge[1]]);
+    out.fat = await ev(`viewer.highlights.group.children.map((c) => c.type)`);
+    await ev(`(ui.setRender({ edgeStyle: 'thin' }), ${frames})`);
+    // Vertices shown: one picked over the view (at its point) marked.
+    const vertex = await ev(`(async () => {
+      ui.setRender({ vertices: true });
+      await ${frames};
+      const rect = viewer.renderer.domElement.getBoundingClientRect();
+      let found;
+      viewer.display.traverse((o) => {
+        if (found || o.name !== 'vertices' || !o.visible) return;
+        const p = new viewer.camera.position.constructor();
+        for (let i = 0; i < o.geometry.attributes.position.count && !found; i++) {
+          p.fromBufferAttribute(o.geometry.attributes.position, i).applyMatrix4(o.matrixWorld).project(viewer.camera);
+          const xy = [rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height];
+          if (viewer.pickAt(...xy)?.object.name === 'vertices') found = xy;
+        }
+      });
+      return found;
+    })()`) as [number, number] | undefined;
+    if (vertex) {
+      await over(vertex);
+      await shot('vertex');
+      out.vertex = await ev(`viewer.highlights.group.children.map((c) => c.type)`);
+      // Against the frame with Vertices on and the mouse away: the dot larger (its disc 3 CSS pixels across, the
+      // mark's 7).
+      await over(gui);
+      await ev('(base = undefined, scan())');
+      await over(vertex);
+      out.dot = await ev('scan()');
+    }
+    // Gone: off the canvas (over the controls), the frame as it was before any.
+    await ev(`(ui.setRender({ vertices: false }), ui.setPickLevel('part'), base = first, ${frames})`);
+    await over(a.spot);
+    await over(gui);
+    out.gone = await ev(`(() => { const s = scan(); return { changed: s.changed, outline: s.outline,
+      marks: s.marks }; })()`);
+    // Hidden edges aren't drawn into the lines' ids (on the faces' depth): at the pixels of the plate's segments'
+    // middles more than 2 mm behind the face drawn there (picked with edges off), the lines' ids are the plate's
+    // edges' only where a visible one crosses (a few). (A pick there can still give an edge in sight within reach,
+    // its point nearest the ray perhaps in its hidden part.)
+    out.hidden = await ev(`(async () => {
+      ui.setPickLevel('detail');
+      const m = ui.panel().model, rect = viewer.renderer.domElement.getBoundingClientRect();
+      const plate = m.nodes.find((n) => n.kind === 'part' && /plate/.test(n.name)).object;
+      const edges = plate.getObjectByName('edges'), pos = edges.geometry.attributes.position;
+      const index = edges.geometry.index, V = viewer.camera.position.constructor;
+      const look = viewer.camera.getWorldDirection(new V());
+      const middles = [];
+      for (let i = 0; i + 1 < index.count; i += 2) {
+        const a = new V().fromBufferAttribute(pos, index.getX(i)), b = new V().fromBufferAttribute(pos,
+          index.getX(i + 1));
+        middles.push(a.add(b).multiplyScalar(0.5).applyMatrix4(edges.matrixWorld));
+      }
+      const xy = (p) => { const q = p.clone().project(viewer.camera);
+        return [rect.left + (q.x + 1) / 2 * rect.width, rect.top + (1 - q.y) / 2 * rect.height]; };
+      ui.setRender({ edges: false });
+      await ${frames};
+      const behind = middles.filter((p) => {
+        const f = viewer.pickAt(...xy(p));
+        return f?.object.isMesh && p.dot(look) - f.point.dot(look) > 2;
+      });
+      ui.setRender({ edges: true });
+      await ${frames};
+      viewer.pickAt(...xy(behind[0] ?? middles[0]));
+      const k = viewer.idPass.target.width / rect.width;
+      const drawn = behind.filter((p) => {
+        const [x, y] = xy(p), w = viewer.idPass.readWindow(viewer.renderer, viewer.idPass.lines,
+          Math.floor((x - rect.left) * k), Math.floor((rect.bottom - y) * k), 1, 1);
+        return viewer.idPass.ids.resolve(w.ids[0] ?? 0)?.object === edges;
+      });
+      return { middles: middles.length, behind: behind.length, drawn: drawn.length };
+    })()`);
+    // A part cut, alone: its silhouette in sight along its cap too (the id drawn there its own), not dim.
+    out.cut = await ev(`(async () => {
+      ui.setPickLevel('part');
+      const m = ui.panel().model;
+      const plate = m.nodes.find((n) => n.kind === 'part' && /plate/.test(n.name));
+      ui.setHidden(m.nodes.filter((n) => n.kind === 'part' && n !== plate).map((n) => n.id), true);
+      const mesh = plate.object.children[0], V = viewer.camera.position.constructor;
+      mesh.geometry.computeBoundingBox();
+      const centre = mesh.geometry.boundingBox.getCenter(new V()).applyMatrix4(mesh.matrixWorld);
+      viewer.setSections({ ...viewer.sections.get(), x: { on: true, at: centre.x, flip: false }, caps: true });
+      await ${frames};
+      const rect = viewer.renderer.domElement.getBoundingClientRect();
+      const q = centre.clone().add(new V(-5, 0, 0)).project(viewer.camera);
+      return [rect.left + (q.x + 1) / 2 * rect.width, rect.top + (1 - q.y) / 2 * rect.height];
+    })()`);
+    if (Array.isArray(out.cut)) {
+      const at = out.cut as [number, number];
+      await over(gui);
+      await ev('(base = undefined, scan())');
+      await over(at);
+      await shot('cut');
+      out.cut = await ev(`(async () => { const s = scan(); ui.showAll();
+        viewer.setSections({ ...viewer.sections.get(), x: { on: false, at: 0, flip: false } });
+        await ${frames}; return s; })()`);
+    }
+    await over(gui);
+    // A part hidden whole behind another (a bracket under the plate, seen from below), outlined: all of it an
+    // x-ray, dim, none strong.
+    out.behind = await ev(`(async () => {
+      const camera = viewer.cameraState();
+      viewer.setView('bottom', { instant: true });
+      await ${frames};
+      base = undefined;
+      scan();
+      const m = ui.panel().model;
+      const part = m.nodes.find((n) => n.kind === 'part' && /bracket/.test(n.name)).object.children[0];
+      viewer.setHighlight({ outline: [{ object: part }], marks: [] });
+      await ${frames};
+      const s = scan();
+      globalThis.behindShot = viewer.snapshot();
+      viewer.setHighlight(undefined);
+      viewer.setCamera(camera);
+      base = first;
+      await ${frames};
+      return s;
+    })()`);
+    if (process.env.SHOTS) fs.writeFileSync(path.join(process.env.SHOTS, 'hover-behind.png'), Buffer.from(
+      (await ev('behindShot') as string).split(',')[1]!, 'base64'));
+    // Hidden and picked at once (no frame between): not picked (the ids drawn again).
+    out.stale = await ev(`(() => {
+      const m = ui.panel().model, hit = viewer.pickAt(...${JSON.stringify(a.spot)});
+      const part = m.nodeOf(hit.object), before = m.nodes[part].object;
+      ui.setHidden([part], true);
+      const again = viewer.pickAt(...${JSON.stringify(a.spot)});
+      ui.setHidden([part], false);
+      let o = again?.object;
+      while (o && o !== before) o = o.parent;
+      return { before: !!hit, again: !!o };
+    })()`);
+    // A drag (last: it turns the view): nothing while the button's down.
+    await over(a.spot);
+    await mouse('mousePressed', a.spot);
+    await over([a.spot[0] + 30, a.spot[1] + 20], 1);
+    out.drag = await ev(`({ outline: viewer.highlights.outlinePieces.length,
+      marks: viewer.highlights.group.children.length })`);
+    await mouse('mouseReleased', [a.spot[0] + 30, a.spot[1] + 20]);
+    return out;
+  } }) as { after?: unknown; then?: Record<string, { changed: number; strong: number; dim: number; inside: number;
+    length: number; outline: number; marks: number }> & { fat?: string[]; vertex?: string[]; drag?: { outline: number;
+    marks: number } } };
+  const t = r.then ?? {};
+  const j = JSON.stringify({ after: r.after, then: t });
+  expect(!!t.part && t.part.outline > 0 && t.part.strong > 50 && t.part.dim > 20 && t.part.inside === 0,
+    `a part outlined, dim behind the rod, nothing strong over itself: ${j}`);
+  expect(!!t.face && t.face.outline === 1 && t.face.strong > 10, `a face outlined: ${j}`);
+  expect(!!t.edge && t.edge.marks === 1 && t.edge.strong > 5 && t.edge.outline === 0, `an edge marked: ${j}`);
+  expect(t.fat?.join() === 'Wireframe', `a fat edge marked: ${j}`);
+  expect(t.vertex?.join() === 'Points', `a vertex marked: ${j}`);
+  // (A disc 3 CSS pixels across and its rim, about 20 pixels; the mark's 7 across, about 60.)
+  expect(!!t.dot && t.dot.changed >= 40, `a vertex's mark larger than its dot: ${j}`);
+  // (A thin edge one pixel wide; its mark 3 CSS pixels. Strong pixels: ambient occlusion changes others around it.)
+  expect(t.edge!.strong >= 2 * t.edge!.length && t.edge!.length > 3, `an edge's mark wider than the edge: ${j}`);
+  expect(!!t.behind && t.behind.dim > 20 && t.behind.strong <= 3, `a part hidden whole, outlined dim: ${j}`);
+  const stale = t.stale as unknown as { before: boolean; again: boolean } | undefined;
+  expect(stale?.before === true && stale.again === false, `a part hidden, picked at once: ${j}`);
+  expect(t.drag?.outline === 0 && t.drag.marks === 0, `nothing while dragging: ${j}`);
+  const hidden = t.hidden as unknown as { behind: number; drawn: number } | undefined;
+  expect(!!hidden && hidden.behind > 20 && hidden.drawn <= hidden.behind / 20, `hidden edges not drawn as ids: ${j}`);
+  expect(!!t.cut && t.cut.outline > 0 && t.cut.strong > 50 && t.cut.dim < t.cut.strong / 10,
+    `a cut part's silhouette in sight along its cap: ${j}`);
+  expect(!!t.gone && t.gone.changed === 0 && t.gone.outline === 0 && t.gone.marks === 0, `gone with the mouse: ${j}`);
+  console.log(`hover highlights: ${j}`);
+  return undefined;
+});
+
 // Vertices (Rendering's Vertices, vertex-points.ts): off by default; on, a disc at each B-rep vertex of each placement
 // (its model's vertex table, placed by the placement's group, projected here), round and as wide as asked: thin edges'
-// 1 device pixel plus 2 CSS pixels, fat ones' width 1.5 times but at least 3 CSS pixels more (measured across a disc with edges off, by how much it
-// darkens each pixel), each whole where it's seen (the faces at a corner not cutting into it); in the edges' colour, a
-// selection's tint too; gone with a hidden part and where a section plane cuts.
+// 1 device pixel plus 2 CSS pixels, fat ones' width 1.5 times but at least 3 CSS pixels more (measured across a disc
+// with edges off, by how much it darkens each pixel), each whole where it's seen (the faces at a corner not cutting
+// into it); in the edges' colour, a selection's tint too; gone with a hidden part and where a section plane cuts.
 await check('vertices', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&ao=0&smaa=0&edgeStyle=fat`, `(async () => {
     await cadViewer.ready; await cadViewer.idle();

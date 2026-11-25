@@ -22,18 +22,30 @@ export function vertexDiameter(style: EdgeStyle, width: number, pixelRatio: numb
   return style === 'thin' ? 1 / pixelRatio + 2 : Math.max(1.5 * width, width + 3);
 }
 
-/** Device pixels: the point's square, a pixel's rim beyond the disc each side; and the disc's radius. */
+/**
+ * Device pixels: the point's square, a pixel's rim beyond the disc each side; and the disc's radius. And the pixel
+ * ratio.
+ */
 const size = { value: 5 };
 const radius = { value: 1.5 };
+const ratio = { value: 1 };
 
 /** Every dot `diameter` CSS pixels wide at `pixelRatio` device pixels to one (before a frame). */
 export function setDotSize(diameter: number, pixelRatio: number): void {
   radius.value = diameter * pixelRatio / 2;
   size.value = Math.ceil(2 * radius.value + 2);
+  ratio.value = pixelRatio;
+}
+
+/** A dots material's square in device pixels, as drawn (its `grow` with it). */
+export function dotPixels(m: DiscMaterial): number {
+  return size.value + 2 * Math.ceil((m.uniforms.grow!.value as number) * ratio.value);
 }
 
 const VERTEX = `
 uniform float size;
+uniform float grow;
+uniform float ratio;
 uniform float depthBias;
 #include <common>
 #include <clipping_planes_pars_vertex>
@@ -41,7 +53,7 @@ void main() {
   #include <begin_vertex>
   #include <project_vertex>
   gl_Position.z += projectionMatrix[2][2] * depthBias * gl_Position.w;
-  gl_PointSize = size;
+  gl_PointSize = size + 2.0 * ceil(grow * ratio);
   #include <clipping_planes_vertex>
 }`;
 
@@ -52,22 +64,28 @@ uniform vec3 color;
 uniform float opacity;
 uniform float size;
 uniform float radius;
+uniform float grow;
+uniform float ratio;
 #include <clipping_planes_pars_fragment>
 void main() {
   #include <clipping_planes_fragment>
-  float d = length((gl_PointCoord - 0.5) * size);
-  float a = clamp(radius + 0.5 - d, 0.0, 1.0);
+  float d = length((gl_PointCoord - 0.5) * (size + 2.0 * ceil(grow * ratio)));
+  float a = clamp(radius + grow * ratio + 0.5 - d, 0.0, 1.0);
   if (a <= 0.0) discard;
   gl_FragColor = vec4(color, opacity * a);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
 
-/** The dots' material; `color` its colour, as a line material's (a selection's tint sets it). */
+/**
+ * The dots' material; `color` its colour, as a line material's (a selection's tint sets it); `grow`, CSS pixels added
+ * to the radius (a highlight's mark: outline.ts), its own.
+ */
 export class DiscMaterial extends THREE.ShaderMaterial {
   constructor(color: THREE.ColorRepresentation = 0x000000) {
     super({ vertexShader: VERTEX, fragmentShader: FRAGMENT, clipping: true, transparent: true, depthWrite: false,
-      uniforms: { color: { value: new THREE.Color(color) }, opacity: { value: 1 }, size, radius, depthBias } });
+      uniforms: { color: { value: new THREE.Color(color) }, opacity: { value: 1 }, size, radius, ratio, depthBias,
+        grow: { value: 0 } } });
     this.userData.dots = true;
   }
 
@@ -80,6 +98,7 @@ export class DiscMaterial extends THREE.ShaderMaterial {
     super.copy(source);
     this.uniforms.size = size;
     this.uniforms.radius = radius;
+    this.uniforms.ratio = ratio;
     this.uniforms.depthBias = depthBias;
     return this;
   }
