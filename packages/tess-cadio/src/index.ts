@@ -358,7 +358,7 @@ export class CadioTessellator implements Tessellator {
     for (let i = 0; i < fd.length; i += 3) faces.push({ entityId: id(fd[i]!), start: fd[i + 1]!, count: fd[i + 2]! });
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
     // With measures, the area oracle's areas (cad-scene's oracleMeasures; this backend measures none of its own).
-    if (req.measures) result.oracle = oracleMeasures(req.data);
+    if (req.measures) result.oracle = oracleMeasures(req.data, req.analysis);
     if (req.edges) {
       const ne = m._tc_num_edges();
       const ed = u32(m._tc_edges(), ne * 4), angles = f32(m._tc_edge_angles(), ne);

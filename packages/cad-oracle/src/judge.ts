@@ -2,7 +2,8 @@
 // doesn't depend on cad-scene): per part, the faces it trusts at JUDGE_RELATIVE, by face id, with their errors.
 // tess-workers' worker sets it as cad-scene's area oracle, so every backend's adapter gives these in its results.
 
-import { type OracleModule, Oracle, trusted } from './index.ts';
+import { analysisRowCount, openAnalysis, sha256WordsJs } from 'cad-brep';
+import { type FaceMeasure, flagsOf, METHOD, type OracleModule, Oracle, STATUS, trusted } from './index.ts';
 
 /**
  * The relative error a face's area must be within to judge a mesh by it: faceFailures' tolerances are percents, so
@@ -55,17 +56,49 @@ export function areaOracle(module: OracleModule, opts: { relative?: number; relT
       const out = new Map<number, JudgedArea>(), seen = new Set<number>();
       const a = analysis === undefined ? undefined : analysis instanceof Uint8Array ? analysis
         : new Uint8Array(analysis.buffer);
-      using o = new Oracle(module, model.buffer, { relTol, projectMissing, ...(a ? { analysis: a } : {}) });
+      // The analysis's own measures where it holds them, of this model, taken with these options; else measured.
+      const stored = a && storedMeasures(model, a, relTol, projectMissing);
+      using o = stored ? undefined : new Oracle(module, model.buffer, { relTol, projectMissing,
+        ...(a ? { analysis: a } : {}) });
       for (let f = 0; f < model.face.id.length; f++) {
         const id = model.face.id[f]!;
         if (!id) continue;
         if (seen.has(id)) { out.delete(id); continue; }
         seen.add(id);
-        const m = o.face(f);
+        const m = stored ? stored(f) : o!.face(f);
         if (!trusted(m, relative)) continue;
         out.set(id, { area: m.area.value, perimeter: m.perimeter.value, error: m.area.error });
       }
       return out;
     },
   };
+}
+
+/**
+ * The face measures an analysis holds (cad-brep's analysis-layout.ts: the face rows' areaStatus, area, perimeter ...),
+ * by face row, where they're of `model` (the analysis row's hash its buffer's) and were taken with these options (its
+ * measureRelTol and measureProject), on the model alone as judging takes them (not with the analysis's deviations);
+ * else undefined. A row not measured (areaStatus 255) gives an unsupported measure.
+ */
+export function storedMeasures(model: ModelLike, analysis: Uint8Array, relTol: number, projectMissing: boolean):
+  ((face: number) => FaceMeasure) | undefined {
+  let a;
+  try {
+    a = openAnalysis(analysis);
+  } catch {
+    return undefined;
+  }
+  const n = model.face.id.length;
+  if (analysisRowCount(a, 'face') !== n || a.analysis.measureRelTol[0] !== relTol
+    || a.analysis.measureProject[0] !== (projectMissing ? 1 : 0)) return undefined;
+  const hash = sha256WordsJs(new Uint8Array(model.buffer));
+  if (!hash.every((w, i) => w === a.analysis.model[i])) return undefined;
+  const F = a.face, none = { value: NaN, error: Infinity, status: 'unsupported' as const };
+  const status = (k: number) => STATUS[k] ?? 'unsupported';
+  return (f) => F.areaStatus[f] === 255 ? { area: none, perimeter: none, method: 'none', flags: [], offSurface: NaN,
+    boundary: NaN, why: 'not measured' } : {
+    area: { value: F.area[2 * f]!, error: F.area[2 * f + 1]!, status: status(F.areaStatus[f]!) },
+    perimeter: { value: F.perimeter[2 * f]!, error: F.perimeter[2 * f + 1]!, status: status(F.perimeterStatus[f]!) },
+    method: METHOD[F.method[f]!] ?? 'none', flags: flagsOf(F.flags[f]!), offSurface: F.offSurface[f]!,
+    boundary: F.boundary[f]!, why: '' };
 }

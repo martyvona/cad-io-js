@@ -163,7 +163,7 @@ function faceMeasure(o: Float64Array, why: string): FaceMeasure {
     flags: flagsOf(o[7]!), offSurface: o[8]!, boundary: o[9]!, why };
 }
 
-const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
+export const flagsOf = (bits: number) => (Object.keys(FLAGS) as OracleFlag[]).filter((k) => bits & FLAGS[k]);
 
 /** The oracle of one model: its own copy of the buffer in the module, until dispose. */
 /** One monomial's moments over a face: the integral of (p - c)^exponent n_j for j = x, y, z. */

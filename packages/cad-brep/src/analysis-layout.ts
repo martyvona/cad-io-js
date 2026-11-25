@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA6';
+export const ANALYSIS_MAGIC = 'CBA7';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -18,9 +18,11 @@ export const ANALYSIS_TABLES = {
   /**
    * One row. `model` the SHA-256 of the model buffer's bytes (8 words, big-endian digest order): a consumer given an
    * analysis of another model (edited, healed) must refuse it. `uncertainty` the distance below which analysis took
-   * points as one, in millimetres (the part's, or a default where it has none).
+   * points as one, in millimetres (the part's, or a default where it has none). `measureRelTol` and `measureProject`
+   * the options the face rows' measures were taken with (cad-oracle's OracleOptions relTol and projectMissing, 0/1;
+   * NaN and 0: none taken): a consumer measuring with other options measures again.
    */
-  analysis: [['model', 'u32', 8], ['uncertainty', 'f64', 1]],
+  analysis: [['model', 'u32', 8], ['uncertainty', 'f64', 1], ['measureRelTol', 'f64', 1], ['measureProject', 'u8', 1]],
   pool: [['real', 'f64', 1], ['int', 'i32', 1]],
   /**
    * `measured` the largest distance from the vertex to the ends of its edges' curves and to its faces' surfaces
@@ -68,13 +70,22 @@ export const ANALYSIS_TABLES = {
   /**
    * `outerLoop` the face's outer loop row (-1: none, as a band's whose loops wind around a period), `outerFrom`
    * PROVENANCE (given where the source labels exactly one); `uv` the (u, v) box of its loops (u lo, u hi, v lo,
-   * v hi); `area` the oracle's value and error estimate (NaN: not computed), `areaFrom` MEASURE_TRUST; `turned`
+   * v hi); `area` the oracle's value and error estimate (NaN: not computed), `areaFrom` MEASURE_TRUST; the rest of
+   * the oracle's measure of the face (cad-oracle's FaceMeasure, taken with the analysis row's options): `areaStatus`
+   * and `perimeterStatus` its statuses (indices in cad-oracle's STATUS; 255: not measured), `perimeter` value and
+   * error, `method` (an index in cad-oracle's METHOD), `flags` its flag bits (cad-oracle's FLAGS), `offSurface` and
+   * `boundary` (as FaceMeasure has them); `fluxCentre` the point its flux was taken about (its solid shell's vertices' box centre;
+   * NaN: none taken) and `flux` the flux of p - c by components (x, y, z: each value and error), `fluxStatus` each
+   * one's STATUS code, the shells step's terms for a closed shell's volume (the sum of the three over its faces / 3);
+   * `turned`
    * how healing's orientShells turned the face, so healing again turns it back, bits: 1 its sense flipped to its
    * loops' (they ran against it, its neighbours agreeing with them), 2 turned whole to agree with its shell's other
    * faces (sense flipped, loops reversed: an edge was used twice the same way); 0 neither.
    */
   face: [['outerLoop', 'i32', 1], ['outerFrom', 'u8', 1], ['uv', 'f64', 4], ['area', 'f64', 2],
-    ['areaFrom', 'u8', 1], ['turned', 'u8', 1]],
+    ['areaFrom', 'u8', 1], ['turned', 'u8', 1], ['areaStatus', 'u8', 1], ['perimeter', 'f64', 2],
+    ['perimeterStatus', 'u8', 1], ['method', 'u8', 1], ['flags', 'u32', 1], ['offSurface', 'f64', 1],
+    ['boundary', 'f64', 1], ['fluxCentre', 'f64', 3], ['flux', 'f64', 6], ['fluxStatus', 'u8', 3]],
   /**
    * Facts about each surface: `uClosed`, `vClosed` LOGICAL as measured (closed in fact, not as claimed); periods
    * (0: none); its singularities `count` records of 6 reals in `pool.real` from `first`: SINGULARITY kind, isoU
