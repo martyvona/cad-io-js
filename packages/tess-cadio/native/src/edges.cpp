@@ -1841,6 +1841,32 @@ struct EdgeMesh::Impl {
     return p;
   }
 
+  /**
+   * Coedges cs less those whose every sample lies at one pole (an edge shorter than the tolerance beside a collapsed
+   * row, given as a curve: LMP1 #172427's #1039657, its end edges 0.14 long at a tolerance of 0.24). Projected, such a
+   * use runs the pole line anywhere (there and back against the jump that closes the loop: its boundary through its
+   * own point); left out, the uses on either side end at that pole and the jump between them is filled the face's
+   * way. All of them at poles: cs as it is (the loop is the pole, chainPole's).
+   */
+  std::vector<int> offPoles(int f, const std::vector<int>& cs) const {
+    std::vector<int> out;
+    for (int c : cs) {
+      const Edge& E = edges[m.coedgeEdge(c)];
+      int p = -1;
+      bool at = !E.s.points.empty();
+      for (const Vec3& q : E.s.points) {
+        const int a = poleAt(f, q);
+        if (a < 0 || (p >= 0 && a != p)) {
+          at = false;
+          break;
+        }
+        p = a;
+      }
+      if (!at) out.push_back(c);
+    }
+    return out.empty() ? cs : out;
+  }
+
   /** A loop's coedges that bound (not internal or external), in order. */
   std::vector<int> bounding(int l, std::vector<int>* internal = nullptr) const {
     std::vector<int> cs;
@@ -2133,7 +2159,7 @@ struct EdgeMesh::Impl {
         if (p >= 0) poleLoops++, poleSing = p;
         continue;
       }
-      std::vector<int> cs = bounding(l);
+      std::vector<int> cs = offPoles(f, bounding(l));
       if (cs.empty()) continue;
       if (int p = curvelessPole(f, cs); p >= 0) {
         poleLoops++, poleSing = p;
@@ -2545,7 +2571,7 @@ struct EdgeMesh::Impl {
         continue;
       }
       std::vector<int> internal;
-      std::vector<int> cs = bounding(l, &internal);
+      std::vector<int> cs = offPoles(f, bounding(l, &internal));
       for (int c : internal) {
         std::vector<BoundaryPoint> run;
         std::vector<int> owner;
@@ -3074,7 +3100,9 @@ Status EdgeMesh::cutRings(const std::vector<RingCut>& cuts) {
       shrunk = true;
     }
     if (shrunk) continue;
-    const double a = I.insertSample(c.edge, c.approach, floor), b = I.insertSample(c.edge, c.crossing, floor);
+    const double a = I.insertSample(c.edge, c.approach, floor);
+    double b = I.insertSample(c.edge, c.crossing, floor);
+    if (b == a && c.exact) b = I.insertSample(c.edge, c.crossing);
     if (a == b) {
       bad = true;
       continue;

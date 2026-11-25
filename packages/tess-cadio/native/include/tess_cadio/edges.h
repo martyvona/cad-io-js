@@ -254,6 +254,12 @@ struct SplitRequest {
 struct RingCut {
   int32_t edge;
   double approach, crossing;
+  /**
+   * The crossing inserted where it is, even within the refinement floor of the approach's sample (a ring whose reach
+   * is under the part's tolerance), which would otherwise be that sample and the cut not made. Set for all of a
+   * ring's cuts or none (poles.h's ringCuts), so a ring is cut into every one of its edges or into none.
+   */
+  bool exact = false;
 };
 
 /**

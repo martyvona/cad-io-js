@@ -756,9 +756,10 @@ test('an apex\'s fan consistent along its chain: bsplineApexHole meshed by defau
   assert.deepEqual([...used].filter(([, n]) => n > 1), []);
 });
 
-test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over itself fails, said so; off, meshed',
-  { skip }, async () => {
-  // (bsplineApexHole at 1e-3 mm and 0.1 rad with both rules against folds off: its apex's fan folds.)
+test('bsplineApexHole, its hole within its tolerance of the apex, meshes manifold with both rules against folds off '
+  + '(its ring cut exactly into every edge: no fan to fold); failFoldedFans changes nothing', { skip }, async () => {
+  // (At 1e-3 mm and 0.1 rad its ring's reach is under the part's tolerance: cut where its crossings are, the fan
+  // stays on its side of the ring.)
   const data = new Uint8Array(bsplineApexHole().finish().buffer);
   const run = async (failFoldedFans?: boolean) => {
     const t = new CadioTessellator();
@@ -766,12 +767,17 @@ test('init({failFoldedFans}) (the default): a face whose pole\'s fan folds over 
       ...(failFoldedFans === undefined ? {} : { failFoldedFans }) });
     return t.tessellate({ ...req('cube'), data, linearDeflection: 1e-3, angularDeflection: 0.1 });
   };
-  const byDefault = failedCauses(await run()), off = await run(false);
-  assert.equal(byDefault.size, 1);
-  assert.match([...byDefault.values()][0]!,
-    /^noConvergence: a pole's fan folds over itself: \d+ edges? used twice the same way$/);
-  assert.equal(failedCauses(off).size, 0);
-  assert.ok(off.indices.length > 0);
+  for (const r of [await run(), await run(false)]) {
+    assert.equal(failedCauses(r).size, 0);
+    assert.ok(r.indices.length > 0);
+    const key = (i: number) => [0, 1, 2].map((c) => r.positions[3 * i + c]).join(',');
+    const used = new Map<string, number>();
+    for (let k = 0; k < r.indices.length; k += 3) for (let i = 0; i < 3; i++) {
+      const e = key(r.indices[k + i]!) + '>' + key(r.indices[k + (i + 1) % 3]!);
+      used.set(e, (used.get(e) ?? 0) + 1);
+    }
+    assert.deepEqual([...used].filter(([, n]) => n > 1), []);
+  }
 });
 
 test('init({capFloor, capMultiple, capCeiling}): a face past max(floor, multiple x its expected triangles) fails, '
