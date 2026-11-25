@@ -5164,6 +5164,146 @@ await check('fat edges', async () => {
   expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
   return undefined;
 });
+// Vertices (Rendering's Vertices, vertex-points.ts): off by default; on, a disc at each B-rep vertex of each placement
+// (its model's vertex table, placed by the placement's group, projected here), round and as wide as asked: thin edges'
+// 1 device pixel plus 2 CSS pixels, fat ones' width 1.5 times but at least 3 CSS pixels more (measured across a disc with edges off, by how much it
+// darkens each pixel), each whole where it's seen (the faces at a corner not cutting into it); in the edges' colour, a
+// selection's tint too; gone with a hidden part and where a section plane cuts.
+await check('vertices', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&ao=0&smaa=0&edgeStyle=fat`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const control = ui.gui.controllersRecursive().find((c) => c._name === 'Vertices');
+    const out = { byDefault: viewer.render.vertices, control: control?.parent._title, checked: control?.getValue() };
+    viewer.setBackground(0xffffff);
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const ratio = viewer.renderer.getPixelRatio();
+    const set = (r) => ui.setRender({ ...viewer.render, ...r });
+    // Each vertex of each placement in the window's device pixels (from the canvas's bottom left), with its part.
+    const V3 = viewer.camera.position.constructor;
+    const vertices = [];
+    for (const [part, placements] of viewer.graph.placements) {
+      const m = viewer.graph.modelOf(part);
+      if (!m) continue;
+      for (const { group } of placements) {
+        for (let i = 0; i < m.vertex.point.length; i += 3) {
+          const p = m.vertex.point;
+          const w = new V3(p[i], p[i + 1], p[i + 2]).applyMatrix4(group.matrixWorld);
+          const q = w.clone().project(viewer.camera);
+          vertices.push({ part, group, world: w, x: Math.round((q.x + 1) / 2 * canvas.width - 0.5),
+            y: Math.round((q.y + 1) / 2 * canvas.height - 0.5) });
+        }
+      }
+    }
+    const inView = vertices.filter((v) => v.x >= 20 && v.y >= 20 && v.x < canvas.width - 20 &&
+      v.y < canvas.height - 20);
+    const frame = () => {
+      viewer.draw();
+      const px = new Uint8Array(4 * canvas.width * canvas.height);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return (x, y) => [...px.slice(4 * (y * canvas.width + x), 4 * (y * canvas.width + x) + 3)];
+    };
+    const isDark = (c) => c.every((v) => v < 60);
+    set({ edges: false });
+    const off = frame();
+    out.drawnOff = viewer.vertexPoints.group.visible;
+    // How many vertices' own pixel is dark: on, and not before.
+    const darkened = (on) => inView.filter((v) => isDark(on(v.x, v.y)) && !isDark(off(v.x, v.y)));
+    set({ vertices: true });
+    out.checkedOn = control.getValue();
+    let on = frame();
+    out.count = viewer.vertexPoints.group.children.reduce((n, c) => n + c.geometry.getAttribute('position').count, 0);
+    out.vertices = vertices.length;
+    const lit = darkened(on);
+    out.lit = lit.length;
+    out.inView = inView.length;
+    // With no faces drawn (their materials hidden), every one (wide, so a disc's centre is dark wherever it falls).
+    const faces = [];
+    viewer.display.traverse((o) => { if (o.isMesh) for (const m of [o.material].flat()) faces.push([m, m.visible]); });
+    for (const [m] of faces) m.visible = false;
+    set({ vertices: false });
+    const bare = frame();
+    set({ vertices: true, edgeWidth: 6 });
+    const all = frame();
+    set({ edgeWidth: 1.5 });
+    out.unhidden = inView.filter((v) => isDark(all(v.x, v.y)) && !isDark(bare(v.x, v.y))).length;
+    for (const [m, was] of faces) m.visible = was;
+    // Across a disc, along a row and a column through its centre: how much of each pixel it covers (its darkening of
+    // the pixel drawn without it), summed, so its rim counts in part (device pixels); the median over discs alone (no
+    // other vertex within 12 pixels).
+    const width = (at) => {
+      const alone = lit.filter((v) => !inView.some((u) => u !== v && Math.abs(u.x - v.x) < 12 &&
+        Math.abs(u.y - v.y) < 12));
+      // (In linear light, where the rim is blended.)
+      const linear = (c) => Math.max(...c.map((v) => ((v / 255 + 0.055) / 1.055) ** 2.4));
+      const cover = (x, y) => {
+        const was = linear(off(x, y)), now = linear(at(x, y));
+        return was < 0.05 ? 0 : Math.min(1, Math.max(0, 1 - now / was));
+      };
+      const runs = alone.map((v) => {
+        let a = 0, b = 0;
+        for (let k = -11; k <= 11; k++) { a += cover(v.x + k, v.y); b += cover(v.x, v.y + k); }
+        return [a, b];
+      });
+      const med = (xs) => xs.sort((p, q) => p - q)[Math.floor(xs.length / 2)];
+      return { least: Math.min(...runs.flat()), alone: alone.length, across: med(runs.map((r) => r[0])),
+        down: med(runs.map((r) => r[1])) };
+    };
+    out.thick = { edgeStyle: viewer.render.edgeStyle, edgeWidth: viewer.render.edgeWidth, ...width(on) };
+    set({ edgeWidth: 6 });
+    out.wide = { edgeWidth: 6, ...width(frame()) };
+    set({ edgeStyle: 'thin' });
+    out.thin = width(frame());
+    out.ratio = ratio;
+    set({ edgeStyle: 'fat', edgeWidth: 6 });
+    // A part selected: its discs in its edges' tint (not black).
+    const part = viewer.nodes.nodes.find((n) => n.kind === 'part' && lit.some((v) => v.group === n.object ||
+      v.group === n.object.parent || n.object.children?.includes(v.group)));
+    ui.select([part.id]);
+    set({ edges: true });
+    viewer.draw();
+    let edges; part.object.traverse((o) => { if (!edges && o.name === 'edges') edges = o; });
+    on = frame();
+    const mine = lit.filter((v) => { let p = v.group; while (p && p !== part.object) p = p.parent; return !!p; });
+    const tint = edges.material.color.getHex();
+    out.tint = { hex: tint, mine: mine.length, coloured: mine.filter((v) => !isDark(on(v.x, v.y))).length };
+    ui.select([]);
+    set({ edges: false });
+    // Hidden: none of its discs.
+    ui.setHidden([part.id], true);
+    on = frame();
+    out.hidden = { mine: mine.length, dark: mine.filter((v) => isDark(on(v.x, v.y))).length };
+    ui.setHidden([part.id], false);
+    // Cut along X at the middle: the discs on the side cut away gone, the others still there.
+    const xs = vertices.map((v) => v.world.x), mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const none = { on: false, at: 0, flip: false };
+    viewer.setSections({ x: { on: true, at: mid, flip: false }, y: none, z: none, caps: false });
+    on = frame();
+    const plane = viewer.renderer.clippingPlanes[0];
+    const away = lit.filter((v) => plane.distanceToPoint(v.world) < -0.5);
+    const kept = lit.filter((v) => plane.distanceToPoint(v.world) > 0.5);
+    out.cut = { planes: viewer.renderer.clippingPlanes.length, away: away.length,
+      awayDark: away.filter((v) => isDark(on(v.x, v.y))).length, kept: kept.length,
+      keptDark: kept.filter((v) => isDark(on(v.x, v.y))).length };
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.byDefault === false && a.control === 'Rendering' && a.checked === false && a.drawnOff === false,
+    `off by default, its control in Rendering: ${j}`);
+  expect(a.checkedOn === true && a.count === a.vertices && a.vertices > 50, `a disc for each vertex placed: ${j}`);
+  expect(a.unhidden === a.inView && a.inView > 50 && a.lit > 20, `drawn at the vertices: ${j}`);
+  // (Within half a pixel of what's asked.)
+  const within = (w: { alone: number; across: number; down: number }, css: number) => w.alone >= 5 &&
+    Math.abs(w.across - css * a.ratio) <= 0.5 && Math.abs(w.down - css * a.ratio) <= 0.5;
+  expect(within(a.thick, a.thick.edgeWidth + 3) && within(a.wide, 9) && within(a.thin, 1 / a.ratio + 2),
+    `as wide as asked: ${j}`);
+  // (Each whole, not cut into by the faces it lies on: at a concave corner, a face rises toward the camera.)
+  expect(a.wide.least >= 9 * a.ratio - 0.5, `the faces don't cut into them: ${j}`);
+  expect(a.tint.hex !== 0 && a.tint.mine > 0 && a.tint.coloured === a.tint.mine, `a selection's tint: ${j}`);
+  expect(a.hidden.mine > 0 && a.hidden.dark === 0, `none for a hidden part: ${j}`);
+  expect(a.cut.planes === 1 && a.cut.away > 0 && a.cut.awayDark === 0 && a.cut.kept > 0 &&
+    a.cut.keptDark > a.cut.kept / 2, `cut by a section plane: ${j}`);
+  return undefined;
+});
 // The axes gnomon (gnomon.ts): drawn in its box (#gnomon) over the view, X red, Y green, Z blue; each axis's
 // direction on the screen the world's axis as the main camera shows it (from the camera itself, not the gnomon's), in
 // the iso view and after turning to the front; drawn whatever the section planes cut; gone when View's Axes is off;

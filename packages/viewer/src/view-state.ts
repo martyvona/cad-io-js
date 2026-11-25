@@ -9,7 +9,7 @@
 //                                              mm, and the pan (mm along the view's right and up)
 //   &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
-//   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2
+//   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2  &vertices=1
 //   &tree=0  &detail=1  &pick=detail  &instances=1
 //   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &alpha=default:<path>  &tri=on:<path>  &select=<path>
 //                                              each repeated
@@ -74,7 +74,7 @@ export interface ViewState {
 const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
 const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
-const FLAGS = ['ao', 'smaa', 'edges'] as const;
+const FLAGS = ['ao', 'smaa', 'edges', 'vertices'] as const;
 const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
   'hatchWidth'] as const;

@@ -25,6 +25,7 @@ import { faceFailures, instances, partInstances, placedName, stretchWords, type 
 import type { Looks, PlacementLook } from './model.ts';
 import type { PartModel } from './part-model.ts';
 import { DEFAULT_RENDER, EDGES } from './style.ts';
+import type { VertexSet } from './vertex-points.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
 export const DEFAULT_COLOR: readonly [number, number, number] = [0.8, 0.8, 0.8];
@@ -92,6 +93,10 @@ export class SceneGraph implements Looks {
    * worker (Mesh again, export) or not yet handed over.
    */
   private readonly models = new Map<number, { model: BrepData; analysis?: BrepAnalysis }>();
+  /** Each part's B-rep vertices (its model's vertex table's points, mm), copied, so they stay while it's lent. */
+  private readonly vertices = new Map<number, Float64Array>();
+  /** vertexSets's answer, until the models or meshes change. */
+  private sets: VertexSet[] | undefined;
   private readonly materials = new Map<string, THREE.Material>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
@@ -120,7 +125,22 @@ export class SceneGraph implements Looks {
 
   /** A part's model and analysis handed over by the model worker (their buffers, transferred). */
   holdModel(part: number, m: PartModel): void {
-    this.models.set(part, { model: openBrep(m.model), ...(m.analysis ? { analysis: openAnalysis(m.analysis) } : {}) });
+    const model = openBrep(m.model);
+    this.models.set(part, { model, ...(m.analysis ? { analysis: openAnalysis(m.analysis) } : {}) });
+    this.vertices.set(part, Float64Array.from(model.vertex.point));
+    this.sets = undefined;
+  }
+
+  /** Each placement's B-rep vertices, for vertex-points.ts: the parts with a mesh and a model handed over. */
+  vertexSets(): readonly VertexSet[] {
+    return this.sets ??= [...this.made].flatMap(([part, objs]) => {
+      const points = this.vertices.get(part);
+      if (!points) return [];
+      return objs.map((obj) => {
+        const edges = obj.children.find((c) => c.name === 'edges') as THREE.LineSegments | undefined;
+        return { obj, points, ...(edges ? { edges } : {}) };
+      });
+    });
   }
 
   /**
@@ -223,6 +243,7 @@ export class SceneGraph implements Looks {
       e.layers.set(EDGES);
       obj.add(e);
     }
+    this.sets = undefined;
     return meshed.objects.map((o) => o.obj);
   }
 
@@ -334,6 +355,7 @@ export class SceneGraph implements Looks {
       made.push(obj);
     }
     this.made.set(part, made);
+    this.sets = undefined;
     return made;
   }
 
@@ -363,6 +385,7 @@ export class SceneGraph implements Looks {
     }
     for (const g of this.meshed.get(part)?.geometries.values() ?? []) g.dispose();
     this.made.delete(part);
+    this.sets = undefined;
     this.meshes.delete(part);
     this.meshed.delete(part);
   }

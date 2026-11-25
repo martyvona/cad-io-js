@@ -30,6 +30,7 @@ import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bi
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
+import { VertexPoints, vertexDiameter } from './vertex-points.ts';
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
@@ -237,6 +238,7 @@ export class Viewer {
   /** Every triangle's edges, when the rendering settings say so. */
   readonly triangleEdges = new TriangleEdges();
   readonly fatEdges = new FatEdges(EDGES);
+  readonly vertexPoints = new VertexPoints();
   /** The file's axes (gnomon.ts), drawn over the view where `gnomonBox` is while a model is shown and `showGnomon`. */
   readonly gnomon = new Gnomon();
   showGnomon = true;
@@ -307,7 +309,8 @@ export class Viewer {
     this.headlight.position.set(1, 1, 2);
     this.camera.add(this.headlight, this.headlight.target);
     this.scene.add(this.camera, this.display);
-    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group);
+    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group,
+      this.vertexPoints.group);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
 
@@ -638,10 +641,14 @@ export class Viewer {
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     const fat = this.render.edges && this.render.edgeStyle === 'fat';
     const tri = this.render.triangleEdges !== 'off' || this.triangleEdgesOverridden;
-    if ((tri || fat) && this.root) this.display.updateWorldMatrix(true, true);
+    const vertices = this.render.vertices;
+    if ((tri || fat || vertices) && this.root) this.display.updateWorldMatrix(true, true);
     this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges,
       this.triangleEdgesOverridden);
     this.fatEdges.update(this.root ? this.display : undefined, fat, this.render.edgeWidth);
+    const ratio = this.renderer.getPixelRatio();
+    this.vertexPoints.update(this.root ? this.display : undefined, () => this.graph?.vertexSets() ?? [], vertices,
+      vertexDiameter(this.render.edgeStyle, this.render.edgeWidth, ratio), ratio);
     // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
     // picking.
     if (fat) this.camera.layers.disable(EDGES);

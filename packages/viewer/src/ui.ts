@@ -740,6 +740,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     });
   edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
   edgeWidth.show(look.edgeStyle === 'fat');
+  // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
+  rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),

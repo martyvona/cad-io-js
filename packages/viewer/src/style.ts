@@ -24,6 +24,8 @@ export interface RenderSettings {
   /** Edges as WebGL lines (one device pixel), or fat lines (fat-edges.ts) `edgeWidth` CSS pixels wide. */
   edgeStyle: EdgeStyle;
   edgeWidth: number;
+  /** The model's B-rep vertices as discs in the edges' colour (vertex-points.ts), a little wider than the edges. */
+  vertices: boolean;
   /** Phong shininess of faces. */
   shininess: number;
   /** Phong specular colour of faces, a grey from 0 (none) to 1 (white). */
@@ -38,5 +40,5 @@ export interface RenderSettings {
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
-  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, triangleEdges: 'off', shininess: 30, specular: 0.2,
+  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, triangleEdges: 'off', shininess: 30, specular: 0.2,
   ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH };
