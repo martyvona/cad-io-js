@@ -28,6 +28,8 @@ namespace tesscadio {
 constexpr int kDeviationReport = 64;
 /** PartOptions::keepSteiner: a face meshed this many times already is seeded with its last mesh's points. */
 constexpr int kKeepSteinerFrom = 3;
+/** PartOptions::retryStretch: the split rounds after the retries past the rounds' own, at most. */
+constexpr int kRetryRounds = 16;
 /** collapseAround's tries (a collapse checked) at most, a face: a needle field's hundreds of turned triangles. */
 constexpr int kCollapseTries = 2048;
 
@@ -142,6 +144,23 @@ struct PartMesher::Impl {
   PartOptions o;
   std::vector<std::unique_ptr<Surface>> surfaces;
   std::vector<std::unique_ptr<SurfaceCriteria>> criteria;
+  /**
+   * Per face, what PartOptions::retryStretch's retry makes its criteria again from (its creases, its (u, v) box), and
+   * its state: whether retried, its first point cap kept for the retry (0 none), its patch ratio as meshed last, and
+   * whether it is a sliver whose patch says nothing of it.
+   */
+  std::vector<std::vector<SurfaceCriteria::Crease>> creaseLines;
+  std::vector<Box2> critBox;
+  std::vector<char> retried, retriedKept, sliver;
+  /**
+   * Per face, the pairs its last refused meshing named (SIZE_MAX: none yet) and how many refusals in a row they've
+   * grown past kCrossingGrowth x the last's: no crossing splits once that is kCrossingRuns.
+   */
+  std::vector<size_t> crossingsBefore;
+  std::vector<int> crossingRuns;
+  static constexpr double kCrossingGrowth = 1.5;
+  static constexpr int kCrossingRuns = 3;
+  std::vector<double> capKeep, patchRatio;
   /** The memos' bytes together (estimated; declared first, as their destructors count it down). */
   size_t memoBytes = 0, memoPeak = 0;
   /** Per face, its criteria's verdicts kept across its meshings (PartOptions::reuseVerdicts), made as first meshed. */
@@ -706,6 +725,7 @@ struct PartMesher::Impl {
         (isoU ? sideU : sideV)[k % 2] = true;
       }
       criteria[f]->setCreases(lines);
+      creaseLines[f] = lines;
       faceBox[f] = {{sideU[0] ? ru.lo : -INFINITY, sideU[1] ? ru.hi : INFINITY},
         {sideV[0] ? rv.lo : -INFINITY, sideV[1] ? rv.hi : INFINITY}};
     }
@@ -821,6 +841,32 @@ struct PartMesher::Impl {
   }
 
   /**
+   * A meshed face whose edges lie off its surface past max(d, tol) (FaceMesh::offSurface, its triangles following
+   * them): that multiple a deviation defect (keepDefects), past keepDeviation past the limits; without keepDefects,
+   * past keepDeviation, failed.
+   */
+  void checkOffSurface() {
+    for (size_t f = 0; f < faces.size(); f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || !(fm.offSurfaceWithin > 0) || !(fm.offSurface > fm.offSurfaceWithin)) continue;
+      const double r = fm.offSurface / fm.offSurfaceWithin;
+      if (o.keepDefects) {
+        fm.defectDeviation = std::fmax(fm.defectDeviation, r);
+        fm.defectPastLimits = fm.defectPastLimits || r > o.keepDeviation;
+        continue;
+      }
+      if (r <= o.keepDeviation) continue;
+      char why[200];
+      std::snprintf(why, sizeof why, "%s (#%u) %.3g mm off its surface, %.3g x max(d, tol)",
+        fm.offSurfaceEdge >= 0 ? "an edge" : "a vertex", fm.offSurfaceEdge >= 0 ? m.u32(CBR_EDGE_ID)[fm.offSurfaceEdge]
+        : fm.offSurfaceVertex >= 0 ? m.u32(CBR_VERTEX_ID)[fm.offSurfaceVertex] : 0u, fm.offSurface, r);
+      fm.status = Status::invalidModel;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
+  /**
    * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
    * normals, as shipped where the output's origin is known: PartOptions::outputOrigin) fail as one past its deflection
    * does (PartOptions::failTurnedOver): wrong output however small. Such a triangle is one its criteria refused that
@@ -860,16 +906,6 @@ struct PartMesher::Impl {
         for (const PoleRing& pr : rings[asker]) own = own || norm(pr.pole - ring->pole) <= tol;
         for (const Vec3& q : unshrinkable) own = own || norm(q - ring->pole) <= tol;
         if (own) continue;
-        // (Only a pole whose faces are all elementary: a free-form one's ring, smaller, leaves slivers along its
-        // pole row that turn against the surface.)
-        bool freeForm = false;
-        for (size_t f = 0; f < rings.size(); f++)
-          for (const PoleRing& pr : rings[f])
-            if (norm(pr.pole - ring->pole) <= tol) {
-              const int kind = m.surfaceKind(m.faceSurface(static_cast<int>(f)));
-              freeForm = freeForm || !(kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS);
-            }
-        if (freeForm) continue;
         const double reach = std::max(norm(at - ring->pole), floor);
         if (!(reach < ring->reach)) continue;
         size_t k = 0;
@@ -1486,6 +1522,49 @@ struct PartMesher::Impl {
     return fm.defectCapped ? capCause(fm) + ", and " + why : std::string(why);
   }
 
+  /**
+   * PartOptions::freezeCapped, after each meshing of face f: capped now and at its meshing before, refusing no fewer
+   * triangles (FaceMesh::rejected) than then, it's frozen and its requests dropped, its edges' sample counts kept
+   * (each of its meshings is a fresh full meshing at the cap: one that refines no less than the last won't end below
+   * it).
+   */
+  std::vector<char> cappedBefore, frozen;
+  std::vector<size_t> refusedBefore;
+  std::vector<std::map<int, size_t>> frozenEdges;
+  void capCheck(int f) {
+    if (!o.freezeCapped) return;
+    if (frozen.empty()) cappedBefore.assign(faces.size(), 0), frozen.assign(faces.size(), 0),
+      refusedBefore.assign(faces.size(), 0), frozenEdges.assign(faces.size(), {});
+    FaceMesh& fm = faces[f];
+    if (!fm.capped) {
+      cappedBefore[f] = 0;
+      return;
+    }
+    const size_t r = fm.rejected.size();
+    if (cappedBefore[f] && r >= refusedBefore[f]) {
+      frozen[f] = 1, fm.frozen = true;
+      wanted[f].clear();
+      if (static_cast<size_t>(f) < creaseSplits.size()) creaseSplits[f].clear();
+      for (int e : edgesOf[f]) frozenEdges[f][e] = em->edge(e).t.size();
+    }
+    cappedBefore[f] = 1, refusedBefore[f] = r;
+  }
+  bool isFrozen(int f) const { return !frozen.empty() && frozen[f]; }
+  /**
+   * After the rounds: each frozen face whose edges a neighbour's split changed since meshed once more, so it meets
+   * them (its requests then not taken: the rounds are over).
+   */
+  void meshFrozenAgain() {
+    for (size_t f = 0; f < frozen.size(); f++) {
+      if (!frozen[f]) continue;
+      bool changed = false;
+      for (auto [e, n] : frozenEdges[f]) changed = changed || em->edge(e).t.size() != n;
+      if (!changed) continue;
+      meshFace(static_cast<int>(f));
+      faces[f].frozen = true;
+    }
+  }
+
   void failCapped() {
     if (!o.failCapped) return;
     for (FaceMesh& fm : faces) {
@@ -1499,6 +1578,82 @@ struct PartMesher::Impl {
       fm.cause = capCause(fm);
       fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
     }
+  }
+
+  /**
+   * Face f's mesh against its patch (PartOptions::retryStretch): the triangles' 3D area (on the surface's points at
+   * their corners) over their (u, v) area times |S_u x S_v| at each centroid (patchRatio), and whether it is a sliver,
+   * that patch under its boundary's largest offset from the surface times its perimeter (it then says nothing).
+   */
+  void measurePatch(int f, const Mesh2& mesh, const std::vector<BoundaryPoint>& bp) {
+    double a3 = 0, ap = 0;
+    for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+      const Vec2 A = mesh.points[mesh.triangles[t]], B = mesh.points[mesh.triangles[t + 1]],
+        C = mesh.points[mesh.triangles[t + 2]];
+      SurfacePoint q[3], g;
+      if (surfaces[f]->eval(A.x, A.y, 0, q[0]) != Status::ok || surfaces[f]->eval(B.x, B.y, 0, q[1]) != Status::ok ||
+        surfaces[f]->eval(C.x, C.y, 0, q[2]) != Status::ok ||
+        surfaces[f]->eval((A.x + B.x + C.x) / 3, (A.y + B.y + C.y) / 3, 1, g) != Status::ok)
+        continue;
+      a3 += 0.5 * norm(cross(q[1].p - q[0].p, q[2].p - q[0].p));
+      ap += 0.5 * std::fabs((B.x - A.x) * (C.y - A.y) - (C.x - A.x) * (B.y - A.y)) * norm(cross(g.du, g.dv));
+    }
+    double off = 0, perim = 0;
+    const size_t nb = std::min(bp.size(), mesh.points.size());
+    for (size_t i = 0; i < nb; i++) {
+      SurfacePoint q;
+      if (surfaces[f]->eval(mesh.points[i].x, mesh.points[i].y, 0, q) == Status::ok)
+        off = std::max(off, norm(bp[i].point - q.p));
+    }
+    std::set<std::pair<int32_t, int32_t>> uses;
+    for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3)
+      for (int k = 0; k < 3; k++) uses.insert({mesh.triangles[t + k], mesh.triangles[t + (k + 1) % 3]});
+    for (auto [a, b] : uses)
+      if (!uses.count({b, a}) && static_cast<size_t>(a) < nb && static_cast<size_t>(b) < nb)
+        perim += norm(bp[b].point - bp[a].point);
+    patchRatio[f] = ap > 0 ? a3 / ap : 0;
+    sliver[f] = ap < off * perim;
+  }
+
+  /** Whether face f is one to retry (PartOptions::retryStretch): ok but far over its patch, or its meshing failed. */
+  bool toRetry(int f) const {
+    if (!(o.retryStretch > 0) || !criteria[f] || !surfaces[f] || retried[f]) return false;
+    const FaceMesh& fm = faces[f];
+    if (fm.status == Status::ok) return patchRatio[f] > 1 + o.retryRatio && !sliver[f];
+    // (Not where its boundary is what failed: no metric mends that.)
+    const std::string& c = fm.cause;
+    return !(c.find("boundary") != std::string::npos || c.find("not sampled") != std::string::npos ||
+      c.find("seam's side") != std::string::npos);
+  }
+
+  /**
+   * Face f meshed again with its criteria made at the capped stretch, its first point cap kept; the retry kept where
+   * it's the better mesh (ok, and where it was ok before, under its patch ratio then),
+   * else the face meshed again on its own criteria (each meshing a function of its boundary, so as it was).
+   */
+  void retryFace(int f) {
+    Deflections d = o.d;
+    d.stretchCap = o.retryStretch;
+    Status st;
+    std::unique_ptr<SurfaceCriteria> c = makeCriteria(m, f, *surfaces[f], critBox[f], d, st);
+    if (!c) return;
+    retried[f] = 1, retriedKept[f] = 1;
+    const bool okBefore = faces[f].status == Status::ok;
+    const double ratioBefore = patchRatio[f];
+    capKeep[f] = faces[f].cap;
+    c->setOutputOrigin(o.outputOrigin);
+    if (!creaseLines[f].empty()) c->setCreases(creaseLines[f]);
+    std::unique_ptr<SurfaceCriteria> own = std::move(criteria[f]);
+    criteria[f] = std::move(c);
+    if (f < static_cast<int>(memos.size())) memos[f].reset();
+    meshFace(f);
+    const bool better = faces[f].status == Status::ok && (!okBefore || patchRatio[f] < ratioBefore);
+    if (better) return;
+    criteria[f] = std::move(own);
+    capKeep[f] = 0;
+    retriedKept[f] = 0;
+    if (f < static_cast<int>(memos.size())) memos[f].reset();
+    meshFace(f);
   }
 
   void meshFace(int f) {
@@ -1534,6 +1689,8 @@ struct PartMesher::Impl {
     out.againstSense = fb.againstSense;
     out.holesOnly = fb.holesOnly;
     out.foldsRepaired = fb.foldsRepaired;
+    out.offSurface = fb.offSurface, out.offSurfaceWithin = fb.offSurfaceWithin;
+    out.offSurfaceEdge = fb.offSurfaceEdge, out.offSurfaceVertex = fb.offSurfaceVertex;
     // A crease's end on the boundary: the loop's sample there put on the crease's line in this face's (u, v) (its 3D
     // point the edge's, shared; moved within the face's tolerance), so no triangle beside the end crosses the line.
     if (f < static_cast<int>(creases.size()))
@@ -1628,6 +1785,7 @@ struct PartMesher::Impl {
     // half as many; maxPointsPerFace, given, instead.
     out.capExpected = domainExpected(d, *criteria[f]);
     out.cap = std::min(o.capCeiling, std::max(o.capFloor, o.capMultiple * out.capExpected));
+    if (capKeep[f] > 0) out.cap = std::min(out.cap, capKeep[f]);  // (a retry keeps its first cap)
     mo.maxPoints = o.maxPointsPerFace >= 0 ? o.maxPointsPerFace : static_cast<int>(std::min(out.cap / 2, 1e9));
     mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
@@ -1745,12 +1903,21 @@ struct PartMesher::Impl {
       // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
       // a few spans a round wouldn't mend many crossings within the rounds.
       // (A pair that is one point, or that has a pole line's or a vertex loop's point, is no edge's span and no
-      // request; one between two edges' samples that is none is dropped, counted.)
+      // request; one between two edges' samples that is none is dropped, counted.) None once the pairs named have grown
+      // past kCrossingGrowth x the last refusal's at kCrossingRuns refusals in a row: where splits don't mend them (a
+      // tube open at its seam by more than its tolerance, its cut through its edge's samples however fine) each
+      // round's splits make more, by about 1.6 to 1.9 x, round after round; the faces they mend grow so at most once
+      // in a row (VW #2400's #293030: 10, 12, 14, then mended), slower ones twice.
       auto sampled = [&](int32_t i) {
         return i >= 0 && i < static_cast<int32_t>(bp.size()) && (bp[i].kind == BoundaryPoint::edgeSample ||
           bp[i].kind == BoundaryPoint::pseudoSample);
       };
-      if (mesh.rejected.size() >= 4)
+      const size_t pairs = mesh.rejected.size() / 2;
+      const bool grew = crossingsBefore[f] != SIZE_MAX && pairs > kCrossingGrowth * crossingsBefore[f];
+      crossingRuns[f] = grew ? crossingRuns[f] + 1 : 0;
+      crossingsBefore[f] = pairs;
+      const bool progress = crossingRuns[f] < kCrossingRuns;
+      if (mesh.rejected.size() >= 4 && progress)
         for (size_t k = 0; k + 1 < mesh.rejected.size(); k += 2) {
           const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
           int edge, span;
@@ -1769,6 +1936,8 @@ struct PartMesher::Impl {
       out.note += std::string(out.note.empty() ? "" : "; ") + "refinement stopped at its point cap";
       out.capped = true;
     }
+    if (o.retryStretch > 0) measurePatch(f, mesh, bp);
+    out.retried = retriedKept[f], out.patchRatio = patchRatio[f];
     // The segments' pairs, as mesh2d.h numbers them: each loop's, then the interior ones.
     std::vector<std::pair<int32_t, int32_t>> segs;
     for (const auto& l : d.loops)
@@ -1817,6 +1986,7 @@ struct PartMesher::Impl {
     out.points.resize(n);
     out.normals.assign(n, Vec3{0, 0, 0});
     std::vector<char> regular(n, 0);
+    std::vector<Vec2> ats(n);
     for (size_t i = 0; i < n; i++) {
       if (i < bp.size()) {
         out.points[i] = bp[i].point;
@@ -1836,11 +2006,33 @@ struct PartMesher::Impl {
         };
         in(at.x, bu), in(at.y, bv);
       }
+      ats[i] = at;
       Vec3 nn;
       Status ns = s.normal(at.x, at.y, nn);
       if ((ns == Status::ok || ns == Status::singular) && std::isfinite(norm(nn)) && std::fabs(norm(nn) - 1) < 1e-9) {
         out.normals[i] = sense * nn;
         regular[i] = 1;
+      }
+    }
+    // A vertex a facet is against (its normal reversed against its triangles'): where it lies in a fold narrower than
+    // the tolerance, its normal the fold's sides' (criteria.h's foldNormal), as the criteria judged it, so shading
+    // shows no dark speck there (FaceMesh::foldedNormals).
+    if (criteria[f]) {
+      std::vector<char> tried(n, 0);
+      for (size_t t = 0; t + 2 < mesh.triangles.size(); t += 3) {
+        const int32_t* c = &mesh.triangles[t];
+        const Vec3 g = cross(out.points[c[1]] - out.points[c[0]], out.points[c[2]] - out.points[c[0]]);
+        for (int k = 0; k < 3; k++) {
+          const size_t i = static_cast<size_t>(c[k]);
+          if (tried[i] || !regular[i] || !facetAgainst(sense * g, out.normals[i])) continue;
+          tried[i] = 1;
+          Vec3 nn;
+          bool folded = false;
+          if (criteria[f]->scaleNormal(ats[i], nn, folded) == Status::ok && folded) {
+            out.normals[i] = sense * nn;
+            out.foldedNormals++;
+          }
+        }
       }
     }
     auto samePoint = [](Vec3 a, Vec3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
@@ -2007,6 +2199,9 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   int nf = m.faces();
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
+  I.creaseLines.assign(nf, {}), I.critBox.assign(nf, {}), I.retried.assign(nf, 0), I.retriedKept.assign(nf, 0);
+  I.sliver.assign(nf, 0), I.crossingsBefore.assign(nf, SIZE_MAX), I.crossingRuns.assign(nf, 0);
+  I.capKeep.assign(nf, 0), I.patchRatio.assign(nf, 0);
   I.memos.resize(nf);
   I.meshedAt.assign(nf, 0);
   I.criteriaStatus.assign(nf, Status::unsupported);
@@ -2056,6 +2251,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         continue;
       }
       I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
+      I.critBox[f] = box;
       if (I.criteria[f]) I.criteria[f]->setOutputOrigin(I.o.outputOrigin);
       if (!I.criteria[f]) I.criteriaWhy[f] = "no criteria for it (its (u, v) box not finite)";
       if (I.criteria[f]) spacing[f] = I.criteria[f]->edgeSpacing() * I.o.edgeSpacingScale;
@@ -2084,8 +2280,14 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   }
   if (I.o.creases) I.findFaceCreases();
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
-  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f);
-  for (I.rounds = 0; I.rounds < I.o.maxSplitRounds; I.rounds++) {
+  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f), I.capCheck(f);
+  // (PartOptions::retryStretch: faces far over their patches, or whose meshing failed, meshed again at the capped
+  // stretch, now and once more after the rounds.)
+  for (int f = 0; f < nf; f++)
+    if (I.toRetry(f)) I.retryFace(f), I.capCheck(f);
+  I.rounds = 0;
+  auto runRounds = [&](int upTo) {
+  for (; I.rounds < upTo; I.rounds++) {
     // Every face's wanted splits, each span once (the first face's fraction).
     std::vector<SplitRequest> requests;
     std::set<std::pair<int, int>> seen;
@@ -2122,22 +2324,34 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       bool again = creased.count(f) > 0;
       for (const Impl::RingShrink& R : shrunk) again = again || R.faces.count(f);
       for (int e : touched) again = again || I.edgesOf[f].count(e);
-      if (again) redo.push_back(f);
+      if (again && !I.isFrozen(f)) redo.push_back(f);
     }
     I.at = {PartProgress::meshing, 0, I.rounds + 1, 0, static_cast<int>(redo.size())};
     for (int f : redo) {
       I.meshFace(f);
+      I.capCheck(f);
       I.at.facesDone++;
     }
     for (const Impl::RingShrink& R : shrunk) I.ringFacesRemeshed += static_cast<int>(R.faces.size());
     const std::set<int> undone = I.undoShrinks(shrunk);
-    for (int f : undone) I.meshFace(f);
+    for (int f : undone)
+      if (!I.isFrozen(f)) I.meshFace(f), I.capCheck(f);
     I.ringFacesRemeshed += static_cast<int>(undone.size());
   }
+  };
+  runRounds(I.o.maxSplitRounds);
+  {
+    bool any = false;
+    for (int f = 0; f < nf; f++)
+      if (I.toRetry(f)) I.retryFace(f), I.capCheck(f), any = true;
+    if (any) runRounds(I.rounds + kRetryRounds);
+  }
+  I.meshFrozenAgain();
   I.memos.clear();
   if (I.o.collapseTurned) I.collapseTurned();
   I.failCapped();
   I.checkDeviation();
+  I.checkOffSurface();
   I.checkFacing();
   I.checkFoldedFans();
   I.checkKeptWinding();

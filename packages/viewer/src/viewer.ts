@@ -131,8 +131,7 @@ const drawable = (o: THREE.Object3D): o is THREE.Mesh | THREE.Line | THREE.Point
 /** The world box of what's drawn: visible objects whose ancestors are visible too. */
 /**
  * An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`,
- * `healing 3 of 12 parts`, with where a part's healing is where told (`healing 3 of 12 parts: part 4 of 12:
- * orientShells: faces, 120 of 800 measured`).
+ * `healed 3 of 12 parts` (the parts already healed).
  */
 export function importPhase(p: ImportProgress): string {
   switch (p.phase) {
@@ -141,7 +140,7 @@ export function importPhase(p: ImportProgress): string {
     case 'parts': return `making parts${p.total ? `, ${Math.floor(100 * (p.done ?? 0) / p.total)} %` : ''}`;
     case 'assembly': return 'assembling';
     case 'healing':
-      return `healing${p.total ? ` ${p.done ?? 0} of ${p.total} parts` : ''}${p.detail ? `: ${p.detail}` : ''}`;
+      return p.total ? `healed ${p.done ?? 0} of ${p.total} parts` : 'healing';
   }
 }
 

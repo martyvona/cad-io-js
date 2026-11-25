@@ -2,8 +2,11 @@
 // flags) need, importable without cad-geom's module.
 
 /**
- * The fixes, in the order the pass runs them. `strayPole` moves a 3D B-spline's pole thrown far out of the part
- * within a negligible span onto its neighbours (fix/poles.ts's narrow rule). Curves on surfaces (T3 lane 1): the
+ * The fixes, in the order the pass runs them but for `pcurveTight` (added last for the bit order), which runs with
+ * the curves' fixes: a face whose bare uses' projections at the face API's tolerance collapse its loop in (u, v)
+ * where their exact feet don't gets those uses p-curves fitted tightly enough to keep it (fix/tight.ts).
+ * `strayPole` moves a 3D B-spline's pole thrown far out of the part within a negligible span onto its neighbours
+ * (fix/poles.ts's narrow rule). Curves on surfaces (T3 lane 1): the
  * pcurveMissing fixes (each off by default, each independent) make a p-curve for every use without one, by the kind
  * of its face's surface: `pcurveMissingOnPlane` on planes, each the exact image of its edge's curve by the plane's
  * (u, v) map (fix/plane.ts); `pcurveMissingOnElementary` on cylinders, cones, spheres and tori and
@@ -20,7 +23,8 @@
  * added goes last.)
  */
 export const HEAL_FIXES = ['strayPole', 'pcurveMissingOnPlane', 'pcurveMissingOnElementary', 'pcurveMissingOnFreeForm',
-  'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance', 'vertexTolerance', 'orientShells'] as const;
+  'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance', 'vertexTolerance', 'orientShells', 'pcurveTight'] as
+  const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
 /**
@@ -79,7 +83,7 @@ export const PCURVE_FIT_TOLERANCE = 0.0025;
  * The version of what healing makes: bumped when the same model and options heal to other bytes, so a model healed by
  * another version is healed again from its source's values rather than taken as healed (the analysis's healing row).
  */
-export const HEAL_VERSION = 2;
+export const HEAL_VERSION = 3;
 
 /** The fixes as the analysis's healing row holds them: a bit per fix, in HEAL_FIXES order. */
 export function fixesMask(fixes: Iterable<HealFix>): number {

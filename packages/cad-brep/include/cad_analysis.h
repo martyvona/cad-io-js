@@ -12,13 +12,15 @@
 #include <stdint.h>
 #include <string.h>
 
-#define CBA_MAGIC "CBA6"
-#define CBA_HEADER_BYTES 488
+#define CBA_MAGIC "CBA7"
+#define CBA_HEADER_BYTES 584
 
 /* The columns in buffer order: table, column, element type and values per row. */
 enum cba_column {
   CBA_ANALYSIS_MODEL, /* uint32_t x 8 */
   CBA_ANALYSIS_UNCERTAINTY, /* double x 1 */
+  CBA_ANALYSIS_MEASURE_REL_TOL, /* double x 1 */
+  CBA_ANALYSIS_MEASURE_PROJECT, /* uint8_t x 1 */
   CBA_POOL_REAL, /* double x 1 */
   CBA_POOL_INT, /* int32_t x 1 */
   CBA_VERTEX_MEASURED, /* double x 1 */
@@ -56,6 +58,16 @@ enum cba_column {
   CBA_FACE_AREA, /* double x 2 */
   CBA_FACE_AREA_FROM, /* uint8_t x 1 */
   CBA_FACE_TURNED, /* uint8_t x 1 */
+  CBA_FACE_AREA_STATUS, /* uint8_t x 1 */
+  CBA_FACE_PERIMETER, /* double x 2 */
+  CBA_FACE_PERIMETER_STATUS, /* uint8_t x 1 */
+  CBA_FACE_METHOD, /* uint8_t x 1 */
+  CBA_FACE_FLAGS, /* uint32_t x 1 */
+  CBA_FACE_OFF_SURFACE, /* double x 1 */
+  CBA_FACE_BOUNDARY, /* double x 1 */
+  CBA_FACE_FLUX_CENTRE, /* double x 3 */
+  CBA_FACE_FLUX, /* double x 6 */
+  CBA_FACE_FLUX_STATUS, /* uint8_t x 3 */
   CBA_SURFACE_U_CLOSED, /* uint8_t x 1 */
   CBA_SURFACE_V_CLOSED, /* uint8_t x 1 */
   CBA_SURFACE_U_PERIOD, /* double x 1 */
@@ -134,8 +146,8 @@ typedef struct {
 /* The columns of a buffer of `size` bytes into `views` (CBA_COLUMN_COUNT of them): 0, or -1 if it isn't one. */
 static inline int cba_open(const uint8_t* buf, size_t size, cba_view* views) {
   static const uint8_t bytes[CBA_COLUMN_COUNT] = {
-    4, 8, 8, 4, 8, 4, 4, 1, 8, 1, 8, 1, 8, 4, 4, 1, 8, 1, 8, 8, 1, 8, 4, 4, 1, 4, 8, 4, 1, 8, 8, 8, 1, 4, 1, 8, 8, 1, 1,
-    1, 1, 8, 8, 4, 4, 4, 4, 4, 1, 8, 8, 8, 1, 1, 1, 4, 8, 4, 4, 4,
+    4, 8, 8, 1, 8, 4, 8, 4, 4, 1, 8, 1, 8, 1, 8, 4, 4, 1, 8, 1, 8, 8, 1, 8, 4, 4, 1, 4, 8, 4, 1, 8, 8, 8, 1, 4, 1, 8, 8,
+    1, 1, 1, 8, 1, 1, 4, 8, 8, 8, 8, 1, 1, 1, 8, 8, 4, 4, 4, 4, 4, 1, 8, 8, 8, 1, 1, 1, 4, 8, 4, 4, 4,
   };
   uint32_t n, k;
   if (((uintptr_t)buf & 7) != 0 || size < CBA_HEADER_BYTES || memcmp(buf, CBA_MAGIC, 4) != 0) return -1;

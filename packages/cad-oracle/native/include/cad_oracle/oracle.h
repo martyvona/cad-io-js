@@ -45,7 +45,9 @@ enum Flag : uint32_t {
   flagLoose = 1u << 2,
   /**
    * A loop winds a period the method has no term for: a torus loop round its minor circle (the face then spans a
-   * seam no loop runs along), a loop winding a revolution's angle with no pole on the face's side.
+   * seam no loop runs along), a loop winding a revolution's angle with no pole on the face's side, a loop round a
+   * revolution's closed profile. The area and every integral are then unsupported (with the reason), not a value:
+   * the term left out is no part of any error.
    */
   flagWinds = 1u << 3,
   /** No edge loops: area 0 reported (a face bounded by nothing: a whole sphere, an unbounded plane). */
@@ -116,7 +118,8 @@ struct FaceMeasure {
  * A measure to rely on: computed (status ok), no flags but projectedBoundary and edgesPlaced, its boundary's error
  * known, and its error (the boundary's included) within `relative` of its value. The type says only that much: an
  * untrusted measure is still a value or not, which false doesn't tell; what users see is the value and its error, the
- * flags no estimate covers (sphereSide, loose, orientation, winds, noLoops) said beside them.
+ * flags no estimate covers (sphereSide, loose, orientation, noLoops) said beside them (a face flagged winds has no
+ * value).
  */
 inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
   return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced)) == 0 &&

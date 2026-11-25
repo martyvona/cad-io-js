@@ -199,9 +199,14 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
   const tessellatedFaces = new Map<number, number[]>();
   const progress = opts.onProgress;
   let looked = 0;
+  // Annotation items (graphical PMI) left out, said once for the file: their representations' ids and their count.
+  const annotated: number[] = [];
+  let annotations = 0;
   for (const rep of s.representations.values()) {
     progress?.({ phase: 'parts', done: looked++, total: s.representations.size });
     const items = rep.items.map((id) => model.resolve(id));
+    const notes = items.filter((q) => q >= 0 && ANNOTATION.some((e) => model.isInstanceOf(q, e))).length;
+    if (notes) annotations += notes, annotated.push(rep.id);
     if (!items.some((q) => q >= 0 && ![...PLACEMENT_ONLY, ...ANNOTATION].some(
       (e) => model.isInstanceOf(q, e)))) continue;
     if (rep.types.includes(DRAWING)) {
@@ -362,6 +367,13 @@ export function sceneFromStep(model: StepModel, sem: Semantics, opts: ImportOpti
     const topStyles = geometry.map((q) => resolve(q));
     if (topStyles.length && topStyles.every((x) => x?.invisible)) part.properties.invisible = true;
     parts.push(part);
+  }
+  if (annotations) {
+    const shown = annotated.slice(0, MAX_DANGLING).map((id) => `#${id}`).join(', ')
+      + (annotated.length > MAX_DANGLING ? ', ...' : '');
+    warn(`${annotations} annotation ${annotations === 1 ? 'item' : 'items'} (graphical PMI: text, callouts, annotation `
+      + `occurrences) in ${annotated.length} ${annotated.length === 1 ? 'representation' : 'representations'} not `
+      + `imported: ${shown}`, undefined, 'info');
   }
 
   progress?.({ phase: 'assembly' });

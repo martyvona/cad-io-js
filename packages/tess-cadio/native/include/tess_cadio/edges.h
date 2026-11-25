@@ -79,8 +79,8 @@ struct EdgeOptions {
   std::function<bool(int, Vec3, Vec2, Vec2&, double&)> localFootForTests;
   /**
    * The model's analysis buffer (cad-brep's cad_analysis.h), if given: 8-byte aligned, of this model, kept alive
-   * while the EdgeMesh is. An edge or vertex whose tolerance healing grew past repair (toleranceError) fails each
-   * face with a loop through it, its edges not sampled. Not given, or not an analysis: nothing.
+   * while the EdgeMesh is. An edge or vertex whose tolerance healing grew past repair (toleranceError) is met as
+   * any other, its faces' records saying how far (FaceBoundary::offSurface). Not given, or not an analysis: nothing.
    */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
@@ -91,6 +91,19 @@ struct EdgeOptions {
    */
   bool placeHealedPcurves = false;
 };
+
+/**
+ * A loose curve's polylines (a model's curve item: a wireframe's or geometric set's curve, no face's edge): its points
+ * over its whole domain, every span within `o`'s deflection, angle and spacing by the same bounds as an edge's, none
+ * refined below the refinement floor at part tolerance `tol` (criteria.h); a periodic curve's (its ends one point) in
+ * at least 3 spans. A composite's segments each a polyline of its own, in order, each run in the composite's sense (as
+ * OCCT's STEP translator makes a composite's edges: a discontinuous joint drawn as no chord). `status` the worst of
+ * them: a curve or segment left out where it can't be made (makeCurve's status) or is unbounded (Status::unsupported:
+ * a line or parabola, not trimmed), the others still given; Status::noConvergence where a span ran out of refinement,
+ * its points given.
+ */
+std::vector<std::vector<Vec3>> sampleLooseCurve(const cadgeom::Model& m, int curve, const EdgeOptions& o, double tol,
+  Status& status);
 
 /**
  * Each model edge's samples, in the edge's start-to-end order: parameters on its curve and 3D points. The first and
@@ -138,6 +151,8 @@ struct CoedgeSamples {
  */
 struct ProjectionCounts {
   int withinMesh = 0, atEdgeTolerance = 0, byInversion = 0;
+  /** Of those placed, how many lay far off their surface (past offSurfaceLimit), on their feet's p-curve. */
+  int farOff = 0;
 };
 
 /**
@@ -215,6 +230,15 @@ struct FaceBoundary {
    * of their 3D distance, where the surface there is within the face's tolerance of its 3D point (which is kept).
    */
   int foldsRepaired = 0;
+  /**
+   * How far its edges lie off its surface, the worst by its multiple of `offSurfaceWithin`: a use's curve from the
+   * surface where it is placed (a given p-curve's points, a projection's feet), or the tolerance healing grew an edge
+   * or vertex to past repair (with an analysis), within max(the deflection, the tolerance healing started from);
+   * else within max(the deflection, the face's tolerance). The face is meshed however far (its triangles following
+   * the edge); its record says it. Its edge or vertex (rows), or -1.
+   */
+  double offSurface = 0, offSurfaceWithin = 0;
+  int32_t offSurfaceEdge = -1, offSurfaceVertex = -1;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;
@@ -241,6 +265,12 @@ struct SplitRequest {
 struct RingCut {
   int32_t edge;
   double approach, crossing;
+  /**
+   * The crossing inserted where it is, even within the refinement floor of the approach's sample (a ring whose reach
+   * is under the part's tolerance), which would otherwise be that sample and the cut not made. Set for all of a
+   * ring's cuts or none (poles.h's ringCuts), so a ring is cut into every one of its edges or into none.
+   */
+  bool exact = false;
 };
 
 /**

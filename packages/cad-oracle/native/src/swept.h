@@ -1,6 +1,8 @@
 // Integrals over faces on extrusions and revolutions by Green's theorem in (u, v): the integral of F du dv over the
-// face is oint H du with dH/dv = -F. v isn't periodic on either but for a revolution of a closed profile, so H du is
-// one form on the surface and a seam needs no term. The boundary is the face API's loops in (u, v) (cg_face_pieces:
+// face is oint H du with dH/dv = -F. v isn't periodic on either but for a revolution of a closed profile, where H
+// jumps across the profile's seam by the integral over its whole period: a loop winding v (u constant along it, so no
+// H du at all) would need a term for that, which the method hasn't, so a face with such a loop is flagged; elsewhere
+// H du is one form on the surface and a seam needs no term. The boundary is the face API's loops in (u, v) (cg_face_pieces:
 // the face on each piece's left, its sense applied; p-curves given, else its projection, flagged), each loop
 // unwrapped piece to piece by whole periods; a gap left between pieces (the face API closes loops along pole rows
 // without a piece) is run straight in (u, v). v0, where H is zero, is on a pole where there is one, so the loop's run

@@ -128,7 +128,7 @@ function meridian(b: BrepBuilder, u: number): number {
  * line, down the meridian at a, along the south pole line (the loop jumps along both); no p-curves. `off` and
  * `offC` move the south vertex off the pole across the meridians at a and at c, a rounding's worth.
  */
-function lune(a: number, c: number, off = 0, offC = 0): BrepBuilder {
+function lune(a: number, c: number, off = 0, offC = 0, pcurves?: [number, number]): BrepBuilder {
   const b = new BrepBuilder();
   const s = b.addVertex({ point: [-off * Math.sin(a) - offC * Math.sin(c), off * Math.cos(a) + offC * Math.cos(c),
     -1] });
@@ -136,15 +136,78 @@ function lune(a: number, c: number, off = 0, offC = 0): BrepBuilder {
   const half: [number, number] = [-Math.PI / 2, Math.PI / 2];
   const ma = b.addEdge({ curve: meridian(b, a), start: s, end: n, sameSense: true, range: half });
   const mc = b.addEdge({ curve: meridian(b, c), start: s, end: n, sameSense: true, range: half });
+  // (Given p-curves parameterized otherwise, as STEP files have them: a meridian's line in (u, v) trimmed to 0 to 1.)
+  const pc = (u: number) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: [u, -Math.PI / 2],
+    direction: [0, 1], magnitude: Math.PI }), trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true,
+    preference: 'unspecified' });
   const face = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true,
-      coedges: [{ edge: mc, orientation: 'forward' }, { edge: ma, orientation: 'reversed' }] }] });
+      coedges: [{ edge: mc, orientation: 'forward', ...(pcurves ? { pcurve: pc(pcurves[1]) } : {}) },
+        { edge: ma, orientation: 'reversed', ...(pcurves ? { pcurve: pc(pcurves[0]) } : {}) }] }] });
   sheet(b, face);
   return b;
 }
 export const luneQuarter = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4);
+/**
+ * luneQuarter under an uncertainty of 1e-3, its meridians stopping 2e-4 short of the north pole, joined there by a
+ * line 2.8e-4 long: an edge given as a curve that lies wholly within the tolerance of the pole (LMP1 #172427's
+ * #1039657's ends), projected anywhere along the pole line.
+ */
+export function luneTinyPoleEdge(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-3 });
+  const a = Math.PI / 4, c = 3 * Math.PI / 4, top = Math.PI / 2 - 2e-4;
+  const at = (u: number) => [Math.cos(u) * Math.cos(top), Math.sin(u) * Math.cos(top), Math.sin(top)];
+  const s = b.addVertex({ point: [0, 0, -1] }), na = b.addVertex({ point: at(a) }), nc = b.addVertex({ point: at(c) });
+  const ma = b.addEdge({ curve: meridian(b, a), start: s, end: na, sameSense: true, range: [-Math.PI / 2, top] });
+  const mc = b.addEdge({ curve: meridian(b, c), start: s, end: nc, sameSense: true, range: [-Math.PI / 2, top] });
+  const pa = at(a), pc = at(c), len = Math.hypot(pa[0]! - pc[0]!, pa[1]! - pc[1]!);
+  const tiny = b.addEdge({ curve: b.addCurve({ kind: 'line', point: pc, direction: [(pa[0]! - pc[0]!) / len,
+    (pa[1]! - pc[1]!) / len, 0], magnitude: 1 }), start: nc, end: na, sameSense: true, range: [0, len] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: mc, orientation: 'forward' },
+      { edge: tiny, orientation: 'forward' }, { edge: ma, orientation: 'reversed' }] }] }));
+  return b;
+}
 /** The lune's west meridian on the sphere's seam (u = 0): its side, by inversion, decided by no neighbour. */
 export const luneOnSeam = (): BrepBuilder => lune(0, Math.PI / 2);
+/**
+ * luneOnSeam with given p-curves parameterized otherwise (over 0 to 1, the edges' meridians -pi / 2 to pi / 2), its
+ * seam meridian's at u = 0 and the other's at pi / 2 (trj4_k1_top-pe #4779's #3088); Far: the seam's at 2 pi, which
+ * puts the lune the other way round, against the face's sense.
+ */
+export const luneOnSeamPcurves = (): BrepBuilder => lune(0, Math.PI / 2, 0, 0, [0, Math.PI / 2]);
+export const luneOnSeamPcurvesFar = (): BrepBuilder => lune(0, Math.PI / 2, 0, 0, [2 * Math.PI, Math.PI / 2]);
+/** luneOnSeamPcurves with both p-curves a period down: the other meridian's placed a period off its own. */
+export const luneOnSeamPcurvesShifted = (): BrepBuilder =>
+  lune(0, Math.PI / 2, 0, 0, [-2 * Math.PI, Math.PI / 2 - 2 * Math.PI]);
+
+/**
+ * luneOnSeamPcurves with its east meridian (u = pi / 2) in two edges split at the equator, so the seam meridian's
+ * two neighbours are different uses, each meeting it at a pole; given p-curves over 0 to 1 at u = `seam` for the
+ * seam's, `low` and `high` for the halves'. Disagree: the north half's a period off the south half's.
+ */
+function luneSplit(seam: number, low: number, high: number): BrepBuilder {
+  const b = new BrepBuilder();
+  const s = b.addVertex({ point: [0, 0, -1] }), n = b.addVertex({ point: [0, 0, 1] });
+  const e = b.addVertex({ point: [0, 1, 0] });
+  const ma = b.addEdge({ curve: meridian(b, 0), start: s, end: n, sameSense: true,
+    range: [-Math.PI / 2, Math.PI / 2] });
+  const east = meridian(b, Math.PI / 2);
+  const lo = b.addEdge({ curve: east, start: s, end: e, sameSense: true, range: [-Math.PI / 2, 0] });
+  const hi = b.addEdge({ curve: east, start: e, end: n, sameSense: true, range: [0, Math.PI / 2] });
+  const pc = (u: number, v0: number, dv: number) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line',
+    point: [u, v0], direction: [0, 1], magnitude: dv }), trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true,
+    preference: 'unspecified' });
+  const face = b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: lo, orientation: 'forward', pcurve: pc(low, -Math.PI / 2, Math.PI / 2) },
+      { edge: hi, orientation: 'forward', pcurve: pc(high, 0, Math.PI / 2) },
+      { edge: ma, orientation: 'reversed', pcurve: pc(seam, -Math.PI / 2, Math.PI) }] }] });
+  sheet(b, face);
+  return b;
+}
+export const luneSplitPcurves = (): BrepBuilder => luneSplit(0, Math.PI / 2, Math.PI / 2);
+export const luneSplitPcurvesDisagree = (): BrepBuilder => luneSplit(0, Math.PI / 2, Math.PI / 2 + 2 * Math.PI);
 /**
  * luneQuarter with its south vertex 1e-11 off the pole either way across the meridian at pi / 4 (its last sample
  * then the pole line's first point but for that) or at 3 pi / 4 (its first sample the pole line's last): the 3D turn
@@ -465,6 +528,48 @@ export function bumpPatch(half = false): BrepBuilder {
 }
 
 /**
+ * Two bicubic B-spline patches side by side, sharing the edge x = 10: over [0, 10]^2 a gentle bump (its two middle
+ * poles raised by `rise`), and over [10, 20] x [0, 10] a sharp one (the poles of row i = 1, next to the shared edge,
+ * raised by 3), curved up to that edge but not on it (a clamped cubic's second pole has no weight at its end), so
+ * refinement splits the shared edge for the sharp face far past what the gentle one asks. Both on z = 0 along their
+ * edges, faces up.
+ */
+export function bumpPair(rise = 0.1): BrepBuilder {
+  const b = new BrepBuilder();
+  const patch = (x0: number, raised: (i: number, j: number) => number) => b.addSurface({ kind: 'bspline',
+    uDegree: 3, vDegree: 3, uKnots: [0, 1, 2, 3, 4], vKnots: [0, 1, 2, 3, 4], uMultiplicities: [4, 1, 1, 1, 4],
+    vMultiplicities: [4, 1, 1, 1, 4], poles: [0, 1, 2, 3, 4, 5, 6].map((i) => [0, 1, 2, 3, 4, 5, 6].map((j) =>
+      [x0 + i * 10 / 6, j * 10 / 6, raised(i, j)])), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  const sa = patch(0, (i, j) => (i === 3 && (j === 3 || j === 4) ? rise : 0));
+  const sb = patch(10, (i, j) => (i === 1 && j >= 2 && j <= 4 ? 3 : 0));
+  const p = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0], [20, 0, 0], [20, 10, 0]];
+  const v = p.map((point) => b.addVertex({ point }));
+  const edge = (i: number, j: number) => {
+    const d = p[j]!.map((x, k) => (x - p[i]![k]!) / 10);
+    const line = b.addCurve({ kind: 'line', point: p[i]!, direction: d, magnitude: 1 });
+    return b.addEdge({ curve: line, start: v[i]!, end: v[j]!, sameSense: true, range: [0, 10] });
+  };
+  const pc = (a: number[], c: number[]) => b.addCurve({ kind: 'line', point: a,
+    direction: [(c[0]! - a[0]!) / 4, (c[1]! - a[1]!) / 4], magnitude: 0.4 });
+  const e01 = edge(0, 1), e12 = edge(1, 2), e23 = edge(2, 3), e30 = edge(3, 0);
+  const e14 = edge(1, 4), e45 = edge(4, 5), e52 = edge(5, 2);
+  const fa = b.addFace({ surface: sa, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e01, orientation: 'forward', pcurve: pc([0, 0], [4, 0]) },
+    { edge: e12, orientation: 'forward', pcurve: pc([4, 0], [4, 4]) },
+    { edge: e23, orientation: 'forward', pcurve: pc([4, 4], [0, 4]) },
+    { edge: e30, orientation: 'forward', pcurve: pc([0, 4], [0, 0]) }] }] });
+  const fb = b.addFace({ surface: sb, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+    { edge: e14, orientation: 'forward', pcurve: pc([0, 0], [4, 0]) },
+    { edge: e45, orientation: 'forward', pcurve: pc([4, 0], [4, 4]) },
+    { edge: e52, orientation: 'forward', pcurve: pc([4, 4], [0, 4]) },
+    { edge: e12, orientation: 'reversed', pcurve: pc([0, 4], [0, 0]) }] }] });
+  const shell = b.addShell({ kind: 'open', faces: [{ face: fa, sense: true }, { face: fb, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
+/**
  * A sine sheet: a bicubic B-spline on uniform clamped knots over [0, l]^2, its poles a grid a quarter of the
  * wavelength w apart at height a sin(2 pi x / w) sin(2 pi y / w) (a smoothed egg crate, its boundary at z = 0 where l
  * is a multiple of w), bounded by its four sides as lines with p-curves. Delaunay refinement over so regular a grid
@@ -630,7 +735,7 @@ export function creasedPatch(kind: 'cross' | 'arched'): BrepBuilder {
  * (a circle in y = 10, centre z = 24.75, radius 25.25): an edge far off its face's surface, which the projection
  * finds so.
  */
-export function edgeFarOff(pcurve = false): BrepBuilder {
+export function edgeFarOff(pcurve = false, bulge = false, grown = 0): BrepBuilder {
   const b = new BrepBuilder();
   const c = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]];
   const vs = c.map((point) => b.addVertex({ point }));
@@ -639,16 +744,21 @@ export function edgeFarOff(pcurve = false): BrepBuilder {
     return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
       magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] });
   };
-  const a0 = -Math.atan2(24.75, 5), a1 = Math.PI + Math.atan2(24.75, 5);
-  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [5, 10, 24.75], axis: [0, -1, 0],
-    xDir: [1, 0, 0] }, radius: 25.25 }), start: vs[2]!, end: vs[3]!, sameSense: true, range: [a0, a1] });
+  // (With `bulge`, the arc over the side instead, its centre 24.75 below: rising 0.5 at its middle, its feet the
+  // side itself. With `grown`, the arc's and the face's tolerances that, as healing grows them to cover it.)
+  const a0 = bulge ? Math.atan2(24.75, 5) : -Math.atan2(24.75, 5);
+  const a1 = bulge ? Math.PI - Math.atan2(24.75, 5) : Math.PI + Math.atan2(24.75, 5);
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [5, 10, bulge ? -24.75 : 24.75],
+    axis: [0, -1, 0], xDir: [1, 0, 0] }, radius: 25.25 }), start: vs[2]!, end: vs[3]!, sameSense: true,
+    range: [a0, a1], ...(grown ? { tolerance: grown } : {}) });
   const edges = [line(0), line(1), arc, line(3)];
   // (With `pcurve`, the arc's use given the line under it in the plane, (10, 10) to (0, 10) over the arc's range.)
   const under = pcurve ? b.addCurve({ kind: 'line', point: [10 + 10 * a0 / (a1 - a0), 10], direction: [-1, 0],
     magnitude: 10 / (a1 - a0) }) : undefined;
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
-    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: edges.map((edge) => ({ edge,
-      orientation: 'forward' as const, ...(edge === arc && under !== undefined ? { pcurve: under } : {}) })) }] }));
+    ...(grown ? { tolerance: grown } : {}), loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const,
+        ...(edge === arc && under !== undefined ? { pcurve: under } : {}) })) }] }));
   return b;
 }
 
@@ -844,6 +954,56 @@ export function bsplineApex(hole = 0): BrepBuilder {
 export const bsplineApexHole = (): BrepBuilder => bsplineApex(1e-4);
 
 /**
+ * A flat B-spline sector with a pole beside an elementary face that has none: bsplineApex's construction in z = 0
+ * (the arc's poles (1, 0, 0), (1, 1, 0), (0, 1, 0), its row v = 0 the pole at the origin), faced up, bounded by the
+ * x axis from the origin to P, the line up from P to Q and the arc K back to the origin, K on the circle of radius
+ * sqrt 1/2 about (0.5, -0.5, 0) (from 70 to 135 degrees); and that circle's cylinder below K down to z = -h, faced
+ * out. The sector's fans are flat, so its ring at the pole is wide, while K bends: the cylinder wants K finer inside
+ * the sector's ring than the ring lets it be. With `spline`, the wall the same cylinder as a rational B-spline (u the
+ * arc as one rational quadratic, v down the axis), a free-form face too.
+ */
+export function sectorWall(h = 0.3, spline = false): BrepBuilder {
+  const b = new BrepBuilder();
+  const arcPoles = [[1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const sector = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arcPoles.map((q) => [[0, 0, 0], q]), uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const r = Math.SQRT1_2, c = [0.5, -0.5], t0 = 70 * Math.PI / 180, t1 = 0.75 * Math.PI;
+  const onCircle = (t: number, z: number) => [c[0]! + r * Math.cos(t), c[1]! + r * Math.sin(t), z];
+  const O = b.addVertex({ point: [0, 0, 0] }), q = onCircle(t0, 0), Q = b.addVertex({ point: q });
+  const P = b.addVertex({ point: [q[0]!, 0, 0] });
+  const Ob = b.addVertex({ point: onCircle(t1, -h) }), Qb = b.addVertex({ point: onCircle(t0, -h) });
+  const line = (p: number[], d: number[], len: number, start: number, end: number) => b.addEdge({
+    curve: b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 }), start, end, sameSense: true,
+    range: [0, len] });
+  const circle = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { origin: [c[0]!, c[1]!, z], axis: [0, 0, 1], xDir: [1, 0, 0] }, radius: r }), start, end,
+    sameSense: true, range: [t0, t1] });
+  const eOP = line([0, 0, 0], [1, 0, 0], q[0]!, O, P), ePQ = line([q[0]!, 0, 0], [0, 1, 0], q[1]!, P, Q);
+  const K = circle(0, Q, O), Kb = circle(-h, Qb, Ob);
+  const eOb = line(onCircle(t1, -h), [0, 0, 1], h, Ob, O), eQ = line(q, [0, 0, -1], h, Q, Qb);
+  // (The sector's own normal is down, S_u x S_v with u along the arc and v out from the pole: faced up against it.)
+  const top = b.addFace({ surface: sector, sameSense: false, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: eOP, orientation: 'forward' }, { edge: ePQ, orientation: 'forward' },
+      { edge: K, orientation: 'forward' }] }] });
+  // (The B-spline's own normal is in, S_u x S_v with u along the arc counterclockwise and v down: faced out against
+  // it.)
+  const half = (t1 - t0) / 2, tm = (t0 + t1) / 2, rm = r / Math.cos(half);
+  const arc = [onCircle(t0, 0), [c[0]! + rm * Math.cos(tm), c[1]! + rm * Math.sin(tm), 0], onCircle(t1, 0)];
+  const cylinder = spline ? b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arc.map((q) => [q, [q[0]!, q[1]!, -h]]),
+    weights: [1, Math.cos(half), 1].map((w) => [w, w]), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' }) : b.addSurface({ kind: 'cylinder', position: { origin: [c[0]!, c[1]!, 0], axis: [0, 0, 1],
+    xDir: [1, 0, 0] }, radius: r });
+  const wall = b.addFace({ surface: cylinder, sameSense: !spline, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: [{ edge: Kb, orientation: 'forward' }, { edge: eOb, orientation: 'forward' },
+      { edge: K, orientation: 'reversed' }, { edge: eQ, orientation: 'forward' }] }] });
+  const shell = b.addShell({ kind: 'open', faces: [{ face: top, sense: true }, { face: wall, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
+/**
  * A whole unit sphere as a rational B-spline periodic in v: its meridian (u, 0 to 2) from the south pole to the north
  * degree 2, both ends collapsed, its circle (v) CIRCLE9's; no loops. Its natural extent with the roles of u and v
  * swapped from a sphere's; area 4 pi. With `noise`, each collapsed row's poles moved off its pole by up to that (a
@@ -1005,7 +1165,7 @@ function seamHemisphere(degenerate: boolean): BrepBuilder {
  * cad-brep cone's (its p-curve the row v = -1). The seam's p-curves given, at u = 2 pi going up and u = 0 coming down.
  * Area pi sqrt 2.
  */
-function seamCone(degenerate: boolean): BrepBuilder {
+function seamCone(degenerate: boolean, turned = false): BrepBuilder {
   const b = new BrepBuilder();
   const va = b.addVertex({ point: [0, 0, -1] }), vb = b.addVertex({ point: [1, 0, 0] });
   const base = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 1 }), start: vb, end: vb,
@@ -1020,7 +1180,27 @@ function seamCone(degenerate: boolean): BrepBuilder {
     { edge: base, orientation: 'reversed' },
     { edge: seam, orientation: 'reversed', pcurve: b.addCurve(line2([0, -1], [0, Math.SQRT1_2])) });
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cone', position: AXIS, radius: 1, semiAngle: Math.PI / 4 }),
-    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+    sameSense: !turned, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+/** seamCone on a face turned in the source: its sense false, its loop as seamCone's (trj6_b1-ec #10's #18689). */
+export const seamConeTurned = (): BrepBuilder => seamCone(false, true);
+
+/**
+ * seamCone's side bounded by its base circle and, in a loop of its own, an edge with no curve whose vertices are both
+ * the apex (bug26451's drill points: the source's degenerate edge, not flagged so). Area pi sqrt 2. Turned: its sense
+ * false, its loops as they are (a face turned in the source).
+ */
+export function coneApexLoop(turned = false): BrepBuilder {
+  const b = new BrepBuilder();
+  const va = b.addVertex({ point: [0, 0, -1] }), vb = b.addVertex({ point: [1, 0, 0] });
+  const base = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 1 }), start: vb, end: vb,
+    sameSense: true });
+  const apex = b.addEdge({ start: va, end: va, sameSense: true });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cone', position: AXIS, radius: 1, semiAngle: Math.PI / 4 }),
+    sameSense: !turned, loops: [
+      { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: base, orientation: 'reversed' }] },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: apex, orientation: 'forward' }] }] }));
   return b;
 }
 /**
@@ -1701,6 +1881,29 @@ export function torusOuterHalf(): BrepBuilder {
   return b;
 }
 
+/**
+ * A lantern: a band round a thin torus (major radius 29, minor 0.1) from v = -0.8 to 0.8, 0.16 mm across, bounded by
+ * its two circles (radius 29 + 0.1 cos 0.8, at z = +-0.1 sin 0.8). At d = 0.1 the circles are sampled about 4.7 mm
+ * apart, their chords sagging about as far as the tube's radius, and triangles laid along the band stand across the
+ * tube (LMP1 #172690's #1056598). Its area 2 pi 0.1 (1.6 x 29 + 0.2 sin 0.8). With `off`, both circles that far
+ * outside the tube (radius rho + off), within their edges' and vertices' tolerance (2 off): a sliver, its boundary
+ * farther from its surface than the band is wide.
+ */
+export function lanternBand(off = 0): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 29, r = 0.1, v = 0.8, rho = R + r * Math.cos(v) + off, z = r * Math.sin(v);
+  const tolerance = off > 0 ? 2 * off : undefined;
+  const circle = (h: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, h] }, radius: rho });
+  const v0 = b.addVertex({ point: [rho, 0, -z], tolerance }), v1 = b.addVertex({ point: [rho, 0, z], tolerance });
+  const eb = b.addEdge({ curve: circle(-z), start: v0, end: v0, sameSense: true, tolerance });
+  const et = b.addEdge({ curve: circle(z), start: v1, end: v1, sameSense: true, tolerance });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'torus', position: AXIS, majorRadius: R, minorRadius: r }),
+    sameSense: true, loops: [
+      { kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: eb, orientation: 'forward' }] },
+      { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: et, orientation: 'reversed' }] }] }));
+  return b;
+}
+
 /** A 0.5 mm hole's edge: a plane disc of radius 0.25 bounded by one closed circle. */
 export function smallHole(): BrepBuilder {
   const b = new BrepBuilder();
@@ -2064,6 +2267,74 @@ function cuspPocket(mirrored: boolean): BrepBuilder {
 export const cuspPocket_ = (): BrepBuilder => cuspPocket(false);
 export const cuspPocketMirrored = (): BrepBuilder => cuspPocket(true);
 
+/**
+ * A triangle on z = 0 whose curved side leaves its corner at the origin beside its straight one and crosses it: L the
+ * line (0, 0) to (10, 0), C a cubic Bezier (0, 0), (1, -0.1), (2, 0.6), (3, 3) to the third corner, a line between.
+ * C itself runs below L to 0.0099 at x 0.2, back over it at x 0.43 (LMP1 #172995's #1073191's corner, in the
+ * open). Under an uncertainty of 0.05 that dip is on L; under 1e-3 it isn't. Mirrored (y to -y), C leaves the
+ * corner after L in the loop instead of arriving before it. Turned: the face's sense false, its loop the other way.
+ */
+function cuspCrossing(mirrored: boolean, uncertainty: number, turned = false): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty });
+  const sy = mirrored ? -1 : 1;
+  const v0 = b.addVertex({ point: [0, 0, 0] }), v1 = b.addVertex({ point: [10, 0, 0] });
+  const v2 = b.addVertex({ point: [3, 3 * sy, 0] });
+  const L = b.addEdge({ curve: b.addCurve(line2([0, 0, 0], [1, 0, 0])), start: v0, end: v1, sameSense: true,
+    range: [0, 10] });
+  const l = Math.hypot(7, 3);
+  const M = b.addEdge({ curve: b.addCurve(line2([10, 0, 0], [-7 / l, 3 * sy / l, 0])), start: v1, end: v2,
+    sameSense: true, range: [0, l] });
+  const C = b.addEdge({ curve: b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1], multiplicities: [4, 4],
+    poles: [[0, 0, 0], [1, -0.1 * sy, 0], [2, 0.6 * sy, 0], [3, 3 * sy, 0]], closed: false, selfIntersect: false,
+    form: 'unspecified' }), start: v0, end: v2, sameSense: true,
+    range: [0, 1] });
+  const ccw = mirrored
+    ? [{ edge: C, orientation: 'forward' as const }, { edge: M, orientation: 'reversed' as const },
+      { edge: L, orientation: 'reversed' as const }]
+    : [{ edge: L, orientation: 'forward' as const }, { edge: M, orientation: 'forward' as const },
+      { edge: C, orientation: 'reversed' as const }];
+  const coedges = turned ? ccw.reverse().map((c) => ({ edge: c.edge,
+    orientation: c.orientation === 'forward' ? 'reversed' as const : 'forward' as const })) : ccw;
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: !turned,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * cuspCrossing's corner on a cylinder of radius 10 at its seam: L the arc z = 0 from u = 2 pi - 1 to the seam vertex
+ * (10, 0, 0), its p-curve ending at u = 2 pi; C, with no 3D curve, leaving that vertex by its p-curve from (0, 0),
+ * the plane's Bezier with u = -x / 10 (a millimetre an x of 1): (0, 0), (-0.1, -0.1), (-0.2, 0.6), (-0.3, 3), below
+ * z = 0 to 0.0099 over its first 0.043 rad; M back from its end to L's start. The two uses meet a period apart in
+ * (u, v). Under an uncertainty of 0.05.
+ */
+function cuspSeam(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.05 });
+  const R = 10, P2 = 2 * Math.PI;
+  const at = (u: number, z: number) => [R * Math.cos(u), R * Math.sin(u), z];
+  const v = b.addVertex({ point: at(0, 0) }), vl = b.addVertex({ point: at(P2 - 1, 0) });
+  const vc = b.addVertex({ point: at(-0.3, 3) });
+  const L = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: R }), start: vl, end: v,
+    sameSense: true, range: [P2 - 1, P2] });
+  const C = b.addEdge({ start: v, end: vc, sameSense: true });
+  const M = b.addEdge({ start: vc, end: vl, sameSense: true });
+  const lm = Math.hypot(0.7, 3);
+  const coedges: Coedge[] = [
+    { edge: L, orientation: 'forward', pcurve: b.addCurve(line2([0, 0], [1, 0])) },
+    { edge: C, orientation: 'forward', range: [0, 1], pcurve: b.addCurve({ kind: 'bspline', degree: 3, knots: [0, 1],
+      multiplicities: [4, 4], poles: [[0, 0], [-0.1, -0.1], [-0.2, 0.6], [-0.3, 3]], closed: false,
+      selfIntersect: false, form: 'unspecified' }) },
+    { edge: M, orientation: 'forward', range: [0, lm],
+      pcurve: b.addCurve(line2([P2 - 0.3, 3], [-0.7 / lm, -3 / lm])) }];
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: R }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+export const cuspCrossing_ = (): BrepBuilder => cuspCrossing(false, 0.05);
+export const cuspCrossingMirrored = (): BrepBuilder => cuspCrossing(true, 0.05);
+export const cuspCrossingTight = (): BrepBuilder => cuspCrossing(false, 1e-3);
+export const cuspCrossingTurned = (): BrepBuilder => cuspCrossing(false, 0.05, true);
+export const cuspSeam_ = (): BrepBuilder => cuspSeam();
+
 /** A circle on z = 0 (axis +z: counterclockwise as t grows) about (cx, cy), t = 0 along xDir. */
 function planeCircle(b: BrepBuilder, cx: number, cy: number, r: number, xDir: number[]): number {
   return b.addCurve({ kind: 'circle', position: { origin: [cx, cy, 0], axis: [0, 0, 1], xDir }, radius: r });
@@ -2342,7 +2613,94 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
   return b;
 }
 
-export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
+/**
+ * A strip 190 long and 0.6 wide under an uncertainty of 0.2 (LMP1 #172427's #1039663's, in the open): a loopless
+ * B-spline face, linear along y, a cubic Bezier across x whose x poles 0, 0.612, -0.012, 0.6 run it forward, back and
+ * forward again as z rises 0.0005: a pleat across its middle, its normal reversed over v 0.45 to 0.55 while the surface
+ * runs back 1.2e-3, far under the tolerance.
+ */
+export function pleatStrip(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const sec = [[0, 0], [1.02, 0], [-0.02, 0.0005], [1, 0.0005]].map(([x, z]) => [0.6 * x!, z!]);
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 3, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [4, 4], poles: [0, 190].map((y) => sec.map(([x, z]) => [x!, y, z!])),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [] }));
+  return b;
+}
+/** A half cylinder of radius 0.005 (a fillet tighter than a tolerance of 0.1 would be): its sides face apart. */
+export const thinTube = (): BrepBuilder => halfCylinder(0, 'none', 0.005, 1);
+
+/**
+ * A strip 1 long (in y) whose section in x and z is a polyline (a degree-1 B-spline, its legs `legs`: each a direction
+ * in degrees from +x towards +z and a length, at equal steps of v), under an uncertainty of 0.2: its normal constant
+ * along each leg.
+ */
+function polylineStrip(legs: [number, number][]): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const sec: number[][] = [[0, 0]];
+  for (const [deg, len] of legs) {
+    const [x, z] = sec[sec.length - 1]!, a = deg * Math.PI / 180;
+    sec.push([x! + len * Math.cos(a), z! + len * Math.sin(a)]);
+  }
+  const n = legs.length;
+  const s = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1],
+    vKnots: Array.from({ length: n + 1 }, (_, k) => k / n), uMultiplicities: [2, 2],
+    vMultiplicities: Array.from({ length: n + 1 }, (_, k) => k === 0 || k === n ? 2 : 1),
+    poles: [0, 1].map((y) => sec.map(([x, z]) => [x!, y, z!])), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' });
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [] }));
+  return b;
+}
+/** A short leg back between legs 120 degrees apart: reversed against both sides, which face apart. No fold. */
+export const foldSidesApart = (): BrepBuilder => polylineStrip([[60, 1], [180, 0.01], [-60, 1]]);
+/** A short leg reversed against the side before it, not the one after (they agree). No fold. */
+export const foldOneSide = (): BrepBuilder => polylineStrip([[0, 1], [130, 0.01], [80, 1]]);
+/**
+ * A short leg back between legs forward 0.3 long, those between long legs back: a fold, its sides the forward legs,
+ * which a first step of the tolerance over the short leg's speed overshoots to the long legs' ends.
+ */
+export const foldStepFar = (): BrepBuilder => polylineStrip([[180, 5], [0, 0.3], [180, 0.01], [0, 0.3], [180, 5]]);
+
+/**
+ * LMP1 #172427's #1039663 alone, its source's numbers to 12 digits: a B-spline pleated at its edge v = 0, its normal
+ * reversed over v 0.026 to 0.059 where it runs back 3.2e-3 (the uncertainty 0.2): its slivers in the fold accepted.
+ */
+const PLEAT_AT_EDGE = `
+{"uncertainty": 0.2,
+"vertices": [[-945.446548897,-364.084845169,84.794336702],[-945.41369137,-364.058352507,84.9598348094],[-945.294332534,-175.000001076,94.4026984289],[-945.455940485,-175.000000095,93.6631949665]],
+"edges": [
+{"curve":{"kind":"bspline","degree":3,"knots":[0,0.5,0.75,0.875,1],"multiplicities":[4,2,2,2,4],"poles":[[-945.446548859,-364.084849048,84.7943370966],[-945.443725684,-364.080799553,84.8338732067],[-945.438135704,-364.076618922,84.8704142722],[-945.428779356,-364.069992701,84.9128515251],[-945.425533558,-364.067725357,84.9249523123],[-945.421172946,-364.06422594,84.9393019253],[-945.419806121,-364.063043153,84.9434538054],[-945.417384323,-364.060644479,84.9504056815],[-945.428410026,-364.05838959,84.9229951355],[-945.41369137,-364.058352507,84.9598348094]],"closed":false,"selfIntersect":false,"form":"unspecified"},"start":0,"end":1,"sameSense":true},
+{"curve":{"kind":"bspline","degree":3,"knots":[0,0.5,1],"multiplicities":[4,2,4],"poles":[[-945.294332742,-175.000001075,94.4026977832],[-945.298020691,-206.527737963,94.3913342098],[-945.309001696,-238.033408961,92.614363493],[-945.356332836,-300.997913173,88.4599968504],[-945.392105494,-332.483149387,86.1008263008],[-945.41020883,-364.048565494,84.9665814112]],"closed":false,"selfIntersect":false,"form":"unspecified"},"start":2,"end":1,"sameSense":true},
+{"curve":{"kind":"bspline","degree":3,"knots":[0,0.125,0.25,0.5,1],"multiplicities":[4,1,1,1,4],"poles":[[-945.294332534,-175.000001076,94.402698429],[-945.31066503,-174.999987942,94.3521995923],[-945.320839261,-175.000005599,94.3182027925],[-945.360579809,-174.999994877,94.1801345359],[-945.410783855,-174.999998948,93.9719045352],[-945.442384898,-174.999999002,93.7841346562],[-945.455950737,-175.000000094,93.6631035541]],"closed":false,"selfIntersect":false,"form":"unspecified"},"start":2,"end":3,"sameSense":true},
+{"curve":{"kind":"bspline","degree":3,"knots":[0,0.5,0.75,1],"multiplicities":[4,1,1,4],"poles":[[-945.443920409,-364.086358622,84.8367240259],[-945.445020997,-332.552005219,85.9031076294],[-945.44910032,-285.310519333,89.2058848345],[-945.454382289,-222.314825953,92.8257914409],[-945.457430891,-190.771970669,93.6497440233],[-945.456853886,-175.000000099,93.6549768423]],"closed":false,"selfIntersect":false,"form":"unspecified"},"start":0,"end":3,"sameSense":true}
+],
+"surface": {"kind":"bspline","uDegree":3,"vDegree":3,"uKnots":[0,0.25,0.5,1],"vKnots":[0,0.0625,0.125,0.25,0.5,1,5],"uMultiplicities":[4,3,3,4],"vMultiplicities":[4,3,3,3,3,3,4],"poles":[[[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282],[-945.410880345,-365.189882787,84.9255406282]],[[-945.401536531,-349.327353907,85.4959421823],[-945.41376721,-349.327396786,85.4729133983],[-945.40442965,-349.328834961,85.4903790226],[-945.405322679,-349.329615144,85.4885718343],[-945.406215708,-349.330395327,85.486764646],[-945.406629338,-349.331211416,85.4858795836],[-945.407067002,-349.332029262,85.484920294],[-945.40794233,-349.333664952,85.4830017149],[-945.409327803,-349.335274086,85.4798204838],[-945.41104236,-349.336855302,85.4754325895],[-945.414471475,-349.340017732,85.4666568009],[-945.419193704,-349.343067237,85.453022575],[-945.423978198,-349.346012357,85.4354651814],[-945.433547188,-349.351902599,85.4003503941],[-945.442945272,-349.357368691,85.3493560436],[-945.447008917,-349.362646728,85.2943312932],[-945.479518073,-349.404871022,84.8541332903],[-945.51202723,-349.447095315,84.4139352874],[-945.544536386,-349.489319609,83.9737372845]],[[-945.388221478,-333.451648802,86.3510865498],[-945.400039994,-333.451723761,86.327895314],[-945.392122086,-333.453924302,86.3433040431],[-945.393566393,-333.455119014,86.340280216],[-945.395010699,-333.456313725,86.3372563889],[-945.396021458,-333.457560079,86.3350554794],[-945.397035591,-333.458808242,86.3327721372],[-945.399063857,-333.461304569,86.3282054528],[-945.401465552,-333.463759603,86.3224402062],[-945.404079042,-333.466173092,86.3155562134],[-945.409306021,-333.47100007,86.3017882276],[-945.415358533,-333.475659522,86.2835216351],[-945.42116942,-333.480170938,86.2617601037],[-945.432791195,-333.489193771,86.2182370408],[-945.443084937,-333.497617933,86.160590681],[-945.447725459,-333.505777475,86.1001272129],[-945.484849638,-333.57105381,85.6164194681],[-945.521973816,-333.636330145,85.1327117233],[-945.559097995,-333.70160648,84.6490039784]],[[-945.373941029,-317.604354538,87.3440303524],[-945.385285742,-317.604437663,87.3206228357],[-945.378881384,-317.606687779,87.3335357879],[-945.380896229,-317.607907404,87.3290374145],[-945.382911073,-317.609127028,87.3245390412],[-945.384541052,-317.610394783,87.320752746],[-945.38615269,-317.611663571,87.3168844815],[-945.389375966,-317.614201147,87.3091479524],[-945.392829166,-317.616697342,87.3003266785],[-945.396375882,-317.619153199,87.2905099723],[-945.403469314,-317.624064913,87.27087656],[-945.410918186,-317.628814267,87.2472440346],[-945.417835643,-317.633425865,87.2205957633],[-945.431670559,-317.642649061,87.1672992207],[-945.443079785,-317.651316684,87.101830504],[-945.448537098,-317.659757005,87.0344899537],[-945.492195602,-317.727279577,86.4957655515],[-945.535854105,-317.794802149,85.9570411493],[-945.579512609,-317.862324721,85.4183167471]],[[-945.359660581,-301.757060273,88.336974155],[-945.370531491,-301.757151564,88.3133503573],[-945.365640682,-301.759451256,88.3237675327],[-945.368226065,-301.760695793,88.3177946131],[-945.370811447,-301.76194033,88.3118216935],[-945.373060647,-301.763229487,88.3064500126],[-945.37526979,-301.7645189,88.3009968257],[-945.379688076,-301.767097725,88.290090452],[-945.38419278,-301.769635082,88.2782131508],[-945.388672722,-301.772133306,88.2654637313],[-945.397632607,-301.777129756,88.2399648924],[-945.406477839,-301.781969012,88.2109664341],[-945.414501867,-301.786680791,88.179431423],[-945.430549922,-301.79610435,88.1163614006],[-945.443074633,-301.805015435,88.043070327],[-945.449348737,-301.813736536,87.9688526945],[-945.499541565,-301.883505344,87.3751116349],[-945.549734394,-301.953274153,86.7813705753],[-945.599927222,-302.023042962,86.1876295157]],[[-945.34505843,-285.921433796,89.4530119755],[-945.355400336,-285.921527409,89.4291225037],[-945.352060445,-285.923672875,89.4366282275],[-945.355209385,-285.924831204,89.4289391603],[-945.358358325,-285.925989533,89.4212500932],[-945.361221357,-285.927183236,89.4140419378],[-945.364022966,-285.928376523,89.4067615364],[-945.369626183,-285.930763097,89.3922007335],[-945.375172927,-285.933114021,89.3768312464],[-945.380581207,-285.93543224,89.3607469883],[-945.391397767,-285.940068678,89.328578472],[-945.401648989,-285.944573966,89.2935439276],[-945.410815905,-285.948977317,89.2564999989],[-945.429149735,-285.957784021,89.1824121416],[-945.442969463,-285.966182372,89.1002369033],[-945.450285243,-285.974444724,89.0178359118],[-945.508811477,-286.040543542,88.3586279799],[-945.567337711,-286.10664236,87.699420048],[-945.625863946,-286.172741177,87.0402121161]],[[-945.333096314,-270.085367905,90.4995611879],[-945.342949493,-270.085457675,90.4754099231],[-945.34086966,-270.087360119,90.4801311499],[-945.34444992,-270.088385142,90.4708054364],[-945.348030179,-270.089410165,90.4614797228],[-945.351367497,-270.090461602,90.4525270727],[-945.354629298,-270.091512339,90.4435147919],[-945.361152899,-270.093613811,90.4254902304],[-945.367516822,-270.095686916,90.4068220468],[-945.373660984,-270.097734459,90.387592549],[-945.385949309,-270.101829545,90.3491335533],[-945.397350174,-270.105822228,90.3084248538],[-945.407483966,-270.109737784,90.2661916777],[-945.427751551,-270.117568898,90.1817253253],[-945.442819635,-270.12509207,90.091129239],[-945.451245524,-270.132522908,90.0008513101],[-945.518652631,-270.19196961,89.2786278793],[-945.586059738,-270.251416313,88.5564044485],[-945.653466845,-270.310863016,87.8341810177]],[[-945.30917208,-238.413236122,92.5926596125],[-945.318047806,-238.413318209,92.5679847619],[-945.31848809,-238.414734609,92.5671369949],[-945.322930989,-238.415493019,92.5545379885],[-945.327373889,-238.416251429,92.5419389821],[-945.331659777,-238.417018335,92.5294973425],[-945.335841962,-238.417783969,92.5170213031],[-945.344206331,-238.419315238,92.4920692242],[-945.352204611,-238.420832707,92.4668036476],[-945.359820539,-238.422338897,92.4412836704],[-945.375052394,-238.425351279,92.390243716],[-945.388752542,-238.428318752,92.3381867063],[-945.400820089,-238.431258719,92.2855750351],[-945.424955184,-238.437138652,92.1803516927],[-945.44251998,-238.442911465,92.0729139104],[-945.453166086,-238.448679274,91.9668821068],[-945.538334938,-238.494821747,91.1186276781],[-945.623503791,-238.54096422,90.2703732494],[-945.708672643,-238.587106693,89.4221188208]],[[-945.29804273,-206.717914679,94.3912663083],[-945.306102218,-206.71796399,94.3660825868],[-945.307845245,-206.718644607,94.3603168377],[-945.312596065,-206.719008692,94.3448350016],[-945.317346885,-206.719372777,94.3293531655],[-945.321997915,-206.719736191,94.3138650882],[-945.326548254,-206.72009876,94.2983741242],[-945.335648933,-206.720823898,94.267392196],[-945.344345116,-206.721545831,94.2364042748],[-945.352632079,-206.722265364,94.2054308307],[-945.369206006,-206.723704431,94.1434839425],[-945.384142069,-206.725134014,94.0815957089],[-945.397414503,-206.726559315,94.0199222429],[-945.423959372,-206.729409917,93.896575311],[-945.443835971,-206.732245618,93.7741065256],[-945.457017717,-206.735084318,93.6535842113],[-945.562471682,-206.757793916,92.6894056965],[-945.667925646,-206.780503514,91.7252271817],[-945.773379611,-206.803213112,90.7610486669]],[[-945.294332534,-175.000001076,94.402698429],[-945.302498782,-174.999994509,94.3774490106],[-945.304283691,-175.000000697,94.371612884],[-945.309105612,-175.000000487,94.356069776],[-945.313927533,-175.000000278,94.3405266681],[-945.318646867,-175.000000059,94.3249839903],[-945.323263272,-174.999999844,94.3094434603],[-945.332496082,-174.999999415,94.2783624005],[-945.341317187,-174.999999001,94.2472897717],[-945.349723629,-174.999998645,94.2162415737],[-945.366536511,-174.999997933,94.1541451778],[-945.381689983,-174.999997473,94.0921473748],[-945.395169731,-174.999997403,94.0303669299],[-945.422129227,-174.999997264,93.90680604],[-945.442384898,-174.999999002,93.7841346562],[-945.455950737,-175.000000094,93.6631035541],[-945.564477445,-175.000008834,92.6948547374],[-945.673004154,-175.000017574,91.7266059207],[-945.781530863,-175.000026315,90.758357104]]],"weights":[[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],"uClosed":false,"vClosed":false,"selfIntersect":false,"form":"unspecified"},
+"sameSense": true,
+"coedges": [{"edge":0,"orientation":"forward"},{"edge":1,"orientation":"reversed"},{"edge":2,"orientation":"forward"},{"edge":3,"orientation":"reversed"}]}`;
+export const pleatAtEdge = (): BrepBuilder => oneFace(PLEAT_AT_EDGE);
+
+/** A face of one edge loop from JSON (as PLEAT_AT_EDGE): its part's uncertainty, vertices, edges, surface, coedges. */
+function oneFace(text: string): BrepBuilder {
+  const j = JSON.parse(text);
+  const b = new BrepBuilder({ uncertainty: j.uncertainty });
+  const v = (j.vertices as number[][]).map((point) => b.addVertex({ point }));
+  const e = (j.edges as { curve: Curve; start: number; end: number; sameSense: boolean; range?: [number, number] }[])
+    .map((x) => b.addEdge({ curve: b.addCurve(x.curve), start: v[x.start]!, end: v[x.end]!, sameSense: x.sameSense,
+      ...(x.range ? { range: x.range } : {}) }));
+  sheet(b, b.addFace({ surface: b.addSurface(j.surface), sameSense: j.sameSense, loops: [{ kind: 'edge',
+    bound: 'outer', sense: true, coedges: (j.coedges as { edge: number; orientation: 'forward' | 'reversed' }[])
+      .map((c) => ({ edge: e[c.edge]!, orientation: c.orientation })) }] }));
+  return b;
+}
+
+export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true), pleatStrip, thinTube,
+  foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge,
+  sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true),
+  luneTinyPoleEdge,
+  cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
+  luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
+  seamConeTurned, coneApexLoop: () => coneApexLoop(), coneApexLoopTurned: () => coneApexLoop(true),
   kinkStripQuadratic: () => kinkStrip(false, true), kinkStripRun: () => kinkStrip(false, false, 0.004, true),
   kinkStripRunShaped: () => kinkStrip(false, false, 0.004, true, 0, { along: 2, shear: 0.3, vary: true }),
   kinkStripRunShapedV: () => kinkStrip(true, false, 0.004, true, 0, { along: 2, shear: 0.3, vary: true }),
@@ -2354,8 +2712,10 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   bsplineBallNoisyV: () => bsplineBall(3e-6, true), wholeTorus, wholeSphereVertex,
   bsplineApex: () => bsplineApex(), poleHole, smallHole, sBend, cuspEdge: () => cuspEdge(), nearCusp6,
   bumpPatch: () => bumpPatch(), halfBump: () => bumpPatch(true),
+  bumpPair: () => bumpPair(),
   sineSheet40: () => sineSheet(40), thinBand, tubeGapFaceTolerance, tubeGapUncertainty,
-  tubeGapBySize, tubeGapOpen, torusOuterHalf, meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
+  tubeGapBySize, tubeGapOpen, torusOuterHalf, lanternBand: () => lanternBand(),
+  lanternSliver: () => lanternBand(0.3), meridianHemisphereLoose, offPoleRest: () => offPoleRest(),
   seamHemisphere: () => seamHemisphere(true), seamHemisphereBare: () => seamHemisphere(false),
   seamCone: () => seamCone(true), seamConeBare: () => seamCone(false),
   offPoleRestLoose: () => offPoleRest(1e-3), wigglyBand, notchBand, bsplineTube, tubeQuarterPeriodUp, coarseProjection,
@@ -2370,6 +2730,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
   edgeFarOff: () => edgeFarOff(), edgeFarOffPcurve: () => edgeFarOff(true),
+  edgeBulge: () => edgeFarOff(false, true), edgeBulgePcurve: () => edgeFarOff(true, true),
+  edgeBulgeGrown: () => edgeFarOff(false, true, 0.6),
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, thinRing, pcurveNear,
   clampedCorner: () => clampedCorner(),
   clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
@@ -2402,7 +2764,8 @@ function analysisOf(model: BrepBuilder, given: { vertex?: Record<string, number[
   const d = model.finish();
   const rows = { vertex: d.vertex.point.length / 3, edge: d.edge.start.length, coedge: d.coedge.edge.length };
   const tables: Record<string, Record<string, ArrayLike<number>>> = {
-    analysis: { model: new Uint32Array(8), uncertainty: [d.part.uncertainty?.[0] ?? NaN] } as never };
+    analysis: { model: new Uint32Array(8), uncertainty: [d.part.uncertainty?.[0] ?? NaN], measureRelTol: [NaN],
+      measureProject: [0] } as never };
   for (const t of ['vertex', 'edge', 'coedge'] as const) {
     const cols: Record<string, ArrayLike<number>> = {};
     for (const [name, type, width] of ANALYSIS_TABLES[t] as readonly (readonly [string, string, number])[])
@@ -2433,6 +2796,12 @@ export const ANALYSES: Record<string, { model: keyof typeof MODELS; data: () => 
   } },
   sphereVertexPast: { model: 'wholeSphereVertex', data: () => analysisOf(MODELS.wholeSphereVertex(),
     { vertex: { toleranceError: [1], givenTolerance: [1e-5] } }) },
+  // edgeBulgeGrown's arc (edge 0) grown past repair from 1e-5 to 0.6, the face with it.
+  bulgeEdgePast: { model: 'edgeBulgeGrown', data: () => {
+    const n = MODELS.edgeBulgeGrown().finish().edge.start.length;
+    return analysisOf(MODELS.edgeBulgeGrown(), { edge: { toleranceError: [1, ...new Array(n - 1).fill(0)],
+      givenTolerance: new Array(n).fill(1e-5) } });
+  } },
   lunesVertexPast: { model: 'poleLunes', data: () => {
     const n = MODELS.poleLunes().finish().vertex.point.length / 3;
     return analysisOf(MODELS.poleLunes(), { vertex: { toleranceError: [1, ...new Array(n - 1).fill(0)],

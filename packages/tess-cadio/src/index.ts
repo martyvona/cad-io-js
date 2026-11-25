@@ -10,7 +10,7 @@ import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 9;
+const API_VERSION = 11;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -124,6 +124,13 @@ interface CadioExports {
   _tc_edge_angles: Fn;
   _tc_num_edge_points: Fn;
   _tc_edge_positions: Fn;
+  _tc_num_curves: Fn;
+  _tc_curves: Fn;
+  _tc_num_curve_points: Fn;
+  _tc_curve_positions: Fn;
+  _tc_num_points: Fn;
+  _tc_points: Fn;
+  _tc_point_ids: Fn;
   _tc_diag: Fn;
   _tc_free: Fn;
 }
@@ -247,7 +254,7 @@ export class CadioTessellator implements Tessellator {
   private minAngle = -1;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
-    supportsEdges: true, supportsCurves: false, readsAnalysis: true,
+    supportsEdges: true, supportsCurves: true, readsAnalysis: true,
   };
   private m: CadioExports | undefined;
 
@@ -310,8 +317,9 @@ export class CadioTessellator implements Tessellator {
     // (Pointers come back as signed 32-bit numbers: unsigned, as the module's memory may pass 2 GB.)
     const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
-    // (The part's analysis where healing gave one: its healed p-curves placed as projected, faces through edges or
-    // vertices past repair failed. malloc's blocks are 8-byte aligned, as the analysis's columns need.)
+    // (The part's analysis where healing gave one: its healed p-curves placed as projected, edges and vertices grown
+    // past repair judged at their starting tolerances. malloc's blocks are 8-byte aligned, as the analysis's columns
+    // need.)
     const an = req.analysis?.length ? m._malloc(req.analysis.length) >>> 0 : 0;
     if (an) m.HEAPU8.set(req.analysis!, an);
     m._tc_set_analysis(an, an ? req.analysis!.length : 0);
@@ -359,7 +367,7 @@ export class CadioTessellator implements Tessellator {
     for (let i = 0; i < fd.length; i += 3) faces.push({ entityId: id(fd[i]!), start: fd[i + 1]!, count: fd[i + 2]! });
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
     // With measures, the area oracle's areas (cad-scene's oracleMeasures; this backend measures none of its own).
-    if (req.measures) result.oracle = oracleMeasures(req.data);
+    if (req.measures) result.oracle = oracleMeasures(req.data, req.analysis);
     if (req.edges) {
       const ne = m._tc_num_edges();
       const ed = u32(m._tc_edges(), ne * 4), angles = f32(m._tc_edge_angles(), ne);
@@ -371,6 +379,20 @@ export class CadioTessellator implements Tessellator {
         if (angles[i]! >= 0) e.dihedral = angles[i]!;
         result.edges.push(e);
       }
+    }
+    // The model's loose items: curve items and wire bodies' edges as polylines, point items as points.
+    const nc = m._tc_num_curves();
+    if (nc) {
+      const cd = u32(m._tc_curves(), nc * 3);
+      result.curvePositions = f32(m._tc_curve_positions(), m._tc_num_curve_points() * 3);
+      result.curves = [];
+      for (let i = 0; i < cd.length; i += 3) result.curves.push({ entityId: id(cd[i]!), start: cd[i + 1]!,
+        count: cd[i + 2]! });
+    }
+    const np = m._tc_num_points();
+    if (np) {
+      result.points = f32(m._tc_points(), np * 3);
+      result.pointIds = Array.from(u32(m._tc_point_ids(), np), id);
     }
     m._tc_free();
     const list = (k: string) => (Array.isArray(diag[k]) ? diag[k] as number[] : []);
@@ -417,6 +439,15 @@ export class CadioTessellator implements Tessellator {
         + `${sum(1)} triangles (by degrees: ${bins}), ${+thinArea.reduce((a, x) => a + x, 0).toPrecision(4)} mm^2; `
         + `every corner on the boundary ${sum(8)}, an edge frozen ${sum(9)}, within the floor ${sum(10)}` });
     }
+    const leftOut = list('curvesLeftOut'), unconverged = list('curvesUnconverged');
+    if (leftOut.length) {
+      diagnostics.push({ severity: 'warning', message: `${leftOut.length} wireframe curves left out, or a `
+        + `composite's segments (unbounded, or not made): ${leftOut.map((i) => (i ? `#${i}` : 'no id')).join(', ')}` });
+    }
+    if (unconverged.length) {
+      diagnostics.push({ severity: 'warning', message: `${unconverged.length} wireframe curves sampled past the `
+        + `deflection where refinement ran out: ${unconverged.map((i) => (i ? `#${i}` : 'no id')).join(', ')}` });
+    }
     note('unsplit', 'still wanting their edges split when the rounds ran out');
     if (this.countRounds && typeof diag.rounds === 'number') {
       diagnostics.push({ severity: 'info', message: `${ROUNDS_HEAD}${diag.rounds}` });
@@ -441,11 +472,14 @@ export class CadioTessellator implements Tessellator {
         + `edge's, crease's or ring's segment): ${dropped.map((id, i) => `#${id} (${droppedCount[i]})`).join(', ')}` });
     }
     // (Faces kept with a defect rather than failed: [id, turned, deviation over max(d, tol), capped, past the
-    // limits] each; in the result's `defects` too.)
-    const kept = Array.isArray(diag['kept']) ? diag['kept'] as [number, number, number, number, number][] : [];
+    // limits, its edges off its surface (1 an edge, 2 a vertex, 0 none), that one's id, its distance in mm] each; in
+    // the result's `defects` too.)
+    type Kept = [number, number, number, number, number, number, number, number];
+    const kept = Array.isArray(diag['kept']) ? diag['kept'] as Kept[] : [];
     if (kept.length) {
-      const what = ([, turned, dev, capped, past]: [number, number, number, number, number]) => [
-        turned ? `${turned} triangles turned` : '', dev ? `${past ? 'at least ' : ''}${dev} x the larger of d and tol`
+      const what = ([, turned, dev, capped, past, offKind, offId, off]: Kept) => [
+        turned ? `${turned} triangles turned` : '', dev ? `${past && !offKind ? 'at least ' : ''}${dev} x the larger `
+          + 'of d and tol' : '', offKind ? `${offKind === 1 ? 'edge' : 'vertex'} #${offId} ${off} mm off its surface`
           : '', capped ? 'at its point cap' : '', past ? 'past the limits' : '',
       ].filter(Boolean).join(', ');
       result.defects = kept.map((k) => ({ entityId: k[0], pastLimits: k[4] === 1, what: what(k) }));

@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
-import { ERROR_RATIO, Growth, isError, SIZE_SHARE } from '../src/fix/growth.ts';
+import { ERROR_RATIO, Growth, isError, SIZE_SHARE, SMALL_FLOOR } from '../src/fix/growth.ts';
 import { GROWTH } from '../src/fix/tolerance.ts';
+import type { Diagnostic } from 'cad-scene';
 import { cylinderSide, planeArc, rationalArc } from './models.ts';
 
 const module = await init();
@@ -66,26 +67,27 @@ test('nothing grown: no diagnostic', async () => {
 
 test('the worst named is the error with the largest ratio, not a warning\'s larger one; the largest growth apart',
   () => {
-  const g = new Growth(900);
-  g.add('edge', 1, 1e-9, 1e-3, ['edgeTolerance']);
+  const g = new Growth(900, 1e-5);
+  g.add('edge', 1, 1e-9, 1.0001e-3, ['edgeTolerance']);
   g.add('edge', 2, 20, 200, ['edgeTolerance']);
   g.add('vertex', 3, 1, 30, ['vertexTolerance', 'pcurveEnds']);
   g.add('edge', 4, 100, 300, ['pcurveEnds']);
   g.add('edge', 5, 290, 310, ['edgeTolerance']);
-  const x = g.diagnostic()!;
-  assert.equal(x.severity, 'error');
-  assert.equal(x.message, `tolerances grown: 4 edges and 1 vertex (edgeTolerance 3 edges, vertexTolerance 1 vertex, `
+  const [x, ...more] = g.diagnostics();
+  assert.equal(more.length, 0);
+  assert.equal(x!.severity, 'error');
+  assert.equal(x!.message, `tolerances grown: 4 edges and 1 vertex (edgeTolerance 3 edges, vertexTolerance 1 vertex, `
     + `pcurveEnds 1 edge and 1 vertex), each to ${GROWTH} times what's measured; 2 errors (past 5 x its starting `
     + `tolerance and 0.01 x the part's size of 900 mm), the worst 30.0 x its starting tolerance (vertex #3: 1.00 mm `
     + `to 30.0 mm); the largest growth 200 mm (edge #4)`);
-  assert.equal(new Growth(1).diagnostic(), undefined);
+  assert.deepEqual(new Growth(1, 1e-5).diagnostics(), []);
 });
 
 test('warnings alone: the worst is the largest ratio', () => {
-  const g = new Growth(1e6);
+  const g = new Growth(1e6, 1e-5);
   g.add('edge', 7, 1, 3, ['edgeTolerance']);
   g.add('edge', 8, 1e-3, 1, ['edgeTolerance']);
-  const x = g.diagnostic()!;
+  const [x] = g.diagnostics() as [Diagnostic];
   assert.equal(x.severity, 'warning');
   assert.match(x.message, /; the largest 1\.00e\+3 x its starting tolerance \(edge #8: 0\.00100 mm to 1\.00 mm\); /);
   assert.match(x.message, /; the largest growth 2\.00 mm \(edge #7\)$/);
@@ -145,4 +147,43 @@ test('toleranceError: growth within the rule flagged nowhere (a warning by the s
     assert.equal(x.error, false, what);
     assert.deepEqual([x.edges, x.vertices], [[], []], what);
   }
+});
+
+test('growths to at most max(SMALL_FLOOR, the part\'s tolerance): an info of their own, counted apart from the rest',
+  () => {
+  assert.equal(SMALL_FLOOR, 1e-3);
+  const g = new Growth(100, 1e-5);
+  g.add('edge', 1, 1e-6, 1e-3, ['edgeTolerance']);
+  g.add('vertex', 2, 1e-6, 4e-4, ['vertexTolerance']);
+  g.add('edge', 3, 1e-6, 1.0001e-3, ['pcurveEnds']);
+  const ds = g.diagnostics();
+  assert.deepEqual(ds.map((d) => d.severity), ['info', 'warning']);
+  assert.equal(ds[0]!.message, `tolerances grown within 0.00100 mm: 1 edge and 1 vertex (edgeTolerance 1 edge, `
+    + `vertexTolerance 1 vertex), each to ${GROWTH} times what's measured; the largest 0.00100 mm (edge #1, from `
+    + `1.00e-6 mm)`);
+  assert.match(ds[1]!.message, /^tolerances grown: 1 edge \(pcurveEnds 1 edge\), .*\(edge #3: 1\.00e-6 mm to /);
+  // Small only: the info alone.
+  const h = new Growth(100, 1e-5);
+  h.add('vertex', 4, 1e-5, 2e-4, ['vertexTolerance']);
+  assert.deepEqual(h.diagnostics().map((d) => d.severity), ['info']);
+});
+
+test('the info\'s limit is the part\'s tolerance where larger than SMALL_FLOOR; an error is never an info', () => {
+  const g = new Growth(100, 0.04);
+  g.add('edge', 1, 0.04, 0.04, ['edgeTolerance']);
+  g.add('edge', 2, 0.04, 0.0401, ['edgeTolerance']);
+  assert.deepEqual(g.diagnostics().map((d) => [d.severity, d.message.slice(0, 32)]),
+    [['info', 'tolerances grown within 0.0400 m'], ['warning', 'tolerances grown: 1 edge (edgeTo']]);
+  // A part 0.05 mm across: 8e-4 is past 5 x 1e-5 and past 0.01 x its size, so an error, though within 1e-3.
+  const t = new Growth(0.05, 1e-5);
+  t.add('edge', 3, 1e-5, 8e-4, ['edgeTolerance']);
+  assert.deepEqual(t.diagnostics().map((d) => d.severity), ['error']);
+});
+
+test('a healed part with only small growths says them as an info alone', async () => {
+  // cylinderSide's bottom circle 2e-4 off its vertex: grown to about 2.2e-4, within 1e-3.
+  const r = await healPart(part(2.0002), {}, module);
+  const t = r.diagnostics.filter((x) => x.message.startsWith('tolerances grown'));
+  assert.deepEqual(t.map((x) => x.severity), ['info'], JSON.stringify(r.diagnostics));
+  assert.match(t[0]!.message, /^tolerances grown within 0\.00100 mm: /);
 });

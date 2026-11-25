@@ -298,7 +298,7 @@ export class OcctTessellator implements Tessellator {
       : undefined;
     if (open) diagnostics.push(open);
     // (With the measures, the area oracle's: computed here, in parallel with other parts' meshing, and cached.)
-    if (native && req.measures) result.oracle = oracleMeasures(req.data);
+    if (native && req.measures) result.oracle = oracleMeasures(req.data, req.analysis);
     const nc = m._occt_num_curves();
     if (nc) {
       const curveData = u32(m._occt_curves(), nc * 3);

@@ -15,6 +15,7 @@ import { edgeUsers, openEdgesCount } from './open-edges.ts';
 import { notManifoldMessage, reported, shellDefects, shellsManifold } from './manifold.ts';
 import type { Diagnostic } from './scene.ts';
 import { faceUses } from './tessellate.ts';
+import { addWires, describeWires, missingWires, noneMissing } from './wires.ts';
 import type { TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo } from
   './tessellator.ts';
 
@@ -52,12 +53,12 @@ export function compareVerdicts(a: Verdict, b: Verdict): number {
  * judges by.
  */
 export function judgeResult(r: TessellationResult | Error, model: BrepData | undefined, deflection: number,
-  given?: ReadonlyMap<number, FaceArea>): Verdict {
+  given?: ReadonlyMap<number, FaceArea>, analysis?: Uint8Array): Verdict {
   if (r instanceof Error) return { ok: false, problems: [`failed: ${r.message}`], rank: [1, 0, 0, 0, 0, 0, 0] };
   const errors = r.diagnostics.filter((d) => d.severity === 'error');
   if (failedPart(r)) return { ok: false, problems: errors.map((d) => d.message), rank: [0, 1, 0, 0, 0, 0, 0] };
   const kinds = { failed: 0, partly: 0, excess: 0 };
-  const bad = badFaces(r, model, deflection, given);
+  const bad = badFaces(r, model, deflection, given, analysis);
   for (const k of bad.values()) kinds[k]++;
   // (Faces the backend kept with a defect past its own limits: meshed wrongly, a fallback's mesh to be preferred.)
   const past = pastLimits(r).filter((id) => !bad.has(id)).length;
@@ -81,11 +82,11 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
 /**
  * The faces of the model a result meshes wrongly, by id: without triangles (any face, however small), meshed only in
  * part or over their area (faceFailures; unverified ones aren't counted, as nothing tells). A face's area is the
- * oracle's where it has one (`given`, else the result's `oracle`, else made from `model` here), else the result's own
- * measure.
+ * oracle's where it has one (`given`, else the result's `oracle`, else made from `model` here, which reads the
+ * measures its `analysis` holds where they're of it), else the result's own measure.
  */
 export function badFaces(r: TessellationResult, model: BrepData | undefined, deflection: number,
-  given?: ReadonlyMap<number, FaceArea>): Map<number, 'failed' | 'partly' | 'excess'> {
+  given?: ReadonlyMap<number, FaceArea>, analysis?: Uint8Array): Map<number, 'failed' | 'partly' | 'excess'> {
   const expected: number[] = [];
   if (model) for (const id of model.face.id) if (id) expected.push(id);
   const uses = model ? faceUses(model) : new Map<number, number>();
@@ -95,7 +96,8 @@ export function badFaces(r: TessellationResult, model: BrepData | undefined, def
     faces.set(id, { ...m, ...(n > 1 ? { uses: n } : {}) });
   };
   for (const m of r.measures ?? []) add(m.entityId, m);
-  const oracle = given ?? (r.oracle ? new Map(r.oracle.map((o) => [o.entityId, o])) : model && oracleAreas(model));
+  const oracle = given ?? (r.oracle ? new Map(r.oracle.map((o) => [o.entityId, o]))
+    : model && oracleAreas(model, analysis));
   for (const [id, o] of oracle ?? []) add(id, { area: o.area, perimeter: o.perimeter, valid: true });
   const measures = faces.size ? { measures: { by: '', faces }, deflection } : undefined;
   const mesh = { origin: r.origin, positions: r.positions, indices: r.indices,
@@ -179,8 +181,32 @@ export class FallbackTessellator implements Tessellator {
     await Promise.all([this.primary.init(opts), this.fallback.init()]);
   }
 
+  /**
+   * The faces' result (meshed), then the model's wireframe curves and points the result lacks (missingWires) taken
+   * from the fallback's result where it has them (its result already made for the faces, else asked for them), said
+   * in a warning; what neither delivers is tessellateScene's to say.
+   */
   async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
     Promise<TessellationResult> {
+    const held: { fallback?: Promise<TessellationResult | Error> } = {};
+    const r = await this.meshed(req, onProgress, held);
+    const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
+    if (!model) return r;
+    const missing = missingWires(model, r);
+    if (noneMissing(missing)) return r;
+    const b = await (held.fallback ?? this.fallback.tessellate(req, onProgress).catch((e: unknown) =>
+      e instanceof Error ? e : new Error(String(e))));
+    if (b instanceof Error) return r;
+    const { result, added } = addWires(r, b, missing);
+    if (noneMissing(added)) return r;
+    return { ...result, diagnostics: [{ severity: 'warning', message: `${describeWires(added)} meshed by the fallback `
+      + `backend (${this.fallback.info.name}), which ${this.primary.info.name}'s result left out` },
+    ...result.diagnostics] };
+  }
+
+  /** The part's faces: the primary's result, or where it isn't sound the fallback's (`held.fallback`) or both's. */
+  private async meshed(req: TessellationRequest, onProgress: ((p: TessellationProgress) => void) | undefined,
+    held: { fallback?: Promise<TessellationResult | Error> }): Promise<TessellationResult> {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
     const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
@@ -196,11 +222,11 @@ export class FallbackTessellator implements Tessellator {
       e instanceof Error ? e : new Error(String(e)));
     const a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
-    const va = judgeResult(a, model, req.linearDeflection);
+    const va = judgeResult(a, model, req.linearDeflection, undefined, req.analysis);
     if (va.ok) return this.finish(a as TessellationResult, this.primary, req, []);
     const p = this.primary.info.name, f = this.fallback.info.name;
-    const b = await run(this.fallback);
-    const vb0 = judgeResult(b, model, req.linearDeflection);
+    const b = await (held.fallback = run(this.fallback));
+    const vb0 = judgeResult(b, model, req.linearDeflection, undefined, req.analysis);
     const why = va.problems.join('; ');
     const D = req.linearDeflection;
     // A face the primary kept past its limits: the fallback's mesh of it taken (per face, or with its whole mesh)
@@ -227,10 +253,10 @@ export class FallbackTessellator implements Tessellator {
     // open for, the fallback's where the fallback meshes them right; joined. Kept where better than both (than the
     // fallback's whole mesh, or as good: it keeps the rest of the primary's).
     if (this.perFace && model && !(a instanceof Error) && !(b instanceof Error) && !failedPart(a)) {
-      const want = new Set(badFaces(a, model, D).keys());
+      const want = new Set(badFaces(a, model, D, undefined, req.analysis).keys());
       for (const face of joinEdges(model, a, D).culprits.values()) want.add(face);
       for (const face of past) want.add(face);
-      const badB = badFaces(b, model, D);
+      const badB = badFaces(b, model, D, undefined, req.analysis);
       const meshedB = new Set(b.faces.filter((x) => x.count > 0).map((x) => x.entityId));
       let swapped = [...want].filter((x) => meshedB.has(x) && !badB.has(x) && within(x)).sort((x, y) => x - y);
       const by = `${this.primary.info.name} with faces from ${this.fallback.info.name}`;
@@ -248,7 +274,7 @@ export class FallbackTessellator implements Tessellator {
       if (c) {
         const note = !this.judgeDeviation || judge || !swapped.some((x) => past.has(x)) ? ''
           : ' (their deviation not judged, no deviation judge set: by area alone)';
-        const vc = judgeResult(c, model, D);
+        const vc = judgeResult(c, model, D, undefined, req.analysis);
         if (compareVerdicts(vc, va) < 0 && compareVerdicts(vc, vb) <= 0) {
           const n = swapped.length, ids = swapped.slice(0, 10).map((x) => `#${x}`).join(', ')
             + (n > 10 ? ', ...' : '');

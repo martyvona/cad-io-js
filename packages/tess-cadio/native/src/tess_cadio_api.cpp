@@ -1,7 +1,8 @@
 // The module's C API (build.sh's `module`), which src/index.ts wraps: one part's B-rep buffer meshed (part.h) into
 // flat arrays a TessellationResult is made of, held until the next call or tc_free. Positions are minus the origin,
 // in double precision before single; faces' vertices are their own (normals differ across edges), their positions
-// on a shared edge the same numbers. The last result's diagnostics are a JSON object (tc_diag).
+// on a shared edge the same numbers. A model's loose items are given too: its curve items and wire bodies' edges as
+// polylines (curves), its point items as points. The last result's diagnostics are a JSON object (tc_diag).
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
@@ -33,8 +34,8 @@ namespace {
 enum : uint32_t { kShared = 0, kSeam = 1, kFree = 2 };
 
 struct Result {
-  std::vector<float> positions, normals, edgePositions, edgeAngles;
-  std::vector<uint32_t> indices, faces, edges;
+  std::vector<float> positions, normals, edgePositions, edgeAngles, curvePositions, points;
+  std::vector<uint32_t> indices, faces, edges, curves, pointIds;
   std::string diag;
 };
 Result result;
@@ -83,7 +84,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 9; }
+int tc_api_version() { return 11; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -200,7 +201,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     holesOnly;
   std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped, dropped, droppedCount;
   // (Each face kept with a defect, PartOptions::keepDefects: [id, turned, deviation over max(d, tol), capped 0/1, past
-  // the limits 0/1].)
+  // the limits 0/1, its edges off its surface past max(d, tol): 1 an edge, 2 a vertex, else 0, its id, the distance
+  // in mm].)
   std::string kept = "[";
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
@@ -281,9 +283,14 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
       if (fm.splitsDropped) dropped.push_back(faceId[f]), droppedCount.push_back(fm.splitsDropped);
       if (fm.defectTurned || fm.defectDeviation > 0 || fm.defectCapped) {
-        char row[96];
-        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d,%d]", kept.size() > 1 ? "," : "", faceId[f], fm.defectTurned,
-          fm.defectDeviation, fm.defectCapped ? 1 : 0, fm.defectPastLimits ? 1 : 0);
+        char row[160];
+        const bool off = fm.offSurfaceWithin > 0 && fm.offSurface > fm.offSurfaceWithin;
+        const int offKind = !off ? 0 : fm.offSurfaceEdge >= 0 ? 1 : fm.offSurfaceVertex >= 0 ? 2 : 0;
+        const uint32_t offId = offKind == 1 ? m.u32(CBR_EDGE_ID)[fm.offSurfaceEdge]
+          : offKind == 2 ? m.u32(CBR_VERTEX_ID)[fm.offSurfaceVertex] : 0;
+        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d,%d,%d,%u,%.4g]", kept.size() > 1 ? "," : "", faceId[f],
+          fm.defectTurned, fm.defectDeviation, fm.defectCapped ? 1 : 0, fm.defectPastLimits ? 1 : 0, offKind, offId,
+          offKind ? fm.offSurface : 0.0);
         kept += row;
       }
       if (fm.sampled) sampled.push_back(faceId[f]);
@@ -361,6 +368,47 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       result.edgeAngles.push_back(angle);
     }
   }
+  // The loose items, as the other backends give them: a curve item's polylines over its whole domain (a composite's
+  // segments each one; their id the item's, else the curve's), a wire body's edges each as its samples (the edge's
+  // id; one its EdgeMesh didn't sample within the criteria left out), a point item's point.
+  std::vector<uint32_t> curvesLeftOut, curvesUnconverged;
+  {
+    const uint8_t* kind = m.u8(CBR_ITEM_KIND);
+    const int32_t* ref = m.i32(CBR_ITEM_REF);
+    const uint32_t* itemId = m.u32(CBR_ITEM_ID);
+    EdgeOptions eo;
+    eo.deflection = linear, eo.angle = angular;
+    auto polyline = [&](uint32_t id, const std::vector<Vec3>& pts) {
+      result.curves.insert(result.curves.end(), {id, static_cast<uint32_t>(result.curvePositions.size() / 3),
+        static_cast<uint32_t>(pts.size())});
+      for (Vec3 p : pts) put(result.curvePositions, p, o);
+    };
+    for (int i = 0; i < m.rows(CBR_ITEM_KIND); i++) {
+      if (kind[i] == CBR_ITEM_CURVE) {
+        const uint32_t id = itemId[i] ? itemId[i] : m.u32(CBR_CURVE_ID)[ref[i]];
+        Status st;
+        const std::vector<std::vector<Vec3>> lines = sampleLooseCurve(m, ref[i], eo, tol, st);
+        if (st == Status::noConvergence) curvesUnconverged.push_back(id);
+        else if (st != Status::ok || lines.empty()) curvesLeftOut.push_back(id);
+        for (const std::vector<Vec3>& pts : lines) polyline(id, pts);
+      } else if (kind[i] == CBR_ITEM_POINT) {
+        const double* q = m.f64(CBR_POOL_ITEM_REAL) + ref[i];
+        put(result.points, {q[0], q[1], q[2]}, o);
+        result.pointIds.push_back(itemId[i]);
+      } else if (kind[i] == CBR_ITEM_BODY && m.u8(CBR_BODY_KIND)[ref[i]] == CBR_BODY_WIRE) {
+        const int b = ref[i];
+        for (int k = m.i32(CBR_BODY_FIRST)[b]; k < m.i32(CBR_BODY_FIRST)[b] + m.i32(CBR_BODY_COUNT)[b]; k++) {
+          const int e = m.i32(CBR_MEMBER_REF)[k];
+          const EdgeSamples& es = pm.edges().edge(e);
+          const uint32_t id = m.u32(CBR_EDGE_ID)[e];
+          // (Not sampled within the criteria: left out, as its faces would fail for it. An edge from a vertex back
+          // to it on a line runs to the sampler's cap.)
+          if (es.status != Status::ok || es.points.size() < 2) curvesLeftOut.push_back(id);
+          else polyline(id, es.points);
+        }
+      }
+    }
+  }
   // (Causes are this code's own ASCII phrases: no quotes or backslashes to escape.)
   std::string causes = "[";
   for (size_t i = 0; i < failedCause.size(); i++) causes += (i ? ",\"" : "\"") + failedCause[i] + "\"";
@@ -389,7 +437,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     std::to_string(pc.atEdgeTolerance) + "," + std::to_string(pc.byInversion) + "],\"traces\":[" +
     std::to_string(tc.local) + "," + std::to_string(tc.global) + "],\"traceFallbacks\":" + fallbacks + ",\"rounds\":" +
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
-    ",\"poleSlivers\":" + std::to_string(poleSlivers) + (listPoles ? ",\"poles\":" + poles : std::string()) +
+    ",\"poleSlivers\":" + std::to_string(poleSlivers) + ",\"curvesLeftOut\":" + ids(curvesLeftOut) +
+    ",\"curvesUnconverged\":" + ids(curvesUnconverged) + (listPoles ? ",\"poles\":" + poles : std::string()) +
     (countExpected ? ",\"expected\":" + expected : std::string()) + "}";
   return 0;
 }
@@ -409,6 +458,15 @@ const uint32_t* tc_edges() { return result.edges.data(); }
 const float* tc_edge_angles() { return result.edgeAngles.data(); }
 int tc_num_edge_points() { return static_cast<int>(result.edgePositions.size() / 3); }
 const float* tc_edge_positions() { return result.edgePositions.data(); }
+/** Per loose curve (a curve item, a wire body's edge): its id (0: none), its first point, its point count. */
+int tc_num_curves() { return static_cast<int>(result.curves.size() / 3); }
+const uint32_t* tc_curves() { return result.curves.data(); }
+int tc_num_curve_points() { return static_cast<int>(result.curvePositions.size() / 3); }
+const float* tc_curve_positions() { return result.curvePositions.data(); }
+/** The point items: their positions, and each one's id (0: none). */
+int tc_num_points() { return static_cast<int>(result.pointIds.size()); }
+const float* tc_points() { return result.points.data(); }
+const uint32_t* tc_point_ids() { return result.pointIds.data(); }
 /**
  * The last call's diagnostics: {"failed": [face ids], "failedRows", "failedStatus" (each one's result.h Status: an
  * empty triangulation counts as invalidModel), "failedCause" (each one's FaceMesh::cause), "refused", "unsplit",
@@ -431,11 +489,15 @@ const float* tc_edge_positions() { return result.edgePositions.data(); }
  * FaceMesh::splitsDropped; none expected), "capped" (the faces failed for refinement stopped at the
  * point cap: FaceMesh::capped), "kept" (the faces kept with a defect, PartOptions::keepDefects: [face id, triangles
  * turned, measured deviation over max(d, tol) where past the limit else 0, 1 if at its point cap, 1 if past the
- * keep limits] each), "poles"
+ * keep limits, 1 if an edge or 2 if a vertex lies off its surface past max(d, tol) else 0, that edge's or vertex's
+ * id, its distance in mm: FaceMesh::offSurface] each), "poles"
  * (with tc_set_list_poles, every face's singularities as its closed surface has them, 5 numbers each [face id,
  * cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
  * tc_set_count_expected, each face's [face id, triangles its size metric expects: FaceMesh::expectedTriangles,
- * triangles meshed], for every face its mesher meshed, 0 meshed where it failed after: at its point cap, say)}.
+ * triangles meshed], for every face its mesher meshed, 0 meshed where it failed after: at its point cap, say),
+ * "curvesLeftOut" (the loose curves not given, or a composite's segments not: not made, unbounded, an edge not
+ * sampled) and "curvesUnconverged"
+ * (those given whose sampling ran out of refinement), by id}.
  */
 const char* tc_diag() { return result.diag.c_str(); }
 void tc_free() { result = {}; }

@@ -91,7 +91,8 @@ function tetrahedron(at: number[], s: number, id: number, base: number) {
 test("volume: each solid's outer shell less its voids, by the analysis's shell volumes and by the mesh", () => {
   const d = model();
   // The oracle's signed volumes (a void's sign whichever way it was given) and errors.
-  const analysis = (v: number[]) => writeAnalysis({ analysis: { model: new Uint32Array(8), uncertainty: [NaN] },
+  const analysis = (v: number[]) => writeAnalysis({ analysis: { model: new Uint32Array(8), uncertainty: [NaN],
+    measureRelTol: [NaN], measureProject: [0] },
     shell: { volume: v, facing: [0, 0], facingFrom: [0, 0], turned: [0, 0] } });
   assert.deepEqual(oracleVolume(d, analysis([60, 0.01, 7.5, 0.002])), { volume: 52.5, error: 0.012 });
   assert.deepEqual(oracleVolume(d, analysis([-60, 0.01, -7.5, 0.002])), { volume: 52.5, error: 0.012 });

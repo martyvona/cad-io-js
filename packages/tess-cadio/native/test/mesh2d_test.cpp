@@ -947,6 +947,29 @@ TEST_CASE("insertion in a metric 1000 to 1: the cavity kept star-shaped, no tria
   CHECK_EQ(inverted, 0);
 }
 
+TEST_CASE("a segment across a long thin domain: its pseudo-polygons' chains thousands long, retriangulated without "
+  "running out of stack (1 MB in WebAssembly)") {
+  // Two rows of N points a unit apart, the segment between two points beyond their ends along the middle: it cuts
+  // all 2N - 2 triangles between the rows, each side's chain N long, split at its end each time (as deep as it is).
+  const int N = 10000;
+  std::vector<Vec2> pts{{-1, 0.5}, {double(N), 0.5}};
+  for (int i = 0; i < N; i++) pts.push_back({double(i), 0}), pts.push_back({double(i), 1});
+  cdt::Triangulation T(pts);
+  int32_t dup[2], other[2];
+  REQUIRE(T.build(dup));
+  REQUIRE(T.insertSegment(0, 1, 1, other));
+  CHECK(T.findEdge(0, 1).first >= 0);
+  // (Every live triangle counter-clockwise; every point on the hull, rows included, so n - 2 = 2N triangles.)
+  int inverted = 0, live = 0;
+  for (const cdt::Tri& R : T.tris())
+    if (!R.dead && R.v[2] != cdt::kGhost) {
+      live++;
+      inverted += cadgeom::orient2d(T.points()[R.v[0]], T.points()[R.v[1]], T.points()[R.v[2]]) <= 0;
+    }
+  CHECK_EQ(inverted, 0);
+  CHECK_EQ(live, 2 * N);
+}
+
 TEST_CASE("off-centres: angle-driven refinement with fewer points than circumcentres would take") {
   // Three domains of 60 random interior points, no size wanted: 152 Steiner points in all with Ungor's off-centres,
   // 178 with circumcentres alone (measured), the angles met either way. (The same on every target: no fused

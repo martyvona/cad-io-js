@@ -35,12 +35,12 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
     const r = await run([assembly, '-o', out, '--with-edges', '--with-curves', '-j', workers]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
-    // (Healed by default: healing's time, and its warnings on the five parts, each grown tolerances and p-curves
-    // kept.)
+    // (Healed by default: healing's time; on the five parts, their tolerances grown and p-curves kept off by at most
+    // 1e-3 mm, notes, not warnings.)
     assert.match(r.stderr, new RegExp(String.raw`^5 parts \(5 of 5 brep parts tessellated\), 18 placed; `
       + String.raw`8048 triangles; 0\.2 MB written\nimport [\d.]+ s, healing [\d.]+ s, tessellation [\d.]+ s `
       + String.raw`\(medium: 0\.1 mm, 15 deg\), export [\d.]+ s\n`
-      + String.raw`0 errors, 10 warnings, 0 notes\n(  warning: #\d+: (tolerances grown|pcurveReplace): .*\n){10}$`));
+      + String.raw`0 errors, 0 warnings, 10 notes\n$`));
   }
   const loaded = load(expected);
   assert.equal(loaded.name, 'as1-oc-214-mat');

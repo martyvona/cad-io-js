@@ -196,7 +196,8 @@ test("details from the part's B-rep and mesh: a face's surface, an edge's curve,
   b.addEdge({ id: 4, curve: b.addCurve({ kind: 'circle', position: XY, radius: 3 }), sameSense: true });
   b.addVertex({ id: 21, point: [1, 2, 3] });
   b.addBody({ kind: 'solid', members: [{ ref: b.addShell({ kind: 'closed', faces: [{ face: f8 }] }) }] });
-  const analysis = writeAnalysis({ analysis: { model: new Uint32Array(8), uncertainty: [NaN] },
+  const analysis = writeAnalysis({ analysis: { model: new Uint32Array(8), uncertainty: [NaN],
+    measureRelTol: [NaN], measureProject: [0] },
     shell: { volume: [-12, 0.1], facing: [0], facingFrom: [0], turned: [0] } });
   graph.holdModel(0, { model: b.finish().buffer, analysis: analysis.buffer });
   for (const p of graph.placements.get(0)!) model.invalidate(p.group);

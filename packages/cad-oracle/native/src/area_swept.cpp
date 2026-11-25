@@ -105,10 +105,11 @@ SweptFace sweptFace(Oracle::Impl& I, int f) {
   if (*L.why) return fail(L.status, L.why);
   F.pieces = std::move(L.pieces);
   for (double w : L.windU) F.windU += w;
-  for (double w : L.windV) F.windV += w;
+  // Any loop winding v by itself, whatever the others do: two winding it opposite ways (a band round a tube between
+  // two of its profile's circles) cancel in the sum but not in the area, which the seam term the method lacks holds.
+  for (double w : L.windV) F.windV += w, F.flags |= w != 0 ? flagWinds : 0u;
   if (F.pieces.empty()) return F;
   auto& P = F.pieces;
-  if (F.windV != 0) F.flags |= flagWinds;
   if (F.windU != 0 && (F.extrusion || F.poleV.empty())) F.flags |= flagWinds;
   Vec2 start, d0;
   pieceAt(I.h, P[0], P[0].t0, start, d0);

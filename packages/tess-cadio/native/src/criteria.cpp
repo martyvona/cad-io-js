@@ -25,6 +25,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -374,6 +375,21 @@ private:
     n = it->second.v;
     return it->second.st;
   }
+  /** foldNormal at (u, v), the criteria's tolerance, memoized as normalAt; whether it's a fold's. */
+  struct Folded {
+    Status st;
+    Vec3 v;
+    bool folded;
+  };
+  mutable std::unordered_map<std::pair<uint64_t, uint64_t>, Folded, PairHash> folded_;
+  Status foldNormalAt(double u, double v, Vec3& n, bool& folded) const {
+    if (folded_.size() > kEvalMemo) folded_.clear();
+    auto [it, fresh] = folded_.try_emplace({bits(u), bits(v)});
+    if (fresh) it->second.st = foldNormal(s_, u, v, tolerance_, it->second.v, &it->second.folded);
+    n = it->second.v, folded = it->second.folded;
+    return it->second.st;
+  }
+  Status scaleNormal(Vec2 uv, Vec3& n, bool& folded) const override { return foldNormalAt(uv.x, uv.y, n, folded); }
 
   /** The boundary's own points by (u, v)'s bits (setBoundaryPoints). */
   std::unordered_map<std::pair<uint64_t, uint64_t>, Vec3, PairHash> boundary_;
@@ -476,6 +492,10 @@ private:
    * as the pole's ring was sized for.)
    */
   Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
+    const Refusal r = cornerNormalsRefusal(t, p, fan);
+    return r != Refusal::none && !fan && foldSliver(t, p) ? Refusal::none : r;
+  }
+  Refusal cornerNormalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
     Vec3 n[3], g = facet(p);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = cornerNormal(t, i, n[i]) == Status::ok;
@@ -890,6 +910,25 @@ private:
   }
 
   /**
+   * Whether the triangle (its 3D corners p) is thinner than the refinement floor across, twice its area over its
+   * longest side, with a corner in a fold narrower than the tolerance (foldNormal): a sliver of the fold's own, its
+   * facet on the fold's sheet whichever way that faces, accepted rather than refused for its normals or turned as one
+   * below the floor is: splitting only makes more (LMP1 #172427's #1039663, a B-spline pleat, to the point cap). Not a
+   * needle elsewhere: refinement mends those.
+   */
+  bool foldSliver(const Vec2 t[3], const Vec3 p[3]) const {
+    const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
+    const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    if (!(longest > 0) || norm(g) / longest > floor_) return false;
+    for (int i = 0; i < 3; i++) {
+      Vec3 n;
+      bool in = false;
+      if (foldNormalAt(t[i].x, t[i].y, n, in) == Status::ok && in) return true;
+    }
+    return false;
+  }
+
+  /**
    * Turned as the part judges its output (part.cpp's checkFacing): the facet of q, the corners as output, against the
    * mean of the corners' normals, p the surface's points at the corners; not with a corner within the tolerance of a
    * pole or apex.
@@ -904,7 +943,7 @@ private:
       Vec3 n;
       if (cornerNormal(t, i, n) == Status::ok) sum = sum + n;
     }
-    return facetAgainst(g, sum);
+    return facetAgainst(g, sum) && !foldSliver(t, p);
   }
   /** The output's origin (setOutputOrigin), and corners as shipped from it. */
   double origin_[3] = {0, 0, 0};
@@ -996,6 +1035,11 @@ private:
     Vec2 a{M - k1 * F, -(L - k1 * E)}, b{N - k1 * G, -(M - k1 * F)};
     Vec2 x1 = std::hypot(a.x, a.y) >= std::hypot(b.x, b.y) ? a : b;
     double h1 = size(k1), h2 = size(k2);
+    // (Deflections::stretchCap: the long size at most that times the short.)
+    if (d_.stretchCap > 0) {
+      if (h1 > d_.stretchCap * h2) h1 = d_.stretchCap * h2;
+      else if (h2 > d_.stretchCap * h1) h2 = d_.stretchCap * h1;
+    }
     double s1 = length2({E, F, G}, x1.x, x1.y);
     if (!(s1 > 0) || r <= 1e-12 * (std::fabs(H) + 1e-300) || !std::isfinite(s1)) {
       // An umbilic (or no curvature): every direction alike, the smaller size.
@@ -1157,6 +1201,47 @@ private:
 };
 
 } // namespace
+
+Status foldNormal(const Surface& s, double u, double v, double tol, Vec3& n, bool* folded) {
+  if (folded) *folded = false;
+  const Status st = s.normal(u, v, n);
+  if (st != Status::ok || !(tol > 0)) return st;
+  SurfacePoint q;
+  if (s.eval(u, v, 1, q) != Status::ok) return st;
+  const SurfaceDomain dom = s.domain();
+  Vec3 sum{0, 0, 0};
+  bool any = false;
+  for (int d = 0; d < 2; d++) {
+    const double speed = norm(d ? q.dv : q.du), x = d ? v : u, period = d ? dom.vPeriod : dom.uPeriod;
+    const Range r = d ? dom.v : dom.u;
+    if (!(speed > 0)) continue;
+    // (The side `sign` of x about tol away in 3D: the step halved or doubled towards it, within a bounded domain;
+    // along a period never past a quarter of it, as a tube thinner than the tolerance would find its own far side.)
+    const double cap = period > 0 ? 0.25 * period : std::numeric_limits<double>::infinity();
+    auto side = [&](double sign, Vec3& out) {
+      double h = std::min(tol / speed, cap), y = x;
+      for (int it = 0; it < 8; it++) {
+        y = x + sign * h;
+        if (!(period > 0)) y = std::clamp(y, std::isfinite(r.lo) ? r.lo : y, std::isfinite(r.hi) ? r.hi : y);
+        if (y == x) return false;
+        SurfacePoint p;
+        if (s.eval(d ? u : y, d ? y : v, 0, p) != Status::ok) return false;
+        const double dist = norm(p.p - q.p);
+        if (dist > 2 * tol) h *= 0.5;
+        else if (dist < 0.5 * tol && y == x + sign * h && h < cap) h = std::min(2 * h, cap);
+        else break;
+      }
+      return s.normal(d ? u : y, d ? y : v, out) == Status::ok;
+    };
+    Vec3 na, nb;
+    if (!side(-1, na) || !side(1, nb)) continue;
+    if (dot(na, nb) > 0 && dot(n, na) < 0 && dot(n, nb) < 0) sum = sum + na + nb, any = true;
+  }
+  if (!any || !(norm(sum) > 0)) return st;
+  n = (1 / norm(sum)) * sum;
+  if (folded) *folded = true;
+  return st;
+}
 
 std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surface& s, Box2 uv, const Deflections& d,
   Status& status) {

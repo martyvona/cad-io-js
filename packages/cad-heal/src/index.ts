@@ -10,15 +10,16 @@
 // One master switch (`heal`: on wherever healPart or healScene is called, in importers HEAL_BY_DEFAULT) leaves every
 // model exactly as imported when off; under it, each fix can be turned off by name. Each p-curve fix reports one
 // diagnostic per part it changes (a warning with its count and examples), and one for what it couldn't repair; the
-// tolerances grown (edgeTolerance's, vertexTolerance's, pcurveEnds') are one diagnostic per part, a warning or an
-// error by how far they grew (fix/growth.ts). Parts heal one at a time here, or in parallel through a PartHealer (a
-// worker pool's, tess-workers). The geometry is cad-geom's (its WebAssembly module, `init`).
+// tolerances grown (edgeTolerance's, vertexTolerance's, pcurveEnds') are said per part, an info for the small
+// growths and a warning or an error for the rest by how far they grew (fix/growth.ts). Parts heal one at a time
+// here, or in parallel through a PartHealer (a worker pool's, tess-workers). The geometry is cad-geom's (its
+// WebAssembly module, `init`).
 
 import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, FACING, FACING_FROM, faceOutlines, LOOP_KIND,
-  modelHash, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
+  MEASURE_TRUST, modelHash, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
-import { type Estimate, type FaceMeasure, init as initOracle, JUDGE_REL_TOL, Oracle, shellBox, solidShells }
-  from 'cad-oracle';
+import { type Estimate, FLAGS, type FaceMeasure, init as initOracle, JUDGE_PROJECT, JUDGE_REL_TOL, METHOD, Oracle,
+  shellBox, solidShells, STATUS } from 'cad-oracle';
 import { RayShellSide } from 'cad-oracle/shell-side';
 import type { Brep, Diagnostic, Scene, SourceId, Vec3 } from 'cad-scene';
 import { type CurvesRecord, healCurves } from './curves.ts';
@@ -27,6 +28,7 @@ import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
 import { isError } from './fix/growth.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
+import { MIN_FIT, type Tight, tightFaces } from './fix/tight.ts';
 import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
   './fix/shells.ts';
 import { fixesMask, fixesOn, HEAL_VERSION, type HealOptions, PCURVE_FIT_TOLERANCE } from './options.ts';
@@ -72,7 +74,8 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   // poles strayPole moved still counted, so healing again says they're kept).
   if (!fixes.size) {
     const diagnostics: Diagnostic[] = before!.strayPoles ? [keptPoles(before!.strayPoles, source)] : [];
-    const out = writeAnalysis({ analysis: { model: await modelHash(given), uncertainty: [tolerances(given).part] },
+    const out = writeAnalysis({ analysis: { model: await modelHash(given), uncertainty: [tolerances(given).part],
+      measureRelTol: [NaN], measureProject: [0] },
       healing: { fixes: [0], pcurveFitTolerance: [fit], version: [HEAL_VERSION], sourceCurves: [before!.sourceCurves],
         strayPoles: [before!.strayPoles] } });
     const changed = !sameBytes(given, model);
@@ -90,7 +93,14 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   const geom = module ?? await init(), g = new Geometry(geom, new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, fit);
+    // pcurveTight's faces first, on the projections the curves' fixes then reuse.
+    let tight: Tight | undefined;
+    if (fixes.has('pcurveTight')) {
+      progress('pcurveTight');
+      tight = tightFaces(g, fixed, fit);
+      tightSaid(fixed, tight, fit, diagnostics);
+    }
+    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, fit, tight?.fit);
   } finally {
     g.dispose();
   }
@@ -211,13 +221,37 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
         + `${wrong.length > 10 ? '; ...' : ''})` });
     }
   }
+  // The oracle's measure of every face as judging takes it (its relTol and projection, the model alone), kept in the
+  // analysis so a judge of the healed model's meshes reads it rather than measuring again.
+  progress('judging measures');
+  const judged = await judgingMeasures(healed, progress);
   progress('the healed model and its analysis');
   const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!shells?.perm
     || !!shells?.flipped.length || !!shells?.turnedFaces.length;
   const out = await analysisOf(healed, given, edit, curves, { fixes: fixesMask(fixes), fit, sourceCurves,
-    strayPoles: kept + moved }, shells);
+    strayPoles: kept + moved }, judged, shells);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
+}
+
+/** pcurveTight's faces said: those caught (a warning, the fits they take), those it couldn't keep (an info). */
+function tightSaid(d: BrepData, t: Tight, fit: number, diagnostics: Diagnostic[]): void {
+  const name = (f: number) => d.face.id[f] ? `#${d.face.id[f]}` : `row ${f}`;
+  const list = (fs: number[]) => `${fs.slice(0, 10).map(name).join(', ')}${fs.length > 10 ? ', ...' : ''}`;
+  const caught = [...t.fit.keys()];
+  if (caught.length) {
+    const tightest = Math.min(...t.fit.values());
+    diagnostics.push({ severity: 'warning', message: `pcurveTight: ${caught.length} ${caught.length === 1 ? 'face'
+      : 'faces'} whose bare uses' projections at the face API's tolerance bound almost nothing in (u, v) where their `
+      + `exact feet bound a region given p-curves fitted within ${fit} mm`
+      + `${tightest < fit ? `, down to ${tightest.toPrecision(2)} mm where that collapses them too` : ''}: `
+      + `${list(caught)}` });
+  }
+  if (t.left.length) {
+    diagnostics.push({ severity: 'info', message: `pcurveTight: ${t.left.length} ${t.left.length === 1 ? 'face'
+      : 'faces'} whose bare uses' projections collapse their loop in (u, v) even fitted within ${MIN_FIT} mm left `
+      + `as they are: ${list(t.left)}` });
+  }
 }
 
 /** The warning for poles strayPole moved in an earlier healing, which healing again can't put back. */
@@ -297,7 +331,7 @@ function movePoles(model: BrepData, edit: ModelEdit, diagnostics: Diagnostic[]):
 /** The healed model's analysis: provenance of p-curves and tolerances, the source's tolerances, the deviations
  * measured; the rest not computed (NaN, none). */
 async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, curves: CurvesRecord,
-  how: { fixes: number; fit: number; sourceCurves: number; strayPoles: number },
+  how: { fixes: number; fit: number; sourceCurves: number; strayPoles: number }, judged: JudgedRows,
   shells?: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] }):
   Promise<BrepAnalysis> {
   const nv = rowCount(healed, 'vertex'), ne = rowCount(healed, 'edge'), nc = rowCount(healed, 'coedge');
@@ -339,7 +373,8 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
     }
   }
   return writeAnalysis({
-    analysis: { model: await modelHash(healed), uncertainty: [tolerances(healed).part] },
+    analysis: { model: await modelHash(healed), uncertainty: [tolerances(healed).part], measureRelTol: [JUDGE_REL_TOL],
+      measureProject: [JUDGE_PROJECT ? 1 : 0] },
     vertex: { measured: nan(nv), first: new Int32Array(nv).fill(-1), count: new Int32Array(nv),
       toleranceFrom: from('vertex', nv), givenTolerance: source.vertex.tolerance,
       toleranceError: past('vertex', nv, start.vertex) },
@@ -352,8 +387,8 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
       givenRange: byRow(source.coedge.range, 2) },
     // (perm is its own inverse: loops reversed in place, a loop reversed twice back as it was.)
     trace: traceRows(perm ? curves.traces.map((t) => ({ ...t, coedge: perm[t.coedge]! })) : curves.traces),
-    ...(shells ? { shell: shellRows(healed, shells.verdicts),
-      face: faceRows(healed, shells.flipped, shells.turnedFaces) } : {}),
+    ...(shells ? { shell: shellRows(healed, shells.verdicts) } : {}),
+    face: { ...faceRows(healed, shells?.flipped ?? [], shells?.turnedFaces ?? []), ...judged },
     healing: { fixes: [how.fixes], pcurveFitTolerance: [how.fit], version: [HEAL_VERSION],
       sourceCurves: [how.sourceCurves], strayPoles: [how.strayPoles] },
   });
@@ -380,6 +415,51 @@ function shellRows(model: BrepData, verdicts: ShellVerdict[]) {
 }
 
 /** The analysis's face rows (every model face): nothing measured, how orientShells turned each face. */
+/** The face rows' measure columns (analysis-layout.ts), as judgingMeasures fills them. */
+type JudgedRows = Awaited<ReturnType<typeof judgingMeasures>>;
+
+/**
+ * Every face's measure as judging takes it (cad-oracle's JUDGE_REL_TOL and JUDGE_PROJECT, on the model alone), with
+ * its flux about its first solid shell's vertices' box centre where it has one (the shells step's terms), as the
+ * analysis's face columns.
+ */
+async function judgingMeasures(model: BrepData, progress: (what: string) => void) {
+  const n = rowCount(model, 'face'), om = await initOracle();
+  const area = new Float64Array(2 * n).fill(NaN), perimeter = new Float64Array(2 * n).fill(NaN);
+  const areaStatus = new Uint8Array(n).fill(255), perimeterStatus = new Uint8Array(n).fill(255);
+  const method = new Uint8Array(n), flags = new Uint32Array(n), offSurface = new Float64Array(n).fill(NaN);
+  const boundary = new Float64Array(n).fill(NaN), fluxCentre = new Float64Array(3 * n).fill(NaN);
+  const flux = new Float64Array(6 * n).fill(NaN), fluxStatus = new Uint8Array(3 * n).fill(255);
+  const areaFrom = new Uint8Array(n);
+  const centre = new Map<number, [number, number, number]>();
+  for (const s of solidShells(model)) {
+    const b = shellBox(model, s);
+    for (const f of b.faces) if (!centre.has(f)) centre.set(f, b.c);
+  }
+  const tick = ticker(progress);
+  using o = new Oracle(om, model.buffer, { relTol: JUDGE_REL_TOL, projectMissing: JUDGE_PROJECT });
+  for (let f = 0; f < n; f++) {
+    tick(() => `judging measures: ${f} of ${n} faces`);
+    const c = centre.get(f), both = c ? o.faceAndFlux(f, c) : undefined, m = both ? both.measure : o.face(f);
+    area[2 * f] = m.area.value, area[2 * f + 1] = m.area.error, areaStatus[f] = STATUS.indexOf(m.area.status);
+    perimeter[2 * f] = m.perimeter.value, perimeter[2 * f + 1] = m.perimeter.error;
+    perimeterStatus[f] = STATUS.indexOf(m.perimeter.status), method[f] = METHOD.indexOf(m.method);
+    flags[f] = m.flags.reduce((b, x) => b | FLAGS[x], 0), offSurface[f] = m.offSurface, boundary[f] = m.boundary;
+    areaFrom[f] = m.area.status === 'ok' ? m.method === 'closedForm' ? MEASURE_TRUST.exact : MEASURE_TRUST.estimate
+      : MEASURE_TRUST.none;
+    if (!c) continue;
+    // (The flux about c: with the area's pass on a free-form face, else on its own.)
+    const fx = both?.flux ?? o.faceFlux(f, c);
+    fluxCentre.set(c, 3 * f);
+    for (let k = 0; k < 3; k++) {
+      flux[6 * f + 2 * k] = fx[k]!.value, flux[6 * f + 2 * k + 1] = fx[k]!.error;
+      fluxStatus[3 * f + k] = STATUS.indexOf(fx[k]!.status);
+    }
+  }
+  return { area, areaFrom, areaStatus, perimeter, perimeterStatus, method, flags, offSurface, boundary, fluxCentre,
+    flux, fluxStatus };
+}
+
 function faceRows(model: BrepData, flipped: number[], turnedFaces: number[]) {
   const n = rowCount(model, 'face'), turned = new Uint8Array(n);
   for (const f of flipped) turned[f]! |= 1;

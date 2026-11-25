@@ -52,8 +52,24 @@ test('pcurveReplace: a curve off its plane, its p-curve right: the projection is
   const d = planeArc(undefined, undefined, 0.1).finish();
   const r = await healPart(d, {}, module);
   assert.equal(r.model.coedge.pcurve[0], d.coedge.pcurve[0]);
-  assert.match(r.diagnostics.find((x) => x.message.startsWith('pcurveReplace:'))!.message,
+  const x = r.diagnostics.find((y) => y.message.startsWith('pcurveReplace:'))!;
+  assert.equal(x.severity, 'warning');
+  assert.match(x.message,
     /^pcurveReplace: 1 p-curves off their edges' curves kept \(the projection not nearer\): coedge #41/);
+});
+
+test('pcurveReplace: a p-curve kept off its edge\'s curve by at most max(1e-3 mm, the part\'s tolerance): an info, '
+  + 'not a warning', async () => {
+  // The arc lifted off its plane by 2e-3 (about 5.7e-4 measured; the part's tolerance 1e-6) and 0.01.
+  for (const [off, severity] of [[2e-3, 'info'], [0.01, 'warning']] as const) {
+    const r = await healPart(planeArc(undefined, undefined, off).finish(), {}, module);
+    const x = r.diagnostics.filter((y) => y.message.startsWith('pcurveReplace:'));
+    assert.deepEqual(x.map((y) => y.severity), [severity], `${off}: ${JSON.stringify(r.diagnostics)}`);
+    assert.match(x[0]!.message, severity === 'info'
+      ? new RegExp(String.raw`^pcurveReplace: 1 p-curves off their edges' curves by at most 0\.00100 mm kept `
+        + String.raw`\(the projection not nearer\): coedge #41`)
+      : /^pcurveReplace: 1 p-curves off their edges' curves kept \(the projection not nearer\)/);
+  }
 });
 
 test('pcurveReplace: a circle\'s p-curve half a turn round (affine, not a kind reparam rewrites) is replaced',

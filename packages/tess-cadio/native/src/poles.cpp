@@ -387,6 +387,21 @@ std::vector<RingCut> ringCuts(const EdgeMesh& em, const PoleRing& ring) {
       cuts.push_back({e, t0, crossing});
     }
   }
+  // Exact (RingCut::exact) where every edge's cut can be: no edge with approaches farther apart than the reach (one
+  // running along the pole: LMP1 #172440's #1042701, approaches over 0.14 at a reach of 0.1, whose crossings from
+  // inside it fall beside its other approaches' samples). An edge whose approach is already at the reach (its
+  // crossing there) meets the ring as it is. Cut on some of its edges and not others, a ring inside the tolerance
+  // leaves a chord off its row between the two, and the fan and the mesher don't meet (#1042701 refined to its cap);
+  // cut on none, it is as before, the edges' spans from the pole whole (#1041642's 1.46 long, crossing the edge
+  // beside it).
+  bool exact = !cuts.empty();
+  for (size_t i = 0; i < ring.approaches.size() && exact; i++)
+    for (size_t j = i + 1; j < ring.approaches.size() && exact; j++) {
+      const auto [ei, ti] = ring.approaches[i];
+      const auto [ej, tj] = ring.approaches[j];
+      if (ei == ej && norm(em.point(ei, ti) - em.point(ej, tj)) > ring.reach) exact = false;
+    }
+  for (RingCut& c : cuts) c.exact = exact;
   return cuts;
 }
 
