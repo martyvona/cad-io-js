@@ -8,7 +8,7 @@ import { faceOfTriangle, Highlighter, instancesOf, measure, nodeForPick, piecesO
   sphereOf } from '../src/selection.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
 import { detailOf, plate, scene, wire } from './fixtures.ts';
-import { BrepBuilder } from 'cad-brep';
+import { BrepBuilder, writeAnalysis } from 'cad-brep';
 import { VERTICES } from '../src/style.ts';
 import { DiscMaterial } from '../src/vertex-points.ts';
 
@@ -176,6 +176,54 @@ test("details: counts by kind; one node's name, place, placement; totals", () =>
   assert.match(lines[5]!, /^Segments: 1 in 1 line object, length 35\.9 mm$/);
   assert.deepEqual(details(model, [left, partOf(left, 0), partOf(sub, 1)]).slice(0, 1),
     ['Selected: 1 assembly, 2 parts']);
+});
+
+test("details from the part's B-rep and mesh: a face's surface, an edge's curve, a vertex's and a point's place; "
+  + "whole parts' volume over every placement; faces' area from the measures", () => {
+  const { graph, model, left, sub, partOf, find } = stepModel();
+  const plateLeft = partOf(left, 0);
+  // The plate's model: face 8 on a cylinder, 7 on a plane, edge 4 on a circle, vertex 21; a solid of face 8.
+  const b = new BrepBuilder();
+  const XY = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+  const f8 = b.addFace({ id: 8, surface: b.addSurface({ kind: 'cylinder', position: XY, radius: 12.5 }),
+    sameSense: true, loops: [] });
+  b.addFace({ id: 7, surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, loops: [] });
+  b.addEdge({ id: 4, curve: b.addCurve({ kind: 'circle', position: XY, radius: 3 }), sameSense: true });
+  b.addVertex({ id: 21, point: [1, 2, 3] });
+  b.addBody({ kind: 'solid', members: [{ ref: b.addShell({ kind: 'closed', faces: [{ face: f8 }] }) }] });
+  const analysis = writeAnalysis({ analysis: { model: new Uint32Array(8), uncertainty: [NaN] },
+    shell: { volume: [-12, 0.1], facing: [0], facingFrom: [0], turned: [0] } });
+  graph.holdModel(0, { model: b.finish().buffer, analysis: analysis.buffer });
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  const said = (id: number) => details(model, [id], undefined, graph.sources);
+  assert.ok(said(find(plateLeft, 'face #8')).includes('Surface: cylinder, radius 12.5 mm, axis (0, 0, 1) through ' +
+    '(0, 0, 0)'));
+  assert.ok(said(find(plateLeft, 'edge #4')).includes('Curve: circle, radius 3 mm, centre (0, 0, 0), axis (0, 0, 1)'));
+  assert.ok(said(find(plateLeft, 'vertex #21')).includes("Point: (1, 2, 3) mm in the part's frame"));
+  // The wire's point: in its part's frame (the mesh's, plus its origin).
+  assert.ok(said(find(partOf(left, 1), 'point #11')).includes("Point: (5, 5, 5) mm in the part's frame"));
+  // The icon's kind.
+  assert.equal(model.geometryKind(find(plateLeft, 'face #8')), 'cylinder');
+  assert.equal(model.geometryKind(find(plateLeft, 'edge #4')), 'curve:circle');
+  assert.equal(model.geometryKind(find(plateLeft, 'vertex #21')), undefined);
+  // Volume: a placement's, the assembly's (each placement: the plate's 3, its hidden one too), the mesh's beside it.
+  const volume = (ids: number[]) => details(model, ids, undefined, graph.sources).filter((l) => l.startsWith('Volume'));
+  assert.equal(volume([plateLeft])[0], 'Volume on the exact geometry: 12 mm^3 +/- 0.1 mm^3');
+  assert.match(volume([plateLeft])[1]!, /^Volume of the mesh: [\d,.]+ mm\^3$/);
+  assert.equal(volume([model.roots[0]!])[0], 'Volume on the exact geometry: 36 mm^3 +/- 0.3 mm^3');
+  // A face isn't a whole part: no volume; the wire has no solid.
+  assert.deepEqual(volume([find(plateLeft, 'face #8')]), []);
+  assert.deepEqual(volume([partOf(sub, 1)]), []);
+  // A model healed again, its face 8 on a plane now: its icon's kind follows.
+  const plane = new BrepBuilder();
+  plane.addFace({ id: 8, surface: plane.addSurface({ kind: 'plane', position: XY }), sameSense: true, loops: [] });
+  const held = graph.lendModels().find(([p]) => p === 0)![1];
+  graph.holdModel(0, { model: plane.finish().buffer });
+  assert.equal(model.geometryKind(find(plateLeft, 'face #8')), 'plane');
+  graph.holdModel(0, held);
+  // Without the analysis: said so, the mesh's still given.
+  graph.holdModel(0, { model: graph.lendModels().find(([p]) => p === 0)![1].model });
+  assert.equal(volume([plateLeft])[0], 'Volume on the exact geometry: not measured (Heal B-reps measures it)');
 });
 
 test('pick: the nearest drawn thing under a point; hidden things, hidden faces and clipped points not', () => {

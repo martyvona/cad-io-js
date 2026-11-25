@@ -5499,6 +5499,118 @@ await check('edges and vertices in the tree', async () => {
     `a vertex selected with Vertices off: ${j}`);
   return undefined;
 });
+// The B-rep's geometry in the tree and Details (geometry-info.ts), against the model's own columns read here by the
+// layout's numbers (cad-brep's layout.ts: SURFACE_KIND and CURVE_KIND; a placement 9 reals, then a cylinder's or a
+// circle's radius): each face's and edge's icon kind its surface's or curve's (wrappers aside), shown in its row's
+// icon (named in its tooltip) and in the view's context menu's header for a face picked there; Details giving a
+// cylinder's and a circle's radius, a vertex's point; faces' areas the sum of each one's; a part's volume on the exact
+// geometry (healed: the analysis's) near its mesh's; an assembly's the sum of its placements'.
+await check('geometry in the tree and details', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/arm-ap242.step')}&check&heal=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    ui.setTree({ open: true, detail: true });
+    const m = viewer.nodes, graph = viewer.graph;
+    const SURFACES = [, 'plane', 'cylinder', 'cone', 'sphere', 'torus', 'bspline', 'extrusion', 'revolution'];
+    const CURVES = [, 'line', 'circle', 'ellipse', 'hyperbola', 'parabola', 'bspline', 'polyline'];
+    const parts = m.nodes.filter((n) => n.kind === 'part');
+    const all = parts.flatMap((p) => m.children(p.id).flatMap((g) => m.children(g)));
+    const indexOf = (id) => { let p = id; while (m.nodes[p].kind !== 'part') p = m.nodes[p].parent;
+      return m.nodes[p].object.userData.part; };
+    // What the model says, read here: a face's surface row and kind, an edge's curve row and kind.
+    const row = (d, table, id) => Array.from(d[table].id).indexOf(id);
+    const truth = (id) => {
+      const n = m.nodes[id], d = graph.modelOf(indexOf(id));
+      if (n.kind === 'face') { const f = row(d, 'face', n.face.source), s = d.face.surface[f];
+        return { kind: SURFACES[d.surface.kind[s]], s, d }; }
+      if (n.kind === 'edge') { const e = row(d, 'edge', n.item.source), c = d.edge.curve[e];
+        return c < 0 ? undefined : { kind: 'curve:' + CURVES[d.curve.kind[c]], c, d }; }
+    };
+    let compared = 0, wrong = [];
+    const kinds = new Set();
+    for (const id of all) {
+      const t = truth(id);
+      if (!t?.kind || t.kind === 'curve:undefined') continue;
+      compared++;
+      kinds.add(t.kind);
+      if (m.geometryKind(id) !== t.kind) wrong.push([m.pathOf(id), m.geometryKind(id), t.kind]);
+    }
+    const pick = (kind) => all.find((id) => truth(id)?.kind === kind);
+    // Its row: the icon named by the kind.
+    const rowTitle = async (id) => {
+      ui.panel().select([id]);
+      for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+      return document.querySelector('#tree .tree-row[data-id="' + id + '"] .tree-icon')?.title;
+    };
+    const cyl = pick('cylinder'), circle = pick('curve:circle');
+    const out = { compared, wrong: wrong.slice(0, 5), kinds: [...kinds],
+      rows: [await rowTitle(cyl), await rowTitle(circle)] };
+    const d = (ids) => { ui.select(ids); return ui.details(); };
+    // A cylinder's and a circle's radius: after their placements' 9 reals.
+    const tc = truth(cyl), tl = truth(circle);
+    out.cylRadius = tc.d.pool.surfaceReal[tc.d.surface.real[tc.s] + 9];
+    out.cylLine = d([cyl]).find((l) => l.startsWith('Surface:'));
+    out.circleRadius = tl.d.pool.curveReal[tl.d.curve.real[tl.c] + 9];
+    out.circleLine = d([circle]).find((l) => l.startsWith('Curve:'));
+    const vertex = all.find((id) => m.nodes[id].kind === 'vertex');
+    const vd = graph.modelOf(indexOf(vertex)), vr = row(vd, 'vertex', m.nodes[vertex].item.source);
+    out.vertexPoint = Array.from(vd.vertex.point.slice(3 * vr, 3 * vr + 3));
+    out.vertexLine = d([vertex]).find((l) => l.startsWith('Point:'));
+    // Areas: three faces' the sum of each one's.
+    const area = (lines) => +(lines.find((l) => l.startsWith('Area on the exact geometry'))
+      ?.match(/: ([0-9,.]+) mm/)?.[1].replace(/,/g, '') ?? NaN);
+    const three = all.filter((id) => m.nodes[id].kind === 'face').slice(0, 3);
+    out.areas = { three: area(d(three)), each: three.map((id) => area(d([id]))) };
+    // Volumes: each placed part's, on the exact geometry and of the mesh; the root assembly's.
+    const volume = (lines, what) => +(lines.find((l) => l.startsWith(what))?.match(/: ([0-9,.]+) mm/)?.[1]
+      .replace(/,/g, '') ?? NaN);
+    out.parts = parts.map((p) => { const l = d([p.id]); return [volume(l, 'Volume on the exact geometry'),
+      volume(l, 'Volume of the mesh'), area(l), +(l.find((x) => x.startsWith('Triangles'))
+        ?.match(/area ([0-9,.]+) mm/)?.[1].replace(/,/g, '') ?? NaN)]; });
+    out.root = volume(d([m.roots[0]]), 'Volume on the exact geometry');
+    // The view's context menu for a face picked there, at the detail level: its header's icon named as the face's kind.
+    ui.select([]);
+    cadViewer.apply({ pick: 'detail' });
+    await cadViewer.idle();
+    const canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    let spot;
+    for (let i = 3; i < 8 && !spot; i++) for (let j = 3; j < 8 && !spot; j++) {
+      const p = cadViewer.pickAt(i / 10, j / 10)?.path, id = p && m.find(p);
+      if (id !== undefined && m.nodes[id].kind === 'face' && truth(id)?.kind) {
+        spot = { x: rect.left + i / 10 * rect.width, y: rect.top + j / 10 * rect.height, id };
+      }
+    }
+    const send = (type, x, y, o) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: x, clientY: y, ...o }));
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointerup', spot.x, spot.y, { button: 2, buttons: 0 });
+    await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    out.menu = { header: document.querySelector('.cv-menu .tree-icon')?.title, kind: truth(spot.id).kind };
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.compared > 50 && a.wrong.length === 0 && ['plane', 'cylinder', 'curve:line', 'curve:circle'].every((k) =>
+    a.kinds.includes(k)), `each face's and edge's kind: ${j}`);
+  expect(a.rows[0] === 'cylinder' && a.rows[1] === 'circle', `the rows' icons: ${j}`);
+  const near = (x: number, y: number) => Math.abs(x - y) <= 1e-4 * Math.max(1, Math.abs(y));
+  const said = (line: string | undefined, re: RegExp) => Number(line?.match(re)?.[1]?.replace(/,/g, ''));
+  expect(near(said(a.cylLine, /radius ([\d,.]+) mm/), a.cylRadius) && /^Surface: cylinder, /.test(a.cylLine),
+    `a cylinder's radius: ${j}`);
+  expect(near(said(a.circleLine, /radius ([\d,.]+) mm/), a.circleRadius) && /^Curve: circle, /.test(a.circleLine),
+    `a circle's radius: ${j}`);
+  const pt = (a.vertexLine as string | undefined)?.match(/\(([^)]*)\)/)?.[1]?.split(', ').map(Number) ?? [];
+  expect(pt.length === 3 && pt.every((x, i) => near(x, a.vertexPoint[i])), `a vertex's point: ${j}`);
+  const sum = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
+  expect(Math.abs(a.areas.three - sum(a.areas.each)) <= 0.2 && a.areas.three > 0, `faces' area: ${j}`);
+  // (Parts whose shells the oracle couldn't all measure say so: their mesh's alone. The root sums those it has.)
+  const parts = a.parts as (number | null)[][], measured = parts.filter(([o]) => o !== null);
+  expect(measured.length >= parts.length / 2 && parts.every(([, me]) => me != null && me > 0) &&
+    measured.every(([o, me]) => Math.abs(o! - me!) <= 0.03 * o!), `each part's volume, near its mesh's: ${j}`);
+  expect(Math.abs(a.root - sum(measured.map((p) => p[0]!))) <= 0.1 * parts.length, `the assembly's volume: ${j}`);
+  expect(parts.every((p) => p[2]! > 0 && Math.abs(p[2]! - p[3]!) <= 0.02 * p[2]!), `each part's area, near its ` +
+    `mesh's: ${j}`);
+  expect(a.menu.header === a.menu.kind.replace('curve:', ''), `the view's menu's header: ${j}`);
+  return undefined;
+});
 // The axes gnomon (gnomon.ts): drawn in its box (#gnomon) over the view, X red, Y green, Z blue; each axis's
 // direction on the screen the world's axis as the main camera shows it (from the camera itself, not the gnomon's), in
 // the iso view and after turning to the front; drawn whatever the section planes cut; gone when View's Axes is off;
@@ -7003,8 +7115,11 @@ await check('screenshot', async () => {
     }
     const detailsShown = !box.hidden && !box.classList.contains('faded') && db.width > 0;
     const w1 = await run({ what: 'window', how: 'redraw', format: 'png' });
-    const win = { ...w1, image: await read(w1.file.bytes, [inGui, [centre[0] / innerWidth, centre[1] / innerHeight]]),
-      view: await viewPx([centre]), guiColour, inner: [innerWidth, innerHeight], detailsShown };
+    // (A point of the view clear of the details box, which can reach down over the view's centre: below it then.)
+    const inBox = centre[0] >= db.left && centre[0] <= db.right && centre[1] >= db.top && centre[1] <= db.bottom;
+    const inView = inBox ? [centre[0], db.bottom + 8] : centre;
+    const win = { ...w1, image: await read(w1.file.bytes, [inGui, [inView[0] / innerWidth, inView[1] / innerHeight]]),
+      view: await viewPx([inView]), guiColour, inner: [innerWidth, innerHeight], detailsShown };
     const at = inDetails.map(([x, y]) => [x / (innerWidth - 1), y / (innerHeight - 1)]);
     const drawn = (await read(w1.file.bytes, at)).px;
     box.hidden = true;

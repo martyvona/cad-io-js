@@ -28,6 +28,7 @@
 // detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
+import type { GeometryKind } from './geometry-info.ts';
 import { hideItems, itemsOf } from './items.ts';
 
 export type Kind = 'assembly' | 'part' | 'faces' | 'edges' | 'vertices' | 'face' | 'edge' | 'curve' | 'vertex' |
@@ -120,6 +121,8 @@ export interface PlacementLook {
 /** What the scene graph does with a placement's look: its faces' materials (scene-graph.ts). */
 export interface Looks {
   setLook(group: THREE.Object3D, look: PlacementLook): void;
+  /** A face's surface or an edge's or curve's curve, by kind, where the part's B-rep says (geometry-info.ts). */
+  geometryKind?(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined;
 }
 
 /**
@@ -296,6 +299,16 @@ export class NodeModel {
     if (!this.detail) return false;
     if (n.children) return n.children.length > 0;
     return n.object!.children.length > 0;
+  }
+
+  /** A face's, edge's or curve's geometry by kind (its icon), where its part's B-rep says; none for other nodes. */
+  geometryKind(id: number): GeometryKind | undefined {
+    const n = this.nodes[id];
+    if (!n || n.dead || (n.kind !== 'face' && n.kind !== 'edge' && n.kind !== 'curve')) return undefined;
+    const source = n.face?.source ?? n.item?.source;
+    if (source === undefined || source === null) return undefined;
+    const part = this.nodes[this.partOf(id)]!.object!.userData.part as number;
+    return this.looks?.geometryKind?.(part, n.kind, source);
   }
 
   /** The part a node is or is detail of (itself for assemblies). */

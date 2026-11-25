@@ -870,7 +870,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const was = detailsElement.hidden;
     detailsElement.hidden = !selection.details;
     if (!selection.details || !viewer.nodes) return;
-    const text = details(viewer.nodes, selected, causes()).join('\n');
+    const text = details(viewer.nodes, selected, causes(), viewer.graph?.sources).join('\n');
     if (text !== detailsElement.textContent || was) detailsShown(selected.length > 0);
     detailsElement.textContent = text;
   };
@@ -1177,7 +1177,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       !!(missing.length || bad.length) && !found.length);
       return { selected: found.length, found: [...hit], missing, bad };
     },
-    details: () => (viewer.nodes ? details(viewer.nodes, selected, causes()) : []),
+    details: () => (viewer.nodes ? details(viewer.nodes, selected, causes(), viewer.graph?.sources) : []),
     openUrl,
     openFiles: async (files, read) => (await openFiles(files, read)) ?? { error: 'no files' },
     currentUrl: () => last?.url,

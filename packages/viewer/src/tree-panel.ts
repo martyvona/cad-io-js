@@ -5,6 +5,7 @@
 
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { HeadlessTreeView } from './headless-tree-view.ts';
+import type { GeometryKind } from './geometry-info.ts';
 import type { AppearanceOverride, Kind, NodeModel } from './model.ts';
 import type { TreeView } from './tree-view.ts';
 
@@ -30,6 +31,34 @@ export const ICONS: Record<Kind, string> = {
   point: svg('<circle cx="8" cy="8" r="2.5"/>'),
 };
 
+const fill = 'fill="currentColor" fill-opacity="0.25"';
+/**
+ * A face's or edge's icon by its surface or curve (geometry-info.ts's GeometryKind), where its part's B-rep says;
+ * kinds without one of their own (trimmed, offset: their basis's is shown; swept) the face's or edge's.
+ */
+export const GEOMETRY_ICONS: Partial<Record<GeometryKind, string>> = {
+  plane: svg(`<path d="M1.5 12l3-8h10l-3 8z" ${fill}/>`),
+  cylinder: svg(`<path d="M3 4v8a5 2 0 0 0 10 0V4" ${fill}/><ellipse cx="8" cy="4" rx="5" ry="2"/>`),
+  cone: svg(`<path d="M8 2l5 10a5 2 0 0 1-10 0z" ${fill}/><path d="M3 12a5 2 0 0 0 10 0"/>`),
+  sphere: svg(`<circle cx="8" cy="8" r="6" ${fill}/><path d="M2 8a6 2 0 0 0 12 0"/>`),
+  torus: svg(`<ellipse cx="8" cy="8" rx="6.5" ry="4" ${fill}/>` +
+    '<path d="M5 8.2a3 1.2 0 0 0 6 0M5.6 8.6a2.4 1 0 0 1 4.8 0"/>'),
+  bspline: svg(`<path d="M1.5 6c2-3 4 0 6.5-2s4 0 6.5-2v7c-2 2-4 0-6.5 2s-4.5 0-6.5 2z" ${fill}/>` +
+    '<path d="M8 4v7"/>'),
+  extrusion: svg(`<path d="M2 13c2-3 4 1 6-1s4-1 6-3v-5c-2 2-4 1-6 3s-4-2-6 1z" ${fill}/>`),
+  revolution: svg(`<path d="M5 1.5c-3 4.5 3 7-1 13h8c-4-6 2-8.5-1-13z" ${fill}/>` +
+    '<path d="M8 0.5v15" stroke-width="0.8" stroke-dasharray="1.5 1.5"/>'),
+  'curve:line': svg('<path d="M2.5 13.5l11-11"/>'),
+  'curve:circle': svg('<circle cx="8" cy="8" r="5.5"/>'),
+  'curve:ellipse': svg('<ellipse cx="8" cy="8" rx="6.5" ry="3.5"/>'),
+  'curve:hyperbola': svg('<path d="M2 2c5 4 5 8 0 12M14 2c-5 4-5 8 0 12"/>'),
+  'curve:parabola': svg('<path d="M2 2c2 15 10 15 12 0"/>'),
+  'curve:bspline': svg('<path d="M1.5 12c3-9 6 3 13-8"/><path d="M1.5 12L5 3l6 9 3.5-8" stroke-width="0.7" ' +
+    'stroke-dasharray="1 1.5"/>'),
+  'curve:polyline': svg('<path d="M2 13l4-7 4 5 4-9"/>'),
+  'curve:composite': svg('<path d="M2 13c0-5 3-7 6-7l6-3"/><circle cx="8" cy="6" r="1.2" fill="currentColor"/>'),
+};
+
 /** A node that failed to mesh (model.ts's failure): a shape with a crack, drawn in the failure colour. */
 export const BROKEN_ICON = svg('<path d="M2 12l3-9h4l-1.5 3 2 2-1.5 4z" fill="currentColor" fill-opacity="0.25"/>' +
   '<path d="M10 3h4l-3 9H8.5l1.5-4-2-2z"/>');
@@ -47,11 +76,16 @@ export function overrideText(o: AppearanceOverride): string {
     ? 'triangle edges on' : o.triangleEdges === false ? 'triangle edges off' : ''].filter(Boolean).join('; ');
 }
 
-/** A node's icon as its row shows it: its kind's, or broken where it failed to mesh. */
+/**
+ * A node's icon as its row shows it: its kind's, a face's or edge's its surface's or curve's (GEOMETRY_ICONS, named
+ * in its tooltip), or broken where it failed to mesh.
+ */
 function iconHtml(model: NodeModel, id: number): string {
   const failure = model.failure(id);
-  return `<span class="tree-icon${failure ? ' broken' : ''}">${failure ? BROKEN_ICON
-    : ICONS[model.nodes[id]!.kind]}</span>`;
+  const g = failure ? undefined : model.geometryKind(id);
+  const icon = g && GEOMETRY_ICONS[g];
+  return `<span class="tree-icon${failure ? ' broken' : ''}"${icon ? ` title="${g!.replace('curve:', '')}"` : ''}>${
+    failure ? BROKEN_ICON : icon ?? ICONS[model.nodes[id]!.kind]}</span>`;
 }
 
 /** A node as its row shows it, its icon and its name (the view's context menu's header). */

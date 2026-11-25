@@ -24,6 +24,8 @@ import { faceFailures, instances, partInstances, placedName, stretchWords, type 
   type Mesh, type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
 import type { PartModel } from './part-model.ts';
+import type { DetailSources } from './details.ts';
+import { geometryKind, type GeometryKind } from './geometry-info.ts';
 import { setItems, type Item } from './items.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
 import { DiscMaterial } from './vertex-points.ts';
@@ -146,6 +148,8 @@ export class SceneGraph implements Looks {
   holdModel(part: number, m: PartModel): THREE.Object3D[] {
     const model = openBrep(m.model);
     this.models.set(part, { model, ...(m.analysis ? { analysis: openAnalysis(m.analysis) } : {}) });
+    // (Healed again, its surfaces and curves may be others.)
+    this.kinds.delete(part);
     const was = this.vertices.get(part);
     const now = { points: Float64Array.from(model.vertex.point), ids: Uint32Array.from(model.vertex.id) };
     const same = (a: ArrayLike<number>, b: ArrayLike<number>) => a.length === b.length &&
@@ -156,6 +160,32 @@ export class SceneGraph implements Looks {
     for (const obj of objs) this.addVertices(part, obj);
     return [...objs];
   }
+
+  /**
+   * A face's surface or an edge's or curve's curve, by kind (the tree's icons), from the part's model; kept once
+   * found, so it stays while the model is lent; none while it's never been held.
+   */
+  geometryKind(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined {
+    const key = `${kind}#${id}`;
+    const kinds = this.kinds.get(part);
+    if (kinds?.has(key)) return kinds.get(key) ?? undefined;
+    const model = this.modelOf(part);
+    if (!model) return undefined;
+    const k = geometryKind(model, kind, id);
+    (kinds ?? this.kinds.set(part, new Map()).get(part)!).set(key, k ?? null);
+    return k;
+  }
+
+  /** geometryKind's answers by part (null: none), until the part's model changes. */
+  private readonly kinds = new Map<number, Map<string, GeometryKind | null>>();
+
+  /** What Details reads of a part (details.ts): its model and analysis where held, its mesh, its measures. */
+  readonly sources: DetailSources = {
+    modelOf: (part) => this.modelOf(part),
+    analysisOf: (part) => this.analysisOf(part),
+    meshOf: (part) => this.meshes.get(part),
+    measuresOf: (part) => this.scene.parts[part]?.measures,
+  };
 
   /** The objects drawn for a part's placements (its mesh's, one per placement), none without a mesh. */
   madeFor(part: number): readonly THREE.Object3D[] {
