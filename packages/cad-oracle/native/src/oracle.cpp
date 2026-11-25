@@ -43,6 +43,7 @@ Oracle::Impl::Impl(const uint8_t* buf, size_t size, Options o) : model(buf, size
   }
   // The analysis's deviations of the p-curves healing made (an analysis of other rows ignored).
   healedDeviation.assign(model.coedges(), NAN);
+  closedOff.assign(model.coedges(), NAN);
   if (cba_view v[CBA_COLUMN_COUNT]; o.analysis && cba_open(o.analysis, o.analysisSize, v) == 0
       && static_cast<int>(v[CBA_COEDGE_PCURVE_FROM].count) == model.coedges()
       && static_cast<int>(v[CBA_COEDGE_DEVIATION].count) == model.coedges()) {
@@ -262,8 +263,10 @@ double Oracle::Impl::boundary(int f, bool closedForm) {
       const double gap = vertexGap(e);
       double dev = NAN;
       if (closedForm) {
-        // (Integrated along the edge's 3D curve: no p-curve's deviation.)
-        dev = 0;
+        // Integrated along the edge's 3D curve (no p-curve), each point taken to its foot on the surface: the
+        // curve's distance from the surface, which other kernels' boundaries (a p-curve within the edge's tolerance,
+        // the curve's own points) can be that far from the feet's.
+        dev = closedOff[c];
       } else if (model.coedgePcurve(c) < 0) {
         // The face API's projection (made when the face was first asked): its error, scratch[6] (putProjection).
         if (cg_coedge_project(h, c, NAN, nullptr, 0) == 0) dev = cg_scratch()[6];

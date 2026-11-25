@@ -33,6 +33,11 @@ struct Oracle::Impl {
   std::vector<bool> loose;
   /** Per coedge, its p-curve's deviation where healing made it (the analysis's), else NaN (measured when asked). */
   std::vector<double> healedDeviation;
+  /**
+   * Per coedge, the largest distance of its edge's curve from the face's surface among the samples a closed form took
+   * of it (NaN until one did): Oracle::Impl::boundary's deviation for closed forms.
+   */
+  std::vector<double> closedOff;
 
   /** The curve at a row, made once; null where it can't be (status in curveStatus). */
   const Curve* curve(int row);
