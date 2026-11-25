@@ -44,10 +44,13 @@ enum Flag : uint32_t {
   /** A face in no shell (a face item): nothing fixes which side of the surface its loops bound. */
   flagLoose = 1u << 2,
   /**
-   * A loop winds a period the method has no term for: a torus loop round its minor circle (the face then spans a
-   * seam no loop runs along), a loop winding a revolution's angle with no pole on the face's side, a loop round a
-   * revolution's closed profile. The area and every integral are then unsupported (with the reason), not a value:
-   * the term left out is no part of any error.
+   * A loop winds a period: a torus loop round its minor circle, a loop round a revolution's closed profile (a band
+   * round a tube), a loop winding a revolution's angle with no pole on the face's side, a free-form face's loop
+   * winding its outer direction with no pole. Where the surface is closed in the direction wound and the loops'
+   * windings cancel (a torus, a revolution of a closed profile with no pole), the area takes the seam's term and is a
+   * value, known modulo the whole surface's (a face against its sense gives its complement, which nothing flags);
+   * elsewhere, and every other integral, it's unsupported (with the reason), not a value: the term left out is no part
+   * of any error.
    */
   flagWinds = 1u << 3,
   /** No edge loops: area 0 reported (a face bounded by nothing: a whole sphere, an unbounded plane). */
@@ -115,14 +118,14 @@ struct FaceMeasure {
 };
 
 /**
- * A measure to rely on: computed (status ok), no flags but projectedBoundary and edgesPlaced, its boundary's error
- * known, and its error (the boundary's included) within `relative` of its value. The type says only that much: an
- * untrusted measure is still a value or not, which false doesn't tell; what users see is the value and its error, the
- * flags no estimate covers (sphereSide, loose, orientation, noLoops) said beside them (a face flagged winds has no
- * value).
+ * A measure to rely on: computed (status ok), no flags but projectedBoundary, edgesPlaced and winds (computed, its
+ * seam's term taken), its boundary's error known, and its error (the boundary's included) within `relative` of its
+ * value. The type says only that much: an untrusted measure is still a value or not, which false doesn't tell; what
+ * users see is the value and its error, the flags no estimate covers (sphereSide, loose, orientation, noLoops) said
+ * beside them.
  */
 inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
-  return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced)) == 0 &&
+  return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced | flagWinds)) == 0 &&
     std::isfinite(m.boundary) && m.area.error <= relative * m.area.value;
 }
 

@@ -681,6 +681,12 @@ FaceMeasure Oracle::Impl::freeForm(int f, const Integrand* g, std::vector<Estima
   if (g) *gOut = freeEstimates(T, g->components);
   m.flags = T.flags;
   m.offSurface = T.offSurface;
+  // A loop winding the outer direction with no pole for the face to hold leaves out a term no estimate bounds.
+  if (T.flags & flagWinds) {
+    m.area = {NAN, INFINITY, Status::unsupported};
+    m.why = kWindsWhy;
+    return m;
+  }
   if (*T.why && T.status != Status::ok && T.status != Status::noConvergence && T.status != Status::singular) {
     m.area = {NAN, INFINITY, T.status};
     m.why = T.why;

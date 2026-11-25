@@ -333,13 +333,6 @@ FaceMeasure Oracle::face(int f, const Integrand* g, std::vector<Estimate>* gOut)
       m.area = {NAN, INFINITY, Status::unsupported};
       m.why = "a surface kind not supported";
   }
-  // A loop winding a period the method has no term for leaves out a term no estimate bounds (bug30790's bands round a
-  // tube between two of its profile's circles: 0 for 0.38 mm^2): no value rather than one its error doesn't cover.
-  // (*gOut is refused already: freeEstimates.)
-  if (m.flags & flagWinds) {
-    m.area = {NAN, INFINITY, Status::unsupported}, m.boundary = NAN;
-    m.why = "a loop winds a period the method has no term for";
-  }
   m.perimeter = I.perimeter(f);
   if (I.loose[f]) m.flags |= flagLoose;
   // The boundary's error reported with the area's (FaceMeasure::boundary).

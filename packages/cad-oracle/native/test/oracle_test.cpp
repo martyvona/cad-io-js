@@ -11,6 +11,7 @@
 
 #include "../src/geom_api.h"
 #include "../src/inner.h"
+#include "../src/oracle_impl.h"
 #include "brep_models.h"
 #include "cad_geom/model.h"
 #include "cad_oracle/oracle.h"
@@ -171,13 +172,14 @@ TEST_CASE("a box's face perimeters: their edges' lengths from the facts, each co
   }
 }
 
-TEST_CASE("trusted: projectedBoundary and edgesPlaced said, not refused; any other flag refused") {
-  // A measure of 1 within 1e-9, its boundary's error known: trusted with either or both of those flags, not with
-  // another beside them; and not at a relative bound under its error.
+TEST_CASE("trusted: projectedBoundary, edgesPlaced and winds said, not refused; any other flag refused") {
+  // A measure of 1 within 1e-9, its boundary's error known: trusted with any of those flags, not with another beside
+  // them; and not at a relative bound under its error.
   FaceMeasure m;
   m.area.value = 1, m.area.error = 1e-9, m.area.status = Status::ok, m.boundary = 1e-10;
   for (uint32_t f : {0u, uint32_t(flagProjectedBoundary), uint32_t(flagEdgesPlaced),
-         uint32_t(flagProjectedBoundary | flagEdgesPlaced)}) {
+         uint32_t(flagProjectedBoundary | flagEdgesPlaced), uint32_t(flagWinds),
+         uint32_t(flagWinds | flagProjectedBoundary)}) {
     m.flags = f;
     CHECK(trusted(m, 1e-6));
     CHECK(!trusted(m, 1e-10));
@@ -308,6 +310,38 @@ TEST_CASE("faceIntegral: every reference body's volume, at every variant, by (p 
   CHECK(unsupported.empty());
 }
 
+TEST_CASE("seamTerm: the sum reduced into [0, whole), the turns taken off; just under a turn's multiple, still under") {
+  const SeamResult a = seamTerm(7.5, 2), b = seamTerm(-0.5, 2), c = seamTerm(-1e-300, 1);
+  CHECK(a.value == 1.5 && a.turns == 3);
+  CHECK(b.value == 1.5 && b.turns == -1);
+  // (-1e-300 + 1 rounds to 1: the value would be the whole, not under it.)
+  CHECK(c.value >= 0 && c.value < 1 && c.turns == 0);
+}
+
+TEST_CASE("case-periodic's torus band (between its minor circles at u = 1 and 2): the seam's term, area 2 pi R r") {
+  // (Its loops wind v once each, opposite ways; the reference's similarity scales the area.)
+  int seen = 0;
+  for (int i = 0; i < fixtures::nReferences; i++) {
+    const fixtures::Reference& r = fixtures::references[i];
+    if (std::string(r.name) != "case-periodic") continue;
+    const Model model(r.data, r.size);
+    Oracle oracle(r.data, r.size);
+    for (int f = 0; f < model.faces(); f++) {
+      if (model.surfaceKind(model.faceSurface(f)) != CBR_SURFACE_TORUS) continue;
+      const FaceMeasure m = oracle.face(f);
+      const double expected = 2 * M_PI * 3 * 1 * r.scale * r.scale, off = std::fabs(m.area.value - expected);
+      CHECK((m.flags & flagWinds) != 0);
+      CHECK(trusted(m, 1e-9));
+      if (!(off <= 1e-9 * expected && off <= m.area.error + 4e-16 * expected)) {
+        ::check::fail(__FILE__, __LINE__, std::string(r.variant) + ": " + ::check::show(m.area.value) + " vs "
+          + ::check::show(expected) + " (error " + ::check::show(m.area.error) + ")");
+      }
+      seen++;
+    }
+  }
+  CHECK(seen >= 1);
+}
+
 TEST_CASE("faceIntegral: |n| is face()'s area; n over a closed body sums to 0") {
   int faces = 0, bodies = 0;
   for (int i = 0; i < fixtures::nReferences; i++) {
@@ -318,7 +352,8 @@ TEST_CASE("faceIntegral: |n| is face()'s area; n over a closed body sums to 0") 
       out[3] = n.z; }, {}};
     for (int f = 0; f < model.faces(); f++) {
       const FaceMeasure m = oracle.face(f);
-      if (!trusted(m, 1e-9)) continue;
+      // (A face whose loops wind a period: its area takes the seam's term, other integrals don't, refused.)
+      if (!trusted(m, 1e-9) || (m.flags & flagWinds)) continue;
       const Estimate a = oracle.faceIntegral(f, g)[0];
       CHECK(a.status == Status::ok);
       if (!(std::fabs(a.value - m.area.value) <= 1e-9 * m.area.value + 10 * (a.error + m.area.error))) {

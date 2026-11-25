@@ -1,9 +1,12 @@
 // Integrals over faces on extrusions and revolutions by Green's theorem in (u, v): the integral of F du dv over the
 // face is oint H du with dH/dv = -F. v isn't periodic on either but for a revolution of a closed profile, where H
-// jumps across the profile's seam by the integral over its whole period: a loop winding v (u constant along it, so no
-// H du at all) would need a term for that, which the method hasn't, so a face with such a loop is flagged; elsewhere
-// H du is one form on the surface and a seam needs no term. The boundary is the face API's loops in (u, v) (cg_face_pieces:
-// the face on each piece's left, its sense applied; p-curves given, else its projection, flagged), each loop
+// jumps across the profile's seam by J, the integral of F over its whole period: a loop winding v (a band round a
+// tube between two of its profile's circles: u constant along them, so no H du at all) is flagged winds, and its
+// area (area_swept.cpp) takes the seam's term, J times the loop's winding of v times u at the loop's start, the
+// result known modulo the whole surface's (seamTerm says why); other integrands are refused on such a face, their J
+// depending on u. Elsewhere H du is one form on the surface and a seam needs no term. The boundary is the face API's
+// loops in (u, v) (cg_face_pieces: the face on each piece's left, its sense applied; p-curves given, else its
+// projection, flagged), each loop
 // unwrapped piece to piece by whole periods; a gap left between pieces (the face API closes loops along pole rows
 // without a piece) is run straight in (u, v). v0, where H is zero, is on a pole where there is one, so the loop's run
 // along that pole row (the way round it goes is ambiguous by a turn) adds nothing, and a face bounded by loops
@@ -66,6 +69,10 @@ struct SweptFace {
   /** Pole rows (v constant), the revolution's: the face API's, and a line profile's axis crossing it doesn't list. */
   std::vector<double> poleV;
   double windU = 0, windV = 0, v0 = 0;
+  /** Per loop, in order: the whole periods of v it winds, and u at its start (its first piece's, unwrapped from). */
+  std::vector<double> loopWindV, loopStartU;
+  /** The loops' lifted v's extent (their pieces' ends), in periods of v from v0's: how far G's whole turns reach. */
+  double turnsV = 0;
   /** The face's size (its edges' vertices' box). */
   double size = 1;
   /** flagProjectedBoundary, flagWinds. */

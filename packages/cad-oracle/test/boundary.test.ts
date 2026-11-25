@@ -135,14 +135,15 @@ test('closed forms: no p-curve deviation (integrated along the edges\' curves), 
 });
 
 test('trusted(): the boundary\'s error unknown (NaN) refuses the face, whatever the quadrature\'s; projectedBoundary '
-  + 'alone doesn\'t; other flags do', () => {
+  + 'and winds (a computed area: its seam\'s term taken) don\'t; other flags do', () => {
   const m = (boundary: number, flags: string[] = []) => ({ area: { value: 1, error: 1e-12, status: 'ok' as const },
     perimeter: { value: 4, error: 0, status: 'ok' as const }, method: 'freeForm' as const, flags: flags as never,
     offSurface: NaN, boundary, why: '' });
   assert.equal(trusted(m(0)), true);
   assert.equal(trusted(m(NaN)), false);
   assert.equal(trusted(m(0, ['projectedBoundary'])), true);
-  for (const f of ['orientation', 'sphereSide', 'loose', 'winds', 'noLoops', 'offSurface', 'cells']) {
+  assert.equal(trusted(m(0, ['winds', 'projectedBoundary'])), true);
+  for (const f of ['orientation', 'sphereSide', 'loose', 'noLoops', 'offSurface', 'cells']) {
     assert.equal(trusted(m(0, [f, 'projectedBoundary'])), false, f);
   }
 });
