@@ -33,7 +33,7 @@ import { askExport, rememberedExport } from './export-dialog.ts';
 import { EXPORT_FORMATS } from './export-formats.ts';
 import { shownEdits } from './export-shown.ts';
 import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
-import type { AppearanceOverride, NodeModel, PathOverride, Slot } from './model.ts';
+import { isLineKind, type AppearanceOverride, type NodeModel, type PathOverride, type Slot } from './model.ts';
 import type { Pick } from './pick.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { compact } from './compact.ts';
@@ -71,8 +71,8 @@ export interface Ui {
   /** Selects the parents of `ids` (by default the selection). */
   selectParent(ids?: readonly number[]): void;
   /**
-   * Selects the children of `ids` (by default the selection): an assembly's placements, a part's faces, edges, curves
-   * and points (turning on the tree's detail).
+   * Selects the children of `ids` (by default the selection): an assembly's placements, a part's faces, edges and
+   * vertices groups, a group's faces, edges or vertices (turning on the tree's detail).
    */
   selectChildren(ids?: readonly number[]): void;
   /** Selects everything a click could at the pick level: every part, assembly or face, edge and curve shown. */
@@ -267,13 +267,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       buttons: [{ label: 'OK', value: 'ok', primary: true }] });
   };
   const report = (r: object) => { if (check) document.body.dataset.report = JSON.stringify(r); };
-  // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's
-  // `keep`), the appearance overrides by their paths (set with the tree: a part's detail's by segment, before its
-  // mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and curves only with
-  // their part's mesh); what never arrives (a node gone, or a selected face, edge or curve of a part that fails this
-  // time) is counted in the status line, its paths in a modal once done (notice). The new tree is expanded as the
-  // last was, and scrolled to the same row at its top, again as rows arrive above it, until the user scrolls or clicks
-  // in it.
+  // Meshing again (the same model, other settings) keeps the view: the camera and the planes (Viewer.load's `keep`),
+  // the appearance overrides by their paths (set with the tree: a part's detail's by its path below the part, before
+  // its mesh is there), and the selected nodes, restored as the nodes they name arrive (faces, edges and vertices only
+  // with their part's mesh or model); what never arrives (a node gone, or a selected face, edge or vertex of a part
+  // that fails this time) is counted in the status line, its paths in a modal once done (notice). The new tree is
+  // expanded as the last was, and scrolled to the same row at its top, again as rows arrive above it, until the user
+  // scrolls or clicks in it.
   let restore: { overrides: PathOverride[]; lost: string[]; selected: string[]; expanded: string[];
     top?: { path: string; offset: number } } | undefined;
   const restoreNodes = () => {
@@ -740,6 +740,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     });
   edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
   edgeWidth.show(look.edgeStyle === 'fat');
+  // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
+  rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
@@ -832,7 +834,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let openControl: { setValue(v: boolean): unknown } | undefined;
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
-  const highlighter = new Highlighter();
+  // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
+  const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
   // Details on by default.
   const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: true };
   // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
@@ -867,7 +870,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const was = detailsElement.hidden;
     detailsElement.hidden = !selection.details;
     if (!selection.details || !viewer.nodes) return;
-    const text = details(viewer.nodes, selected, causes()).join('\n');
+    const text = details(viewer.nodes, selected, causes(), viewer.graph?.sources).join('\n');
     if (text !== detailsElement.textContent || was) detailsShown(selected.length > 0);
     detailsElement.textContent = text;
   };
@@ -957,9 +960,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     describe();
   };
   let detailControl: { updateDisplay(): unknown; setValue(v: boolean): unknown } | undefined;
-  /** The node picked at the pick level, or none (picking faces, edges and curves turns the tree's detail on). */
+  /** The node picked at the pick level, or none (picking faces turns the tree's detail on). */
   const picked = (nodes: NodeModel, p: TreePanel, hit: Pick | undefined) => {
-    // Picking faces, edges and curves needs their nodes: the tree shows detail from then on.
+    // Picking faces needs their nodes: the tree shows detail from then on.
     if (selection.level === 'detail' && !nodes.hasDetail()) {
       tree.detail = true;
       p.setDetail(true);
@@ -1036,11 +1039,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
           if (k.kind === 'part') parts.push(m);
           else if (k.kind === 'assembly') for (const c of nodes.children(m)) under(c);
         };
-        under(n.kind === 'assembly' || n.kind === 'part' ? id : n.parent);
+        under(nodes.partOf(id));
         const alphas = parts.map((p) => graph?.fileOpacity(nodes.nodes[p]!.object!, n.face?.source) ?? 1);
         return { name: n.name, own: nodes.ownOverride(id), inherited: nodes.inherited(id),
           file: { alpha: alphas[0] ?? 1, varies: alphas.some((a) => a !== alphas[0]) },
-          lines: ['edges', 'curves', 'points'].includes(n.kind) };
+          lines: isLineKind(n.kind) };
       },
       // As the slider moves, shown only; once made, set and recorded.
       set: (o, final) => {
@@ -1068,11 +1071,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!fromPanel) refreshAppearance();
   };
   const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.setHidden(ids, hidden));
-  /** What a click could select at the pick level: every part, assembly or face, edge and curve shown (Select all). */
+  /**
+   * What a click could select at the pick level (Select all): every part or assembly shown, or every face and edges and
+   * vertices group shown (a line or point picked is its group: selection.ts's nodeForPick).
+   */
   const everything = (): number[] | undefined => {
     const nodes = viewer.nodes;
     if (!nodes || !panel) return undefined;
-    // Faces, edges and curves need their nodes, as picking them does.
+    // Faces, edges and vertices need their nodes, as picking them does.
     if (selection.level === 'detail' && !nodes.hasDetail()) {
       tree.detail = true;
       panel.setDetail(true);
@@ -1083,7 +1089,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     const parts = nodes.nodes.filter((n) => n.kind === 'part' && shown(n.id)).map((n) => n.id);
     const ids = selection.level === 'part' ? parts : selection.level === 'assembly'
       ? parts.map((id) => nodes.nodes[id]!.parent >= 0 ? nodes.nodes[id]!.parent : id)
-      : parts.flatMap((id) => nodes.children(id).filter(shown));
+      : parts.flatMap((id) => nodes.children(id).flatMap((g) => nodes.nodes[g]!.kind === 'faces'
+        ? nodes.children(g) : [g])).filter(shown);
     return ids;
   };
   const selectNone = () => select([]);
@@ -1128,7 +1135,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     selectChildren: (ids = selected) => {
       const nodes = viewer.nodes;
       if (!nodes) return;
-      // What the tree shows below each: a part's faces, edges and curves only with its detail on (children() gives
+      // What the tree shows below each: a part's faces, edges and vertices only with its detail on (children() gives
       // none without). None at all: the selection as it was.
       const children = [...new Set(ids.flatMap((id) => nodes.children(id)))];
       if (children.length) select(children);
@@ -1170,7 +1177,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       !!(missing.length || bad.length) && !found.length);
       return { selected: found.length, found: [...hit], missing, bad };
     },
-    details: () => (viewer.nodes ? details(viewer.nodes, selected, causes()) : []),
+    details: () => (viewer.nodes ? details(viewer.nodes, selected, causes(), viewer.graph?.sources) : []),
     openUrl,
     openFiles: async (files, read) => (await openFiles(files, read)) ?? { error: 'no files' },
     currentUrl: () => last?.url,
@@ -1253,7 +1260,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     setOpen(open);
     if (!open && viewer.nodes) tree.closedByHand = true;
   });
-  detailControl = treeFolder.add(tree, 'detail').name('Faces, edges, curves')
+  detailControl = treeFolder.add(tree, 'detail').name('Faces, edges, curves, vertices')
     .onChange((on: boolean) => panel?.setDetail(on));
   treeFolder.add({ expand: () => panel?.expandAll() }, 'expand').name('Expand all');
   treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');

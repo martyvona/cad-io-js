@@ -28,8 +28,9 @@ import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
 import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
-import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
+import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
+import { setDotSize, vertexDiameter } from './vertex-points.ts';
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
@@ -616,7 +617,8 @@ export class Viewer {
       let any = false;
       this.display.traverse((o) => {
         const m = (o as THREE.Mesh).material;
-        if (!any && m) any = (Array.isArray(m) ? m : [m]).some((x) => x.transparent && x.visible);
+        // (Not the vertices' dots: vertex-points.ts.)
+        if (!any && m) any = (Array.isArray(m) ? m : [m]).some((x) => x.transparent && x.visible && !x.userData.dots);
       });
       this.composer.setTransparent(any);
     }
@@ -644,6 +646,11 @@ export class Viewer {
     this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges,
       this.triangleEdgesOverridden);
     this.fatEdges.update(this.root ? this.display : undefined, fat, this.render.edgeWidth);
+    const ratio = this.renderer.getPixelRatio();
+    setDotSize(vertexDiameter(this.render.edgeStyle, this.render.edgeWidth, ratio), ratio);
+    // The vertices' dots (a selected one's highlight is on the default layer: shown whatever this is).
+    if (this.render.vertices) this.camera.layers.enable(VERTICES);
+    else this.camera.layers.disable(VERTICES);
     // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
     // picking.
     if (fat) this.camera.layers.disable(EDGES);
@@ -954,7 +961,7 @@ export class Viewer {
       this.exports.set(id, (m) => {
         this.beat(id);
         end();
-        for (const [part, b] of m.models) graph?.holdModel(part, b);
+        for (const [part, b] of m.models) if (graph?.holdModel(part, b).length) this.modelChanged(graph, part);
         if (m.meshes.length || !meshes.length) this.takeBack(meshes, m.meshes);
         else {
           // (Answered without the meshes: an error the worker didn't catch. They're lost with it.)
@@ -1018,6 +1025,14 @@ export class Viewer {
     });
   }
 
+  /** A part's vertices' dots changed (its model handed over after its mesh): its detail is stale. */
+  private modelChanged(graph: SceneGraph, part: number): void {
+    if (graph !== this.graph) return;
+    for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+    this.onMeshes?.();
+    this.redraw();
+  }
+
   /** The model worker, started when first needed and kept for later files. */
   private modelWorker(): Worker {
     if (!this.worker) {
@@ -1030,7 +1045,7 @@ export class Viewer {
         if (m.type === 'mesh') {
           const graph = this.modelsTo.get(m.load);
           const held: PartModel = { model: m.model, ...(m.analysis ? { analysis: m.analysis } : {}) };
-          if (graph) graph.holdModel(m.part, held);
+          if (graph?.holdModel(m.part, held).length) this.modelChanged(graph, m.part);
           else this.modelsEarly.set(m.load, [...this.modelsEarly.get(m.load) ?? [], [m.part, held]]);
         }
         this.loadListeners.get(m.load)?.(m);

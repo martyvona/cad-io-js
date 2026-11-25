@@ -2,11 +2,11 @@
 // LineMaterial, lines a given number of pixels wide, where WebGL's own lines are one device pixel. They live in a group
 // of their own outside the model, as triangle edges do: a Wireframe per edge object of the model (B-rep edges, or edges
 // found from the triangles: LineSegments on the EDGES layer), its segments its source's, made once per geometry. Before
-// each frame drawn they follow their sources: placement, visibility (with every ancestor's), and colour, a LineMaterial
-// per source material (so a selection's tint shows); the lines' resolution Wireframe sets itself, from the renderer's
-// viewport, before each render. The thin edges stay in the model, on their layer, for picking; the Viewer leaves that
-// layer out of the frame while fat edges are drawn. Made again when the model's meshes change; nothing is made while
-// they're thin.
+// each frame drawn they follow their sources: placement, visibility (with every ancestor's), geometry (hiding some of
+// an object's edges gives it another: items.ts), and colour, a LineMaterial per source material (so a selection's tint
+// shows); the lines' resolution Wireframe sets itself, from the renderer's viewport, before each render. The thin edges
+// stay in the model, on their layer, for picking; the Viewer leaves that layer out of the frame while fat edges are
+// drawn. Made again when the model's meshes change; nothing is made while they're thin.
 
 import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -46,6 +46,11 @@ export class FatEdges {
       wire.visible = shown(source, root!);
       if (!wire.visible) continue;
       wire.matrixWorld.copy(source.matrixWorld);
+      // (Some of its items hidden, or shown again: its geometry replaced, items.ts.)
+      if (wire.userData.from !== source.geometry) {
+        wire.geometry = this.geometryFor(source.geometry);
+        wire.userData.from = source.geometry;
+      }
       wire.material = this.materialFor(source.material as THREE.Material);
     }
     for (const m of this.materials.values()) m.linewidth = this.width;
@@ -57,9 +62,12 @@ export class FatEdges {
     this.pairs.length = 0;
     root.traverse((o) => {
       const source = o as THREE.LineSegments;
-      if (!source.isLineSegments || !source.layers.isEnabled(this.layer) || o.userData.highlight) return;
+      // (A selection's highlight of some lines is drawn fat too: selection.ts.)
+      if (!source.isLineSegments || !source.layers.isEnabled(this.layer) || o.userData.highlight &&
+        !o.userData.fatHighlight) return;
       const wire = new Wireframe(this.geometryFor(source.geometry), this.materialFor(source.material as
         THREE.Material));
+      wire.userData.from = source.geometry;
       wire.matrixAutoUpdate = false;
       wire.matrixWorldAutoUpdate = false;
       wire.raycast = () => {};

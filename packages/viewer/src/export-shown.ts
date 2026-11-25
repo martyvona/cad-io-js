@@ -53,27 +53,25 @@ export function shownEdits(scene: Scene, nodes: NodeModel, graph: SceneGraph): S
       : scene.rootParts ?? [];
     const ref = refs.indexOf(pi.ref);
     if (ref < 0) continue;
-    const look = nodes.look(n.id);
+    // (Its faces as their group resolves them: model.ts.)
+    const look = nodes.groupLook(n.id, 'faces'), own = nodes.faceOverrides(n.id);
     triangleEdges ||= look.triangleEdges === true;
     const base = { path: [...pi.path], ref, sources: [] };
     if (!n.object.visible) {
       overrides.push({ ...base, visible: false });
       continue;
     }
-    // Faces it draws with nothing: each by its own override, else the placement's (shown here only for a face).
+    // Faces it draws with nothing: each by its own override, else its faces' (shown here only for a face).
     const sources = (n.object.children.find((c) => c.userData.faces)?.userData.faces ?? []) as number[];
-    hiddenFaces += sources.filter((f) => n.detailOverrides?.get(`face#${f}`)?.hidden ?? look.hidden).length;
-    // Its faces' own overrides (detail nodes' are their part's, by segment: model.ts).
+    hiddenFaces += sources.filter((f) => own.get(f)?.hidden ?? look.hidden).length;
+    // Its faces' own overrides.
     const faces: { part: number; face: number; material: number }[] = [];
-    for (const [seg, o] of n.detailOverrides ?? []) {
-      const m = /^face#(\d+)$/.exec(seg);
-      if (!m) continue;
-      const face = Number(m[1]);
+    for (const [face, o] of own) {
       triangleEdges ||= o.triangleEdges === true;
       if (o.transparent === undefined) continue;
-      const own = pi.faceMaterials.get(face) ?? pi.material;
+      const mine = pi.faceMaterials.get(face) ?? pi.material;
       const alpha = o.transparent ? o.alpha ?? 1 : undefined;
-      faces.push({ part, face, material: alpha === undefined ? own ?? at(undefined, 1) : at(own, alpha) });
+      faces.push({ part, face, material: alpha === undefined ? mine ?? at(undefined, 1) : at(mine, alpha) });
     }
     if (look.alpha !== undefined) {
       // The placement at its alpha, its faces' own colours too (the override's material recolours them all).
