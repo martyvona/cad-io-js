@@ -1314,6 +1314,45 @@ TEST_CASE("the same tube at 1e-3: its crossings, which splits don't mend, not as
   CHECK_EQ(pm.rounds(), 3);
 }
 
+TEST_CASE("a strip narrower than its tolerance: the spans its crossings name split below the refinement floor, to a "
+  "hundredth of it, until its sides' chords stay apart; edges that truly cross split no finer") {
+  // narrowArcStrip: radii 1 and 1.001 at an uncertainty of 0.2 (the floor), d 0.1: the arcs' chords sag past 0.001
+  // until about 0.09 long, under the floor.
+  cadgeom::Model m = load("narrowArcStrip");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  narrowArcStrip: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(!fm.triangles.empty());
+  CHECK_EQ(sharedEdges(m, pm, "narrowArcStrip"), 0);
+  const double floor = refinementFloor(cadgeom::Tolerances(m).part(), 0.1);
+  REQUIRE(floor == 0.2);
+  double shortest = INFINITY;
+  for (int e : {0, 1, 3}) {
+    const auto& p = pm.edges().edge(e).points;
+    for (size_t k = 0; k + 1 < p.size(); k++) shortest = std::fmin(shortest, cadgeom::norm(p[k + 1] - p[k]));
+  }
+  CHECK(shortest < floor);
+  CHECK(shortest > 0.01 * floor / 2);
+  // pentagramLoop: five line edges crossing each other in (u, v), the pairs named the same each round (no growth to
+  // stop on): failed for its crossings, its spans split no finer than half a hundredth of the floor, the rounds
+  // ending short of their cap.
+  cadgeom::Model star = load("pentagramLoop");
+  REQUIRE(star.ok());
+  PartMesher ps(star, options(0.1, 15 * M_PI / 180));
+  CHECK(ps.face(0).status == cadgeom::Status::invalidModel);
+  CHECK(ps.face(0).cause.find("its boundary in (u, v) ") == 0);
+  CHECK(ps.rounds() < 48);
+  double finest = INFINITY;
+  for (int e = 0; e < 5; e++) {
+    const auto& p = ps.edges().edge(e).points;
+    for (size_t k = 0; k + 1 < p.size(); k++) finest = std::fmin(finest, cadgeom::norm(p[k + 1] - p[k]));
+  }
+  CHECK(finest > 0.01 * floor / 2);
+  CHECK(finest < floor);
+}
+
 TEST_CASE("a sphere's pole: its normal the limit, never NaN; the whole sphere (no loops) its natural extent") {
   cadgeom::Model m = load("spheres");
   REQUIRE(m.ok());

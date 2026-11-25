@@ -1908,7 +1908,8 @@ struct PartMesher::Impl {
       out.cause = fb.status == Status::singular ? fb.cause : meshWhy(mesh, bp);
       // Segments that cross, or one through a point: each segment the refusal names (every one, not the first:
       // mesh2 names them all; a span named twice split once, as split keeps one request a span) that is an edge's
-      // span split at its middle, for the next round to mesh again.
+      // span split at its middle (below the refinement floor if need be, SplitRequest::crossing), for the next round
+      // to mesh again.
       // Two edges leaving a vertex nearly tangent (the coarser one's chord across the other's samples), or two loops
       // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
       // a few spans a round wouldn't mend many crossings within the rounds.
@@ -1934,7 +1935,7 @@ struct PartMesher::Impl {
           bool forward;
           if (a >= 0 && b >= 0 && a < static_cast<int32_t>(bp.size()) && b < static_cast<int32_t>(bp.size()) &&
             spanOf(f, bp[a], bp[b], edge, span, forward))
-            wanted[f].push_back({edge, span, 0.5});
+            wanted[f].push_back({edge, span, 0.5, false, true});
           else if (a != b && sampled(a) && sampled(b))
             out.splitsDropped = ++splitsDropped[f];
         }
