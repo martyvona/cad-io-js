@@ -169,6 +169,9 @@ public:
     at = dev_.fwd(at);
     return true;
   }
+  bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override {
+    return field_.crowds(dev_.back(a), dev_.back(b), dev_.back(q), frozen);
+  }
 
 private:
   void back3(const Vec2 t[3], Vec2 o[3]) const {
@@ -192,6 +195,7 @@ public:
   bool belowFloor(const Vec2 t[3]) const override { return field_.belowFloor(t); }
   int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
   bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
+  bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override { return field_.crowds(a, b, q, frozen); }
 
 private:
   bool over(const Vec2 t[3]) const {

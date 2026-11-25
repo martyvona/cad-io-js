@@ -2669,6 +2669,42 @@ TEST_CASE("apexSector: a cone face reaching its apex and crossing u's seam, mesh
   }
 }
 
+TEST_CASE("crowds through the developed plane (PartOptions::develop): thinTube's mesher points kept out of the band "
+  "about its boundary's segments as in (u, v)") {
+  // (thinTube at d 0.1: a half cylinder of radius 0.005, its plane developed; the band a tenth of the floor, 0.001.
+  // No point the mesher placed is within it of any edge's segment in 3D, developed or not.)
+  cadgeom::Model m = load("thinTube");
+  REQUIRE(m.ok());
+  for (bool dev : {false, true}) {
+    PartOptions o = options(0.1, 0.26);
+    o.develop = dev;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    std::vector<std::pair<Vec3, Vec3>> segs;
+    std::set<std::tuple<double, double, double>> boundary;
+    for (int e = 0; e < m.edges(); e++) {
+      const std::vector<Vec3>& P = pm.edges().edge(e).points;
+      for (size_t j = 0; j + 1 < P.size(); j++) segs.push_back({P[j], P[j + 1]});
+      for (const Vec3& q : P) boundary.insert({q.x, q.y, q.z});
+    }
+    double nearest = INFINITY;
+    int mesher = 0;
+    for (const Vec3& q : fm.points) {
+      if (boundary.count({q.x, q.y, q.z})) continue;
+      mesher++;
+      for (auto [a, b] : segs) {
+        const Vec3 ab = b - a;
+        const double t = std::clamp(dot(q - a, ab) / dot(ab, ab), 0.0, 1.0);
+        nearest = std::min(nearest, norm(q - (a + t * ab)));
+      }
+    }
+    if (!(nearest > 0.001)) std::printf("  thinTube develop %d: a mesher point %g from a segment\n", int(dev), nearest);
+    CHECK(mesher > 0);
+    CHECK(nearest > 0.001);
+  }
+}
+
 TEST_CASE("sectorWall: a split inside another face's pole ring shrinks the ring, whatever the faces' kinds: the wall "
   "within d") {
   // The flat sector's ring is wide (its fans flat), K bending through it: the cylinder's triangles on K's span inside
