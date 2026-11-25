@@ -180,6 +180,15 @@ struct PartOptions {
    */
   bool keepSteiner = true;
   /**
+   * A cylinder's, cone's, sphere's or torus's face seeded with a regular grid over its interior before refinement
+   * (grid.h's elementaryGrid), each meshing that starts from its boundary alone; a plane's too where gridMaxEdge is
+   * set. The grid's steps are in closed form from the deflections; the band between it and the boundary is meshed as
+   * any domain. Off by default (an experiment).
+   */
+  bool gridElementary = false;
+  /** The grid's longest triangle side in 3D where above 0 (the planes' only step). */
+  double gridMaxEdge = 0;
+  /**
    * A triangle turned against its corners' normals as shipped (failTurnedOver's test) flipped with its neighbour
    * across an edge that isn't the boundary's, a constraint's or a ring's, where both new triangles keep their
    * orientation in (u, v), pass the criteria and face as shipped (FaceMesh::turnedFlips): a sliver within the
@@ -287,6 +296,10 @@ struct FaceMesh {
    * ring's (none should be: each is a bug, its triangles there refused for good).
    */
   int splitsDropped = 0;
+  /** Its last meshing's grid seeds (PartOptions::gridElementary), before the mesher skips any. */
+  int gridSeeds = 0;
+  /** The CPU seconds all its meshings took (std::clock: the process's), the checks after the rounds aside. */
+  double meshCpu = 0;
   /** Whether its triangles' deviation was sampled rather than bounded (SurfaceCriteria::bounded). */
   bool sampled = false;
   /**

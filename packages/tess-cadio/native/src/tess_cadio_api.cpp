@@ -60,6 +60,12 @@ bool countExpected = false;
 bool failCapped = true, failTurnedOver = true;
 // PartOptions::keepDefects for the next calls.
 bool keepDefects = PartOptions{}.keepDefects;
+// PartOptions::gridElementary and gridMaxEdge for the next calls (TC_GRID_DEFAULT: a module built with it on).
+#ifndef TC_GRID_DEFAULT
+#define TC_GRID_DEFAULT 0
+#endif
+bool grid = TC_GRID_DEFAULT != 0;
+double gridMaxEdge = PartOptions{}.gridMaxEdge;
 // PartOptions::failFoldedFans for the next calls.
 bool failFoldedFans = PartOptions{}.failFoldedFans;
 // PartOptions::consistentFans and apexCorners for the next calls.
@@ -148,6 +154,8 @@ void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
  * turned triangles, a little past its deflection, at its point cap; its defect in the diagnostics' "kept"); default 1.
  */
 void tc_set_keep_defects(int on) { keepDefects = on != 0; }
+/** Whether the next calls seed elementary faces with a grid (PartOptions::gridElementary), and its longest edge. */
+void tc_set_grid(int on, double maxEdge) { grid = on != 0, gridMaxEdge = maxEdge; }
 /** Whether the next calls fail a face whose pole's fan folds over itself (PartOptions::failFoldedFans; default 1). */
 void tc_set_fail_folded_fans(int on) { failFoldedFans = on != 0; }
 /** Whether the next calls apply the fold rules (PartOptions::consistentFans, apexCorners; default 1 each). */
@@ -189,6 +197,7 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   opts.failCapped = failCapped;
   opts.failTurnedOver = failTurnedOver;
   opts.keepDefects = keepDefects;
+  opts.gridElementary = grid, opts.gridMaxEdge = gridMaxEdge;
   opts.failFoldedFans = failFoldedFans;
   opts.consistentFans = consistentFans, opts.apexCorners = apexCorners;
   opts.analysis = analysis, opts.analysisSize = analysisSize;

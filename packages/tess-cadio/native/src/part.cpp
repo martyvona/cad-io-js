@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <map>
 #include <set>
+#include <ctime>
 #include <tuple>
 #include <unordered_map>
 
@@ -20,6 +21,7 @@
 #include "cad_geom/surface.h"
 #include "mesh2d_impl.h"
 #include "flip.h"
+#include "grid.h"
 #include "poles.h"
 
 namespace tesscadio {
@@ -143,6 +145,8 @@ struct PartMesher::Impl {
   const Model& m;
   PartOptions o;
   std::vector<std::unique_ptr<Surface>> surfaces;
+  /** Per face, the CPU seconds its meshings took (FaceMesh::meshCpu). */
+  std::vector<double> meshCpu;
   std::vector<std::unique_ptr<SurfaceCriteria>> criteria;
   /**
    * Per face, what PartOptions::retryStretch's retry makes its criteria again from (its creases, its (u, v) box), and
@@ -1633,6 +1637,17 @@ struct PartMesher::Impl {
   }
 
   void meshFace(int f) {
+    // (FaceMesh::meshCpu: this meshing's CPU time added to the face's.)
+    struct Timer {
+      Impl& I;
+      int f;
+      std::clock_t c0 = std::clock();
+      ~Timer() {
+        if (static_cast<int>(I.meshCpu.size()) <= f) I.meshCpu.resize(f + 1);
+        I.meshCpu[f] += double(std::clock() - c0) / CLOCKS_PER_SEC;
+        I.faces[f].meshCpu = I.meshCpu[f];
+      }
+    } timer{*this, f};
     at.row = f;
     if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
@@ -1846,6 +1861,14 @@ struct PartMesher::Impl {
           if (!in) d.seeds.push_back(q), now.insert(uvKey(q));
         }
       }
+    }
+    // (PartOptions::gridElementary: a face meshed from its boundary alone seeded with its grid instead.)
+    if (o.gridElementary && d.seeds.empty()) {
+      const int kind = m.surfaceKind(m.faceSurface(f));
+      if ((kind >= CBR_SURFACE_CYLINDER && kind <= CBR_SURFACE_TORUS) || (kind == CBR_SURFACE_PLANE &&
+        o.gridMaxEdge > 0))
+        d.seeds = elementaryGrid(*surfaces[f], d, o.d, o.gridMaxEdge, static_cast<size_t>(mo.maxPoints / 2));
+      out.gridSeeds = static_cast<int>(d.seeds.size());
     }
     Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
     // (Meshing from the seeds failed, or left a triangle its criteria refuse, which a kept point can stand in the way
