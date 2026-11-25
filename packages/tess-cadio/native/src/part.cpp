@@ -19,6 +19,7 @@
 #include "cad_geom/creases.h"
 #include "cad_geom/surface.h"
 #include "mesh2d_impl.h"
+#include "develop.h"
 #include "flip.h"
 #include "poles.h"
 
@@ -135,6 +136,45 @@ private:
   mutable size_t bytes_ = 0;
   mutable std::unordered_map<TriKey, uint8_t, TriHash> cur_, old_;
   mutable std::unordered_map<PointKey, Metric2, PointHash> curMetric_, oldMetric_;
+};
+
+/** A face's field over its developed plane (develop.h, PartOptions::develop), the wrapped field's over (u, v). */
+class DevelopedField final : public SizeField {
+public:
+  DevelopedField(const SizeField& field, const Development& dev) : field_(field), dev_(dev) {}
+  Metric2 metric(Vec2 p) const override {
+    const Vec2 uv = dev_.back(p);
+    return dev_.metric(uv, field_.metric(uv));
+  }
+  bool accept(const Vec2 t[3]) const override {
+    Vec2 o[3];
+    back3(t, o);
+    return field_.accept(o);
+  }
+  bool belowFloor(const Vec2 t[3]) const override {
+    Vec2 o[3];
+    back3(t, o);
+    return field_.belowFloor(o);
+  }
+  int refusalKind(const Vec2 t[3]) const override {
+    Vec2 o[3];
+    back3(t, o);
+    return field_.refusalKind(o);
+  }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override {
+    Vec2 o[3];
+    back3(t, o);
+    if (!field_.worstPoint(o, at)) return false;
+    at = dev_.fwd(at);
+    return true;
+  }
+
+private:
+  void back3(const Vec2 t[3], Vec2 o[3]) const {
+    for (int i = 0; i < 3; i++) o[i] = dev_.back(t[i]);
+  }
+  const SizeField& field_;
+  const Development& dev_;
 };
 
 } // namespace
@@ -1615,6 +1655,32 @@ struct PartMesher::Impl {
     sliver[f] = ap < off * perim;
   }
 
+  /**
+   * Face f's developed plane (PartOptions::develop) for domain d: the upper Cholesky factor of the mean first
+   * fundamental form over a 9 x 9 grid of the domain's box, scaled so v keeps its unit; none where that form is
+   * degenerate or the identity, or the face has a pole's ring.
+   */
+  AffineMap developedMap(int f, const Domain2& d) const {
+    if (!surfaces[f] || !rings[f].empty()) return {};
+    double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+    for (Vec2 q : d.points)
+      ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
+    double E = 0, F = 0, G = 0;
+    int k = 0;
+    for (int i = 0; i <= 8; i++)
+      for (int j = 0; j <= 8; j++) {
+        SurfacePoint q;
+        if (surfaces[f]->eval(ulo + (uhi - ulo) * i / 8, vlo + (vhi - vlo) * j / 8, 1, q) != Status::ok) continue;
+        const double e = dot(q.du, q.du), ff = dot(q.du, q.dv), g = dot(q.dv, q.dv);
+        if (!std::isfinite(e + ff + g)) continue;
+        E += e, F += ff, G += g, k++;
+      }
+    if (!(k > 0 && E > 0 && G * E - F * F > 1e-12 * (E + G) * (E + G))) return {};
+    const double a = std::sqrt(E), cc = std::sqrt(G - F * F / E);
+    const AffineMap m{a / cc, F / a / cc, 1};
+    return m.s == 1 && m.b == 0 ? AffineMap{} : m;
+  }
+
   /** Whether face f is one to retry (PartOptions::retryStretch): ok but far over its patch, or its meshing failed. */
   bool toRetry(int f) const {
     if (!(o.retryStretch > 0) || !criteria[f] || !surfaces[f] || retried[f]) return false;
@@ -1873,13 +1939,32 @@ struct PartMesher::Impl {
         }
       }
     }
-    Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    // (PartOptions::develop: the domain mapped to its developed plane, the result mapped back, the domain's points
+    // exactly as given, the splits it wants at their fraction.)
+    const AffineMap affine = o.develop && !d.points.empty() ? developedMap(f, d) : AffineMap{};
+    auto mesh2In = [&](const Domain2& dd) {
+      if (!(affine.s > 0)) return detailed ? mesh2Detailed(dd, *field, mo, &detail) : mesh2(dd, *field, mo);
+      Development dev(affine);
+      DevelopedField devField(*field, dev);
+      Domain2 dx = dd;
+      for (Vec2& q : dx.points) q = dev.own(q);
+      for (Vec2& q : dx.seeds) q = dev.fwd(q);
+      Mesh2 r = detailed ? mesh2Detailed(dx, devField, mo, &detail) : mesh2(dx, devField, mo);
+      for (size_t i = 0; i < r.points.size(); i++)
+        r.points[i] = i < dd.points.size() ? dd.points[i] : dev.back(r.points[i]);
+      for (SplitWanted& w : r.splitWanted) {
+        const Vec2 A = dd.points[w.a], B = dd.points[w.b];
+        w.point = {A.x + w.fraction * (B.x - A.x), A.y + w.fraction * (B.y - A.y)};
+      }
+      return r;
+    };
+    Mesh2 mesh = mesh2In(d);
     // (Meshing from the seeds failed, or left a triangle its criteria refuse, which a kept point can stand in the way
     // of without the triangle asking a split: from the boundary alone, as the first time.)
     if (!d.seeds.empty() && ((mesh.status != Status::ok && mesh.status != Status::noConvergence) ||
       !mesh.rejected.empty())) {
       d.seeds.clear();
-      mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+      mesh = mesh2In(d);
     }
     {
       const int meshings = last[f].meshings + 1;

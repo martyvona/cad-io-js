@@ -205,6 +205,15 @@ struct PartOptions {
    * change. Faces at their point cap that failCapped fails aren't tried.
    */
   bool collapseTurned = true;
+  /**
+   * Each face's domain meshed in the plane its mean first fundamental form develops it to (develop.h: (u, v) under
+   * x = sqrt(E) u + F / sqrt(E) v, y = sqrt(G - F^2 / E) v, the mean E, F, G over a 9 x 9 grid of the domain's box),
+   * so the triangulation's own in-circle tests, which refinement doesn't revisit, run in about 3D lengths: in (u, v),
+   * on a large cylinder's narrow strip they kept chords across hundreds of boundary samples, each refused and asking
+   * splits round after round. The criteria see (u, v) as before, the domain's own points exactly. Not a face with a
+   * pole's ring, whose first fundamental form vanishes towards the pole: one map for the face is far off near it.
+   */
+  bool develop = true;
 };
 
 /** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */
