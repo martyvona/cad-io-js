@@ -2603,7 +2603,8 @@ function analysisOf(model: BrepBuilder, given: { vertex?: Record<string, number[
   const d = model.finish();
   const rows = { vertex: d.vertex.point.length / 3, edge: d.edge.start.length, coedge: d.coedge.edge.length };
   const tables: Record<string, Record<string, ArrayLike<number>>> = {
-    analysis: { model: new Uint32Array(8), uncertainty: [d.part.uncertainty?.[0] ?? NaN] } as never };
+    analysis: { model: new Uint32Array(8), uncertainty: [d.part.uncertainty?.[0] ?? NaN], measureRelTol: [NaN],
+      measureProject: [0] } as never };
   for (const t of ['vertex', 'edge', 'coedge'] as const) {
     const cols: Record<string, ArrayLike<number>> = {};
     for (const [name, type, width] of ANALYSIS_TABLES[t] as readonly (readonly [string, string, number])[])

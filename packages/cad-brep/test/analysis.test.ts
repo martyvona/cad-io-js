@@ -116,7 +116,7 @@ test('writeAnalysis and openAnalysis: every column type round trips, the bytes d
     // The layout, worked out independently: the magic, the count, then columns in order from the header's end, each
     // starting at the next multiple of 8, zeros between, the buffer ending on one.
     const v = new DataView(a.buffer), bytes = new Uint8Array(a.buffer);
-    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA6');
+    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA7');
     assert.equal(v.getUint32(4, true), ANALYSIS_COLUMNS.length);
     let at = 8 + 8 * ANALYSIS_COLUMNS.length;
     ANALYSIS_COLUMNS.forEach((c, k) => {
@@ -134,7 +134,8 @@ test('writeAnalysis and openAnalysis: every column type round trips, the bytes d
 test('writeAnalysis: a table left out is empty; values a column can\'t hold, missing columns and bad rows refused',
   async () => {
     const d = MODELS.cube().finish(), hash = await modelHash(d);
-    const minimal = writeAnalysis({ analysis: { model: hash, uncertainty: [NaN] } });
+    const minimal = writeAnalysis({ analysis: { model: hash, uncertainty: [NaN], measureRelTol: [NaN],
+      measureProject: [0] } });
     for (const t of Object.keys(ANALYSIS_TABLES) as AnalysisTableName[]) {
       assert.equal(analysisRowCount(minimal, t), t === 'analysis' ? 1 : 0, t);
     }
@@ -161,13 +162,15 @@ test('writeAnalysis: a table left out is empty; values a column can\'t hold, mis
     }
     // A typed array of another type is checked as a plain one.
     assert.throws(() => writeAnalysis({ analysis: { model: Int32Array.of(-1, 0, 0, 0, 0, 0, 0, 0),
-      uncertainty: [1] } }), RangeError);
+      uncertainty: [1], measureRelTol: [NaN], measureProject: [0] } }), RangeError);
     assert.throws(spoil((r) => { delete r.edge!.measured; }), /edge\.measured not given/);
     assert.throws(spoil((r) => { r.facts = { x: [1] }; }), /facts: not an analysis table/);
     assert.throws(spoil((r) => { r.edge!.measured!.push(1); }), BrepFormatError);
     assert.throws(spoil((r) => { r.face!.uv!.pop(); }), BrepFormatError);
-    assert.throws(spoil((r) => { r.analysis!.uncertainty!.push(1); r.analysis!.model!.push(...r.analysis!.model!); }),
-      /not one analysis row/);
+    assert.throws(spoil((r) => {
+      const a = r.analysis!;
+      a.uncertainty!.push(1), a.measureRelTol!.push(1), a.measureProject!.push(0), a.model!.push(...a.model!);
+    }), /not one analysis row/);
     assert.throws(() => writeAnalysis({}), /not one analysis row/);
     // The pools' arrays are independent.
     assert.doesNotThrow(spoil((r) => { r.pool!.real!.push(1, 2, 3); }));
@@ -176,8 +179,8 @@ test('writeAnalysis: a table left out is empty; values a column can\'t hold, mis
 test('openAnalysis refuses a buffer whose header is corrupt, and a model buffer; openBrep refuses an analysis',
   async () => {
     const d = MODELS.everyKind().finish(), a = writeAnalysis(sampleRows(d, await modelHash(d)));
-    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA6/);
-    assert.throws(() => openBrep(a.buffer), /magic "CBA6", not CBR6/);
+    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA7/);
+    assert.throws(() => openBrep(a.buffer), /magic "CBA7", not CBR6/);
     assert.throws(() => openAnalysis(new ArrayBuffer(8 + 8 * ANALYSIS_COLUMNS.length - 1)), /too short/);
     const col = (table: string, column: string) =>
       ANALYSIS_COLUMNS.findIndex((c) => c.table === table && c.column === column);
@@ -196,8 +199,9 @@ test('openAnalysis refuses a buffer whose header is corrupt, and a model buffer;
         /not rows of 2/],
       ['a column of another row count', (v) => v.setUint32(12 + 8 * face, v.getUint32(12 + 8 * face, true) - 1, true),
         /coedge: columns of/],
-      ['no analysis row', (v) => { v.setUint32(12 + 8 * model, 0, true); v.setUint32(12 + 8 * (model + 1), 0, true); },
-        /not one analysis row/],
+      ['no analysis row', (v) => {
+        for (let k = model; k < model + ANALYSIS_TABLES.analysis.length; k++) v.setUint32(12 + 8 * k, 0, true);
+      }, /not one analysis row/],
     ];
     for (const [what, spoil, message] of cases) {
       const bad = a.buffer.slice(0);
@@ -326,7 +330,8 @@ async function samples(dir: string): Promise<[string, BrepAnalysis, string][]> {
   for (const [name, make] of Object.entries(MODELS)) {
     const d = make().finish(), hash = await modelHash(d);
     for (const [kind, a] of [['full', writeAnalysis(sampleRows(d, hash))],
-      ['minimal', writeAnalysis({ analysis: { model: hash, uncertainty: [0.001] } })]] as const) {
+      ['minimal', writeAnalysis({ analysis: { model: hash, uncertainty: [0.001], measureRelTol: [NaN],
+        measureProject: [0] } })]] as const) {
       const file = join(dir, `${name}-${kind}.cba`);
       writeFileSync(file, new Uint8Array(a.buffer));
       out.push([`${name} ${kind}`, a, file]);

@@ -215,7 +215,7 @@ export class SmlibTessellator implements Tessellator {
       }
     }
     // (With the measures, the area oracle's, on the model as given, whatever `scale` builds it at.)
-    if (req.measures) result.oracle = oracleMeasures(req.data);
+    if (req.measures) result.oracle = oracleMeasures(req.data, req.analysis);
     if (req.edges) {
       const ne = m._smlib_num_edges();
       const edgeData = u32(m._smlib_edges(), ne * 4);

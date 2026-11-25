@@ -54,7 +54,8 @@ test('pcurveReplace: a curve off its plane, its p-curve right: the projection is
   assert.equal(r.model.coedge.pcurve[0], d.coedge.pcurve[0]);
   const x = r.diagnostics.find((y) => y.message.startsWith('pcurveReplace:'))!;
   assert.equal(x.severity, 'warning');
-  assert.match(x.message, /^pcurveReplace: 1 p-curves off their edges' curves kept \(the projection not nearer\): coedge #41/);
+  assert.match(x.message,
+    /^pcurveReplace: 1 p-curves off their edges' curves kept \(the projection not nearer\): coedge #41/);
 });
 
 test('pcurveReplace: a p-curve kept off its edge\'s curve by at most max(1e-3 mm, the part\'s tolerance): an info, '
@@ -65,7 +66,8 @@ test('pcurveReplace: a p-curve kept off its edge\'s curve by at most max(1e-3 mm
     const x = r.diagnostics.filter((y) => y.message.startsWith('pcurveReplace:'));
     assert.deepEqual(x.map((y) => y.severity), [severity], `${off}: ${JSON.stringify(r.diagnostics)}`);
     assert.match(x[0]!.message, severity === 'info'
-      ? /^pcurveReplace: 1 p-curves off their edges' curves by at most 0\.00100 mm kept \(the projection not nearer\): coedge #41/
+      ? new RegExp(String.raw`^pcurveReplace: 1 p-curves off their edges' curves by at most 0\.00100 mm kept `
+        + String.raw`\(the projection not nearer\): coedge #41`)
       : /^pcurveReplace: 1 p-curves off their edges' curves kept \(the projection not nearer\)/);
   }
 });
