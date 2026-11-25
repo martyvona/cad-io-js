@@ -3799,6 +3799,40 @@ TEST_CASE("retryStretch (the default): a lantern, its mesh far over its patch, m
   CHECK_EQ(fm.cap, plain.face(0).cap);
 }
 
+TEST_CASE("retryStretch: a lantern the capped stretch doesn't mend, meshed with its triangles over their patches "
+  "refused too: its area the exact's, its ratio under the limit") {
+  // lanternBand5 (lanternBand round a major radius of 5) at d 0.1 with the stretch cap at 1e9, which retries it as
+  // it was (so not kept): still a lantern, its tilted facets thinner than the floor, which the criteria pass. Meshed
+  // again with each triangle past 1.1 x its patch refused, refinement splits their long edges: ok, not capped,
+  // nothing refused, within 1% of the exact area, its ratio under 1.1. With its point cap low, that meshing ends
+  // capped, refusing some: not kept, the face meshed as before (a tenth of the triangles).
+  cadgeom::Model m = load("lanternBand5");
+  REQUIRE(m.ok());
+  const double exact = 2 * M_PI * 0.1 * (1.6 * 5 + 0.2 * std::sin(0.8));
+  PartOptions o = options(0.1, 0.26);
+  o.retryStretch = 1e9;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  double area = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    area += 0.5 * norm(cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  if (!(std::fabs(area / exact - 1) < 0.01) || !(fm.patchRatio <= 1.1))
+    std::printf("  lanternBand on its lantern field: area %g of %g, patch ratio %g\n", area, exact, fm.patchRatio);
+  CHECK(!fm.retried);
+  CHECK(std::fabs(area / exact - 1) < 0.01);
+  CHECK(fm.patchRatio <= 1.1);
+  CHECK(!fm.capped);
+  CHECK(fm.rejected.empty());
+  CHECK_EQ(fm.defectDeviation, 0.0);
+  o.capFloor = 20000, o.capMultiple = 1;
+  PartMesher low(m, o);
+  REQUIRE(low.face(0).status == cadgeom::Status::ok);
+  CHECK(!low.face(0).capped);
+  CHECK(low.face(0).triangles.size() < fm.triangles.size() / 4);
+}
+
 TEST_CASE("a collapsed row of poles a fitting's noise apart is a pole to the size metric's grid: the face expects as "
   "many triangles as with the row exact") {
   // (bsplineBallNoisy: the unit ball with its pole rows' poles up to 3e-6 off, within its tolerance, so still poles,

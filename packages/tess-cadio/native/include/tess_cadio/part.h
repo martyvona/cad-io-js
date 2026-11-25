@@ -112,7 +112,11 @@ struct PartOptions {
    * (u, v) area times |S_u x S_v| at each centroid past 1 + retryRatio: a lantern, long triangles across a thin,
    * curved band) and it isn't a sliver narrower than its boundary's offset from the surface, or where its meshing
    * failed (not its boundary); after the first meshings and again after the split rounds, which then run on; kept
-   * where the better mesh (ok, and under its patch ratio before), else meshed as before.
+   * where the better mesh (ok, and under its patch ratio before), else meshed as before. A face far over its patch
+   * still is meshed once more with every triangle over its own patch by as much refused too (thinner than the
+   * refinement floor, the criteria pass it), so refinement splits their long edges (the boundary's in the rounds);
+   * kept, and the face so in the rounds after, where ok and under its patch ratio before or asking splits, else
+   * meshed as before (and so from any such meshing that ends at its point cap).
    * 0: never.
    */
   double retryStretch = 16, retryRatio = 0.1;

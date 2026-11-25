@@ -177,6 +177,37 @@ private:
   const Development& dev_;
 };
 
+/**
+ * A lantern's field (PartOptions::retryRatio): the face's own, refusing as well each triangle whose 3D area (on the
+ * surface's points at its corners) is past 1 + `ratio` x its patch's ((u, v) area times |S_u x S_v| at its
+ * centroid): a facet standing across a thin, curved band, which the criteria pass where it is thinner than the
+ * refinement floor. Refinement then splits its long edges, the mesher's own and, as split requests, the boundary's.
+ */
+class LanternField final : public SizeField {
+public:
+  LanternField(const SizeField& field, const Surface& s, double ratio) : field_(field), s_(s), ratio_(ratio) {}
+  Metric2 metric(Vec2 p) const override { return field_.metric(p); }
+  bool accept(const Vec2 t[3]) const override { return field_.accept(t) && (!over(t) || field_.belowFloor(t)); }
+  bool belowFloor(const Vec2 t[3]) const override { return field_.belowFloor(t); }
+  int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
+
+private:
+  bool over(const Vec2 t[3]) const {
+    SurfacePoint q[3], g;
+    for (int i = 0; i < 3; i++)
+      if (s_.eval(t[i].x, t[i].y, 0, q[i]) != Status::ok) return false;
+    if (s_.eval((t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3, 1, g) != Status::ok) return false;
+    const double a3 = 0.5 * norm(cross(q[1].p - q[0].p, q[2].p - q[0].p));
+    const double ap = 0.5 * std::fabs((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y)) *
+      norm(cross(g.du, g.dv));
+    return a3 > (1 + ratio_) * ap;
+  }
+  const SizeField& field_;
+  const Surface& s_;
+  const double ratio_;
+};
+
 } // namespace
 
 struct PartMesher::Impl {
@@ -192,6 +223,8 @@ struct PartMesher::Impl {
   std::vector<std::vector<SurfaceCriteria::Crease>> creaseLines;
   std::vector<Box2> critBox;
   std::vector<char> retried, retriedKept, sliver;
+  /** Per face, whether it is meshed on its LanternField (retryFace). */
+  std::vector<char> lantern;
   /**
    * Per face, the pairs its last refused meshing named (SIZE_MAX: none yet) and how many refusals in a row they've
    * grown past kCrossingGrowth x the last's: no crossing splits once that is kCrossingRuns.
@@ -1695,7 +1728,8 @@ struct PartMesher::Impl {
   /**
    * Face f meshed again with its criteria made at the capped stretch, its first point cap kept; the retry kept where
    * it's the better mesh (ok, and where it was ok before, under its patch ratio then),
-   * else the face meshed again on its own criteria (each meshing a function of its boundary, so as it was).
+   * else the face meshed again on its own criteria (each meshing a function of its boundary, so as it was). Then, a
+   * lantern still, on its LanternField too.
    */
   void retryFace(int f) {
     Deflections d = o.d;
@@ -1714,15 +1748,38 @@ struct PartMesher::Impl {
     if (f < static_cast<int>(memos.size())) memos[f].reset();
     meshFace(f);
     const bool better = faces[f].status == Status::ok && (!okBefore || patchRatio[f] < ratioBefore);
-    if (better) return;
-    criteria[f] = std::move(own);
-    capKeep[f] = 0;
-    retriedKept[f] = 0;
-    if (f < static_cast<int>(memos.size())) memos[f].reset();
+    if (!better) {
+      criteria[f] = std::move(own);
+      capKeep[f] = 0;
+      retriedKept[f] = 0;
+      if (f < static_cast<int>(memos.size())) memos[f].reset();
+      meshFace(f);
+    }
+    // Still a lantern (ok, far over its patch, no sliver): meshed on its LanternField (meshFace), kept where ok and
+    // under its patch ratio before or asking splits (a band's triangles reach across it from one side's span to the
+    // other's, so only the boundary's splits, in the rounds, mend it), else meshed as before; on it in the rounds
+    // after.
+    if (faces[f].status != Status::ok || !(patchRatio[f] > 1 + o.retryRatio) || sliver[f]) return;
+    const double lanternBefore = patchRatio[f];
+    lantern[f] = 1;
+    meshFace(f);
+    if (lantern[f] && faces[f].status == Status::ok && (patchRatio[f] < lanternBefore || !wanted[f].empty())) return;
+    lantern[f] = 0;
     meshFace(f);
   }
 
+  /**
+   * Face f meshed (meshOnce); on its LanternField, a meshing that ends at its point cap leaves the triangles it
+   * refused, turned ones among them, so the face is off it from then and meshed again as before.
+   */
   void meshFace(int f) {
+    meshOnce(f);
+    if (!lantern[f] || !faces[f].capped) return;
+    lantern[f] = 0;
+    meshOnce(f);
+  }
+
+  void meshOnce(int f) {
     at.row = f;
     if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
@@ -1872,6 +1929,11 @@ struct PartMesher::Impl {
       if (!memos[f]) memos[f] = std::make_unique<VerdictMemo>(*criteria[f], memoBytes, memoPeak, o.verdictBudget);
       meshedAt[f] = meshings++;
       field = memos[f].get();
+    }
+    std::unique_ptr<LanternField> lanternField;
+    if (lantern[f]) {
+      lanternField = std::make_unique<LanternField>(*field, *surfaces[f], o.retryRatio);
+      field = lanternField.get();
     }
     // (The boundary's own points for the criteria's facet tests: the output's, which the edges' curves give.)
     {
@@ -2287,7 +2349,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
   I.creaseLines.assign(nf, {}), I.critBox.assign(nf, {}), I.retried.assign(nf, 0), I.retriedKept.assign(nf, 0);
-  I.sliver.assign(nf, 0), I.crossingsBefore.assign(nf, SIZE_MAX), I.crossingRuns.assign(nf, 0);
+  I.lantern.assign(nf, 0), I.sliver.assign(nf, 0), I.crossingsBefore.assign(nf, SIZE_MAX), I.crossingRuns.assign(nf, 0);
   I.capKeep.assign(nf, 0), I.patchRatio.assign(nf, 0);
   I.memos.resize(nf);
   I.meshedAt.assign(nf, 0);

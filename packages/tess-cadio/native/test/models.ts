@@ -1936,11 +1936,11 @@ export function torusOuterHalf(): BrepBuilder {
  * apart, their chords sagging about as far as the tube's radius, and triangles laid along the band stand across the
  * tube (LMP1 #172690's #1056598). Its area 2 pi 0.1 (1.6 x 29 + 0.2 sin 0.8). With `off`, both circles that far
  * outside the tube (radius rho + off), within their edges' and vertices' tolerance (2 off): a sliver, its boundary
- * farther from its surface than the band is wide.
+ * farther from its surface than the band is wide. With `R`, that major radius instead.
  */
-export function lanternBand(off = 0): BrepBuilder {
+export function lanternBand(off = 0, R = 29): BrepBuilder {
   const b = new BrepBuilder();
-  const R = 29, r = 0.1, v = 0.8, rho = R + r * Math.cos(v) + off, z = r * Math.sin(v);
+  const r = 0.1, v = 0.8, rho = R + r * Math.cos(v) + off, z = r * Math.sin(v);
   const tolerance = off > 0 ? 2 * off : undefined;
   const circle = (h: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, h] }, radius: rho });
   const v0 = b.addVertex({ point: [rho, 0, -z], tolerance }), v1 = b.addVertex({ point: [rho, 0, z], tolerance });
@@ -2804,7 +2804,7 @@ function oneFace(text: string): BrepBuilder {
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true), pleatStrip, thinTube,
   foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge, poleRowFan, poleRowShort, poleRowNear,
   sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true), narrowArcStrip: () => narrowArcStrip(),
-  pentagramLoop,
+  pentagramLoop, lanternBand5: () => lanternBand(0, 5),
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
