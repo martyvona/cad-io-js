@@ -28,6 +28,7 @@ import { ModelEdit } from './edit.ts';
 import { tolerances } from './measure.ts';
 import { isError } from './fix/growth.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
+import { MIN_FIT, type Tight, tightFaces } from './fix/tight.ts';
 import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
   './fix/shells.ts';
 import { fixesMask, fixesOn, HEAL_VERSION, type HealOptions, PCURVE_FIT_TOLERANCE } from './options.ts';
@@ -92,7 +93,14 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   const geom = module ?? await init(), g = new Geometry(geom, new Uint8Array(fixed.buffer));
   let curves;
   try {
-    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, fit);
+    // pcurveTight's faces first, on the projections the curves' fixes then reuse.
+    let tight: Tight | undefined;
+    if (fixes.has('pcurveTight')) {
+      progress('pcurveTight');
+      tight = tightFaces(g, fixed, fit);
+      tightSaid(fixed, tight, fit, diagnostics);
+    }
+    curves = healCurves(g, fixed, fixes, edit, diagnostics, undefined, progress, fit, tight?.fit);
   } finally {
     g.dispose();
   }
@@ -224,6 +232,26 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
     strayPoles: kept + moved }, judged, shells);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
+}
+
+/** pcurveTight's faces said: those caught (a warning, the fits they take), those it couldn't keep (an info). */
+function tightSaid(d: BrepData, t: Tight, fit: number, diagnostics: Diagnostic[]): void {
+  const name = (f: number) => d.face.id[f] ? `#${d.face.id[f]}` : `row ${f}`;
+  const list = (fs: number[]) => `${fs.slice(0, 10).map(name).join(', ')}${fs.length > 10 ? ', ...' : ''}`;
+  const caught = [...t.fit.keys()];
+  if (caught.length) {
+    const tightest = Math.min(...t.fit.values());
+    diagnostics.push({ severity: 'warning', message: `pcurveTight: ${caught.length} ${caught.length === 1 ? 'face'
+      : 'faces'} whose bare uses' projections at the face API's tolerance bound almost nothing in (u, v) where their `
+      + `exact feet bound a region given p-curves fitted within ${fit} mm`
+      + `${tightest < fit ? `, down to ${tightest.toPrecision(2)} mm where that collapses them too` : ''}: `
+      + `${list(caught)}` });
+  }
+  if (t.left.length) {
+    diagnostics.push({ severity: 'info', message: `pcurveTight: ${t.left.length} ${t.left.length === 1 ? 'face'
+      : 'faces'} whose bare uses' projections collapse their loop in (u, v) even fitted within ${MIN_FIT} mm left `
+      + `as they are: ${list(t.left)}` });
+  }
 }
 
 /** The warning for poles strayPole moved in an earlier healing, which healing again can't put back. */
