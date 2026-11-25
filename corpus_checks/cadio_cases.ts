@@ -79,6 +79,13 @@ const CASES: Case[] = [
   // split: the face's cut among its edges (part.cpp's addCuts), the split made (#1061562 past its deflection else).
   { file: 'models/onshape/LMP1.step', part: 172790, faces: [1061562, 1061570], why: 'a two-sample cut split' },
   { file: 'models/onshape/LaPavoni.step', part: 5805, faces: [31422, 31427], why: 'a two-sample cut split' },
+  // Faces whose boundary crossings the split rounds mend though the pairs named grow first, the crossing splits'
+  // stop not taken for them: bug29979's 2, 4, 4; VW #2400's #293058 2, 8 and #293030 30, ..., 10, 12, 14, 4, 2; VW
+  // #2391's #290867 12, 22, 10, 2, 4, 2.
+  { file: 'third_party/gkv311-opencascade-dataset/step/bug29979_firetherm_12.step', part: 168383, faces: [91413],
+    why: 'crossings growing once, then mended' },
+  { file: 'models/onshape/VW.step', part: 2400, faces: [293058, 293030], why: 'crossings growing, then mended' },
+  { file: 'models/onshape/VW.step', part: 2391, faces: [290867], why: 'crossings growing twice 1.5 x, then mended' },
 ];
 
 // A face's triangles past an aspect of 1000 in a result.
