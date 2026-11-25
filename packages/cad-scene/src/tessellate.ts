@@ -14,7 +14,7 @@ import type { BrepData } from 'cad-brep';
 import type { Diagnostic, FaceMeasures, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
 import type { TessellationResult, Tessellator } from './tessellator.ts';
-import { ORACLE_DISAGREE } from './area-oracle.ts';
+import { ORACLE_DISAGREE, ORACLE_REPLACE } from './area-oracle.ts';
 import { fillResult } from './fill.ts';
 import { joinResult } from './join.ts';
 import { orientResult, shellsOriented } from './orient.ts';
@@ -65,8 +65,8 @@ export interface TessellateOptions {
   measures?: boolean;
   /**
    * In the measures kept, a face's area and perimeter by the area oracle (the result's `oracle`, where it trusts
-   * them) in place of the backend's where the backend's are more than ORACLE_DISAGREE off, unsound or missing, with a
-   * warning per part: a backend can mesh a face wrongly and measure it as wrongly. Default true; false keeps the
+   * them) in place of the backend's where the backend's are unsound or missing, or more than ORACLE_DISAGREE off an
+   * oracle area whose error is within ORACLE_REPLACE of it, with a warning per part: a backend can mesh a face wrongly and measure it as wrongly. Default true; false keeps the
    * backend's.
    */
   oracle?: boolean;
@@ -260,9 +260,11 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
         let replaced = 0;
         if (opts.oracle ?? true) for (const o of r.oracle ?? []) {
           const m = faces.get(o.entityId);
-          const agrees = m && m.valid && Number.isFinite(m.area)
-            && Math.abs(m.area - o.area) <= ORACLE_DISAGREE * o.area;
-          if (!agrees) {
+          // (An area without an error estimate is one the oracle trusts at its own level, ORACLE_RELATIVE.)
+          const sure = o.error === undefined || o.error <= ORACLE_REPLACE * o.area;
+          const keep = m && m.valid && Number.isFinite(m.area)
+            && (!sure || Math.abs(m.area - o.area) <= ORACLE_DISAGREE * o.area);
+          if (!keep) {
             // (A face the backend didn't measure, as truck can't, isn't a disagreement.)
             if (m) replaced++;
             add(o.entityId, { area: o.area, perimeter: o.perimeter, valid: true });
