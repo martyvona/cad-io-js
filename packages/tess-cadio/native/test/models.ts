@@ -148,6 +148,26 @@ function lune(a: number, c: number, off = 0, offC = 0, pcurves?: [number, number
   return b;
 }
 export const luneQuarter = (): BrepBuilder => lune(Math.PI / 4, 3 * Math.PI / 4);
+/**
+ * luneQuarter under an uncertainty of 1e-3, its meridians stopping 2e-4 short of the north pole, joined there by a
+ * line 2.8e-4 long: an edge given as a curve that lies wholly within the tolerance of the pole (LMP1 #172427's
+ * #1039657's ends), projected anywhere along the pole line.
+ */
+export function luneTinyPoleEdge(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-3 });
+  const a = Math.PI / 4, c = 3 * Math.PI / 4, top = Math.PI / 2 - 2e-4;
+  const at = (u: number) => [Math.cos(u) * Math.cos(top), Math.sin(u) * Math.cos(top), Math.sin(top)];
+  const s = b.addVertex({ point: [0, 0, -1] }), na = b.addVertex({ point: at(a) }), nc = b.addVertex({ point: at(c) });
+  const ma = b.addEdge({ curve: meridian(b, a), start: s, end: na, sameSense: true, range: [-Math.PI / 2, top] });
+  const mc = b.addEdge({ curve: meridian(b, c), start: s, end: nc, sameSense: true, range: [-Math.PI / 2, top] });
+  const pa = at(a), pc = at(c), len = Math.hypot(pa[0]! - pc[0]!, pa[1]! - pc[1]!);
+  const tiny = b.addEdge({ curve: b.addCurve({ kind: 'line', point: pc, direction: [(pa[0]! - pc[0]!) / len,
+    (pa[1]! - pc[1]!) / len, 0], magnitude: 1 }), start: nc, end: na, sameSense: true, range: [0, len] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'sphere', position: AXIS, radius: 1 }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [{ edge: mc, orientation: 'forward' },
+      { edge: tiny, orientation: 'forward' }, { edge: ma, orientation: 'reversed' }] }] }));
+  return b;
+}
 /** The lune's west meridian on the sphere's seam (u = 0): its side, by inversion, decided by no neighbour. */
 export const luneOnSeam = (): BrepBuilder => lune(0, Math.PI / 2);
 /**
@@ -2539,6 +2559,7 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 }
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
+  luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
   seamConeTurned, coneApexLoop: () => coneApexLoop(), coneApexLoopTurned: () => coneApexLoop(true),

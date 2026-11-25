@@ -249,6 +249,57 @@ TEST_CASE("a ring's pieces: each chord within the deflection of the ring, each t
   }
 }
 
+TEST_CASE("a ring's cuts exact all together or not at all: not where an edge's approaches spread past the reach") {
+  // A ring at one of the cube's corners, reach 0.3, its three edges approaching at that corner: every cut exact. One
+  // edge given a second approach 0.25 along it (within the reach): still. At 0.5 along (an edge running along the
+  // pole past the reach): none of the ring's cuts exact, the others' too.
+  cadgeom::Model m = Setup::load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  o.maxSpacing = 0.1;
+  EdgeMesh em(m, o);
+  const Vec3 corner = em.edge(0).points.front();
+  PoleRing ring;
+  ring.pole = corner;
+  ring.reach = 0.3;
+  int first = -1;
+  for (int e = 0; e < m.edges(); e++) {
+    const EdgeSamples& s = em.edge(e);
+    for (bool front : {true, false})
+      if (cadgeom::norm((front ? s.points.front() : s.points.back()) - corner) == 0) {
+        ring.approaches.push_back({e, front ? s.t.front() : s.t.back()});
+        if (first < 0) first = e;
+      }
+  }
+  REQUIRE(ring.approaches.size() == 3u);
+  auto all = [&](bool want) {
+    const std::vector<RingCut> cuts = ringCuts(em, ring);
+    bool same = !cuts.empty();
+    for (const RingCut& c : cuts) same = same && c.exact == want;
+    return same;
+  };
+  CHECK(all(true));
+  // (Approaches of different edges far apart are no edge's spread: an edge away from the corner, at its start.)
+  for (int e = 0; e < m.edges(); e++) {
+    const EdgeSamples& s = em.edge(e);
+    if (cadgeom::norm(s.points.front() - corner) < 0.9 || cadgeom::norm(s.points.back() - corner) < 0.9) continue;
+    ring.approaches.push_back({e, s.t.front()});
+    CHECK(all(true));
+    ring.approaches.pop_back();
+    break;
+  }
+  // (The first edge's parameter at a distance x from the corner along it: the cube's edges are unit lines.)
+  const EdgeSamples& s = em.edge(first);
+  const bool front = cadgeom::norm(s.points.front() - corner) == 0;
+  auto along = [&](double x) { return front ? s.t.front() + x * (s.t.back() - s.t.front())
+    : s.t.back() + x * (s.t.front() - s.t.back()); };
+  ring.approaches.push_back({first, along(0.25)});
+  CHECK(all(true));
+  ring.approaches.back().second = along(0.5);
+  CHECK(all(false));
+}
+
 TEST_CASE("one reach per pole across its faces: the least any asks, each face's radius for it") {
   // poleLunes: the unit sphere's lune and a radius 3 sphere's meet at (0, 0, 1); the flatter one's fans pass farther
   // out. Shared, both reach the unit one's; their south poles (apart) keep their own.

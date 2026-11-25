@@ -1123,6 +1123,23 @@ TEST_CASE("a tube open at its seam by more than its tolerance: not closed in fac
   CHECK(fm.triangles.empty());
 }
 
+TEST_CASE("the same tube at 1e-3: its crossings, which splits don't mend, not asked to be split once they've grown "
+  "1.5 x three times in a row: failed at its third round, not refined round after round") {
+  // (At 1e-3 its cut runs through its edge's samples, the pairs the mesher names growing with each round's splits:
+  // 191, 300, 514, 900. The rounds held to 8, so that asking every round shows in them.)
+  cadgeom::Model m = load("tubeGapOpen");
+  REQUIRE(m.ok());
+  PartOptions o = options(1e-3, 0.1);
+  o.maxSplitRounds = 8;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  CHECK(fm.status != cadgeom::Status::ok);
+  CHECK(fm.triangles.empty());
+  CHECK(fm.cause.rfind("its boundary in (u, v) through its own point", 0) == 0);
+  CHECK_EQ(fm.splitsWanted, 0);
+  CHECK_EQ(pm.rounds(), 3);
+}
+
 TEST_CASE("a sphere's pole: its normal the limit, never NaN; the whole sphere (no loops) its natural extent") {
   cadgeom::Model m = load("spheres");
   REQUIRE(m.ok());

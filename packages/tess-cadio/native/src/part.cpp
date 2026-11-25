@@ -152,6 +152,14 @@ struct PartMesher::Impl {
   std::vector<std::vector<SurfaceCriteria::Crease>> creaseLines;
   std::vector<Box2> critBox;
   std::vector<char> retried, retriedKept, sliver;
+  /**
+   * Per face, the pairs its last refused meshing named (SIZE_MAX: none yet) and how many refusals in a row they've
+   * grown past kCrossingGrowth x the last's: no crossing splits once that is kCrossingRuns.
+   */
+  std::vector<size_t> crossingsBefore;
+  std::vector<int> crossingRuns;
+  static constexpr double kCrossingGrowth = 1.5;
+  static constexpr int kCrossingRuns = 3;
   std::vector<double> capKeep, patchRatio;
   /** The memos' bytes together (estimated; declared first, as their destructors count it down). */
   size_t memoBytes = 0, memoPeak = 0;
@@ -1877,12 +1885,21 @@ struct PartMesher::Impl {
       // closer than their chords' sag (a ring thinner than the deflection): no criterion of either edge sees it, and
       // a few spans a round wouldn't mend many crossings within the rounds.
       // (A pair that is one point, or that has a pole line's or a vertex loop's point, is no edge's span and no
-      // request; one between two edges' samples that is none is dropped, counted.)
+      // request; one between two edges' samples that is none is dropped, counted.) None once the pairs named have grown
+      // past kCrossingGrowth x the last refusal's at kCrossingRuns refusals in a row: where splits don't mend them (a
+      // tube open at its seam by more than its tolerance, its cut through its edge's samples however fine) each
+      // round's splits make more, by about 1.6 to 1.9 x, round after round; the faces they mend grow so at most once
+      // in a row (VW #2400's #293030: 10, 12, 14, then mended), slower ones twice.
       auto sampled = [&](int32_t i) {
         return i >= 0 && i < static_cast<int32_t>(bp.size()) && (bp[i].kind == BoundaryPoint::edgeSample ||
           bp[i].kind == BoundaryPoint::pseudoSample);
       };
-      if (mesh.rejected.size() >= 4)
+      const size_t pairs = mesh.rejected.size() / 2;
+      const bool grew = crossingsBefore[f] != SIZE_MAX && pairs > kCrossingGrowth * crossingsBefore[f];
+      crossingRuns[f] = grew ? crossingRuns[f] + 1 : 0;
+      crossingsBefore[f] = pairs;
+      const bool progress = crossingRuns[f] < kCrossingRuns;
+      if (mesh.rejected.size() >= 4 && progress)
         for (size_t k = 0; k + 1 < mesh.rejected.size(); k += 2) {
           const int32_t a = mesh.rejected[k], b = mesh.rejected[k + 1];
           int edge, span;
@@ -2142,7 +2159,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
   I.creaseLines.assign(nf, {}), I.critBox.assign(nf, {}), I.retried.assign(nf, 0), I.retriedKept.assign(nf, 0);
-  I.sliver.assign(nf, 0);
+  I.sliver.assign(nf, 0), I.crossingsBefore.assign(nf, SIZE_MAX), I.crossingRuns.assign(nf, 0);
   I.capKeep.assign(nf, 0), I.patchRatio.assign(nf, 0);
   I.memos.resize(nf);
   I.meshedAt.assign(nf, 0);

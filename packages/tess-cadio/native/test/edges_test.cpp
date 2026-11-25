@@ -1027,6 +1027,56 @@ TEST_CASE("a curve crossing its neighbour within the tolerance beside their vert
   }
 }
 
+TEST_CASE("a ring's crossing within the refinement floor of its approach: the cut made only where exact") {
+  // The cube's edge 0 at its start vertex, a crossing 1e-5 along (inside the refinement floor, 1e-4 here): without
+  // RingCut::exact it is the approach's sample, no cut made (invalidModel, the edge as it was); with it, the crossing
+  // where it is, the ring's span empty between.
+  cadgeom::Model m = load("cube");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  o.maxSpacing = 0.25;
+  for (bool exact : {false, true}) {
+    EdgeMesh em(m, o);
+    const int e = 0;
+    const std::vector<double> t0 = em.edge(e).t;
+    const double a = t0.front(), c = t0.front() + 1e-5 * (t0.back() - t0.front());
+    RingCut cut{e, a, c};
+    cut.exact = exact;
+    const cadgeom::Status st = em.cutRings({cut});
+    const EdgeSamples& s = em.edge(e);
+    if (!exact) {
+      CHECK(st == cadgeom::Status::invalidModel);
+      CHECK(s.t == t0);
+      CHECK(s.rings.empty());
+      continue;
+    }
+    CHECK(st == cadgeom::Status::ok);
+    REQUIRE(s.t.size() == t0.size() + 1);
+    CHECK_EQ(s.t[1], c);
+    CHECK_EQ(s.rings.size(), 1u);
+    CHECK_EQ(checkCoedges(m, em, 1e-9, "cube exact ring"), 0);
+  }
+}
+
+TEST_CASE("an edge lying wholly within the tolerance of a pole is the pole: left out of its loop's chain") {
+  // luneTinyPoleEdge: the quarter lune's meridians joined 2e-4 short of the north pole by a line 2.8e-4 long under
+  // an uncertainty of 1e-3 (the model's third edge): none of its samples in the loop, the jump between the
+  // meridians filling the pole line the face's way; the lune's area pi.
+  cadgeom::Model m = load("luneTinyPoleEdge");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 1e-3;
+  EdgeMesh em(m, o);
+  FaceBoundary fb = em.face(0);
+  REQUIRE(fb.status == cadgeom::Status::ok);
+  int tiny = 0;
+  for (const auto& l : fb.loops)
+    for (const BoundaryPoint& p : l) tiny += p.kind == BoundaryPoint::edgeSample && p.edgeIndex == 2;
+  CHECK_EQ(tiny, 0);
+  CHECK(std::fabs(meshArea(m, 0, fb, 0.05, 1e-4) - M_PI) < 1e-2);
+}
+
 TEST_CASE("a span with no width in parameter never split, however long (an end vertex off its curve's end)") {
   cadgeom::Model m = load("cube");
   REQUIRE(m.ok());

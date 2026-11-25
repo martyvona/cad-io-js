@@ -1,5 +1,5 @@
 // The viewer's controls, in lil-gui (docs/viewer.md): opening a local file or a URL (also by dropping files on
-// the page, or ?model= in the page's address), zoom all, the views along the axes, full screen, the tree panel and
+// the page, or ?model= in the page's address), full screen, zoom all, the views along the axes, the tree panel and
 // hiding; a status line for what's loading and what went wrong. Every folder starts closed.
 
 import * as THREE from 'three';
@@ -38,7 +38,9 @@ import type { Pick } from './pick.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
 import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
+import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
 import { askScreenshot } from './screenshot-dialog.ts';
+import { showLink } from './link-dialog.ts';
 import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
   from './screenshot.ts';
 
@@ -126,11 +128,11 @@ export interface Ui {
    */
   notice(title: string, intro: string, items?: readonly string[], error?: boolean): Promise<void>;
   /**
-   * Whether Copy link to this view spells out the settings whose defaults depend on the device (its Include device
+   * Whether Link to this view... spells out the settings whose defaults depend on the device (its Include device
    * defaults: the meshing profile and the edge style), even where they're this device's.
    */
   linkDeviceDefaults(): boolean;
-  /** The view's address, for "Copy link to this view" (set by the automation layer). */
+  /** The view's address, for "Link to this view..." (set by the automation layer). */
   link?: () => string;
   /** The controls (for the recorder, recorder.ts, and replay). */
   readonly gui: GUI;
@@ -166,7 +168,9 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 }
 
 const GNOMON_KEY = 'cad-viewer.gnomon';
-/** Copy link's Include device defaults, as remembered in this browser ('1' on; else off). */
+/** '1' once a physical keyboard has been seen in this browser (shortcuts.ts's fromKeyboard): the keys' hints shown. */
+const KEYBOARD_KEY = 'cad-viewer.keyboard';
+/** Link to this view...'s Include device defaults, as remembered in this browser ('1' on; else off). */
 const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
 /** The remembered choice (off where storage can't be read). */
 function linkDefaultsRemembered(): boolean {
@@ -545,14 +549,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!src) throw new Error('no model among the files (.stp, .step, .stpz, .glb, .gltf, .json, .3mf)');
     return src;
   }, files.map((f) => f.name).join(', '))) : undefined;
-  // The view's address to the clipboard (where the page may write it: a secure context), else shown to copy.
-  const copyLink = () => {
-    const href = ui.link?.();
-    if (!href) return;
-    const show = () => window.prompt('The link to this view:', href);
-    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(href).then(
-      () => say('link copied'), show);
-    else show();
+  // Link to this view...'s option, off by default, remembered in this browser: the device's defaults spelled out in
+  // the link (the profile, the edge style), so it shows the same on a phone as on a desktop.
+  const linkDefaults = { on: linkDefaultsRemembered() };
+  // The view's address in a dialog (link-dialog.ts), with the option and Copy.
+  const linkDialog = () => {
+    const link = ui.link;
+    if (!link) return;
+    return showLink({ link, defaults: linkDefaults.on, setDefaults: (on) => {
+      linkDefaults.on = on;
+      try {
+        localStorage.setItem(LINK_DEFAULTS_KEY, on ? '1' : '0');
+      } catch {
+        // Not remembered; it still applies now.
+      }
+    } });
   };
   // A model's URL (fetched here, unless the caller has fetched it already: replay checks its hash first).
   let lastUrl = '';
@@ -620,23 +631,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // buffer beside it asks again for the .bin.
   exportControl = file.add({ export: () => exportFile() }, 'export').name('Export...').disable();
   screenshotControl = file.add({ shot: () => screenshot() }, 'shot').name('Screenshot...').disable();
-  file.add({ about: () => about() }, 'about').name('About...');
+  file.add({ link: () => linkDialog() }, 'link').name('Link to this view...');
 
   const view = gui.addFolder('View');
-  view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
+  const zoomAll = view.add({ all: () => viewer.zoomAll() }, 'all').name('Zoom all');
   // Enabled while something is selected.
   const zoomSelected = view.add({ zoom: () => ui.zoomSelected() }, 'zoom').name('Zoom selected').disable();
-  view.add({ copy: () => copyLink() }, 'copy').name('Copy link to this view');
-  // Its option, off by default, remembered in this browser: the device's defaults spelled out in the link (the
-  // profile, the edge style), so it shows the same on a phone as on a desktop.
-  const linkDefaults = { on: linkDefaultsRemembered() };
-  view.add(linkDefaults, 'on').name('Include device defaults').onChange((on: boolean) => {
-    try {
-      localStorage.setItem(LINK_DEFAULTS_KEY, on ? '1' : '0');
-    } catch {
-      // Not remembered; it still applies now.
-    }
-  });
   // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
   const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
   viewer.showGnomon = axes.on;
@@ -648,10 +648,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.redraw();
   });
   const views = view.addFolder('Look Along an Axis');
-  const viewButtons = new Map<ViewName, HTMLElement>();
+  const viewButtons = new Map<ViewName, HTMLElement>(), viewControls = new Map<ViewName, unknown>();
   for (const v of Object.keys(VIEWS) as ViewName[]) {
     const c = views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
     viewButtons.set(v, (c as unknown as { $button: HTMLElement }).$button);
+    viewControls.set(v, c);
   }
   // A click on the gnomon presses the view's button, as the user would (recorded as that control).
   viewer.onGnomonView = (v) => viewButtons.get(v)!.click();
@@ -660,16 +661,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.setTheme(t);
     return t;
   };
-  const full = {
-    enter: () => void document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true)),
-    exit: () => void document.exitFullscreen().catch(() => {}),
-  };
-  const enter = view.add(full, 'enter').name('Enter full screen');
-  const exit = view.add(full, 'exit').name('Exit full screen');
+  // One button, saying which way it goes (as the page is now).
+  const full = { toggle: () => void (document.fullscreenElement ? document.exitFullscreen().catch(() => {})
+    : document.documentElement.requestFullscreen().catch((e: Error) => say(e.message, true))) };
+  const fullControl = file.add(full, 'toggle').name('Enter fullscreen');
   const fullscreen = () => {
+    fullControl.name(document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
     // Disabled where the page can't go full screen (iPhone, some embedded browsers).
-    enter.enable(document.fullscreenEnabled && !document.fullscreenElement);
-    exit.enable(!!document.fullscreenElement);
+    fullControl.enable(document.fullscreenEnabled || !!document.fullscreenElement);
     // Leaving full screen, a phone's browser can leave the page scrolled as its toolbar comes back, the top of the view
     // (the details box) under it (seen on a phone): back to the top, once now and once the toolbar has settled.
     if (!document.fullscreenElement) for (const t of [0, 400]) setTimeout(() => window.scrollTo(0, 0), t);
@@ -679,21 +678,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const first = setTheme(theme.choice);
   // Auto follows the system as it changes.
   onSystemTheme(() => { if (theme.choice === 'auto') setTheme('auto'); });
-  view.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
+  file.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
     .onChange((c: ThemeChoice) => setTheme(c));
-  // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
-  // theme's colour); remembered in this browser.
-  const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
-  const backdrop = () => {
-    picker.enable(background.on);
-    applyCustomBackground(background);
-    viewer.setBackground(background.on ? parseInt(background.color.slice(1), 16) : undefined);
-  };
-  view.add(background, 'on').name('Custom background').onChange(backdrop);
-  const picker = view.addColor(background, 'color').name('Background').onChange(backdrop);
-  backdrop();
   fullscreen();
-  // Filled once what they drive exists (below), as are View's Details and what follows it.
+  file.add({ about: () => about() }, 'about').name('About...');
+  // Filled once what they drive exists (below).
   const treeFolder = gui.addFolder('Tree');
   const selFolder = gui.addFolder('Selection');
 
@@ -751,8 +740,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     });
   edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
   edgeWidth.show(look.edgeStyle === 'fat');
-  rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' }).name('Triangle edges')
-    .onChange(restyle);
+  const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
+    .name('Triangle edges').onChange(restyle);
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
     rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle),
     rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle),
@@ -763,6 +752,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     for (const c of lights) c.updateDisplay();
     restyle();
   } }, 'reset').name('Reset lighting to defaults');
+  // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
+  // theme's colour); remembered in this browser.
+  const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
+  const backdrop = () => {
+    picker.enable(background.on);
+    applyCustomBackground(background);
+    viewer.setBackground(background.on ? parseInt(background.color.slice(1), 16) : undefined);
+  };
+  rendering.add(background, 'on').name('Custom background').onChange(backdrop);
+  const picker = rendering.addColor(background, 'color').name('Background').onChange(backdrop);
+  backdrop();
   const capStyle = sectionFolder.add(look, 'capStyle', { 'Drawing (beige)': 'drawing', 'Part colours': 'parts' })
     .name('Cap style').onChange(restyle);
   const hatchWidth = sectionFolder.add(look, 'hatchWidth', 0.25, 4, 0.01).name('Hatch width (pixels)')
@@ -1127,14 +1127,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     selectChildren: (ids = selected) => {
       const nodes = viewer.nodes;
-      if (!nodes || !panel) return;
-      // A part's children are its detail, which has nodes only with the tree's detail on.
-      if (!nodes.hasDetail() && ids.some((id) => nodes.nodes[id]!.kind === 'part')) {
-        tree.detail = true;
-        panel.setDetail(true);
-        detailControl?.updateDisplay();
-      }
-      select([...new Set(ids.flatMap((id) => nodes.children(id)))]);
+      if (!nodes) return;
+      // What the tree shows below each: a part's faces, edges and curves only with its detail on (children() gives
+      // none without). None at all: the selection as it was.
+      const children = [...new Set(ids.flatMap((id) => nodes.children(id)))];
+      if (children.length) select(children);
     },
     selectAll: () => {
       const ids = everything();
@@ -1231,7 +1228,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     set onEvent(f) { hooks.onEvent = f; },
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
-  // Selection: picking and selecting. View, after its own: Details, hiding and showing, transparency. Tree: the panel.
+  // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part', 'Face, edge, curve': 'detail' })
     .name('Pick');
   selFolder.add(selection, 'multi').name('Multi-select (touch)');
@@ -1242,16 +1239,16 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(ui, 'invertSelection').name('Invert selection');
   selFolder.add({ byId: selectById }, 'byId').name('Select by ID...');
-  view.add(selection, 'details').name('Details').onChange(describe);
-  view.add(ui, 'hideSelected').name('Hide selected');
-  view.add(ui, 'showSelected').name('Show selected');
-  view.add(ui, 'hideOthers').name('Hide others');
-  view.add(ui, 'showOthers').name('Show others');
-  view.add(ui, 'showAll').name('Show all');
+  selFolder.add(selection, 'details').name('Details').onChange(describe);
+  const hideControl = selFolder.add(ui, 'hideSelected').name('Hide selected');
+  const showControl = selFolder.add(ui, 'showSelected').name('Show selected');
+  selFolder.add(ui, 'hideOthers').name('Hide others');
+  selFolder.add(ui, 'showOthers').name('Show others');
+  selFolder.add(ui, 'showAll').name('Show all');
   // Transparency: the selection at this opacity, or back to the file's.
-  view.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
-  view.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
-  view.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
+  selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
+  selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
+  selFolder.add({ restore: () => ui.setOpacity(undefined) }, 'restore').name('Restore opacity');
   openControl = treeFolder.add(tree, 'open').name('Show the tree').onChange((open: boolean) => {
     setOpen(open);
     if (!open && viewer.nodes) tree.closedByHand = true;
@@ -1262,6 +1259,47 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   treeFolder.add({ collapse: () => panel?.collapseAll() }, 'collapse').name('Collapse all');
 
   for (const f of gui.foldersRecursive()) f.close();
+
+  // The keyboard shortcuts (shortcuts.ts): each presses its control, or sets it and finishes the change, as a click
+  // would (recorded as that control).
+  const press = (c: unknown) => (c as { $button: HTMLElement }).$button.click();
+  const set = (c: { setValue(v: unknown): unknown }, v: unknown) => {
+    c.setValue(v);
+    (c as unknown as { _callOnFinishChange(): void })._callOnFinishChange();
+  };
+  // Each control's key, greyed after its name (index.html's .cv-key; not on touch screens).
+  const hint = (c: unknown, key: string) => (c as { $name: HTMLElement }).$name.append(Object.assign(
+    document.createElement('span'), { className: 'cv-key', textContent: key }));
+  hint(zoomAll, 'f');
+  hint(zoomSelected, 'f');
+  VIEW_KEYS.forEach((v, i) => hint(viewControls.get(v), String(i + 1)));
+  hint(hideControl, 'h');
+  hint(showControl, 's');
+  hint(openControl, 't');
+  hint(triangleEdges, 'g');
+  // The hints show where there's a mouse or trackpad (index.html), and once a physical keyboard has been seen (a class
+  // on the page, remembered in this browser): a tablet's keyboard alone isn't told to the page any other way.
+  const keyboardSeen = () => document.documentElement.classList.add('cv-keyboard');
+  try {
+    if (localStorage.getItem(KEYBOARD_KEY) === '1') keyboardSeen();
+  } catch { /* not remembered */ }
+  window.addEventListener('keydown', (e) => {
+    if (!document.documentElement.classList.contains('cv-keyboard') && fromKeyboard(e)) {
+      keyboardSeen();
+      try {
+        localStorage.setItem(KEYBOARD_KEY, '1');
+      } catch { /* not remembered */ }
+    }
+    const s = shortcutOf(e);
+    if (!s) return;
+    e.preventDefault();
+    if (s.type === 'zoom') press(selected.length ? zoomSelected : zoomAll);
+    else if (s.type === 'view') viewButtons.get(s.view)!.click();
+    else if (s.type === 'hide') press(hideControl);
+    else if (s.type === 'show') press(showControl);
+    else if (s.type === 'tree') set(openControl!, !tree.open);
+    else set(triangleEdges, nextTriangleEdges(look.triangleEdges, selected.length > 0));
+  });
 
   // Dropped files, anywhere on the page.
   window.addEventListener('dragover', (e) => e.preventDefault());
