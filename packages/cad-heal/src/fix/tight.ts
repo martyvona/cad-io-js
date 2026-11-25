@@ -6,9 +6,10 @@
 // fit there still collapses the loop, down to MIN_FIT. Only where the loose image's (u, v) area is under LOOSE_SHARE of
 // the domain's (cheap: the projections the curves' fixes make anyway) are the loop's points inverted (its exact feet);
 // a face whose exact feet bound as little (a thin face along a side its surface spans, its loose fit right) is left,
-// and so is one whose loop winds a period (its image doesn't close) or has a seam, or whose surface has a pole.
+// and so is one whose loop winds a period (its image doesn't close) or doesn't chain. Each loop's coedges are taken
+// in the order they run (chained), whatever order the source lists them in.
 
-import { type BrepData, LOOP_KIND, SURFACE_KIND } from 'cad-brep';
+import { type BrepData, LOOP_KIND, ORIENTATION, SURFACE_KIND } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
 
 /** The loose image's (u, v) area at most this share of the domain's (its finite spans, else the image's): worth
@@ -50,6 +51,29 @@ function uvArea(uv: Float64Array | number[], pu: number, pv: number): number {
   return a / 2;
 }
 
+/**
+ * Loop `l`'s coedges in the order they run, each starting where the last ended (a source may list them otherwise:
+ * the builder lists them so, a source needn't); undefined where they don't make one closed chain.
+ */
+export function chained(d: BrepData, l: number): number[] | undefined {
+  const first = d.loop.first[l]!, n = d.loop.count[l]!;
+  // (An internal or external use bounds nothing on either side: no chain.)
+  for (let c = first; c < first + n; c++) if (d.coedge.orientation[c]! > ORIENTATION.reversed) return undefined;
+  const ends = (c: number) => {
+    const e = d.coedge.edge[c]!, fwd = d.coedge.orientation[c] === ORIENTATION.forward;
+    return fwd ? [d.edge.start[e]!, d.edge.end[e]!] : [d.edge.end[e]!, d.edge.start[e]!];
+  };
+  const left = new Set(Array.from({ length: n }, (_, i) => first + i)), out = [first];
+  left.delete(first);
+  while (left.size) {
+    const at = ends(out[out.length - 1]!)[1]!;
+    const next = [...left].find((c) => ends(c)[0] === at);
+    if (next === undefined) return undefined;
+    out.push(next), left.delete(next);
+  }
+  return ends(out[out.length - 1]!)[1] === ends(first)[0] ? out : undefined;
+}
+
 /** The faces of `d` pcurveTight catches (`g` its geometry), and the tolerance each is to be fitted at. */
 export function tightFaces(g: Geometry, d: BrepData, fitTolerance: number): Tight {
   const out: Tight = { fit: new Map(), left: [] };
@@ -59,28 +83,24 @@ export function tightFaces(g: Geometry, d: BrepData, fitTolerance: number): Tigh
     // The face's edge loops' coedges, and whether any is bare.
     const loops: number[][] = [];
     let bare = false;
+    let chains = true;
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
-      const cs: number[] = [];
-      for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
-        cs.push(c);
-        if (d.coedge.pcurve[c]! < 0) bare = true;
-      }
+      const cs = chained(d, l);
+      if (!cs) { chains = false; break; }
+      for (const c of cs) if (d.coedge.pcurve[c]! < 0) bare = true;
       loops.push(cs);
     }
-    // (A seam, an edge used twice: its two uses are the face API's to tell apart, not this image's.)
-    const edges = loops.flat().map((c) => d.coedge.edge[c]!);
-    if (!bare || !loops.length || new Set(edges).size < edges.length) continue;
-    // (A surface with a pole or apex: its (u, v) at the singularity is any, so neither image's area means much.)
-    const si = g.surfaceInfo(surface), sing = g.surfaceSingularities(surface);
-    if (si.status !== 'ok' || sing.status !== 'ok' || sing.singularities.length) continue;
+    if (!chains || !bare || !loops.length) continue;
+    const si = g.surfaceInfo(surface);
+    if (si.status !== 'ok') continue;
     // Each coedge's samples along its use, their points and their loose (u, v).
     const ts = new Map<number, number[]>(), xyz = new Map<number, V[]>(), loose = new Map<number, Float64Array>();
     let ok = true;
     for (const c of loops.flat()) {
       const e = d.coedge.edge[c]!, r = g.edgeParams(e);
       if (r.status !== 'ok' || d.edge.curve[e]! < 0) { ok = false; break; }
-      const fwd = d.coedge.orientation[c] === 1;
+      const fwd = d.coedge.orientation[c] === ORIENTATION.forward;
       const t = Array.from({ length: N }, (_, i) => fwd ? r.t0 + (r.t1 - r.t0) * i / (N - 1)
         : r.t1 + (r.t0 - r.t1) * i / (N - 1));
       const ev = g.evalCoedge(c, t, 0), p = g.evalCurve(d.edge.curve[e]!, t, 0).values;
