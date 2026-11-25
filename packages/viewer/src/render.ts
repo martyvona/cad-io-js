@@ -10,6 +10,7 @@
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import type { Pass } from 'three/addons/postprocessing/Pass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
@@ -25,6 +26,8 @@ export class Composer {
   private readonly smaa: SMAAPass;
   private settings: RenderSettings = { ...DEFAULT_RENDER };
   private readonly camera: THREE.Camera;
+  /** A pass after all the others (the highlights' silhouette: outline.ts), drawn while it's enabled. */
+  private final?: Pass;
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number,
     height: number) {
@@ -49,6 +52,7 @@ export class Composer {
       this.composer.addPass(this.output);
     }
     if (s.smaa) this.composer.addPass(this.smaa);
+    if (this.final) this.composer.addPass(this.final);
     const c = this.n8ao.configuration;
     this.n8ao.setQualityMode(s.aoQuality);
     c.intensity = s.aoIntensity;
@@ -57,6 +61,12 @@ export class Composer {
     c.distanceFalloff = 0.2;
     if (s.edges) this.camera.layers.enable(EDGES);
     else this.camera.layers.disable(EDGES);
+  }
+
+  /** The last pass (after SMAA, so its lines are its own antialiasing's). */
+  setFinal(pass: Pass): void {
+    this.final = pass;
+    this.set(this.settings);
   }
 
   /** Whether the scene has transparent materials, for N8AO (which then renders them apart). */

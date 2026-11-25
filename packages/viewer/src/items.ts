@@ -5,6 +5,7 @@
 // made with. Every such object is indexed, points too (one index each), so items are index ranges alike.
 
 import * as THREE from 'three';
+import { itemIndexAttribute, PICK_INDEX } from './pick-ids.ts';
 
 /** An item: its source id (null: none known), and its range of the object's full index. */
 export interface Item { source: number | null; start: number; count: number }
@@ -21,9 +22,17 @@ interface Kept {
 
 const kept = new WeakMap<THREE.Object3D, Kept>();
 
-/** Gives an object its items (its geometry has every one now). */
+/**
+ * Gives an object its items (its geometry has every one now), and its geometry each vertex's item (pick-ids.ts's
+ * `pickIndex`; once per geometry, which placements share).
+ */
 export function setItems(o: THREE.Object3D & { geometry: THREE.BufferGeometry }, items: readonly Item[]): void {
   kept.set(o, { items, full: o.geometry, now: items, key: '' });
+  const g = o.geometry;
+  if (!g.getAttribute(PICK_INDEX) && g.index) {
+    g.setAttribute(PICK_INDEX, new THREE.BufferAttribute(itemIndexAttribute(g.index.array, items,
+      g.getAttribute('position').count), 1));
+  }
 }
 
 /** An object's items, as made (none for an object without). */
