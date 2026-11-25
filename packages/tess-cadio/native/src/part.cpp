@@ -880,18 +880,6 @@ struct PartMesher::Impl {
         for (const PoleRing& pr : rings[asker]) own = own || norm(pr.pole - ring->pole) <= tol;
         for (const Vec3& q : unshrinkable) own = own || norm(q - ring->pole) <= tol;
         if (own) continue;
-        // (A pole with a free-form face only for an elementary face's request: a free-form face's request there,
-        // its ring smaller, leaves slivers along its pole row that turn against the surface; an elementary one's
-        // dropped would leave it past its deflection beside the ring, asking every round.)
-        auto elementary = [&](size_t f) {
-          const int kind = m.surfaceKind(m.faceSurface(static_cast<int>(f)));
-          return kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS;
-        };
-        bool freeForm = false;
-        for (size_t f = 0; f < rings.size(); f++)
-          for (const PoleRing& pr : rings[f])
-            if (norm(pr.pole - ring->pole) <= tol) freeForm = freeForm || !elementary(f);
-        if (freeForm && !elementary(asker)) continue;
         const double reach = std::max(norm(at - ring->pole), floor);
         if (!(reach < ring->reach)) continue;
         size_t k = 0;

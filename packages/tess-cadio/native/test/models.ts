@@ -954,9 +954,10 @@ export const bsplineApexHole = (): BrepBuilder => bsplineApex(1e-4);
  * x axis from the origin to P, the line up from P to Q and the arc K back to the origin, K on the circle of radius
  * sqrt 1/2 about (0.5, -0.5, 0) (from 70 to 135 degrees); and that circle's cylinder below K down to z = -h, faced
  * out. The sector's fans are flat, so its ring at the pole is wide, while K bends: the cylinder wants K finer inside
- * the sector's ring than the ring lets it be.
+ * the sector's ring than the ring lets it be. With `spline`, the wall the same cylinder as a rational B-spline (u the
+ * arc as one rational quadratic, v down the axis), a free-form face too.
  */
-export function sectorWall(h = 0.3): BrepBuilder {
+export function sectorWall(h = 0.3, spline = false): BrepBuilder {
   const b = new BrepBuilder();
   const arcPoles = [[1, 0, 0], [1, 1, 0], [0, 1, 0]];
   const sector = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
@@ -980,8 +981,16 @@ export function sectorWall(h = 0.3): BrepBuilder {
   const top = b.addFace({ surface: sector, sameSense: false, loops: [{ kind: 'edge', bound: 'outer', sense: true,
     coedges: [{ edge: eOP, orientation: 'forward' }, { edge: ePQ, orientation: 'forward' },
       { edge: K, orientation: 'forward' }] }] });
-  const wall = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: { origin: [c[0]!, c[1]!, 0],
-    axis: [0, 0, 1], xDir: [1, 0, 0] }, radius: r }), sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+  // (The B-spline's own normal is in, S_u x S_v with u along the arc counterclockwise and v down: faced out against
+  // it.)
+  const half = (t1 - t0) / 2, tm = (t0 + t1) / 2, rm = r / Math.cos(half);
+  const arc = [onCircle(t0, 0), [c[0]! + rm * Math.cos(tm), c[1]! + rm * Math.sin(tm), 0], onCircle(t1, 0)];
+  const cylinder = spline ? b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arc.map((q) => [q, [q[0]!, q[1]!, -h]]),
+    weights: [1, Math.cos(half), 1].map((w) => [w, w]), uClosed: false, vClosed: false, selfIntersect: false,
+    form: 'unspecified' }) : b.addSurface({ kind: 'cylinder', position: { origin: [c[0]!, c[1]!, 0], axis: [0, 0, 1],
+    xDir: [1, 0, 0] }, radius: r });
+  const wall = b.addFace({ surface: cylinder, sameSense: !spline, loops: [{ kind: 'edge', bound: 'outer',
     sense: true, coedges: [{ edge: Kb, orientation: 'forward' }, { edge: eOb, orientation: 'forward' },
       { edge: K, orientation: 'reversed' }, { edge: eQ, orientation: 'forward' }] }] });
   const shell = b.addShell({ kind: 'open', faces: [{ face: top, sense: true }, { face: wall, sense: true }] });
@@ -2600,7 +2609,7 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 }
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
-  sectorWall: () => sectorWall(),
+  sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true),
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
