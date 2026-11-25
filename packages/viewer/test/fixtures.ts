@@ -3,6 +3,7 @@
 
 import { identity, type Mat4, type Mesh, type Scene } from 'cad-scene';
 import { BrepBuilder } from 'cad-brep';
+import type { NodeModel } from '../src/model.ts';
 
 export const translation = (x: number, y: number, z: number): Mat4 => {
   const m = identity();
@@ -58,3 +59,7 @@ export function scene(): Scene {
   };
 }
 
+
+/** A part node's detail: its groups, each followed by its nodes (model.ts). */
+export const detailOf = (m: NodeModel, part: number): number[] => m.children(part).flatMap((g) =>
+  [g, ...m.children(g)]);

@@ -10,7 +10,7 @@ import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 10;
+const API_VERSION = 11;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -317,8 +317,9 @@ export class CadioTessellator implements Tessellator {
     // (Pointers come back as signed 32-bit numbers: unsigned, as the module's memory may pass 2 GB.)
     const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
-    // (The part's analysis where healing gave one: its healed p-curves placed as projected, faces through edges or
-    // vertices past repair failed. malloc's blocks are 8-byte aligned, as the analysis's columns need.)
+    // (The part's analysis where healing gave one: its healed p-curves placed as projected, edges and vertices grown
+    // past repair judged at their starting tolerances. malloc's blocks are 8-byte aligned, as the analysis's columns
+    // need.)
     const an = req.analysis?.length ? m._malloc(req.analysis.length) >>> 0 : 0;
     if (an) m.HEAPU8.set(req.analysis!, an);
     m._tc_set_analysis(an, an ? req.analysis!.length : 0);
@@ -471,11 +472,14 @@ export class CadioTessellator implements Tessellator {
         + `edge's, crease's or ring's segment): ${dropped.map((id, i) => `#${id} (${droppedCount[i]})`).join(', ')}` });
     }
     // (Faces kept with a defect rather than failed: [id, turned, deviation over max(d, tol), capped, past the
-    // limits] each; in the result's `defects` too.)
-    const kept = Array.isArray(diag['kept']) ? diag['kept'] as [number, number, number, number, number][] : [];
+    // limits, its edges off its surface (1 an edge, 2 a vertex, 0 none), that one's id, its distance in mm] each; in
+    // the result's `defects` too.)
+    type Kept = [number, number, number, number, number, number, number, number];
+    const kept = Array.isArray(diag['kept']) ? diag['kept'] as Kept[] : [];
     if (kept.length) {
-      const what = ([, turned, dev, capped, past]: [number, number, number, number, number]) => [
-        turned ? `${turned} triangles turned` : '', dev ? `${past ? 'at least ' : ''}${dev} x the larger of d and tol`
+      const what = ([, turned, dev, capped, past, offKind, offId, off]: Kept) => [
+        turned ? `${turned} triangles turned` : '', dev ? `${past && !offKind ? 'at least ' : ''}${dev} x the larger `
+          + 'of d and tol' : '', offKind ? `${offKind === 1 ? 'edge' : 'vertex'} #${offId} ${off} mm off its surface`
           : '', capped ? 'at its point cap' : '', past ? 'past the limits' : '',
       ].filter(Boolean).join(', ');
       result.defects = kept.map((k) => ({ entityId: k[0], pastLimits: k[4] === 1, what: what(k) }));

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { identity, multiply, type Mesh } from 'cad-scene';
-import { plate, scene, translation, wire } from './fixtures.ts';
+import { detailOf, plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
 import { capCeilingOf, defaultSettings, fallbackOf, workerCount } from '../src/tessellation.ts';
@@ -204,7 +204,7 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     const model = new NodeModel(graph.root, graph);
     model.setDetail(true);
     const parts = model.nodes.filter((n) => n.kind === 'part' && n.name === 'plate');
-    const faces = model.children(parts[0]!.id).filter((c) => model.nodes[c]!.kind === 'face');
+    const faces = detailOf(model, parts[0]!.id).filter((c) => model.nodes[c]!.kind === 'face');
     const failed = faces.find((c) => model.nodes[c]!.face!.source === 7)!;
     const ok = faces.find((c) => model.nodes[c]!.face!.source === 8)!;
     assert.deepEqual([model.failure(failed), model.failure(ok), model.failure(parts[0]!.id)],
@@ -257,9 +257,11 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   const model = new NodeModel(graph.root, graph);
   model.setDetail(true);
   const part = model.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
-  const face = (s: number) => model.children(part).find((c) => model.nodes[c]!.face?.source === s)!;
+  const face = (s: number) => detailOf(model, part).find((c) => model.nodes[c]!.face?.source === s)!;
   assert.deepEqual([model.failure(face(7)), model.failure(face(8)), model.failure(part)],
     ['failed', 'partly', 'partly']);
+  // (Its faces group as the part.)
+  assert.equal(model.failure(model.nodes[face(7)]!.parent), 'partly');
   assert.ok(details(model, [face(8)]).includes('Part of it failed to mesh (322.6 of 645.2 mm^2 meshed): ' +
     'outlined in red'),
     details(model, [face(8)]).join('\n'));
@@ -274,7 +276,7 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   const mOracle = new NodeModel(gOracle.root, gOracle);
   mOracle.setDetail(true);
   const pOracle = mOracle.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
-  const fOracle7 = mOracle.children(pOracle).find((c) => mOracle.nodes[c]!.face?.source === 7)!;
+  const fOracle7 = detailOf(mOracle, pOracle).find((c) => mOracle.nodes[c]!.face?.source === 7)!;
   assert.ok(details(mOracle, [fOracle7]).includes('Area on the exact geometry: 193.6 mm^2 +/- 0.0042 mm^2'),
     details(mOracle, [fOracle7]).join('\n'));
   // A failed face's cause where its backend said one (problems.ts's faceCausesOf), and only its own.
@@ -292,7 +294,7 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   const m2 = new NodeModel(g2.root, g2);
   m2.setDetail(true);
   const p2 = m2.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
-  const f8 = m2.children(p2).find((c) => m2.nodes[c]!.face?.source === 8)!;
+  const f8 = detailOf(m2, p2).find((c) => m2.nodes[c]!.face?.source === 8)!;
   assert.equal(m2.failure(f8), 'failed');
   assert.ok(details(m2, [f8]).includes("Its area couldn't be verified (its geometry is unsound): outlined in red"));
   const [o3] = new SceneGraph(measured([[8, 0.5, false], [7, 9, true]]), 'model').addMesh(0, mesh());

@@ -35,7 +35,8 @@ const THIRD_PARTY = new URL('../test_corpus/third_party/', import.meta.url).path
 test('coverage_corpus: HEAL=1 heals the parts before meshing; without it they are meshed as imported',
   { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}` : false }, () => {
   // cad-heal's test scene: its part "stray" has a B-spline edge with a pole thrown far out, so ours fails its face as
-  // far off (beyond repair) as imported, and meshes it once strayPole has moved the pole.
+  // imported (its use placed on the projection's feet, which pass through a point of its boundary twice), and meshes
+  // it once strayPole has moved the pole.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-heal-'));
   try {
     fs.writeFileSync(path.join(dir, 'heal.step'), stepOf(healTestScene()));
@@ -50,8 +51,8 @@ test('coverage_corpus: HEAL=1 heals the parts before meshing; without it they ar
     const off = run('0'), on = run('1');
     assert.match(off, /; healing off; /);
     assert.match(on, /; healing on \(cad-heal's default fixes\); /);
-    assert.match(off, /ours: faces beyond repair \(input, apart from our failures\): 1 of 9 /);
-    assert.match(off, /heal\.step #\d+ face #\d+ \(plane\): invalidModel: a use of an edge whose curve is far off/);
+    assert.match(off, /faces without triangles failed 1 of 9 /);
+    assert.match(off, /heal\.step #\d+ face #\d+ \(plane\): invalidModel: its boundary in \(u, v\) through its own /);
     assert.match(on, /ours parts: ok 4, partial 0, no triangles 0, /);
     assert.match(on, /ours: faces beyond repair \(input, apart from our failures\): 0 of 9 /);
   } finally {
@@ -80,11 +81,12 @@ test('beyondRepair: the far-off cause, and healing\'s past-repair one for an edg
 });
 
 const B25415 = 'gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp';
-test('coverage_corpus: HEAL=1 passes each healed part\'s analysis, so faces through edges healing grew past repair '
-  + 'count as beyond repair', { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}`
+test('coverage_corpus: HEAL=1 passes each healed part\'s analysis: faces through edges healing grew past repair are '
+  + 'meshed, kept with their distance off their surfaces', { timeout: 300_000,
+  skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}`
     : !fs.existsSync(path.join(THIRD_PARTY, B25415)) ? 'corpus not pulled' : false }, () => {
   // bug25415 #418: two line edges 2.39 and 0.44 mm off their plane faces on a part of uncertainty 1e-5. As imported,
-  // 2 faces far off (beyond repair) and 5 failed; healed, tolerances grown up to 3.32 mm, 13 faces past repair.
+  // 1 face kept far off and 6 failed; healed, tolerances grown up to 3.32 mm, 13 faces kept far off.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-past-'));
   try {
     const list = path.join(dir, 'list.txt');
@@ -96,11 +98,12 @@ test('coverage_corpus: HEAL=1 passes each healed part\'s analysis, so faces thro
       return r.stdout;
     };
     const off = run('0'), on = run('1');
-    assert.match(off, /ours: faces beyond repair \(input, apart from our failures\): 2 of 14 /);
-    assert.match(on, /ours: faces beyond repair \(input, apart from our failures\): 13 of 14 /);
+    assert.match(off, /ours: faces beyond repair \(input, apart from our failures\): 0 of 14 /);
+    assert.match(off, /ours: faces kept with defects \(meshed, counted as meshed\): 1 of 14 /);
+    assert.match(off, /faces without triangles failed 6 of 14 /);
+    assert.match(on, /ours: faces beyond repair \(input, apart from our failures\): 0 of 14 /);
+    assert.match(on, /ours: faces kept with defects \(meshed, counted as meshed\): 13 of 14 /);
     assert.match(on, /faces without triangles failed 0 of 14 /);
-    assert.match(on,
-      /: invalidModel: a vertex \(#66\) whose tolerance healing grew from 1e-05 to 3\.32 mm, past repair; /);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -109,8 +112,7 @@ test('coverage_corpus: HEAL=1 passes each healed part\'s analysis, so faces thro
 test('coverage_corpus: ROUNDS= tallies our split rounds per part and lists those from 16 up, a TSV line each',
   { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}`
     : !fs.existsSync(path.join(THIRD_PARTY, B25415)) ? 'corpus not pulled' : false }, () => {
-  // bug25415 #418, as imported: its refinement takes 25 rounds, from 16 up, short of the cap (its far-off edges'
-  // faces), in a moment.
+  // bug25415 #418, as imported: its refinement takes 25 rounds, from 16 up, short of the cap, in a moment.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-rounds-'));
   try {
     const list = path.join(dir, 'list.txt');
@@ -123,13 +125,13 @@ test('coverage_corpus: ROUNDS= tallies our split rounds per part and lists those
     assert.match(r.stdout, /our split rounds per part: at the cap of 48 0, 16 to 47 1, under 16 0, over 120 s CPU /,
       said(r));
     assert.match(r.stdout, /### Parts ours split in 16 or more rounds \(1\)/, said(r));
-    assert.match(r.stdout, /bug25415\S* #418 \(14 faces\): 25 rounds, \d+ faces unsplit, 7 failed, /, said(r));
+    assert.match(r.stdout, /bug25415\S* #418 \(14 faces\): 25 rounds, \d+ faces unsplit, 6 failed, /, said(r));
     const tsv = fs.readdirSync(dir).filter((f) => /^rounds\.\d+\.tsv$/.test(f));
     assert.equal(tsv.length, 1, said(r));
     const [where, rounds, , failed, cpu, triangles, status] = fs.readFileSync(path.join(dir, tsv[0]!), 'utf8').trim()
       .split('\t');
     assert.match(where!, /bug25415.* #418$/);
-    assert.deepEqual([rounds, failed, status], ['25', '7', 'partial'], said(r));
+    assert.deepEqual([rounds, failed, status], ['25', '6', 'partial'], said(r));
     assert.ok(Number(cpu) >= 0 && Number(triangles) > 0);
     // Over a CPU cap of 1 ms: by the last round its progress named (none past the first pass), at least.
     fs.rmSync(path.join(dir, tsv[0]!));
@@ -140,7 +142,7 @@ test('coverage_corpus: ROUNDS= tallies our split rounds per part and lists those
       /at the cap of 48 0, 16 to 47 0, under 16 0, over 0\.001 s CPU \(by the last round seen\) 1,/, said(o));
     const over = fs.readdirSync(dir).filter((f) => /^rounds\.\d+\.tsv$/.test(f));
     assert.equal(over.length, 1, said(o));
-    // (Its 14 faces failed: none meshed. As imported 7 meshed and 7 failed, which alone can't tell them apart.)
+    // (Its 14 faces failed: none meshed. As imported 8 meshed and 6 failed.)
     const line = fs.readFileSync(path.join(dir, over[0]!), 'utf8').trim().split('\t');
     assert.deepEqual([line[1], line[3]], ['>=0', '14'], said(o));
   } finally {
