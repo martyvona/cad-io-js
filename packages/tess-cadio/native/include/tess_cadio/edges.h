@@ -249,12 +249,16 @@ struct FaceBoundary {
  * parameter, clamped to [0.1, 0.9] so no sample lands nearer than a tenth of the span to another. `exact`: a sample
  * the caller needs at that very parameter (where a crease inside a face meets its boundary), fraction in (0, 1)
  * unclamped and kept whatever the span's length; one within 1e-9 of the span of a sample is that sample.
+ * `crossing`: asked for by a face's boundary crossing itself in (u, v) (two spans' chords that cross, or one through
+ * a point), split down to a hundredth of the refinement floor rather than the floor: a strip narrower than the
+ * tolerance needs its sides' chords to sag under its width to stay apart.
  */
 struct SplitRequest {
   int32_t edge;
   int32_t span;
   double fraction = 0.5;
   bool exact = false;
+  bool crossing = false;
 };
 
 /**

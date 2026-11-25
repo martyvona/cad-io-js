@@ -42,6 +42,13 @@ constexpr size_t kMaxSamples = 1000000;
 constexpr double kNearEndMargin = 1.01;
 /** A span narrower in parameter than this fraction of its edge's range is never split (EdgeMesh::split). */
 constexpr double kNarrowSpan = 1e-9;
+/**
+ * A span split for a boundary crossing itself (SplitRequest::crossing) only while its chord is past this fraction of
+ * the refinement floor: the crossings that splits mend are under the tolerance, the floor's usual value, and a
+ * hundredth mends as many on the corpus and the user's models as a thousandth; two curves that truly cross in
+ * (u, v) aren't mended at any spacing, so this bounds the samples they're given.
+ */
+constexpr double kCrossingFloor = 1e-2;
 /** Pole lines: at least this many points per period. */
 constexpr int kMinPolePoints = 16;
 
@@ -2916,7 +2923,8 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
     if (r.edge < I.nModel && I.farOff(r.edge)) continue;
     // (No span whose chord is within the refinement floor is split, whatever asks: below it nothing a mesh shows
     // changes, and below the part's tolerance the model can't say where its curve is. The mesher is told such spans
-    // are frozen, PartMesher's Domain2::frozen.)
+    // are frozen, PartMesher's Domain2::frozen. Except for a crossing, down to kCrossingFloor of the floor: the curves
+    // are exact, and their chords must sag under a strip's width however narrow it is.)
     const std::vector<Vec3>& pts = I.edges[r.edge].s.points;
     // (A span with no width in parameter has no point to add between its samples, however far apart they are: an
     // edge's end sample is its vertex, which may lie off the curve's end. A point there, at the curve's end, is
@@ -2928,7 +2936,9 @@ Status EdgeMesh::split(const std::vector<SplitRequest>& requests) {
       exact[r.edge].push_back(t[r.span] + r.fraction * (t[r.span + 1] - t[r.span]));
       continue;
     }
-    if (norm(pts[r.span + 1] - pts[r.span]) <= refinementFloor(I.tol, I.o.deflection)) continue;
+    if (norm(pts[r.span + 1] - pts[r.span]) <= (r.crossing ? kCrossingFloor : 1) * refinementFloor(I.tol,
+      I.o.deflection))
+      continue;
     double f = std::clamp(r.fraction, 0.1, 0.9), x = t[r.span] + f * (t[r.span + 1] - t[r.span]);
     // (In an edge's end span the point is kept past dropNearEnds' reach of the end, toward the span's other sample,
     // or the split dropped where even 0.9 of the way isn't: PartMesher freezes such a span, endSpanFrozen.)

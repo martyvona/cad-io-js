@@ -762,6 +762,55 @@ export function edgeFarOff(pcurve = false, bulge = false, grown = 0): BrepBuilde
   return b;
 }
 
+/**
+ * A quarter of an annulus on z = 0 between radii 1 and 1 + `width` (0.001), under an uncertainty of 0.2: a strip
+ * narrower than its tolerance, its outer side two arcs meeting at 0.3 rad so the sides' samples don't match. Their
+ * chords at the deflection (0.1) sag past its width and cross until split far under the refinement floor (0.2).
+ */
+export function narrowArcStrip(width = 0.001): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const r = [1, 1 + width], k = 0.3;
+  const at = [[r[1]!, 0, 0], [r[1]! * Math.cos(k), r[1]! * Math.sin(k), 0], [0, r[1]!, 0], [0, r[0]!, 0],
+    [r[0]!, 0, 0]];
+  const v = at.map((point) => b.addVertex({ point }));
+  const arc = (radius: number, start: number, end: number, range: [number, number]) => b.addEdge({
+    curve: b.addCurve({ kind: 'circle', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] }, radius }),
+    start: v[start]!, end: v[end]!, sameSense: true, range });
+  const line = (start: number, end: number) => {
+    const p = at[start]!, q = at[end]!;
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
+      magnitude: 1 }), start: v[start]!, end: v[end]!, sameSense: true, range: [0, 1] });
+  };
+  // (Counter-clockwise: the outer arcs forward, the inner one back.)
+  const edges: [number, 'forward' | 'reversed'][] = [[arc(r[1]!, 0, 1, [0, k]), 'forward'],
+    [arc(r[1]!, 1, 2, [k, Math.PI / 2]), 'forward'], [line(2, 3), 'forward'],
+    [arc(r[0]!, 4, 3, [0, Math.PI / 2]), 'reversed'], [line(4, 0), 'reversed']];
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [{
+    kind: 'edge', bound: 'outer', sense: true,
+    coedges: edges.map(([edge, orientation]) => ({ edge, orientation })) }] }));
+  return b;
+}
+
+/**
+ * A pentagram on z = 0 (a star polygon's loop of five line edges, radius 1), under an uncertainty of 0.2: its edges
+ * cross each other five times in (u, v), which no split mends.
+ */
+export function pentagramLoop(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const at = [0, 2, 4, 1, 3].map((k) => [Math.cos(Math.PI / 2 + 2 * Math.PI * k / 5),
+    Math.sin(Math.PI / 2 + 2 * Math.PI * k / 5), 0]);
+  const v = at.map((point) => b.addVertex({ point }));
+  const coedges = at.map((p, j) => {
+    const q = at[(j + 1) % 5]!;
+    return { edge: b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!,
+      q[1]! - p[1]!, 0], magnitude: 1 }), start: v[j]!, end: v[(j + 1) % 5]!, sameSense: true, range: [0, 1] }),
+      orientation: 'forward' as const };
+  });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
 export function twisted(): BrepBuilder {
   const b = new BrepBuilder();
   const p = [[0, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 1]];
@@ -2754,7 +2803,8 @@ function oneFace(text: string): BrepBuilder {
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true), pleatStrip, thinTube,
   foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge, poleRowFan, poleRowShort, poleRowNear,
-  sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true),
+  sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true), narrowArcStrip: () => narrowArcStrip(),
+  pentagramLoop,
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
