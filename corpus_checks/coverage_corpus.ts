@@ -6,7 +6,7 @@
 //   - every face of every model accounted for once: meshed by ours, or failed by ours with its cause (our part's
 //     status, else our "faces failed to mesh, by cause" diagnostic, else "not in our diagnostics") and its surface
 //     kind; crossed with whether OCCT and SMLib give it triangles (the matrix);
-//   - each face without our triangles in a class: beyond repair (input the user has decided is past repair, by its
+//   - each face without our triangles in a class: beyond repair (input the user has decided has no mesh, by its
 //     cause: cadio_causes.ts's beyondRepair), counted apart from our failures and out of their percentage, else a
 //     failure;
 //   - the faces ours meshes kept with a defect (tess-cadio's keepDefects: turned, past d, capped), counted, and by
@@ -24,10 +24,9 @@
 //                without faces not planted), occt and smlib (that reference's first meshed face emptied: must be
 //                counted as failed by it), cause (our first meshed face emptied and named in a by-cause diagnostic of
 //                two entries: must be ours failed with the planted cause), beyond (our first meshed face emptied and
-//                named with a cause beyond repair: must be counted beyond repair, not failed), pastrepair (the same
-//                with healing's past-repair cause, an edge's id and sizes in it), alone (our result replaced by a
-//                timeout at CPU_MS under load: set aside, run again alone, and tallied by that result, which mustn't
-//                be over the limit; parts without faces not planted)
+//                named with a cause beyond repair: must be counted beyond repair, not failed), alone (our result
+//                replaced by a timeout at CPU_MS under load: set aside, run again alone, and tallied by that result,
+//                which mustn't be over the limit; parts without faces not planted)
 //   SURVEY=1     the mesh survey too (shape_survey.ts), over the faces all three backends mesh: each backend's
 //                triangles by smallest angle and aspect in 3D (quantiles, and faces by their worst), its triangles per
 //                face against SMLib's, each face's worst deviation from its surface sampled at its largest triangles'
@@ -100,7 +99,7 @@ const ANG_DEG = (ANG * 180) / Math.PI;
 const PLANT = process.env.PLANT ?? '';
 /** Whether a part over CPU_MS under load is tallied by its run alone at the end (the default), not as over. */
 const ALONE = process.env.ALONE !== '0';
-const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'pastrepair', 'survey', 'insertions', 'alone'];
+const PLANTS = ['fail', 'part', 'occt', 'smlib', 'cause', 'beyond', 'survey', 'insertions', 'alone'];
 const SURVEY = process.env.SURVEY === '1';
 const HEAL = process.env.HEAL === '1';
 /** The import's options: healing on with HEAL, else off whatever step-import's default. */
@@ -233,12 +232,11 @@ function plant(o: Record<Backend, TessellationResult | Error>, faces: number):
       + `(#999999999, #999999998); planted: cause 3 1 (#${id})` }] };
     return { expect: 'planted: cause 3', face: id };
   }
-  if (PLANT === 'beyond' || PLANT === 'pastrepair') {
+  if (PLANT === 'beyond') {
     const id = emptyFirst('cadio');
     if (id === undefined) return undefined;
     const r = o.cadio as TessellationResult;
-    const [status, cause] = PLANT === 'beyond' ? [...BEYOND_REPAIR][0]!.split(': ')
-      : ['invalidModel', 'an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair'];
+    const [status, cause] = [...BEYOND_REPAIR][0]!.split(': ');
     o.cadio = { ...r, diagnostics: [...r.diagnostics, { severity: 'info', message: `${CAUSES_HEAD}${status}: `
       + `${cause} 1 (#${id})` }] };
     return { expect: BEYOND, face: id };

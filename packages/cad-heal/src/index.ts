@@ -3,9 +3,9 @@
 // exporters) sees the same repairs. What it changes is in the healed model's own rows (p-curves it makes or
 // reparameterizes, tolerances it grows), and where each value came from, with the source's tolerance, is in the
 // healed model's analysis buffer (cad-brep's analysis-layout.ts: pcurveFrom, toleranceFrom, givenTolerance, and
-// toleranceError where a growth is past repair, which the mesher fails the edge's and vertex's faces for), with the
-// source's values healing replaced (givenPcurve, givenRange, givenTolerance) and how it healed (the healing row), so
-// a healed model heals again with other options from the source's values, as healing the source with them would.
+// toleranceError where a growth is past repair, which the mesher judges at the tolerance healing started from), with
+// the source's values healing replaced (givenPcurve, givenRange, givenTolerance) and how it healed (the healing row),
+// so a healed model heals again with other options from the source's values, as healing the source with them would.
 //
 // One master switch (`heal`: on wherever healPart or healScene is called, in importers HEAL_BY_DEFAULT) leaves every
 // model exactly as imported when off; under it, each fix can be turned off by name. Each p-curve fix reports one
