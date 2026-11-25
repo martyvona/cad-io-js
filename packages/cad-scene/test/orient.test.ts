@@ -194,7 +194,7 @@ test('a healed model whose shells healing oriented: a mesh turned is the backend
   // The model's shells as healing recorded them (analysis shell rows, facing found by the volume); the backend's mesh
   // of the void facing into the material all the same.
   const d = model(true), r = quads(d);
-  const head = { analysis: { model: new Array(8).fill(0), uncertainty: [1e-6] } };
+  const head = { analysis: { model: new Array(8).fill(0), uncertainty: [1e-6], measureRelTol: [NaN], measureProject: [0] } };
   const analysis = writeAnalysis({ ...head, shell: { volume: [64, 0, 1, 0], facing: [1, 1], facingFrom: [1, 1],
     turned: [0, 0] } });
   assert.ok(shellsOriented(analysis) && shellsOriented(new Uint8Array(analysis.buffer)));

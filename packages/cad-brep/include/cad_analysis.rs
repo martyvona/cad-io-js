@@ -11,12 +11,12 @@
 #[cfg(not(target_endian = "little"))]
 compile_error!("cad-brep buffers are little-endian");
 
-pub const MAGIC: &[u8; 4] = b"CBA6";
-pub const HEADER_BYTES: usize = 488;
-pub const COLUMN_COUNT: usize = 60;
+pub const MAGIC: &[u8; 4] = b"CBA7";
+pub const HEADER_BYTES: usize = 584;
+pub const COLUMN_COUNT: usize = 72;
 
 /// Each column's element type, in buffer order: b u8, i i32, u u32, f f64.
-const TYPES: &[u8; COLUMN_COUNT] = b"uffifiibfbfbfiibfbffbfiibifibfffbibffbbbbffiiiiibfffbbbufuuu";
+const TYPES: &[u8; COLUMN_COUNT] = b"uffbfifiibfbfbfiibfbffbfiibifibfffbibffbbbfbbuffffbbbffiiiiibfffbbbufuuu";
 
 const fn bytes(k: usize) -> usize {
     match TYPES[k] {
@@ -136,177 +136,213 @@ impl Analysis {
     /// `analysis.uncertainty`: 1 per row.
     pub fn analysis_uncertainty(&self) -> &[f64] { self.slice(1) }
 
+    /// `analysis.measureRelTol`: 1 per row.
+    pub fn analysis_measure_rel_tol(&self) -> &[f64] { self.slice(2) }
+
+    /// `analysis.measureProject`: 1 per row.
+    pub fn analysis_measure_project(&self) -> &[u8] { self.slice(3) }
+
     /// `pool.real`: 1 per row.
-    pub fn pool_real(&self) -> &[f64] { self.slice(2) }
+    pub fn pool_real(&self) -> &[f64] { self.slice(4) }
 
     /// `pool.int`: 1 per row.
-    pub fn pool_int(&self) -> &[i32] { self.slice(3) }
+    pub fn pool_int(&self) -> &[i32] { self.slice(5) }
 
     /// `vertex.measured`: 1 per row.
-    pub fn vertex_measured(&self) -> &[f64] { self.slice(4) }
+    pub fn vertex_measured(&self) -> &[f64] { self.slice(6) }
 
     /// `vertex.first`: 1 per row.
-    pub fn vertex_first(&self) -> &[i32] { self.slice(5) }
+    pub fn vertex_first(&self) -> &[i32] { self.slice(7) }
 
     /// `vertex.count`: 1 per row.
-    pub fn vertex_count(&self) -> &[i32] { self.slice(6) }
+    pub fn vertex_count(&self) -> &[i32] { self.slice(8) }
 
     /// `vertex.toleranceFrom`: 1 per row.
-    pub fn vertex_tolerance_from(&self) -> &[u8] { self.slice(7) }
+    pub fn vertex_tolerance_from(&self) -> &[u8] { self.slice(9) }
 
     /// `vertex.givenTolerance`: 1 per row.
-    pub fn vertex_given_tolerance(&self) -> &[f64] { self.slice(8) }
+    pub fn vertex_given_tolerance(&self) -> &[f64] { self.slice(10) }
 
     /// `vertex.toleranceError`: 1 per row.
-    pub fn vertex_tolerance_error(&self) -> &[u8] { self.slice(9) }
+    pub fn vertex_tolerance_error(&self) -> &[u8] { self.slice(11) }
 
     /// `edge.range`: 2 per row.
-    pub fn edge_range(&self) -> &[f64] { self.slice(10) }
+    pub fn edge_range(&self) -> &[f64] { self.slice(12) }
 
     /// `edge.rangeFrom`: 1 per row.
-    pub fn edge_range_from(&self) -> &[u8] { self.slice(11) }
+    pub fn edge_range_from(&self) -> &[u8] { self.slice(13) }
 
     /// `edge.measured`: 1 per row.
-    pub fn edge_measured(&self) -> &[f64] { self.slice(12) }
+    pub fn edge_measured(&self) -> &[f64] { self.slice(14) }
 
     /// `edge.first`: 1 per row.
-    pub fn edge_first(&self) -> &[i32] { self.slice(13) }
+    pub fn edge_first(&self) -> &[i32] { self.slice(15) }
 
     /// `edge.count`: 1 per row.
-    pub fn edge_count(&self) -> &[i32] { self.slice(14) }
+    pub fn edge_count(&self) -> &[i32] { self.slice(16) }
 
     /// `edge.toleranceFrom`: 1 per row.
-    pub fn edge_tolerance_from(&self) -> &[u8] { self.slice(15) }
+    pub fn edge_tolerance_from(&self) -> &[u8] { self.slice(17) }
 
     /// `edge.givenTolerance`: 1 per row.
-    pub fn edge_given_tolerance(&self) -> &[f64] { self.slice(16) }
+    pub fn edge_given_tolerance(&self) -> &[f64] { self.slice(18) }
 
     /// `edge.toleranceError`: 1 per row.
-    pub fn edge_tolerance_error(&self) -> &[u8] { self.slice(17) }
+    pub fn edge_tolerance_error(&self) -> &[u8] { self.slice(19) }
 
     /// `edge.givenRange`: 2 per row.
-    pub fn edge_given_range(&self) -> &[f64] { self.slice(18) }
+    pub fn edge_given_range(&self) -> &[f64] { self.slice(20) }
 
     /// `coedge.range`: 2 per row.
-    pub fn coedge_range(&self) -> &[f64] { self.slice(19) }
+    pub fn coedge_range(&self) -> &[f64] { self.slice(21) }
 
     /// `coedge.rangeFrom`: 1 per row.
-    pub fn coedge_range_from(&self) -> &[u8] { self.slice(20) }
+    pub fn coedge_range_from(&self) -> &[u8] { self.slice(22) }
 
     /// `coedge.deviation`: 1 per row.
-    pub fn coedge_deviation(&self) -> &[f64] { self.slice(21) }
+    pub fn coedge_deviation(&self) -> &[f64] { self.slice(23) }
 
     /// `coedge.face`: 1 per row.
-    pub fn coedge_face(&self) -> &[i32] { self.slice(22) }
+    pub fn coedge_face(&self) -> &[i32] { self.slice(24) }
 
     /// `coedge.loop`: 1 per row.
-    pub fn coedge_loop(&self) -> &[i32] { self.slice(23) }
+    pub fn coedge_loop(&self) -> &[i32] { self.slice(25) }
 
     /// `coedge.pcurveFrom`: 1 per row.
-    pub fn coedge_pcurve_from(&self) -> &[u8] { self.slice(24) }
+    pub fn coedge_pcurve_from(&self) -> &[u8] { self.slice(26) }
 
     /// `coedge.givenPcurve`: 1 per row.
-    pub fn coedge_given_pcurve(&self) -> &[i32] { self.slice(25) }
+    pub fn coedge_given_pcurve(&self) -> &[i32] { self.slice(27) }
 
     /// `coedge.givenRange`: 2 per row.
-    pub fn coedge_given_range(&self) -> &[f64] { self.slice(26) }
+    pub fn coedge_given_range(&self) -> &[f64] { self.slice(28) }
 
     /// `trace.coedge`: 1 per row.
-    pub fn trace_coedge(&self) -> &[i32] { self.slice(27) }
+    pub fn trace_coedge(&self) -> &[i32] { self.slice(29) }
 
     /// `trace.status`: 1 per row.
-    pub fn trace_status(&self) -> &[u8] { self.slice(28) }
+    pub fn trace_status(&self) -> &[u8] { self.slice(30) }
 
     /// `trace.tol`: 1 per row.
-    pub fn trace_tol(&self) -> &[f64] { self.slice(29) }
+    pub fn trace_tol(&self) -> &[f64] { self.slice(31) }
 
     /// `trace.offSurface`: 1 per row.
-    pub fn trace_off_surface(&self) -> &[f64] { self.slice(30) }
+    pub fn trace_off_surface(&self) -> &[f64] { self.slice(32) }
 
     /// `trace.stopAt`: 1 per row.
-    pub fn trace_stop_at(&self) -> &[f64] { self.slice(31) }
+    pub fn trace_stop_at(&self) -> &[f64] { self.slice(33) }
 
     /// `trace.stopWhy`: 1 per row.
-    pub fn trace_stop_why(&self) -> &[u8] { self.slice(32) }
+    pub fn trace_stop_why(&self) -> &[u8] { self.slice(34) }
 
     /// `face.outerLoop`: 1 per row.
-    pub fn face_outer_loop(&self) -> &[i32] { self.slice(33) }
+    pub fn face_outer_loop(&self) -> &[i32] { self.slice(35) }
 
     /// `face.outerFrom`: 1 per row.
-    pub fn face_outer_from(&self) -> &[u8] { self.slice(34) }
+    pub fn face_outer_from(&self) -> &[u8] { self.slice(36) }
 
     /// `face.uv`: 4 per row.
-    pub fn face_uv(&self) -> &[f64] { self.slice(35) }
+    pub fn face_uv(&self) -> &[f64] { self.slice(37) }
 
     /// `face.area`: 2 per row.
-    pub fn face_area(&self) -> &[f64] { self.slice(36) }
+    pub fn face_area(&self) -> &[f64] { self.slice(38) }
 
     /// `face.areaFrom`: 1 per row.
-    pub fn face_area_from(&self) -> &[u8] { self.slice(37) }
+    pub fn face_area_from(&self) -> &[u8] { self.slice(39) }
 
     /// `face.turned`: 1 per row.
-    pub fn face_turned(&self) -> &[u8] { self.slice(38) }
+    pub fn face_turned(&self) -> &[u8] { self.slice(40) }
+
+    /// `face.areaStatus`: 1 per row.
+    pub fn face_area_status(&self) -> &[u8] { self.slice(41) }
+
+    /// `face.perimeter`: 2 per row.
+    pub fn face_perimeter(&self) -> &[f64] { self.slice(42) }
+
+    /// `face.perimeterStatus`: 1 per row.
+    pub fn face_perimeter_status(&self) -> &[u8] { self.slice(43) }
+
+    /// `face.method`: 1 per row.
+    pub fn face_method(&self) -> &[u8] { self.slice(44) }
+
+    /// `face.flags`: 1 per row.
+    pub fn face_flags(&self) -> &[u32] { self.slice(45) }
+
+    /// `face.offSurface`: 1 per row.
+    pub fn face_off_surface(&self) -> &[f64] { self.slice(46) }
+
+    /// `face.boundary`: 1 per row.
+    pub fn face_boundary(&self) -> &[f64] { self.slice(47) }
+
+    /// `face.fluxCentre`: 3 per row.
+    pub fn face_flux_centre(&self) -> &[f64] { self.slice(48) }
+
+    /// `face.flux`: 6 per row.
+    pub fn face_flux(&self) -> &[f64] { self.slice(49) }
+
+    /// `face.fluxStatus`: 3 per row.
+    pub fn face_flux_status(&self) -> &[u8] { self.slice(50) }
 
     /// `surface.uClosed`: 1 per row.
-    pub fn surface_u_closed(&self) -> &[u8] { self.slice(39) }
+    pub fn surface_u_closed(&self) -> &[u8] { self.slice(51) }
 
     /// `surface.vClosed`: 1 per row.
-    pub fn surface_v_closed(&self) -> &[u8] { self.slice(40) }
+    pub fn surface_v_closed(&self) -> &[u8] { self.slice(52) }
 
     /// `surface.uPeriod`: 1 per row.
-    pub fn surface_u_period(&self) -> &[f64] { self.slice(41) }
+    pub fn surface_u_period(&self) -> &[f64] { self.slice(53) }
 
     /// `surface.vPeriod`: 1 per row.
-    pub fn surface_v_period(&self) -> &[f64] { self.slice(42) }
+    pub fn surface_v_period(&self) -> &[f64] { self.slice(54) }
 
     /// `surface.first`: 1 per row.
-    pub fn surface_first(&self) -> &[i32] { self.slice(43) }
+    pub fn surface_first(&self) -> &[i32] { self.slice(55) }
 
     /// `surface.count`: 1 per row.
-    pub fn surface_count(&self) -> &[i32] { self.slice(44) }
+    pub fn surface_count(&self) -> &[i32] { self.slice(56) }
 
     /// `continuity.edge`: 1 per row.
-    pub fn continuity_edge(&self) -> &[i32] { self.slice(45) }
+    pub fn continuity_edge(&self) -> &[i32] { self.slice(57) }
 
     /// `continuity.a`: 1 per row.
-    pub fn continuity_a(&self) -> &[i32] { self.slice(46) }
+    pub fn continuity_a(&self) -> &[i32] { self.slice(58) }
 
     /// `continuity.b`: 1 per row.
-    pub fn continuity_b(&self) -> &[i32] { self.slice(47) }
+    pub fn continuity_b(&self) -> &[i32] { self.slice(59) }
 
     /// `continuity.class`: 1 per row.
-    pub fn continuity_class(&self) -> &[u8] { self.slice(48) }
+    pub fn continuity_class(&self) -> &[u8] { self.slice(60) }
 
     /// `continuity.angle`: 1 per row.
-    pub fn continuity_angle(&self) -> &[f64] { self.slice(49) }
+    pub fn continuity_angle(&self) -> &[f64] { self.slice(61) }
 
     /// `continuity.angleError`: 1 per row.
-    pub fn continuity_angle_error(&self) -> &[f64] { self.slice(50) }
+    pub fn continuity_angle_error(&self) -> &[f64] { self.slice(62) }
 
     /// `shell.volume`: 2 per row.
-    pub fn shell_volume(&self) -> &[f64] { self.slice(51) }
+    pub fn shell_volume(&self) -> &[f64] { self.slice(63) }
 
     /// `shell.facing`: 1 per row.
-    pub fn shell_facing(&self) -> &[u8] { self.slice(52) }
+    pub fn shell_facing(&self) -> &[u8] { self.slice(64) }
 
     /// `shell.facingFrom`: 1 per row.
-    pub fn shell_facing_from(&self) -> &[u8] { self.slice(53) }
+    pub fn shell_facing_from(&self) -> &[u8] { self.slice(65) }
 
     /// `shell.turned`: 1 per row.
-    pub fn shell_turned(&self) -> &[u8] { self.slice(54) }
+    pub fn shell_turned(&self) -> &[u8] { self.slice(66) }
 
     /// `healing.fixes`: 1 per row.
-    pub fn healing_fixes(&self) -> &[u32] { self.slice(55) }
+    pub fn healing_fixes(&self) -> &[u32] { self.slice(67) }
 
     /// `healing.pcurveFitTolerance`: 1 per row.
-    pub fn healing_pcurve_fit_tolerance(&self) -> &[f64] { self.slice(56) }
+    pub fn healing_pcurve_fit_tolerance(&self) -> &[f64] { self.slice(68) }
 
     /// `healing.version`: 1 per row.
-    pub fn healing_version(&self) -> &[u32] { self.slice(57) }
+    pub fn healing_version(&self) -> &[u32] { self.slice(69) }
 
     /// `healing.sourceCurves`: 1 per row.
-    pub fn healing_source_curves(&self) -> &[u32] { self.slice(58) }
+    pub fn healing_source_curves(&self) -> &[u32] { self.slice(70) }
 
     /// `healing.strayPoles`: 1 per row.
-    pub fn healing_stray_poles(&self) -> &[u32] { self.slice(59) }
+    pub fn healing_stray_poles(&self) -> &[u32] { self.slice(71) }
 }
