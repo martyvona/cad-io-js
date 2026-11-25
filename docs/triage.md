@@ -24,7 +24,7 @@ Each face's mesh is measured by these, in this order (the order is also the tie-
 | d | Angle between normals | the angular deflection | off by default |
 | e | Turned triangles: a facet against the mean of its corners' normals, as shipped | none | always |
 | f | Smallest triangle angle | tess-cadio's minAngle (10 degrees by default) | always |
-| g | Longest edge | off by default; 5 % of the part's size (its bounding box diagonal) in the CFD/FEA target | always |
+| g | Longest edge | off by default; 5 % of the part's size (its bounding box diagonal) in the analysis target | always |
 | h | Triangle count, per face | min(ceiling, max(200,000, 64 x the face's expected count)); the ceiling 10M on desktops, 2M on phones and tablets | always |
 | l | Degenerate triangles (two corners at one position) | none | always |
 | i | Geometric self-intersection | not checked | |
@@ -40,7 +40,7 @@ What users see of triage is its profile, called the **target** (the word "triage
 
 Each criterion's warn and error levels, as multiples (at least 1) of its true limit. A warning keeps the face's mesh; an error withholds it (and fails an export, below).
 
-| Criterion | Rendering | Manifold | CFD/FEA |
+| Criterion | Rendering | Manifold | Analysis |
 |---|---|---|---|
 | a, manifold | warn | error | error |
 | b, area | warn past the true limit; error past 25 % | warn past the true limit; error past 15 % | error past the true limit |
@@ -54,7 +54,7 @@ Each criterion's warn and error levels, as multiples (at least 1) of its true li
 
 - **Rendering:** interactive viewing (the viewer's default), and also collision meshes for robotics and game engines, and offline rendering (path tracing).
 - **Manifold:** 3D printer slicers (3MF) and mesh boolean kernels (such as manifold).
-- **CFD/FEA:** simulation, where the smallest angle and the longest edge matter.
+- **Analysis:** simulation (CFD, FEA), where the smallest angle and the longest edge matter.
 - Every level is configurable on its own; a target only sets them all at once.
 - Complete (k) missing is always an error; oriented (j) is fixed where it can be (tessellateScene's orientResult turns a shell's mesh over, warning of it) and warned of; degenerate triangles (l) are dropped and counted.
 
@@ -71,9 +71,10 @@ Per face, between the primary's mesh and the fallback's (the fallback asked only
 
 - **The viewer:** an error withholds the face's mesh and shows the error modal (the problems dialog); a warning keeps the face, with no modal, the message reachable later through the About box.
 - **Exports** (stepconv, and the viewer's export): an error fails the export by default; an option excludes the failing parts, exports the rest, and still reports the error.
-- **The CLI:** each level a named option, the target `--target <rendering|manifold|cfd>`, and `--describe-target` printing the effective settings with each true limit's formula. Its default by output format: 3MF the manifold profile, glTF and three.js rendering.
+- **The CLI:** each level a named option, the target `--target <rendering|manifold|analysis>`, and `--describe-target` printing the effective settings with each true limit's formula. Its default by output format: 3MF the manifold profile, glTF and three.js rendering.
 - **The viewer's settings:** a dedicated modal listing each criterion with its true limit's formula and its warn and error levels.
 
 ## Open
 
+- **The stretch cap per target (to be measured):** a mesher's size metric is unbounded along a direction without curvature (a cylinder's axis), so a face gets as few, long triangles as its boundary allows, and long thin triangles are where lantern bands, narrow strips' tilted triangles and slivers along the boundary come from. So every target is to cap the metric's stretch (long size over short) from the start, not only in tess-cadio's retry after a bad mesh: rendering at about 16, manifold about 8, analysis near 1 with its longest edge (g) also capping the long size, so a plain cylinder there gets rows along its axis at about its circumferential spacing. The cap means a 3D ratio only once the metric's sizes are real distances on every surface (the developed (u, v) scale, being built), so it is measured after that: the cap from the start at 16 and 8 against none, on a9's 654 parts and the user's models (failed and kept faces, retries, triangles, CPU, oracle areas), the values then the user's. A grid of interior points is not the way (`docs/own-tessellator.md`'s structured-grid spike: the band along the boundary keeps the metric's shapes).
 - Building it: the record per face in cad-scene (measured in the workers, with tess-cadio's own values taken as reported); triage replacing `judgeResult`'s and `compareVerdicts`' rules and `FallbackTessellator`'s choice per face; tess-cadio's keepDefects thresholds folded into the profiles; the longest edge (g) in tess-cadio's size metric; the CLI's options and the viewer's modal (the viewer's agent).
