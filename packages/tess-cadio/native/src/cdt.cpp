@@ -385,15 +385,24 @@ size_t Triangulation::cavityConstraints(Vec2 p, int32_t t, std::vector<std::pair
 
 void Triangulation::retriangulate(int32_t a, int32_t b, const std::vector<int32_t>& chain,
   std::vector<int32_t>& created) {
-  if (chain.empty()) return;
-  // The chain vertex whose circle through a and b holds no other (the pseudo-polygon's Delaunay triangle on ab).
-  size_t k = 0;
-  for (size_t i = 1; i < chain.size(); i++)
-    if (inCircleSoS(a, b, chain[k], chain[i])) k = i;
-  int32_t c = chain[k];
-  created.push_back(newTri(a, b, c));
-  retriangulate(a, c, std::vector<int32_t>(chain.begin(), chain.begin() + k), created);
-  retriangulate(c, b, std::vector<int32_t>(chain.begin() + k + 1, chain.end()), created);
+  // Each pseudo-polygon an edge (a, b) and a run of the chain, split at the run's vertex whose circle through a and b
+  // holds no other (its Delaunay triangle on ab) into the run before it, on (a, c), and the run after, on (c, b). An
+  // explicit stack, the left part taken first (the triangles made in the order a recursion makes them): a segment
+  // across a long thin domain cuts thousands of triangles, and its chain is as deep.
+  struct Part { int32_t a, b; size_t lo, hi; };
+  std::vector<Part> stack{{a, b, 0, chain.size()}};
+  while (!stack.empty()) {
+    const Part P = stack.back();
+    stack.pop_back();
+    if (P.lo >= P.hi) continue;
+    size_t k = P.lo;
+    for (size_t i = P.lo + 1; i < P.hi; i++)
+      if (inCircleSoS(P.a, P.b, chain[k], chain[i])) k = i;
+    const int32_t c = chain[k];
+    created.push_back(newTri(P.a, P.b, c));
+    stack.push_back({c, P.b, k + 1, P.hi});
+    stack.push_back({P.a, c, P.lo, k});
+  }
 }
 
 bool Triangulation::insertSegment(int32_t a, int32_t b, uint8_t flags, int32_t other[2]) {
