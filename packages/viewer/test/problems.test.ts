@@ -32,8 +32,8 @@ test('problem counts: errors then warnings, each only when there are some, singu
   assert.equal(problemCounts(d(0, 0)), '');
 });
 
-test('problem rows: a failed-faces error\'s causes in a third column, from its own part\'s by-cause diagnostic, '
-  + 'grouped by cause with their faces; empty for other errors; no column where none has one', () => {
+test('problem rows: a failed-faces error\'s causes on a line after its message, from its own part\'s by-cause '
+  + 'diagnostic, grouped by cause with their faces; other errors as they are; two columns always', () => {
   const src = (id: number) => ({ format: 'step', id });
   const d: Diagnostic[] = [
     { severity: 'error', message: 'part failed to build', source: src(9) },
@@ -45,12 +45,14 @@ test('problem rows: a failed-faces error\'s causes in a third column, from its o
     { severity: 'info', message: `${CAUSES_HEAD}invalidModel: x 1 (#12)`, source: src(11) },
     { severity: 'error', message: '1 faces failed to mesh: #30', source: src(29) },
   ];
-  assert.deepEqual(problemRows(d), [['error #9', 'part failed to build', ''],
-    ['error #453', '3 faces failed to mesh: #445, #446, #447', 'noConvergence: meshed past its deflection (#445, '
-      + '#447); singular: a seam\'s side (#446)'], ['error #453', 'part timed out', ''],
-    ['error #29', '1 faces failed to mesh: #30', '']]);
-  // Without causes (another backend's failures): two columns, as before.
-  assert.deepEqual(problemRows(d.filter((x) => x.severity === 'error')).map((r) => r.length), [2, 2, 2, 2]);
+  assert.deepEqual(problemRows(d), [['error #9', 'part failed to build'],
+    ['error #453', '3 faces failed to mesh: #445, #446, #447\nnoConvergence: meshed past its deflection (#445, '
+      + '#447); singular: a seam\'s side (#446)'], ['error #453', 'part timed out'],
+    ['error #29', '1 faces failed to mesh: #30']]);
+  // Without causes (another backend's failures): the messages alone.
+  assert.deepEqual(problemRows(d.filter((x) => x.severity === 'error')).map((r) => r[1]), [
+    'part failed to build', '3 faces failed to mesh: #445, #446, #447', 'part timed out',
+    '1 faces failed to mesh: #30']);
   assert.deepEqual([...faceCausesOf(d)], [[445, 'noConvergence: meshed past its deflection'],
     [447, 'noConvergence: meshed past its deflection'], [446, 'singular: a seam\'s side'], [12, 'invalidModel: x']]);
 });

@@ -267,13 +267,25 @@ export class Highlighter {
     let t = this.tints[which]!.get(m);
     if (!t) {
       t = keepBias(m, m.clone());
-      const color = this.colors[which]!;
-      const e = t as THREE.MeshPhongMaterial;
-      if (e.emissive) e.emissive.copy(color).multiplyScalar(0.55);
-      else (t as THREE.LineBasicMaterial).color?.copy(color);
+      this.colour(t, this.colors[which]!);
       this.tints[which]!.set(m, t);
     }
     return t;
+  }
+
+  private colour(t: THREE.Material, color: THREE.Color): void {
+    const e = t as THREE.MeshPhongMaterial;
+    if (e.emissive) e.emissive.copy(color).multiplyScalar(0.55);
+    else (t as THREE.LineBasicMaterial).color?.copy(color);
+  }
+
+  /** The selection's colour (sRGB; other instances' stays), its tints and overlays made already too. */
+  setColor(hex: number): void {
+    const c = this.colors[0]!.setHex(hex);
+    this.overlayMaterials[0]!.color.copy(c);
+    this.lineOverlays[0]!.color.copy(c);
+    for (const t of this.tints[0]!.values()) this.colour(t, c);
+    this.changed();
   }
 
   /** Highlights these pieces (and those others, lightly), undoing the last highlight first. */

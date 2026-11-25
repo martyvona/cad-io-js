@@ -12,7 +12,8 @@ test('view state: every field through the query and back; numbers to 6 decimals;
     cut: { x: { at: 12.5, flip: false }, z: { at: -3, flip: true } }, caps: false,
     render: { ao: false, smaa: true, edges: false, vertices: true, shininess: 50, aoIntensity: 2.5,
       aoRadius: 16, aoQuality: 'Low', edgeStyle: 'thin', edgeWidth: 2.5, specular: 0.25, ambient: 0.8, light: 3,
-      capStyle: 'parts', hatchWidth: 2.25 },
+      capStyle: 'parts', hatchWidth: 2.25, depthOffset: 0, highlightWidth: 5, highlightColor: '#00ff7f',
+      selectionColor: '#a0b1c2' },
     tree: { open: false, detail: true }, pick: 'detail', instances: true,
     hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], shown: ['as1/plate/edges'],
     opacity: [{ path: 'as1/a%2Fb:2/nut', alpha: 0.3 }, { path: 'as1/rod', alpha: 'default' },
@@ -41,9 +42,13 @@ test('view state: every field through the query and back; numbers to 6 decimals;
 
 test('view state: malformed values left out, each with a message', () => {
   const { state, problems } = fromQuery(new URLSearchParams('view=sideways&camera=1,2,3&cut=w:1&cut=x:a&cut=y:1:up'
-    + '&aoQuality=Best&shininess=-1&pick=face&tree=0&edgeStyle=bold&capStyle=onshape&specular=-1&hatchWidth=x'));
+    + '&aoQuality=Best&shininess=-1&pick=face&tree=0&edgeStyle=bold&capStyle=onshape&specular=-1&hatchWidth=x'
+    + '&highlightColor=%23ffe100&selectionColor=fff'));
   assert.deepEqual(state, { cut: {}, tree: { open: false } });
-  assert.equal(problems.length, 12, problems.join('\n'));
+  assert.equal(problems.length, 14, problems.join('\n'));
+  // Colours: six hex digits, either case, kept as `#` and lower case.
+  assert.deepEqual(fromQuery(new URLSearchParams('highlightColor=FFE100')).state, { render: { highlightColor:
+    '#ffe100' } });
   assert.deepEqual(fromQuery(new URLSearchParams('camera=0,0,1,0,0,0,0,1,0,0')).problems.length, 1);
   // Opacities: a number from 0 to 1, or default (the file's), then a path.
   const alpha = fromQuery(new URLSearchParams('alpha=2:a&alpha=x:a&alpha=0.5:&alpha=a&alpha=-0.1:a&alpha=0:a:2' +

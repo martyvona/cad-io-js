@@ -49,6 +49,16 @@ function surfaceKind(d: BrepData, row: number): Surface['kind'] {
   return 'rectangularTrimmed';
 }
 
+/** A kind as the tree names its nodes (`cylinder #12`, `circle #40`). */
+export const GEOMETRY_NAMES: Readonly<Record<GeometryKind, string>> = {
+  plane: 'plane', cylinder: 'cylinder', cone: 'cone', sphere: 'sphere', torus: 'torus', bspline: 'B-spline surface',
+  extrusion: 'extrusion', revolution: 'revolution', offset: 'offset surface', rectangularTrimmed: 'trimmed surface',
+  curveSwept: 'swept surface', fixedReferenceSwept: 'swept surface', 'curve:line': 'line', 'curve:circle': 'circle',
+  'curve:ellipse': 'ellipse', 'curve:hyperbola': 'hyperbola', 'curve:parabola': 'parabola',
+  'curve:bspline': 'B-spline curve', 'curve:polyline': 'polyline', 'curve:composite': 'composite curve',
+  'curve:trimmed': 'trimmed curve', 'curve:offset': 'offset curve',
+};
+
 /** The kind an item's icon shows: a face's surface, an edge's or free curve's curve; none unknown (no 3D curve). */
 export function geometryKind(d: BrepData, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined {
   if (kind === 'face') {

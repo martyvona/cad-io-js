@@ -7,11 +7,14 @@
 // partial coverage) with neither depth test nor write, red their coverage and green the coverage of what's in sight,
 // blended by maximum: a fragment is in sight if it's no farther than the id pass's depth there (pick-ids.ts: the faces'
 // and caps' depth, drawn with the same offsets and bias), or the id drawn there is one of the highlight's own (its cap,
-// its lines over its faces). Then the composite, after the frame's last pass: each pixel outside the mask takes the
-// distance to the nearest covered pixel (less its coverage, so the line follows the antialiased edge), the line
-// `thickness` device pixels wide, smoothed over a pixel, in sight or hidden by which coverage is nearer.
+// its lines over its faces). Then the distance from each pixel outside the mask to the nearest covered pixel (less
+// its coverage, so the line follows the antialiased edge), in two passes so a wide line costs its width, not its
+// square: along each row (the nearest covered pixel's offset and coverage, in sight and hidden apart), then down each
+// column in the composite, after the frame's last pass. The line is `thickness` device pixels wide, smoothed over a
+// pixel, in sight or hidden by which coverage is nearer.
 
 import * as THREE from 'three';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
@@ -21,16 +24,8 @@ import { coverRuns } from './pick-ids.ts';
 import type { Piece } from './selection.ts';
 import { DiscMaterial } from './vertex-points.ts';
 
-/**
- * The highlight's colours (sRGB): the silhouette, and the marks of edges and vertices, a blue a little lighter;
- * orange's complement, as the selection is orange.
- */
-export const HIGHLIGHT_COLOR = 0x1f6fff;
-export const MARK_COLOR = 0x3d8bff;
 /** How strongly the silhouette shows where it's hidden (its colour's weight over what's in front). */
 export const XRAY = 0.4;
-/** The silhouette's width in CSS pixels. */
-export const SILHOUETTE_PIXELS = 1.5;
 /** The id runs the mask's shader takes (more are covered by fewer: coverRuns). */
 const RUNS = 8;
 
@@ -76,22 +71,45 @@ void main() {
   gl_FragColor = vec4(1.0, seen ? 1.0 : 0.0, 0.0, 1.0);
 }`;
 
-const COMPOSITE = {
-  uniforms: {
-    tDiffuse: { value: null }, tMask: { value: null }, texel: { value: new THREE.Vector2() },
-    thickness: { value: 1.25 }, seen: { value: new THREE.Color() }, hidden: { value: XRAY },
-  },
-  vertexShader: `
+const FULL_VERTEX = `
 varying vec2 vUv;
 void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}`,
+}`;
+
+// (Per pixel, the covered pixel along its row nearest by offset plus (1 - coverage): that offset and that, for what's
+// in sight (rg) and what's hidden (ba); none, a distance beyond any line.)
+const ROW_FRAGMENT = `
+uniform sampler2D tMask;
+uniform vec2 texel;
+uniform int reach;
+varying vec2 vUv;
+void main() {
+  vec2 near = vec2(1e4, 0.0), far = vec2(1e4, 0.0);
+  for (int x = -reach; x <= reach; x++) {
+    float d = abs(float(x));
+    vec2 m = texture2D(tMask, vUv + vec2(float(x), 0.0) * texel).rg;
+    float h = m.r - m.g;
+    if (m.g > 0.01 && d + 1.0 - m.g < near.x + near.y) near = vec2(d, 1.0 - m.g);
+    if (h > 0.01 && d + 1.0 - h < far.x + far.y) far = vec2(d, 1.0 - h);
+  }
+  gl_FragColor = vec4(near, far);
+}`;
+
+const COMPOSITE = {
+  uniforms: {
+    tDiffuse: { value: null }, tMask: { value: null }, tRows: { value: null }, texel: { value: new THREE.Vector2() },
+    thickness: { value: 1.25 }, reach: { value: 3 }, seen: { value: new THREE.Color() }, hidden: { value: XRAY },
+  },
+  vertexShader: FULL_VERTEX,
   fragmentShader: `
 uniform sampler2D tDiffuse;
 uniform sampler2D tMask;
+uniform sampler2D tRows;
 uniform vec2 texel;
 uniform float thickness;
+uniform int reach;
 uniform vec3 seen;
 uniform float hidden;
 varying vec2 vUv;
@@ -103,14 +121,11 @@ void main() {
     return;
   }
   float near = 1e5, far = 1e5;
-  for (int x = -4; x <= 4; x++) for (int y = -4; y <= 4; y++) {
-    vec2 o = vec2(float(x), float(y));
-    float l = length(o);
-    if (l > thickness + 1.5) continue;
-    vec2 m = texture2D(tMask, vUv + o * texel).rg;
-    if (m.g > 0.01) near = min(near, l + 1.0 - m.g);
-    float h = m.r - m.g;
-    if (h > 0.01) far = min(far, l + 1.0 - h);
+  for (int y = -reach; y <= reach; y++) {
+    float dy = float(y);
+    vec4 r = texture2D(tRows, vUv + vec2(0.0, dy) * texel);
+    near = min(near, sqrt(r.x * r.x + dy * dy) + r.y);
+    far = min(far, sqrt(r.z * r.z + dy * dy) + r.w);
   }
   float outside = 1.0 - inside;
   float a = (1.0 - smoothstep(thickness - 0.5, thickness + 0.5, near)) * outside;
@@ -156,6 +171,8 @@ export class Highlights {
   readonly group = new THREE.Group();
   readonly pass: ShaderPass;
   private readonly maskTarget: THREE.WebGLRenderTarget;
+  private readonly rowTarget: THREE.WebGLRenderTarget;
+  private readonly rows: FullScreenQuad;
   private readonly maskScene = new THREE.Scene();
   private readonly hiddenMaterial = new THREE.MeshBasicMaterial({ visible: false });
   private readonly lo = new Uint32Array(RUNS);
@@ -163,8 +180,8 @@ export class Highlights {
   private readonly shared: Record<string, THREE.IUniform>;
   private readonly maskMaterials: Record<'mesh' | 'line' | 'biased' | 'points', THREE.ShaderMaterial>;
   private highlight: Highlight = { outline: [], marks: [] };
-  private readonly markLine = biasTowardCamera(new LineMaterial({ color: MARK_COLOR, linewidth: 3 }));
-  private readonly markDots = new DiscMaterial(MARK_COLOR);
+  private readonly markLine = biasTowardCamera(new LineMaterial({ linewidth: 3 }));
+  private readonly markDots = new DiscMaterial();
   private readonly lineGeometries = new WeakMap<THREE.BufferGeometry, LineSegmentsGeometry>();
   private marks: { source: Drawable; mark: THREE.Object3D }[] = [];
 
@@ -172,6 +189,11 @@ export class Highlights {
     this.group.name = 'highlights';
     this.maskTarget = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.UnsignedByteType,
       depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+    this.rowTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+    this.rows = new FullScreenQuad(new THREE.ShaderMaterial({ vertexShader: FULL_VERTEX, fragmentShader: ROW_FRAGMENT,
+      uniforms: { tMask: { value: this.maskTarget.texture }, texel: { value: new THREE.Vector2() },
+        reach: { value: 3 } }, depthTest: false, depthWrite: false }));
     this.shared = { idColour: { value: null }, idDepth: { value: null }, lo: { value: this.lo },
       hi: { value: this.hi }, epsilon: { value: 1e-5 }, depthBias, pointSize: { value: 1 } };
     const make = (defines: Record<string, number>, extra: THREE.ShaderMaterialParameters = {}) =>
@@ -185,8 +207,16 @@ export class Highlights {
     this.pass = new ShaderPass(COMPOSITE);
     this.pass.enabled = false;
     this.pass.uniforms.tMask!.value = this.maskTarget.texture;
-    this.pass.uniforms.seen!.value = raw(HIGHLIGHT_COLOR);
+    this.pass.uniforms.tRows!.value = this.rowTarget.texture;
     this.markDots.uniforms.grow!.value = 2;
+    this.setColor(0xffe100);
+  }
+
+  /** The highlight's colour (sRGB), the silhouette's and the marks'. */
+  setColor(hex: number): void {
+    this.pass.uniforms.seen!.value = raw(hex);
+    this.markLine.color.setHex(hex);
+    this.markDots.color.setHex(hex);
   }
 
   /** Whether anything is highlighted. */
@@ -233,11 +263,24 @@ export class Highlights {
     this.pass.enabled = h.outline.length > 0;
   }
 
-  /** The drawing buffer's size (device pixels) and the pixel ratio, before a frame. */
-  setSize(width: number, height: number, pixelRatio: number, markWidth: number): void {
-    if (this.maskTarget.width !== width || this.maskTarget.height !== height) this.maskTarget.setSize(width, height);
-    this.pass.uniforms.texel!.value.set(1 / width, 1 / height);
-    this.pass.uniforms.thickness!.value = SILHOUETTE_PIXELS * pixelRatio;
+  /**
+   * Before a frame: the drawing buffer's size (device pixels), the pixel ratio, the silhouette's width and the edges'
+   * marks' (CSS pixels).
+   */
+  setSize(width: number, height: number, pixelRatio: number, silhouette: number, markWidth: number): void {
+    if (this.maskTarget.width !== width || this.maskTarget.height !== height) {
+      this.maskTarget.setSize(width, height);
+      this.rowTarget.setSize(width, height);
+    }
+    const thickness = silhouette * pixelRatio;
+    // (As far as a pixel can be from a covered one and still be on the line: its width, a pixel's smoothing, and
+    // the coverage's pixel.)
+    const reach = Math.ceil(thickness + 1.5);
+    for (const u of [this.pass.uniforms, (this.rows.material as THREE.ShaderMaterial).uniforms]) {
+      u.texel!.value.set(1 / width, 1 / height);
+      u.reach!.value = reach;
+    }
+    this.pass.uniforms.thickness!.value = thickness;
     this.markLine.linewidth = markWidth;
   }
 
@@ -296,6 +339,8 @@ export class Highlights {
       renderer.setRenderTarget(this.maskTarget);
       renderer.clear(true, false, false);
       renderer.render(this.maskScene, camera);
+      renderer.setRenderTarget(this.rowTarget);
+      this.rows.render(renderer);
     } finally {
       renderer.setRenderTarget(was);
       renderer.setClearColor(clear, alpha);

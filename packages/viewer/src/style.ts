@@ -28,6 +28,11 @@ export interface RenderSettings {
   edgeWidth: number;
   /** The model's B-rep vertices as discs in the edges' colour (vertex-points.ts), a little wider than the edges. */
   vertices: boolean;
+  /**
+   * How far the vertices' dots and failed faces' outlines are drawn toward the camera, in the view's pixels
+   * (depth-bias.ts): so the faces they lie on don't cut into them; what's behind a face by less shows through it.
+   */
+  depthOffset: number;
   /** Phong shininess of faces. */
   shininess: number;
   /** Phong specular colour of faces, a grey from 0 (none) to 1 (white). */
@@ -39,8 +44,14 @@ export interface RenderSettings {
   capStyle: CapStyle;
   /** The caps' hatching lines' width, CSS pixels at half their ink. */
   hatchWidth: number;
+  /** The highlight's colour (outline.ts), `#rrggbb`, and its silhouette's width in CSS pixels. */
+  highlightColor: string;
+  highlightWidth: number;
+  /** The selection's tint (selection.ts), `#rrggbb`. */
+  selectionColor: string;
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
-  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, triangleEdges: 'off', shininess: 30, specular: 0.2,
-  ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH };
+  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, depthOffset: 2, triangleEdges: 'off',
+  shininess: 30, specular: 0.2, ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH,
+  highlightColor: '#ffe100', highlightWidth: 3.5, selectionColor: '#ff9a2e' };
