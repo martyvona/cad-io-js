@@ -479,6 +479,56 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   CHECK(c->accept(thin));
 }
 
+TEST_CASE("a point crowds a fixed segment (crowds) within a tenth of the floor of it, along it and past its ends, "
+  "whatever the boundary's distance from its surface; a frozen one only where the needle turns as shipped; never a "
+  "fold's sliver") {
+  // (pcurveNear's plane at d 0.1: the floor 0.01, the band 0.001; the segment (0, 0) to (3, 0).)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 a{0, 0}, b{3, 0};
+  CHECK(c->crowds(a, b, {1.5, 0.0009}, false));
+  CHECK(c->crowds(b, a, {1.5, -0.0009}, false));
+  CHECK(!c->crowds(a, b, {1.5, 0.0011}, false));
+  CHECK(c->crowds(a, b, {3.0009, 0.0005}, false));
+  CHECK(c->crowds(a, b, {-0.0009, 0}, false));
+  CHECK(!c->crowds(a, b, {3.0011, 0}, false));
+  CHECK(!c->crowds(a, b, {-0.0011, 0}, false));
+  // Frozen, the needle facing up in double and unrounded: not crowding.
+  CHECK(!c->crowds(a, b, {1.5, 0.0009}, true));
+  // The boundary 0.005 off its surface (a point's own 0.005 above the plane): the band still a tenth of the floor.
+  c->setBoundaryPoints({{a, Vec3{0, 0, 0.005}}});
+  CHECK(!c->crowds(a, b, {1.5, 0.0045}, false));
+  CHECK(c->crowds(a, b, {1.5, 0.0009}, false));
+  c->setBoundaryPoints({});
+  // Frozen, a needle turned as shipped (the corners of the setBoundaryPoints case's flip, float32 minus an origin 1
+  // below them): crowding; in double, not.
+  {
+    auto c2 = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(c2);
+    const Vec2 fa{0, 6e-8}, fb{3, 5.8e-8}, fq{1.5, 5.91e-8};
+    CHECK(!c2->crowds(fa, fb, fq, true));
+    const double origin[3] = {0, -1, 0};
+    c2->setOutputOrigin(origin);
+    CHECK(c2->crowds(fa, fb, fq, true));
+    CHECK(c2->crowds(fb, fa, fq, true));
+  }
+  // A fold's sliver (pleatStrip at a deflection of 1: the floor 0.2, the band 0.02): the segment 0.01 along y from
+  // the fold at (0.5, 0.5), across it, isn't crowded by the fold's point; 0.01 along y from it a point off the fold
+  // (v 0.25) is.
+  cadgeom::Model p = load("pleatStrip");
+  REQUIRE(p.ok());
+  auto ps = cadgeom::makeSurface(p, p.faceSurface(0), st);
+  auto pc = makeCriteria(p, 0, *ps, cadgeom::Box2{{0, 1}, {0, 1}}, Deflections{1, 15 * M_PI / 180}, st);
+  REQUIRE(pc);
+  const double e = 0.01 / 190;
+  CHECK(!pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.5}, false));
+  CHECK(pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.25}, false));
+}
+
 TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
   "against the mean of its corners' normals, not against any one of them") {
   // (cylinderLong, r = 2: corners at u = -0.1, 0.1 and 0, their normals 0.2 apart; own points whose facet's normal is
@@ -2907,14 +2957,16 @@ TEST_CASE("an edge off its surface, its feet nearly affine (Iron.step #47's kind
 
 TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit for bit as asking the criteria again") {
   // Parts whose faces are meshed again in split rounds (edges 4 times coarser than the faces want, a band's hole, a
-  // cusp), and some meshed once.
+  // cusp), some meshed once, and some whose points crowd their boundary (SizeField::crowds: a tube thinner than its
+  // tolerance, a fold at a corner).
   struct Case {
     const char* name;
     double d, angle, scale;
   };
   const Case cases[] = {{"seamCylinder", 0.01, 0.26, 4}, {"band", 0.01, 0.26, 4}, {"spheres", 0.01, 0.26, 4},
     {"twisted", 0.01, 0.26, 4}, {"bandHoleAtVertex", 0.01, 0.26, 1}, {"cuspPocket", 0.3, 0.12, 1},
-    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}};
+    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}, {"thinTube", 0.1, 0.26, 1}, {"thinTube", 0.01, 0.26, 1},
+    {"cornerFoldTight", 0.1, 0.26, 1}, {"cornerFoldTight", 0.01, 0.26, 1}};
   for (const Case& c : cases) {
     cadgeom::Model m = load(c.name);
     PartOptions o = options(c.d, c.angle), fresh = o;
