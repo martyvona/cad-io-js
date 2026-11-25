@@ -50,12 +50,13 @@ export interface FaceMeasure {
 }
 
 /**
- * A measure to rely on: computed, no flags but projectedBoundary and edgesPlaced, its boundary's error known, its
- * error (the boundary's included) within `relative` of its value (oracle.h's trusted). What users see is the value and
- * its error, with the flags no estimate covers said beside them.
+ * A measure to rely on: computed, no flags but projectedBoundary, edgesPlaced and winds (computed: its seam's term
+ * taken), its boundary's error known, its error (the boundary's included) within `relative` of its value (oracle.h's
+ * trusted). What users see is the value and its error, with the flags no estimate covers said beside them.
  */
 export function trusted(m: FaceMeasure, relative = 1e-6): boolean {
-  return m.area.status === 'ok' && m.flags.every((f) => f === 'projectedBoundary' || f === 'edgesPlaced')
+  return m.area.status === 'ok'
+    && m.flags.every((f) => f === 'projectedBoundary' || f === 'edgesPlaced' || f === 'winds')
     && Number.isFinite(m.boundary)
     && m.area.error <= relative * m.area.value;
 }

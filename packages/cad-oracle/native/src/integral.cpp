@@ -134,7 +134,7 @@ std::vector<Estimate> Oracle::Impl::integral(int f, const Integrand& g) {
       for (int c = 0; c < K; c++) o[c] += e[c].value;
     };
     const ClosedTotals T = closedIntegral(face, A, options.relTol);
-    if (T.flags & flagWinds) return unsupported(k);  // (as the area: Oracle::face)
+    if (T.flags & flagWinds) return unsupported(k);  // (the seam's term is the area's alone: closed.h)
     std::vector<double> value(K);
     for (int c = 0; c < K; c++) value[c] = sense * T.value[c];
     if (sphere || (torus && T.windsU)) {
@@ -150,7 +150,7 @@ std::vector<Estimate> Oracle::Impl::integral(int f, const Integrand& g) {
 
   if (kind == CBR_SURFACE_EXTRUSION || kind == CBR_SURFACE_REVOLUTION) {
     const SweptFace F = sweptFace(*this, f);
-    if (*F.why || (F.flags & flagWinds)) return unsupported(k);  // (winds: as the area, Oracle::face)
+    if (*F.why || (F.flags & flagWinds)) return unsupported(k);  // (the seam's term is the area's alone: swept.h)
     Status st;
     std::unique_ptr<cadgeom::Surface> S = cadgeom::makeSurface(model, s, st);
     if (!S) return unsupported(k);
@@ -249,7 +249,7 @@ FreeTotals freeWith(Oracle::Impl& I, int f, const Integrand& g) {
 }
 
 std::vector<Estimate> freeEstimates(const FreeTotals& T, int k) {
-  if (T.flags & flagWinds) return unsupported(k);  // (as the area: Oracle::face)
+  if (T.flags & flagWinds) return unsupported(k);  // (as the area: freeForm)
   if (*T.why && T.status != Status::noConvergence && T.status != Status::singular) {
     return std::vector<Estimate>(k, Estimate{NAN, INFINITY, T.status});
   }

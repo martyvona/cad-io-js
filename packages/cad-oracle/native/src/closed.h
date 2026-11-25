@@ -180,6 +180,11 @@ struct ClosedTotals {
    * others, which moves the result by whole multiples of the whole torus's integral (callers reduce modulo it).
    */
   bool windsU = false;
+  /**
+   * A torus's loops, in order: the whole turns of v each winds, and u at its start (where its v is unwrapped from):
+   * a loop winding v takes the seam's term (seamTerm).
+   */
+  std::vector<double> loopWindV, loopStartU;
 };
 
 ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, double relTol);

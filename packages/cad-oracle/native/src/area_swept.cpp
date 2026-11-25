@@ -108,12 +108,28 @@ SweptFace sweptFace(Oracle::Impl& I, int f) {
   // Any loop winding v by itself, whatever the others do: two winding it opposite ways (a band round a tube between
   // two of its profile's circles) cancel in the sum but not in the area, which the seam term the method lacks holds.
   for (double w : L.windV) F.windV += w, F.flags |= w != 0 ? flagWinds : 0u;
+  F.loopWindV = L.windV;
   if (F.pieces.empty()) return F;
   auto& P = F.pieces;
+  for (size_t i = 0; i < P.size(); i++) {
+    if (i > 0 && P[i - 1].loop == P[i].loop) continue;
+    Vec2 uv, d;
+    pieceAt(I.h, P[i], P[i].t0, uv, d);
+    F.loopStartU.push_back(uv.x);
+  }
   if (F.windU != 0 && (F.extrusion || F.poleV.empty())) F.flags |= flagWinds;
   Vec2 start, d0;
   pieceAt(I.h, P[0], P[0].t0, start, d0);
   F.v0 = !F.extrusion && !F.poleV.empty() ? F.poleV[0] : start.y;
+  if (F.Pv > 0) {
+    for (const SweptPiece& p : P) {
+      for (double t : {p.t0, p.t1}) {
+        Vec2 uv, d;
+        pieceAt(I.h, p, t, uv, d);
+        F.turnsV = std::fmax(F.turnsV, std::ceil(std::fabs(uv.y - F.v0) / F.Pv));
+      }
+    }
+  }
   Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
   for (const SweptPiece& p : P) {
     const int e = model.coedgeEdge(p.coedge);
@@ -237,6 +253,12 @@ FaceMeasure Oracle::Impl::swept(int f) {
   const SweptFace F = sweptFace(*this, f);
   if (*F.why) return fail(F.status, F.why);
   m.flags |= F.flags;
+  // A loop winding v takes the seam's term where the surface is a torus's like (seamTerm); else (a loop winding u with
+  // no pole for the face to hold, loops whose windings don't cancel) the term the method lacks is no part of any
+  // error.
+  const bool seam = (F.flags & flagWinds) && !extrusion && F.Pu > 0 && F.Pv > 0 && F.poleV.empty() && F.windU == 0
+    && F.windV == 0;
+  if ((F.flags & flagWinds) && !seam) return fail(Status::unsupported, kWindsWhy);
   if (F.pieces.empty()) {
     // Bounded by nothing: a revolution closed in v (its profile closed, or meeting the axis at both ends) is its
     // whole area, 2 pi int rho |C'|; anything else is unbounded, nothing to measure.
@@ -339,7 +361,20 @@ FaceMeasure Oracle::Impl::swept(int f) {
   double sum = T.value[0];
   Status status = T.status;
   if (gStatus != Status::ok && status == Status::ok) status = gStatus;
-  if (!extrusion && poleV.size() >= 2) {
+  double seamError = 0;
+  if (seam) {
+    // H(v + Pv) = H(v) - J, J = G's whole period; the whole surface Pu J.
+    const double J = gv.back(), whole = F.Pu * J;
+    double term = 0, reach = 0;
+    for (size_t l = 0; l < F.loopWindV.size(); l++) {
+      const double u = F.loopStartU[l] - F.Pu * std::floor(F.loopStartU[l] / F.Pu);
+      term += F.loopWindV[l] * u, reach += std::fabs(F.loopWindV[l] * u);
+    }
+    const SeamResult r = seamTerm(sum + J * term, whole);
+    sum = r.value;
+    // J's error times each term's multiple, the turns of whole taken off, and G's whole turns along the lifted loops.
+    seamError = gError * (reach + std::fabs(r.turns) * F.Pu + F.turnsV * T.spanU);
+  } else if (!extrusion && poleV.size() >= 2) {
     // Closed in v by two poles (a sphere's like): the area is known modulo the whole surface's, as an elementary
     // sphere's is (area_closed.cpp), and past half of it flagged.
     double lo = poleV[0], hi = poleV[0];
@@ -352,7 +387,7 @@ FaceMeasure Oracle::Impl::swept(int f) {
     sum = -sum;
   }
   // G's own error enters every H: times the loops' extent in u.
-  m.area = {sum, T.error[0] + gError * (T.spanU + std::fabs(F.windU) * F.Pu), status};
+  m.area = {sum, T.error[0] + gError * (T.spanU + std::fabs(F.windU) * F.Pu) + seamError, status};
   return m;
 }
 
