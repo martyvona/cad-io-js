@@ -2176,7 +2176,8 @@ struct PartMesher::Impl {
           out.refusedBy[static_cast<int>(criteria[f]->refusal(tri, fan.smooth, true))]++;
           refused[f].push_back({{mesh.points[a], mesh.points[b], apex}, {a, b, pole}});
         }
-        const bool forward = topological && against[j] ? against[j] > 0 : byNormals[j] != 0;
+        const bool forward = (topological && against[j] ? against[j] > 0 : byNormals[j] != 0)
+          != (o.turnFirstFanTriangleForTests && j == 0);
         if (forward) out.triangles.insert(out.triangles.end(), {a, b, pole});
         else out.triangles.insert(out.triangles.end(), {b, a, pole});
       }

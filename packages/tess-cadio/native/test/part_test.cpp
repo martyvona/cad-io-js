@@ -1110,6 +1110,46 @@ TEST_CASE("a fold's slivers accepted where thinner than the refinement floor acr
   CHECK(fm.foldedNormals > 0);
 }
 
+TEST_CASE("a pole's fan that folds fails its face (failFoldedFans), said so; off, meshed; a row reaching as far as "
+  "its ring gets no fan, one nearly as long keeps its fans") {
+  // seamCone at 0.05 with its first fan triangle turned for the test (turnFirstFanTriangleForTests): its ring segment
+  // used the same way as the mesher's triangle beside it, a fold, whatever consistentFans and apexCorners.
+  cadgeom::Model m = load("seamCone");
+  REQUIRE(m.ok());
+  for (bool rules : {true, false}) {
+    PartOptions o = options(0.05, 0.26);
+    o.consistentFans = o.apexCorners = rules;
+    CHECK(PartMesher(m, o).face(0).status == cadgeom::Status::ok);
+    o.turnFirstFanTriangleForTests = true;
+    PartMesher turned(m, o);
+    const FaceMesh& fm = turned.face(0);
+    CHECK(fm.status == cadgeom::Status::noConvergence);
+    CHECK(fm.cause.find("a pole's fan folds over itself: ") != std::string::npos);
+    CHECK(fm.triangles.empty());
+    o.failFoldedFans = false;
+    PartMesher kept(m, o);
+    CHECK(kept.face(0).status == cadgeom::Status::ok);
+    CHECK(!kept.face(0).triangles.empty());
+  }
+  // poleRowFan (VW #2452's #298974) at medium: no fan at its row-long pole, meshed, every edge of it used once
+  // each way or once at the boundary.
+  cadgeom::Model row = load("poleRowFan");
+  REQUIRE(row.ok());
+  PartMesher pm(row, options(0.1, 15 * M_PI / 180));
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(!pm.face(0).triangles.empty());
+  CHECK_EQ(sharedEdges(row, pm, "poleRowFan"), 0);
+  // poleRowNear (LMP1 #172535's #1050721) at medium: its rings off its rows, fans kept, none folding (failFoldedFans
+  // would fail the face). (Its edges run along its rows, which its fans meet at their rings, not at the edges' samples:
+  // sharedEdges doesn't apply.)
+  cadgeom::Model near = load("poleRowNear");
+  REQUIRE(near.ok());
+  PartMesher nm(near, options(0.1, 15 * M_PI / 180));
+  if (nm.face(0).status != cadgeom::Status::ok) std::printf("  poleRowNear: %s\n", nm.face(0).cause.c_str());
+  CHECK(nm.face(0).status == cadgeom::Status::ok);
+  CHECK(!nm.face(0).triangles.empty());
+}
+
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut

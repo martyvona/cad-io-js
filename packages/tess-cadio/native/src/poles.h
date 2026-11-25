@@ -53,6 +53,11 @@ struct PoleRing {
   double straight = std::numeric_limits<double>::infinity();
   double floor = 0, wanted = 0, reach = 0, radius = 0;
   bool floored = false;
+  /**
+   * The row's farthest point in 3D from the pole's over the face's runs along it: 0 for a true pole. Where the row
+   * reaches as far as the ring (the ring on the row), no fan (the case outside, the row meshed as a side).
+   */
+  double extent = 0;
 };
 
 /** The ring's farthest point from the pole in 3D at fixed-coordinate offset r (over its runs). */

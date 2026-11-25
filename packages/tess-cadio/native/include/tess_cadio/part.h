@@ -85,6 +85,11 @@ struct PartOptions {
    */
   bool failFoldedFans = true;
   /**
+   * For tests only: each pole fan's first triangle made the other way round, so its ring segment is used the same way
+   * as the mesher's triangle beside it, a fold (failFoldedFans' path, whatever the rules that keep fans from folding).
+   */
+  bool turnFirstFanTriangleForTests = false;
+  /**
    * A face that would fail as past its deflection (checkDeviation), turned (failTurnedOver) or at its point cap
    * (failCapped) is kept, its mesh as meshed (manifold, on its edges' shared samples), its defect recorded
    * (FaceMesh::defectDeviation, defectTurned, defectCapped), where the defect is small: its refused triangles'

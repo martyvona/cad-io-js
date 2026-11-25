@@ -300,6 +300,40 @@ TEST_CASE("a ring's cuts exact all together or not at all: not where an edge's a
   CHECK(all(false));
 }
 
+TEST_CASE("a pole whose row reaches as far as its ring (the ring on the row): no fan (the case outside), its extent "
+  "kept; a row nearly as long whose ring stands off it keeps its ring") {
+  // poleRowFan (VW #2452's #298974): its pole a B-spline row 0.12 long at 0.123, its reach at the 0.1 floor. A true
+  // pole's row is a point: seamCone's apex keeps its ring, extent 0.
+  Setup row("poleRowFan", 0.1, 15 * M_PI / 180);
+  REQUIRE(row.rings[0].size() == 1u);
+  const PoleRing& r = row.rings[0][0];
+  CHECK(r.kase == Case::outside);
+  CHECK(r.radius == 0 && r.reach == 0);
+  // (Over the face's run along the row, v from 0 to 1: 0.11 of the row's 0.12.)
+  CHECK(r.extent > 0.1 && r.extent < 0.13);
+  // poleRowShort (LMP1 #172880's #1065578): a row 2.2e-5 long, a pole but for rounding, at a reach of 0.1: its ring.
+  Setup tiny("poleRowShort", 0.1, 15 * M_PI / 180);
+  REQUIRE(tiny.rings[0].size() == 1u);
+  CHECK(tiny.rings[0][0].kase != Case::outside);
+  CHECK(tiny.rings[0][0].radius > 0);
+  CHECK(tiny.rings[0][0].extent > 1e-6 && tiny.rings[0][0].extent < 1e-4);
+  // poleRowNear (LMP1 #172535's #1050721): rows 0.195 and 0.182 long at reaches of 0.1954 and 0.1845, each ring off
+  // its row.
+  Setup near("poleRowNear", 0.1, 15 * M_PI / 180);
+  REQUIRE(near.rings[0].size() == 2u);
+  for (const PoleRing& q : near.rings[0]) {
+    CHECK(q.kase != Case::outside);
+    CHECK(q.radius > 1e-4);
+    CHECK(q.extent > 0.9 * q.reach);
+    CHECK(q.extent < q.reach);
+  }
+  Setup cone("seamCone", 0.1, 15 * M_PI / 180);
+  bool ringed = false;
+  for (const PoleRing& q : cone.rings[0])
+    ringed = ringed || (q.kase != Case::outside && q.radius > 0 && q.extent < 1e-9);
+  CHECK(ringed);
+}
+
 TEST_CASE("one reach per pole across its faces: the least any asks, each face's radius for it") {
   // poleLunes: the unit sphere's lune and a radius 3 sphere's meet at (0, 0, 1); the flatter one's fans pass farther
   // out. Shared, both reach the unit one's; their south poles (apart) keep their own.

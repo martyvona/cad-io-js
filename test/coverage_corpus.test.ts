@@ -60,15 +60,14 @@ test('coverage_corpus: HEAL=1 heals the parts before meshing; without it they ar
   }
 });
 
-test('beyondRepair: the far-off cause, and healing\'s past-repair one for an edge or a vertex whatever its id and '
-  + 'sizes; nothing else', () => {
-  for (const c of ["invalidModel: a use of an edge whose curve is far off its face's surface",
+test('beyondRepair: the far-off cause (a use with no feet on its surface); nothing else, not the face kept far '
+  + 'off or failed for it without keepDefects, nor healing\'s growth past repair', () => {
+  assert.ok(beyondRepair("invalidModel: a use of an edge whose curve is far off its face's surface"));
+  for (const c of ['invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)',
+    'invalidModel: an edge (#0) 0.5 mm off its surface, 50 x max(d, tol)',
+    'invalidModel: a vertex (#66) 3.32 mm off its surface, 33.22 x max(d, tol)',
     'invalidModel: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair',
     'invalidModel: a vertex (#74) whose tolerance healing grew from 1e-05 to 3.32 mm, past repair',
-    'invalidModel: an edge (#1) whose tolerance healing grew from 0.000102 to 1.2e+03 mm, past repair']) {
-    assert.ok(beyondRepair(c), c);
-  }
-  for (const c of ['invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)',
     'noConvergence: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm, past repair',
     'invalidModel: an edge (#307458) whose tolerance healing grew from 1e-05 to 289 mm',
     'invalidModel: a face (#3) whose tolerance healing grew from 1e-05 to 289 mm, past repair',

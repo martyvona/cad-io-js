@@ -13,6 +13,7 @@ import { CadioTessellator, EXPECTED_HEAD, INSERTED_HEAD, INSERTED_KINDS, POLES_H
   VERSION } from '../src/index.ts';
 import { CAUSES_HEAD, failedCauses, KEPT_HEAD, keptDefects } from '../src/causes.ts';
 import { ANALYSES, MODELS as TESS_MODELS, affineFeetOff, bentApex, bsplineApexHole, bsplineDome, bumpPatch, cap,
+  poleRowFan,
   cuspPocket_, fold, halfCap, knotAtEnd,
   loopless, luneOnSeam, luneQuarter, meridianHemisphere, seamByInversion, seamFlipped, torusOuterHalf, uFold }
   from '../native/test/models.ts';
@@ -795,6 +796,20 @@ test('bsplineApexHole, its hole within its tolerance of the apex, meshes manifol
       used.set(e, (used.get(e) ?? 0) + 1);
     }
     assert.deepEqual([...used].filter(([, n]) => n > 1), []);
+  }
+});
+
+test('a pole whose row reaches as far as its ring gets no fan: poleRowFan meshed, whatever '
+  + 'consistentFans and apexCorners', { skip }, async () => {
+  // (poleRowFan at medium: VW #2452's #298974, its pole a row 0.12 long, its ring's reach 0.11: folded with a fan.)
+  const data = new Uint8Array(poleRowFan().finish().buffer);
+  for (const fans of [{}, { consistentFans: false, apexCorners: false }] as Record<string, boolean>[]) {
+    const t = new CadioTessellator();
+    await t.init(fans);
+    const r = await t.tessellate({ ...req('cube'), data, linearDeflection: 0.1,
+      angularDeflection: 15 * Math.PI / 180 });
+    assert.equal(failedCauses(r).size, 0);
+    assert.ok(r.indices.length > 0);
   }
 });
 
