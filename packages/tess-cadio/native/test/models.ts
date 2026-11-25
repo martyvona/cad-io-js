@@ -949,6 +949,47 @@ export function bsplineApex(hole = 0): BrepBuilder {
 export const bsplineApexHole = (): BrepBuilder => bsplineApex(1e-4);
 
 /**
+ * A flat B-spline sector with a pole beside an elementary face that has none: bsplineApex's construction in z = 0
+ * (the arc's poles (1, 0, 0), (1, 1, 0), (0, 1, 0), its row v = 0 the pole at the origin), faced up, bounded by the
+ * x axis from the origin to P, the line up from P to Q and the arc K back to the origin, K on the circle of radius
+ * sqrt 1/2 about (0.5, -0.5, 0) (from 70 to 135 degrees); and that circle's cylinder below K down to z = -h, faced
+ * out. The sector's fans are flat, so its ring at the pole is wide, while K bends: the cylinder wants K finer inside
+ * the sector's ring than the ring lets it be.
+ */
+export function sectorWall(h = 0.3): BrepBuilder {
+  const b = new BrepBuilder();
+  const arcPoles = [[1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const sector = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [2, 2], poles: arcPoles.map((q) => [[0, 0, 0], q]), uClosed: false,
+    vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const r = Math.SQRT1_2, c = [0.5, -0.5], t0 = 70 * Math.PI / 180, t1 = 0.75 * Math.PI;
+  const onCircle = (t: number, z: number) => [c[0]! + r * Math.cos(t), c[1]! + r * Math.sin(t), z];
+  const O = b.addVertex({ point: [0, 0, 0] }), q = onCircle(t0, 0), Q = b.addVertex({ point: q });
+  const P = b.addVertex({ point: [q[0]!, 0, 0] });
+  const Ob = b.addVertex({ point: onCircle(t1, -h) }), Qb = b.addVertex({ point: onCircle(t0, -h) });
+  const line = (p: number[], d: number[], len: number, start: number, end: number) => b.addEdge({
+    curve: b.addCurve({ kind: 'line', point: p, direction: d, magnitude: 1 }), start, end, sameSense: true,
+    range: [0, len] });
+  const circle = (z: number, start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'circle',
+    position: { origin: [c[0]!, c[1]!, z], axis: [0, 0, 1], xDir: [1, 0, 0] }, radius: r }), start, end,
+    sameSense: true, range: [t0, t1] });
+  const eOP = line([0, 0, 0], [1, 0, 0], q[0]!, O, P), ePQ = line([q[0]!, 0, 0], [0, 1, 0], q[1]!, P, Q);
+  const K = circle(0, Q, O), Kb = circle(-h, Qb, Ob);
+  const eOb = line(onCircle(t1, -h), [0, 0, 1], h, Ob, O), eQ = line(q, [0, 0, -1], h, Q, Qb);
+  // (The sector's own normal is down, S_u x S_v with u along the arc and v out from the pole: faced up against it.)
+  const top = b.addFace({ surface: sector, sameSense: false, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: eOP, orientation: 'forward' }, { edge: ePQ, orientation: 'forward' },
+      { edge: K, orientation: 'forward' }] }] });
+  const wall = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: { origin: [c[0]!, c[1]!, 0],
+    axis: [0, 0, 1], xDir: [1, 0, 0] }, radius: r }), sameSense: true, loops: [{ kind: 'edge', bound: 'outer',
+    sense: true, coedges: [{ edge: Kb, orientation: 'forward' }, { edge: eOb, orientation: 'forward' },
+      { edge: K, orientation: 'reversed' }, { edge: eQ, orientation: 'forward' }] }] });
+  const shell = b.addShell({ kind: 'open', faces: [{ face: top, sense: true }, { face: wall, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
+/**
  * A whole unit sphere as a rational B-spline periodic in v: its meridian (u, 0 to 2) from the south pole to the north
  * degree 2, both ends collapsed, its circle (v) CIRCLE9's; no loops. Its natural extent with the roles of u and v
  * swapped from a sphere's; area 4 pi. With `noise`, each collapsed row's poles moved off its pole by up to that (a
@@ -2559,6 +2600,7 @@ export function wrongEndPcurve(wiggle = false): BrepBuilder {
 }
 
 export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true),
+  sectorWall: () => sectorWall(),
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
