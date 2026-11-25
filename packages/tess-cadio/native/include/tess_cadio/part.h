@@ -91,9 +91,11 @@ struct PartOptions {
    * measured deviation at most keepDeviation x max(d, the face's tolerance), and at most keepTurned triangles turned,
    * their area no more than keepTurnedShare of the face's; a capped face where its mesh passes both. Past them it is
    * kept too, marked (FaceMesh::defectPastLimits), for a fallback backend to replace where its own mesh of the face is
-   * better (cad-scene's fallback.ts): a hole is itself not manifold. Folded fans (not manifold once welded), and every
-   * failure before meshing (its boundary, its edges far off, healing's limits), fail as without. False: each fails
-   * as without.
+   * better (cad-scene's fallback.ts): a hole is itself not manifold. A face whose edges lie off its surface by more
+   * than max(d, tol) (FaceMesh::offSurface: given p-curves, projections, healing's growth past repair) is meshed
+   * however far, that distance over max(d, tol) its deviation defect where it's more. Folded fans (not manifold once
+   * welded), and every failure before meshing (its boundary), fail as without. False: each fails as without, a face
+   * whose edges are past keepDeviation x max(d, tol) off its surface too.
    */
   bool keepDefects = true;
   double keepDeviation = 2.0;
@@ -244,6 +246,12 @@ struct FaceMesh {
   /** Whether a defect is past PartOptions::keepDeviation, keepTurned or keepTurnedShare (its deviation then a lower
    * bound: measured until past the limit). */
   bool defectPastLimits = false;
+  /**
+   * How far its edges lie off its surface (FaceBoundary::offSurface: its worst edge or vertex, rows, else -1), and
+   * the max(d, tol) it is judged by; past that, offSurface / offSurfaceWithin is a deviation defect (keepDefects).
+   */
+  double offSurface = 0, offSurfaceWithin = 0;
+  int32_t offSurfaceEdge = -1, offSurfaceVertex = -1;
   /** Whether it was meshed again at a capped stretch (PartOptions::retryStretch); its patch ratio, meshed last. */
   bool retried = false;
   double patchRatio = 0;

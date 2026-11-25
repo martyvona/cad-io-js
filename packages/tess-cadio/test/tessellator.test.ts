@@ -346,19 +346,37 @@ test('init({failCapped, failTurnedOver, keepDefects}): false keeps a capped face
   assert.equal(await turned(false), false);
 });
 
-test('a request\'s analysis read (info.readsAnalysis): an edge past repair fails its faces, said with its growth; ' +
-  'the same request without it meshes them', { skip }, async () => {
+test('a request\'s analysis read (info.readsAnalysis): an edge past repair met as any other, its faces meshed, its '
+  + 'distance (at its tolerance, within the deflection here) no defect, its samples neither respaced nor split',
+{ skip }, async () => {
   const t = new CadioTessellator();
   await t.init();
   assert.equal(t.info.readsAnalysis, true);
   const data = new Uint8Array(TESS_MODELS.poleLunes().finish().buffer);
   const run = (analysis?: Uint8Array) => t.tessellate({ ...req('cube'), data, linearDeflection: 0.01,
     ...(analysis ? { analysis } : {}) });
-  const causes = failedCauses(await run(ANALYSES.lunesEdgePast!.data()));
-  assert.ok(causes.size > 0);
-  for (const why of causes.values())
-    assert.match(why, /an edge \(#\d+\) whose tolerance healing grew from 1e-05 to .* past repair/);
-  assert.equal(failedCauses(await run()).size, 0);
+  const healed = await run(ANALYSES.lunesEdgePast!.data()), plain = await run();
+  assert.equal(failedCauses(healed).size, 0);
+  assert.equal(keptDefects(healed).size, 0);
+  assert.ok(healed.indices.length > 0 && healed.indices.length < plain.indices.length);
+});
+
+test('an edge off its face\'s surface past max(d, tol): the face kept, the edge and its distance said, past the '
+  + 'limits; with keepDefects off, failed for it', { skip }, async () => {
+  // (edgeBulge: a 10 mm square whose top side is an arc 0.5 over it, its use placed on its feet: 50 x 0.01.)
+  const data = new Uint8Array(TESS_MODELS.edgeBulge().finish().buffer);
+  const run = async (keepDefects: boolean) => {
+    const t = new CadioTessellator();
+    await t.init({ keepDefects });
+    return t.tessellate({ ...req('cube'), data, linearDeflection: 0.01 });
+  };
+  const kept = await run(true);
+  assert.equal(failedCauses(kept).size, 0);
+  const what = '50 x the larger of d and tol, edge #0 0.5 mm off its surface, past the limits';
+  assert.equal(keptDefects(kept).get(0), what);
+  assert.deepEqual(kept.defects, [{ entityId: 0, pastLimits: true, what }]);
+  assert.equal([...failedCauses(await run(false)).values()][0],
+    'invalidModel: an edge (#0) 0.5 mm off its surface, 50 x max(d, tol)');
 });
 
 test('init({countAngles}): the faces\' triangles under the minimum angle said, by angle; none without it',

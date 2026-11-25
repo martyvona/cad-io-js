@@ -735,7 +735,7 @@ export function creasedPatch(kind: 'cross' | 'arched'): BrepBuilder {
  * (a circle in y = 10, centre z = 24.75, radius 25.25): an edge far off its face's surface, which the projection
  * finds so.
  */
-export function edgeFarOff(pcurve = false): BrepBuilder {
+export function edgeFarOff(pcurve = false, bulge = false, grown = 0): BrepBuilder {
   const b = new BrepBuilder();
   const c = [[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]];
   const vs = c.map((point) => b.addVertex({ point }));
@@ -744,16 +744,21 @@ export function edgeFarOff(pcurve = false): BrepBuilder {
     return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0],
       magnitude: 1 }), start: vs[j]!, end: vs[(j + 1) % 4]!, sameSense: true, range: [0, 1] });
   };
-  const a0 = -Math.atan2(24.75, 5), a1 = Math.PI + Math.atan2(24.75, 5);
-  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [5, 10, 24.75], axis: [0, -1, 0],
-    xDir: [1, 0, 0] }, radius: 25.25 }), start: vs[2]!, end: vs[3]!, sameSense: true, range: [a0, a1] });
+  // (With `bulge`, the arc over the side instead, its centre 24.75 below: rising 0.5 at its middle, its feet the
+  // side itself. With `grown`, the arc's and the face's tolerances that, as healing grows them to cover it.)
+  const a0 = bulge ? Math.atan2(24.75, 5) : -Math.atan2(24.75, 5);
+  const a1 = bulge ? Math.PI - Math.atan2(24.75, 5) : Math.PI + Math.atan2(24.75, 5);
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: { origin: [5, 10, bulge ? -24.75 : 24.75],
+    axis: [0, -1, 0], xDir: [1, 0, 0] }, radius: 25.25 }), start: vs[2]!, end: vs[3]!, sameSense: true,
+    range: [a0, a1], ...(grown ? { tolerance: grown } : {}) });
   const edges = [line(0), line(1), arc, line(3)];
   // (With `pcurve`, the arc's use given the line under it in the plane, (10, 10) to (0, 10) over the arc's range.)
   const under = pcurve ? b.addCurve({ kind: 'line', point: [10 + 10 * a0 / (a1 - a0), 10], direction: [-1, 0],
     magnitude: 10 / (a1 - a0) }) : undefined;
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
-    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: edges.map((edge) => ({ edge,
-      orientation: 'forward' as const, ...(edge === arc && under !== undefined ? { pcurve: under } : {}) })) }] }));
+    ...(grown ? { tolerance: grown } : {}), loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const,
+        ...(edge === arc && under !== undefined ? { pcurve: under } : {}) })) }] }));
   return b;
 }
 
@@ -2592,6 +2597,8 @@ export const MODELS = { kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStri
   roofShallow: () => roof(0, 1, false, 5 * Math.tan(0.105)), roofJunctionAt: () => roof(0, 1, true, 2, 1),
   roofCross: () => creasedPatch('cross'), roofArched: () => creasedPatch('arched'),
   edgeFarOff: () => edgeFarOff(), edgeFarOffPcurve: () => edgeFarOff(true),
+  edgeBulge: () => edgeFarOff(false, true), edgeBulgePcurve: () => edgeFarOff(true, true),
+  edgeBulgeGrown: () => edgeFarOff(false, true, 0.6),
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, thinRing, pcurveNear,
   clampedCorner: () => clampedCorner(),
   clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
@@ -2656,6 +2663,12 @@ export const ANALYSES: Record<string, { model: keyof typeof MODELS; data: () => 
   } },
   sphereVertexPast: { model: 'wholeSphereVertex', data: () => analysisOf(MODELS.wholeSphereVertex(),
     { vertex: { toleranceError: [1], givenTolerance: [1e-5] } }) },
+  // edgeBulgeGrown's arc (edge 0) grown past repair from 1e-5 to 0.6, the face with it.
+  bulgeEdgePast: { model: 'edgeBulgeGrown', data: () => {
+    const n = MODELS.edgeBulgeGrown().finish().edge.start.length;
+    return analysisOf(MODELS.edgeBulgeGrown(), { edge: { toleranceError: [1, ...new Array(n - 1).fill(0)],
+      givenTolerance: new Array(n).fill(1e-5) } });
+  } },
   lunesVertexPast: { model: 'poleLunes', data: () => {
     const n = MODELS.poleLunes().finish().vertex.point.length / 3;
     return analysisOf(MODELS.poleLunes(), { vertex: { toleranceError: [1, ...new Array(n - 1).fill(0)],

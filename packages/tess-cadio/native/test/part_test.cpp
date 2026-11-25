@@ -3058,25 +3058,51 @@ TEST_CASE("countAngles: each face's triangles under minAngle, as counted on the 
     onFrozenAll);
 }
 
-TEST_CASE("a use whose curve the projection finds far off its face's surface fails, said so, without inverting its "
-  "samples (edgeFarOff's arc 50 mm out of its plane); respace's uses placed again said with their faces") {
-  {
-    cadgeom::Model m = load("edgeFarOff");
+TEST_CASE("an edge far off its face's surface: meshed where its feet allow, the distance a deviation defect past the "
+  "limits (keepDefects), failed without; feet folding back on themselves, beyond repair; respace's uses said") {
+  // edgeBulge: a 10 mm square on z = 0 whose top side is an arc over it 0.5 high at its middle (past 100 x the
+  // tolerance and 10 x d at 0.01, far off by the projection's rule), with no p-curve or the line under it: placed on
+  // its feet, the side; its face's triangles follow it up to 0.5 off the plane, 50 x max(d, tol).
+  for (const char* name : {"edgeBulge", "edgeBulgePcurve"}) {
+    cadgeom::Model m = load(name);
     REQUIRE(m.ok());
     PartMesher pm(m, options(0.01, 0.26));
     const FaceMesh& fm = pm.face(0);
-    CHECK(fm.status == cadgeom::Status::invalidModel);
-    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(std::fabs(fm.offSurface - 0.5) < 1e-6);
+    CHECK_EQ(fm.offSurfaceWithin, 0.01);
+    CHECK_EQ(fm.offSurfaceEdge, 0);
+    CHECK(std::fabs(fm.defectDeviation - 50) < 1e-4);
+    CHECK(fm.defectPastLimits);
+    double top = 0;
+    for (const Vec3& p : fm.points) top = std::fmax(top, p.z);
+    CHECK(top > 0.45);
+    CHECK(top <= 0.5 + 1e-9);
+    // (Without a p-curve, its use placed on the projection's feet, not by inversion sample by sample; the given one
+    // misses the arc's points by more than 100 x the tolerance, so it only seeds inversion. The arc's samples as the
+    // edge's own sampling made them: a far-off edge isn't respaced or split.)
+    if (std::strcmp(name, "edgeBulge") == 0) CHECK(pm.edges().coedge(2).fromPcurve);
+    EdgeOptions eo;
+    eo.deflection = 0.01, eo.angle = 0.26;
+    EdgeMesh first(m, eo);
+    CHECK_EQ(pm.edges().edge(0).points.size(), first.edge(0).points.size());
+    PartOptions strict = options(0.01, 0.26);
+    strict.keepDefects = false;
+    PartMesher sm(m, strict);
+    CHECK(sm.face(0).status == cadgeom::Status::invalidModel);
+    CHECK_EQ(sm.face(0).cause, std::string("an edge (#0) 0.5 mm off its surface, 50 x max(d, tol)"));
+    CHECK(sm.face(0).triangles.empty());
   }
-  {
-    // The same arc with a given p-curve (the line under it in the plane): placed by inversion, its samples' distance
-    // from the plane 50 mm; failed as far off, not meshed along an arc that far from its face.
-    cadgeom::Model m = load("edgeFarOffPcurve");
+  // edgeFarOff: the arc 50 up instead, its feet running out past the square's corners along the side and back: a
+  // loop with no area, no mesh at all (its distance recorded all the same).
+  for (const char* name : {"edgeFarOff", "edgeFarOffPcurve"}) {
+    cadgeom::Model m = load(name);
     REQUIRE(m.ok());
     PartMesher pm(m, options(0.01, 0.26));
     const FaceMesh& fm = pm.face(0);
     CHECK(fm.status == cadgeom::Status::invalidModel);
-    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+    CHECK(fm.cause.rfind("its boundary in (u, v) crossing itself", 0) == 0);
+    CHECK(std::fabs(fm.offSurface - 50) < 1e-6);
   }
   {
     // Edges coarser than the faces want: respace splits them, each use placed again reported with its face.
@@ -3092,6 +3118,36 @@ TEST_CASE("a use whose curve the projection finds far off its face's surface fai
     PartMesher pm(m, o);
     CHECK(named > 0);
   }
+}
+
+TEST_CASE("an edge healing grew past repair: its face meshed, the grown tolerance its distance, judged by the one "
+  "healing started from, not the face's grown one; its samples as first made") {
+  // edgeBulgeGrown: edgeBulge with the arc's and the face's tolerances 0.6 (covering its 0.5); bulgeEdgePast has
+  // healing grow the arc there from 1e-5, past repair: 0.6 over max(0.01, 1e-5), 60 x. Without the analysis, the
+  // arc within the face's 0.6: no defect.
+  const tessfixtures::Analysis* a = tessfixtures::analysis("bulgeEdgePast");
+  REQUIRE(a);
+  cadgeom::Model m = load(a->model);
+  REQUIRE(m.ok());
+  PartOptions o = options(0.01, 0.26);
+  PartMesher plain(m, o);
+  REQUIRE(plain.face(0).status == cadgeom::Status::ok);
+  CHECK_EQ(plain.face(0).defectDeviation, 0.0);
+  CHECK(!plain.face(0).defectPastLimits);
+  o.analysis = a->data, o.analysisSize = a->size;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK_EQ(fm.offSurface, 0.6);
+  CHECK_EQ(fm.offSurfaceWithin, 0.01);
+  CHECK_EQ(fm.offSurfaceEdge, 0);
+  CHECK(std::fabs(fm.defectDeviation - 60) < 1e-9);
+  CHECK(fm.defectPastLimits);
+  EdgeOptions eo;
+  eo.deflection = 0.01, eo.angle = 0.26;
+  eo.analysis = a->data, eo.analysisSize = a->size;
+  EdgeMesh first(m, eo);
+  CHECK_EQ(pm.edges().edge(0).points.size(), first.edge(0).points.size());
 }
 
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
@@ -3583,3 +3639,4 @@ TEST_CASE("a sphere face bounded by one plain circle is the side its loop's dire
     CHECK(std::fabs(area - capArea) <= 0.01 * capArea);
   }
 }
+

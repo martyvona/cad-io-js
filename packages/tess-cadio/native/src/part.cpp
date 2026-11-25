@@ -841,6 +841,32 @@ struct PartMesher::Impl {
   }
 
   /**
+   * A meshed face whose edges lie off its surface past max(d, tol) (FaceMesh::offSurface, its triangles following
+   * them): that multiple a deviation defect (keepDefects), past keepDeviation past the limits; without keepDefects,
+   * past keepDeviation, failed.
+   */
+  void checkOffSurface() {
+    for (size_t f = 0; f < faces.size(); f++) {
+      FaceMesh& fm = faces[f];
+      if (fm.status != Status::ok || !(fm.offSurfaceWithin > 0) || !(fm.offSurface > fm.offSurfaceWithin)) continue;
+      const double r = fm.offSurface / fm.offSurfaceWithin;
+      if (o.keepDefects) {
+        fm.defectDeviation = std::fmax(fm.defectDeviation, r);
+        fm.defectPastLimits = fm.defectPastLimits || r > o.keepDeviation;
+        continue;
+      }
+      if (r <= o.keepDeviation) continue;
+      char why[200];
+      std::snprintf(why, sizeof why, "%s (#%u) %.3g mm off its surface, %.3g x max(d, tol)",
+        fm.offSurfaceEdge >= 0 ? "an edge" : "a vertex", fm.offSurfaceEdge >= 0 ? m.u32(CBR_EDGE_ID)[fm.offSurfaceEdge]
+        : fm.offSurfaceVertex >= 0 ? m.u32(CBR_VERTEX_ID)[fm.offSurfaceVertex] : 0u, fm.offSurface, r);
+      fm.status = Status::invalidModel;
+      fm.cause = why;
+      fm.points.clear(), fm.normals.clear(), fm.triangles.clear(), fm.rejected.clear();
+    }
+  }
+
+  /**
    * Faces whose mesher's triangles include one turned against its surface (its facet against the mean of its corners'
    * normals, as shipped where the output's origin is known: PartOptions::outputOrigin) fail as one past its deflection
    * does (PartOptions::failTurnedOver): wrong output however small. Such a triangle is one its criteria refused that
@@ -1673,6 +1699,8 @@ struct PartMesher::Impl {
     out.againstSense = fb.againstSense;
     out.holesOnly = fb.holesOnly;
     out.foldsRepaired = fb.foldsRepaired;
+    out.offSurface = fb.offSurface, out.offSurfaceWithin = fb.offSurfaceWithin;
+    out.offSurfaceEdge = fb.offSurfaceEdge, out.offSurfaceVertex = fb.offSurfaceVertex;
     // A crease's end on the boundary: the loop's sample there put on the crease's line in this face's (u, v) (its 3D
     // point the edge's, shared; moved within the face's tolerance), so no triangle beside the end crosses the line.
     if (f < static_cast<int>(creases.size()))
@@ -2310,6 +2338,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   if (I.o.collapseTurned) I.collapseTurned();
   I.failCapped();
   I.checkDeviation();
+  I.checkOffSurface();
   I.checkFacing();
   I.checkFoldedFans();
   I.checkKeptWinding();

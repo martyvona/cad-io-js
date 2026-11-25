@@ -1402,8 +1402,8 @@ TEST_CASE("a p-curve healing made (the analysis's pcurveFrom healed), with place
   CHECK(!em.coedge(0).projected);
 }
 
-TEST_CASE("an edge or vertex whose tolerance healing grew past repair (the analysis's toleranceError): each face with "
-  "a loop through it fails at once, said so with its id and growth, the edge not sampled; the rest as without") {
+TEST_CASE("an edge or vertex whose tolerance healing grew past repair (the analysis's toleranceError): met as any "
+  "other, each face through it recording it at its tolerance, judged by max(d, the one healing started from)") {
   // (poleLunes's edge 0 and vertex 0; wholeSphereVertex's vertex, its face's one loop.)
   for (const char* name : {"lunesEdgePast", "lunesVertexPast", "sphereVertexPast"}) {
     const tessfixtures::Analysis* a = tessfixtures::analysis(name);
@@ -1416,8 +1416,7 @@ TEST_CASE("an edge or vertex whose tolerance healing grew past repair (the analy
     o.analysis = a->data, o.analysisSize = a->size;
     EdgeMesh em(m, o);
     const bool edge = std::strcmp(name, "lunesEdgePast") == 0;
-    const char* what = edge ? "an edge (#" : "a vertex (#";
-    int failed = 0;
+    int recorded = 0;
     for (int f = 0; f < m.faces(); f++) {
       // (Through it: a loop using edge 0, or an edge ending at vertex 0.)
       bool through = false;
@@ -1433,18 +1432,20 @@ TEST_CASE("an edge or vertex whose tolerance healing grew past repair (the analy
         }
       }
       const FaceBoundary fb = em.face(f), pb = plain.face(f);
+      CHECK(fb.status == pb.status);
+      CHECK_EQ(fb.loops.size(), pb.loops.size());
       if (through) {
-        failed++;
-        CHECK(fb.status == cadgeom::Status::invalidModel);
-        CHECK(fb.cause.rfind(what, 0) == 0);
-        CHECK(fb.cause.find("past repair") != std::string::npos);
-        CHECK(fb.cause.find("from 1e-05") != std::string::npos);
+        // (The fixtures' tolerances aren't grown: the edge's or vertex's is the part's 1e-5, from the 1e-5 given.)
+        recorded++;
+        CHECK_EQ(fb.offSurface, 1e-5);
+        CHECK_EQ(fb.offSurfaceWithin, 0.01);
+        CHECK_EQ(edge ? fb.offSurfaceEdge : fb.offSurfaceVertex, 0);
       } else {
-        CHECK(fb.status == pb.status);
+        CHECK(fb.offSurface < 1e-9);
       }
     }
-    CHECK(failed > 0);
-    if (edge) CHECK(em.edge(0).points.empty());
+    CHECK(recorded > 0);
+    if (edge) CHECK(em.edge(0).points.size() == plain.edge(0).points.size());
   }
 }
 
@@ -1741,3 +1742,4 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
     CHECK(fb.foldsRepaired == 0);
   }
 }
+
