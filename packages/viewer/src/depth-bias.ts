@@ -1,21 +1,27 @@
-// Lines drawn in front of the lines and faces they lie on (failed faces' red outlines over the black edges along the
-// same B-rep edges). WebGL's polygon offset moves only filled triangles (the faces are pushed back by it), never lines,
-// and the two lines are discretized apart (the file's curves against the mesh's edges), so they cross in depth; a bias
-// in the vertex shader moves the marked lines toward the camera instead, by DEPTH_BIAS_PIXELS of the view's pixels in
-// world units, or DEPTH_BIAS_DEFLECTIONS linear deflections if more (set each frame: the Viewer), so it holds at any
-// zoom.
-// Thin lines (LineBasicMaterial) and fat ones (LineMaterial) alike.
+// Lines and dots drawn in front of the faces they lie on: failed faces' red outlines over the black edges along the
+// same B-rep edges, and the B-rep vertices' dots (vertex-points.ts), flat discs the faces beside them would otherwise
+// cut into at a concave corner. WebGL's polygon offset moves only filled triangles (the faces are pushed back by it),
+// never lines or points, and the two lines are discretized apart (the file's curves against the mesh's edges), so
+// they cross in depth; a bias in the vertex shader moves them toward the camera instead, by the Rendering setting's
+// pixels of the view in world units (depthOffset, set each frame: the Viewer), so it holds at any zoom. The price:
+// what lies behind a face by less than that shows through it, as a zoomed-out view's thin walls. Thin lines
+// (LineBasicMaterial) and fat ones (LineMaterial) alike.
 
 import type * as THREE from 'three';
 
-/** How far, in the view's pixels, marked lines are moved toward the camera in depth (not on the screen). */
-export const DEPTH_BIAS_PIXELS = 8;
-
 /**
- * And at least this many linear deflections: an outline follows the file's exact curve, which can lie up to a
- * deflection behind the meshed faces beside it (the black edges lie on those faces).
+ * While there's a bias at all, at least this many linear deflections: an outline follows the file's exact curve, which
+ * can lie up to a deflection behind the meshed faces beside it (the black edges lie on those faces).
  */
 export const DEPTH_BIAS_DEFLECTIONS = 2;
+
+/**
+ * The bias in world millimetres: `pixels` of the view (`pixelSize` millimetres each), toward the camera in depth (not
+ * on the screen), at least DEPTH_BIAS_DEFLECTIONS deflections; none at 0 pixels.
+ */
+export function biasFor(pixels: number, pixelSize: number, deflection: number): number {
+  return pixels > 0 ? Math.max(pixels * pixelSize, DEPTH_BIAS_DEFLECTIONS * deflection) : 0;
+}
 
 /** The bias in world millimetres, shared by every marked material; the Viewer sets it before each frame. */
 export const depthBias = { value: 0 };

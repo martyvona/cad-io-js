@@ -28,7 +28,7 @@
 // detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
-import type { GeometryKind } from './geometry-info.ts';
+import { GEOMETRY_NAMES, type GeometryKind } from './geometry-info.ts';
 import { hideItems, itemsOf } from './items.ts';
 
 export type Kind = 'assembly' | 'part' | 'faces' | 'edges' | 'vertices' | 'face' | 'edge' | 'curve' | 'vertex' |
@@ -260,12 +260,21 @@ export class NodeModel {
       for (const f of (m.userData.partlyFailedFaces as number[] | undefined) ?? []) failures.set(f, 'partly');
       for (const f of (m.userData.failedFaces as number[] | undefined) ?? []) failures.set(f, 'failed');
     }
+    // (A face, edge or curve named for its geometry, where its B-rep says: `cylinder #12`.)
+    const named = (e: DetailEntry) => {
+      const source = e.face ?? e.item?.source;
+      if (source === undefined || source === null || (e.kind !== 'face' && e.kind !== 'edge' && e.kind !== 'curve')) {
+        return e.name;
+      }
+      const g = this.looks?.geometryKind?.(partIndex, e.kind, source);
+      return g ? `${GEOMETRY_NAMES[g]} #${source}` : e.name;
+    };
     const out: number[] = [];
     for (const { group, members, entries } of detailEntries(o)) {
       const g = add({ kind: group, name: group, parent: id, ...(members.length ? { members } : {}) }, group);
       this.nodes[g]!.children = entries.map((e) => {
         const failure = e.face === undefined ? undefined : failures.get(e.face);
-        return add({ kind: e.kind, name: e.name, parent: g, ...(e.face === undefined ? {}
+        return add({ kind: e.kind, name: named(e), parent: g, ...(e.face === undefined ? {}
           : { face: { part: partIndex, source: e.face } }), ...(e.item ? { item: e.item } : {}),
           ...(failure ? { failure } : {}) }, e.rel);
       });

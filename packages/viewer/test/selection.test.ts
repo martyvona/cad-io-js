@@ -201,15 +201,18 @@ test("details from the part's B-rep and mesh: a face's surface, an edge's curve,
   graph.holdModel(0, { model: b.finish().buffer, analysis: analysis.buffer });
   for (const p of graph.placements.get(0)!) model.invalidate(p.group);
   const said = (id: number) => details(model, [id], undefined, graph.sources);
-  assert.ok(said(find(plateLeft, 'face #8')).includes('Surface: cylinder, radius 12.5 mm, axis (0, 0, 1) through ' +
+  assert.ok(said(find(plateLeft, 'cylinder #8')).includes('Surface: cylinder, radius 12.5 mm, axis (0, 0, 1) through ' +
     '(0, 0, 0)'));
-  assert.ok(said(find(plateLeft, 'edge #4')).includes('Curve: circle, radius 3 mm, centre (0, 0, 0), axis (0, 0, 1)'));
+  assert.ok(said(find(plateLeft, 'circle #4')).includes('Curve: circle, radius 3 mm, centre (0, 0, 0), axis (0, 0, '
+    + '1)'));
   assert.ok(said(find(plateLeft, 'vertex #21')).includes("Point: (1, 2, 3) mm in the part's frame"));
   // The wire's point: in its part's frame (the mesh's, plus its origin).
   assert.ok(said(find(partOf(left, 1), 'point #11')).includes("Point: (5, 5, 5) mm in the part's frame"));
+  // Named for their geometry, as the icon shows it; a vertex as it was.
+  assert.ok(find(plateLeft, 'plane #7') !== undefined);
   // The icon's kind.
-  assert.equal(model.geometryKind(find(plateLeft, 'face #8')), 'cylinder');
-  assert.equal(model.geometryKind(find(plateLeft, 'edge #4')), 'curve:circle');
+  assert.equal(model.geometryKind(find(plateLeft, 'cylinder #8')), 'cylinder');
+  assert.equal(model.geometryKind(find(plateLeft, 'circle #4')), 'curve:circle');
   assert.equal(model.geometryKind(find(plateLeft, 'vertex #21')), undefined);
   // Volume: a placement's, the assembly's (each placement: the plate's 3, its hidden one too), the mesh's beside it.
   const volume = (ids: number[]) => details(model, ids, undefined, graph.sources).filter((l) => l.startsWith('Volume'));
@@ -217,14 +220,17 @@ test("details from the part's B-rep and mesh: a face's surface, an edge's curve,
   assert.match(volume([plateLeft])[1]!, /^Volume of the mesh: [\d,.]+ mm\^3$/);
   assert.equal(volume([model.roots[0]!])[0], 'Volume on the exact geometry: 36 mm^3 +/- 0.3 mm^3');
   // A face isn't a whole part: no volume; the wire has no solid.
-  assert.deepEqual(volume([find(plateLeft, 'face #8')]), []);
+  assert.deepEqual(volume([find(plateLeft, 'cylinder #8')]), []);
   assert.deepEqual(volume([partOf(sub, 1)]), []);
   // A model healed again, its face 8 on a plane now: its icon's kind follows.
   const plane = new BrepBuilder();
   plane.addFace({ id: 8, surface: plane.addSurface({ kind: 'plane', position: XY }), sameSense: true, loops: [] });
   const held = graph.lendModels().find(([p]) => p === 0)![1];
   graph.holdModel(0, { model: plane.finish().buffer });
-  assert.equal(model.geometryKind(find(plateLeft, 'face #8')), 'plane');
+  assert.equal(model.geometryKind(find(plateLeft, 'cylinder #8')), 'plane');
+  // Its name follows when its detail's made again (the Viewer's modelChanged).
+  for (const p of graph.placements.get(0)!) model.invalidate(p.group);
+  assert.ok(find(plateLeft, 'plane #8') !== undefined);
   graph.holdModel(0, held);
   // Without the analysis: said so, the mesh's still given.
   graph.holdModel(0, { model: graph.lendModels().find(([p]) => p === 0)![1].model });

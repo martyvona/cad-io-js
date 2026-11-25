@@ -2366,14 +2366,20 @@ await check('item errors and warnings', async () => {
   for (const [file, face] of [['broken.stp', false], ['face-failed.stp', true], ['as1.stp', false],
     ['warned.stp', false]] as const) {
     const a = await see(file, face), j = JSON.stringify(a);
-    const name = (e: Entry) => e.path.split('/').at(-1)!.replace(/^face#/, 'face #');
+    // (A face named for its surface where its B-rep says: `plane #12` for the path's `face#12`.)
+    const named = (e: Entry, text: string, after: string) => {
+      const tail = e.path.split('/').at(-1)!;
+      if (!tail.startsWith('face#')) return text.startsWith(`${tail}${after}`);
+      const m = text.match(/^([A-Za-z -]+) #(\d+)(.*)$/s);
+      return !!m && m[2] === tail.slice(5) && m[3]!.startsWith(after);
+    };
     for (const e of a.nodes) {
       expect(e.got === e.want && !e.header, `${file} ${e.path}: ${e.got} for ${e.want}: ${j}`);
       if (!e.got) continue;
       const [, ne, nw] = e.got.match(/^(\d+) Errors?, (\d+) Warnings?/)!.map(Number);
-      expect(!!e.dialog && e.dialog.errors === ne && e.dialog.warnings === nw && e.dialog.title.startsWith(`${
-        name(e)}: `) && e.dialog.intro.startsWith(`Those of ${name(e)}${e.kind === 'face' ? ', from'
-        : ' and everything in it'}`),
+      expect(!!e.dialog && e.dialog.errors === ne && e.dialog.warnings === nw && named(e, e.dialog.title, ': ') &&
+        e.dialog.intro.startsWith('Those of ') && named(e, e.dialog.intro.slice(9), e.kind === 'face' ? ', from'
+        : ' and everything in it'),
       `${file} ${e.path}'s dialog: ${JSON.stringify(e)}`);
     }
     // The top nodes hold every error and warning; a file without has no item anywhere.
@@ -3847,9 +3853,9 @@ await check('link to this view', async () => {
 // from the address (linearDeflection=: custom, in meshedWith, in the page's link), face=77 (a face cadio fails by
 // construction there, at its point cap): selected, the tree's detail on, revealed and zoomed to (the camera nearer than
 // the whole model's), its Details saying it failed and why (tess-cadio's cause), the problems dialog (check=dialogs)
-// its cause in a third column; with keepFailing=1 and heal=1 the same link selects the face meshed (triangles, no
-// cause); part=12 the part; an id matching nothing, one that isn't an id, and a profile= that names none, said in the
-// address's problems.
+// with no error for it (kept with its defect, a warning); with keepFailing=1 and heal=1 the same link selects the
+// face meshed (triangles, no cause); part=12 the part; an id matching nothing, one that isn't an id, and a profile=
+// that names none, said in the address's problems.
 await check('go to a face', async () => {
   const look = `(async () => {
     await cadViewer.idle();
@@ -5232,16 +5238,16 @@ await check('fat edges', async () => {
   expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
   return undefined;
 });
-// Hover highlights (outline.ts): the mouse over a part outlines it in the highlight's blue, outside the part (nothing
+// Hover highlights (outline.ts): the mouse over a part outlines it in the highlight's colour, outside the part (nothing
 // strong over its own pixels), dim where another part is in front (an x-ray: the bracket's outline behind the rod); at
 // the detail level a face outlined, an edge marked (thin and fat edges), a vertex marked (Vertices on); a drag, or the
 // mouse gone, nothing.
 await check('hover highlights', async () => {
   const frames = '(async () => { for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r)); ' +
     'await settled(); })()';
-  // The canvas drawn now against `base`: changed pixels by how far each moved toward the highlight's blue (1: all the
-  // way), strong (over 0.7) or dim (0.15 to 0.5) with no strong pixel beside it (not a line in sight's antialiased
-  // edge: an x-ray), and the strong ones over the hovered placement's own ids.
+  // The canvas drawn now against `base`: changed pixels by how far each moved toward the highlight's colour (1: all
+  // the way), strong (over 0.7) or dim (0.15 to 0.5) with no strong pixel beside it (not a line in sight's
+  // antialiased edge: an x-ray), and the strong ones over the hovered placement's own ids.
   const SCAN = `globalThis.scan = (own) => {
     const c = viewer.renderer.domElement; viewer.snapshot();
     const g = Object.assign(document.createElement('canvas'), { width: c.width, height: c.height }).getContext('2d');
@@ -5249,7 +5255,8 @@ await check('hover highlights', async () => {
     if (!globalThis.base) return (globalThis.base = px, {});
     const t = viewer.idPass.target, ids = new Uint8Array(4 * t.width * t.height);
     viewer.renderer.readRenderTargetPixels(t, 0, 0, t.width, t.height, ids);
-    const tone = [0x1f, 0x6f, 0xff], was = globalThis.base;
+    const h = parseInt(viewer.render.highlightColor.slice(1), 16), was = globalThis.base;
+    const tone = [h >> 16, (h >> 8) & 255, h & 255];
     let changed = 0, strong = 0, dim = 0, inside = 0;
     const strength = new Float32Array(c.width * c.height);
     for (let i = 0; i < px.length; i += 4) {
@@ -5332,9 +5339,18 @@ await check('hover highlights', async () => {
     // Off the canvas: over the controls.
     const gui = await ev(`(() => { const b = ui.gui.domElement.getBoundingClientRect();
       return [b.left + b.width / 2, b.top + 10]; })()`) as [number, number];
+    // (In blue, which no part here is near: strength is measured toward the highlight's colour. 1.5 CSS pixels wide,
+    // so the line in sight doesn't cover the x-ray behind the rod.)
+    await ev(`(globalThis.width0 = viewer.render.highlightWidth, ui.setRender({ highlightColor: '#1f6fff',
+      highlightWidth: 1.5 }))`);
     await over(a.spot);
     await shot('part');
     out.part = await ev(`scan(viewer.pickAt(${a.spot}).object)`);
+    // The width and the colour as set: more strong pixels wider; as many in magenta.
+    const strong = (r: string) => ev(`(async () => { ui.setRender(${r}); await ${frames}; return scan().strong; })()`);
+    out.widths = [await strong('{ highlightWidth: 1.5 }'), await strong('{ highlightWidth: 6 }')];
+    out.magenta = await strong(`{ highlightWidth: 1.5, highlightColor: '#ff00ff' }`);
+    await strong(`{ highlightWidth: width0, highlightColor: '#1f6fff' }`);
     await ev(`ui.setPickLevel('detail')`);
     await ev(frames);
     await shot('face');
@@ -5490,6 +5506,10 @@ await check('hover highlights', async () => {
   const j = JSON.stringify({ after: r.after, then: t });
   expect(!!t.part && t.part.outline > 0 && t.part.strong > 50 && t.part.dim > 20 && t.part.inside === 0,
     `a part outlined, dim behind the rod, nothing strong over itself: ${j}`);
+  const widths = t.widths as unknown as number[] | undefined;
+  expect(!!widths && widths[1]! > 2.5 * widths[0]!, `wider as set: ${j}`);
+  const magenta = t.magenta as unknown as number | undefined;
+  expect(magenta !== undefined && Math.abs(magenta - t.part!.strong) < 0.2 * t.part!.strong, `in the colour set: ${j}`);
   expect(!!t.face && t.face.outline === 1 && t.face.strong > 10, `a face outlined: ${j}`);
   expect(!!t.edge && t.edge.marks === 1 && t.edge.strong > 5 && t.edge.outline === 0, `an edge marked: ${j}`);
   expect(t.fat?.join() === 'Wireframe', `a fat edge marked: ${j}`);
@@ -5498,7 +5518,9 @@ await check('hover highlights', async () => {
   expect(!!t.dot && t.dot.changed >= 40, `a vertex's mark larger than its dot: ${j}`);
   // (A thin edge one pixel wide; its mark 3 CSS pixels. Strong pixels: ambient occlusion changes others around it.)
   expect(t.edge!.strong >= 2 * t.edge!.length && t.edge!.length > 3, `an edge's mark wider than the edge: ${j}`);
-  expect(!!t.behind && t.behind.dim > 20 && t.behind.strong <= 3, `a part hidden whole, outlined dim: ${j}`);
+  // (A few specks of it in sight, through the gaps around the bolts, outlined in full.)
+  expect(!!t.behind && t.behind.dim > 20 && t.behind.strong < 0.1 * t.behind.dim,
+    `a part hidden whole, outlined dim: ${j}`);
   const stale = t.stale as unknown as { before: boolean; again: boolean } | undefined;
   expect(stale?.before === true && stale.again === false, `a part hidden, picked at once: ${j}`);
   expect(t.drag?.outline === 0 && t.drag.marks === 0, `nothing while dragging: ${j}`);
@@ -5597,8 +5619,12 @@ await check('vertices', async () => {
         down: med(runs.map((r) => r[1])) };
     };
     out.thick = { edgeStyle: viewer.render.edgeStyle, edgeWidth: viewer.render.edgeWidth, ...width(on) };
-    set({ edgeWidth: 6 });
+    // Wide at a depth offset of 8 pixels: whole; at none, the faces cut into some.
+    set({ edgeWidth: 6, depthOffset: 8 });
     out.wide = { edgeWidth: 6, ...width(frame()) };
+    set({ depthOffset: 0 });
+    out.flat = width(frame());
+    set({ depthOffset: 2 });
     set({ edgeStyle: 'thin' });
     out.thin = width(frame());
     out.ratio = ratio;
@@ -5614,6 +5640,11 @@ await check('vertices', async () => {
     const mine = lit.filter((v) => { let p = v.group; while (p && p !== part.object) p = p.parent; return !!p; });
     const tint = edges.material.color.getHex();
     out.tint = { hex: tint, mine: mine.length, coloured: mine.filter((v) => !isDark(on(v.x, v.y))).length };
+    // The selection's colour as set, while selected.
+    const was = viewer.render.selectionColor;
+    set({ selectionColor: '#00c000' });
+    out.tint.recoloured = edges.material.color.getHexString();
+    set({ selectionColor: was });
     ui.select([]);
     set({ edges: false });
     // Hidden: none of its discs.
@@ -5645,8 +5676,10 @@ await check('vertices', async () => {
   expect(within(a.thick, a.thick.edgeWidth + 3) && within(a.wide, 9) && within(a.thin, 1 / a.ratio + 2),
     `as wide as asked: ${j}`);
   // (Each whole, not cut into by the faces it lies on: at a concave corner, a face rises toward the camera.)
-  expect(a.wide.least >= 9 * a.ratio - 0.5, `the faces don't cut into them: ${j}`);
+  expect(a.wide.least >= 9 * a.ratio - 0.5, `the faces don't cut into them at 8 pixels' offset: ${j}`);
+  expect(a.flat.least < a.wide.least - 1, `at none, they do: ${j}`);
   expect(a.tint.hex !== 0 && a.tint.mine > 0 && a.tint.coloured === a.tint.mine, `a selection's tint: ${j}`);
+  expect(a.tint.recoloured === '00c000', `the selection's colour as set: ${j}`);
   expect(a.hidden.mine > 0 && a.hidden.dark === 0, `none for a hidden part: ${j}`);
   expect(a.cut.planes === 1 && a.cut.away > 0 && a.cut.awayDark === 0 && a.cut.kept > 0 &&
     a.cut.keptDark > a.cut.kept / 2, `cut by a section plane: ${j}`);

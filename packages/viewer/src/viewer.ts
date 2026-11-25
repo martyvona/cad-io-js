@@ -28,7 +28,7 @@ import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
 import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
-import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bias.ts';
+import { biasFor, depthBias } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
@@ -675,8 +675,8 @@ export class Viewer {
     this.controls.update();
     this.shift();
     clipTo(this.camera, this.bounds);
-    depthBias.value = Math.max(this.pixelSize() * DEPTH_BIAS_PIXELS,
-      DEPTH_BIAS_DEFLECTIONS * meshDeflections(deflectionsOf(this.settings)).linearDeflection);
+    depthBias.value = biasFor(this.render.depthOffset, this.pixelSize(),
+      meshDeflections(deflectionsOf(this.settings)).linearDeflection);
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     const fat = this.render.edges && this.render.edgeStyle === 'fat';
@@ -693,7 +693,8 @@ export class Viewer {
     // The ids, when the pointer's over the view or a silhouette wants their depth; then what the pointer's over.
     const buffer = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     this.idPass.setSize(buffer.x, buffer.y);
-    this.highlights.setSize(buffer.x, buffer.y, ratio, (fat ? this.render.edgeWidth : 1) + 2);
+    this.highlights.setSize(buffer.x, buffer.y, ratio, this.render.highlightWidth,
+      (fat ? this.render.edgeWidth : 1) + 2);
     if (this.root && (this.hoverAt || this.highlights.outlined)) this.renderIds();
     if (this.hoverAt && this.idFresh) this.resolveHover();
     this.highlights.update(this.renderer, this.camera, this.idFresh ? this.idPass.target : undefined,
@@ -760,6 +761,7 @@ export class Viewer {
     this.headlight.intensity = s.light;
     this.sections.setStyle(s.capStyle);
     this.sections.setHatchWidth(s.hatchWidth);
+    this.highlights.setColor(parseInt(s.highlightColor.slice(1), 16));
     this.display.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) {

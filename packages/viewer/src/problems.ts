@@ -24,14 +24,15 @@ export function problemCounts(diagnostics: readonly Diagnostic[]): string {
 }
 
 /**
- * The diagnostics of one kind, in the order met, as rows: where, the message, and where any listed has one, a third
- * column: a failed-faces error's causes (faceCausesOf), each with its faces, else empty.
+ * The diagnostics of one kind, in the order met, as rows: where, and the message, a failed-faces error's causes
+ * (faceCausesOf), each with its faces, on a line after it (the cell keeps line breaks), as a warning names its faces'
+ * defects in its message: errors and warnings alike two columns.
  */
-export function problemRows(diagnostics: readonly Diagnostic[], kind: Problem = 'error'): string[][] {
-  const listed = ofKind(diagnostics, kind);
-  const causes = listed.map((d) => causesText(diagnostics, d));
-  return listed.map((d, i) => [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, d.message,
-    ...(causes.some(Boolean) ? [causes[i]!] : [])]);
+export function problemRows(diagnostics: readonly Diagnostic[], kind: Problem = 'error'): [string, string][] {
+  return ofKind(diagnostics, kind).map((d) => {
+    const causes = causesText(diagnostics, d);
+    return [`${d.severity}${d.source ? ` #${d.source.id}` : ''}`, causes ? `${d.message}\n${causes}` : d.message];
+  });
 }
 
 /** Whether a sorted array holds a value. */

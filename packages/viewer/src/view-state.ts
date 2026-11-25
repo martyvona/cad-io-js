@@ -77,7 +77,9 @@ const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low',
 const FLAGS = ['ao', 'smaa', 'edges', 'vertices'] as const;
 const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
-  'hatchWidth'] as const;
+  'hatchWidth', 'depthOffset', 'highlightWidth'] as const;
+/** Colours, `#rrggbb`, in links as the six digits. */
+const COLOURS = ['highlightColor', 'selectionColor'] as const;
 /** Settings that are one of a few words. */
 const CHOICES = { edgeStyle: ['thin', 'fat'], capStyle: ['drawing', 'parts'] } as const;
 
@@ -105,6 +107,7 @@ export function toQuery(s: ViewState): [string, string][] {
   if (s.render?.aoQuality) q.push(['aoQuality', s.render.aoQuality]);
   if (s.render?.triangleEdges) q.push(['triangleEdges', s.render.triangleEdges]);
   for (const k of Object.keys(CHOICES) as (keyof typeof CHOICES)[]) if (s.render?.[k]) q.push([k, s.render[k]!]);
+  for (const k of COLOURS) if (s.render?.[k]) q.push([k, s.render[k].replace('#', '').toLowerCase()]);
   if (s.tree?.open !== undefined) q.push(['tree', s.tree.open ? '1' : '0']);
   if (s.tree?.detail !== undefined) q.push(['detail', s.tree.detail ? '1' : '0']);
   if (s.pick) q.push(['pick', s.pick]);
@@ -178,6 +181,12 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
     if (v === null) continue;
     if (words.includes(v)) (render as Record<string, string>)[k] = v;
     else problems.push(`${k}: not one of ${words.join(', ')}: ${v}`);
+  }
+  for (const k of COLOURS) {
+    const v = params.get(k);
+    if (v === null) continue;
+    if (/^[0-9a-f]{6}$/i.test(v)) render[k] = `#${v.toLowerCase()}`;
+    else problems.push(`${k}: six hex digits expected: ${v}`);
   }
   if (Object.keys(render).length) state.render = render;
   const open = bool(params.get('tree'));

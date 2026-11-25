@@ -724,7 +724,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
 
   const rendering = gui.addFolder('Rendering');
   const look = viewer.render;
-  const restyle = () => viewer.setRender(look);
+  // (The selection's colour is the Highlighter's, made below.)
+  let recolour = () => {};
+  const restyle = () => {
+    recolour();
+    viewer.setRender(look);
+  };
   rendering.add(look, 'ao').name('Ambient occlusion').onChange(restyle);
   rendering.add(look, 'aoIntensity', 0, 10, 0.1).name('AO intensity').onChange(restyle);
   rendering.add(look, 'aoRadius', 4, 128, 1).name('AO radius (pixels)').onChange(restyle);
@@ -743,6 +748,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   edgeWidth.show(look.edgeStyle === 'fat');
   // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
   rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
+  // Vertices' dots and failed faces' outlines toward the camera (depth-bias.ts): the faces they lie on cut into them
+  // with less, what's just behind a face shows through it with more.
+  rendering.add(look, 'depthOffset', 0, 16, 0.5).name('Depth offset (pixels)').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
@@ -755,6 +763,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     for (const c of lights) c.updateDisplay();
     restyle();
   } }, 'reset').name('Reset lighting to defaults');
+  // What the pointer's over (outline.ts) and the selection (selection.ts).
+  rendering.addColor(look, 'highlightColor').name('Highlight colour').onChange(restyle);
+  rendering.add(look, 'highlightWidth', 0.5, 8, 0.25).name('Highlight width (pixels)').onChange(restyle);
+  rendering.addColor(look, 'selectionColor').name('Selection colour').onChange(restyle);
   // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
   // theme's colour); remembered in this browser.
   const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
@@ -837,6 +849,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let selected: readonly number[] = [];
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
+  recolour = () => highlighter.setColor(parseInt(look.selectionColor.slice(1), 16));
+  recolour();
   // Details on by default.
   const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: true };
   // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
