@@ -1,10 +1,10 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 30.0; speed 4523 on 1 thread, 41489 on 18
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 14.9; speed 5176 on 1 thread, 55439 on 18
 profile medium (linear 0.1 mm, angular 0.2617993877991494), healed, chain ours -> SMLib -> OCCT; WORKERS=6 CPU_MS=600000
 
 per file: faces; failed by ours alone (by class); holes after the fallback (by class); kept with defects by ours, meshed (by defect)
-  ../models/arm/arm-ap203.step: 106 faces; ours 0 (none); after 0 (none); kept 1 (past deflection 1)
-  ../models/arm/arm-ap214.step: 106 faces; ours 0 (none); after 0 (none); kept 1 (past deflection 1)
-  ../models/arm/arm-ap242.step: 106 faces; ours 0 (none); after 0 (none); kept 1 (past deflection 1)
+  ../models/arm/arm-ap203.step: 106 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/arm/arm-ap214.step: 106 faces; ours 0 (none); after 0 (none); kept 0 (none)
+  ../models/arm/arm-ap242.step: 106 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/cnc-box/cnc-box-ap203.step: 1960 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/cnc-box/cnc-box-ap214.step: 1960 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/cnc-box/cnc-box-ap242.step: 1960 faces; ours 0 (none); after 0 (none); kept 0 (none)
@@ -17,10 +17,10 @@ per file: faces; failed by ours alone (by class); holes after the fallback (by c
   ../models/onshape/FireSpokeViralSphere.step: 1140 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/onshape/Iron.step: 220 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/onshape/Kuka.step: 1793 faces; ours 1 (boundary crossing 1); after 0 (none); kept 1 (turned 1)
-  ../models/onshape/LMP1.step: 64187 faces; ours 21 (boundary crossing 19, topology or sampling 2); after 0 (none); kept 25 (past deflection 4, turned 21)
-  ../models/onshape/LMP1.stpZ: 64187 faces; ours 21 (boundary crossing 19, topology or sampling 2); after 0 (none); kept 25 (past deflection 4, turned 21)
+  ../models/onshape/LMP1.step: 64187 faces; ours 17 (boundary crossing 15, topology or sampling 2); after 0 (none); kept 25 (past deflection 4, turned 21)
+  ../models/onshape/LMP1.stpZ: 64187 faces; ours 17 (boundary crossing 15, topology or sampling 2); after 0 (none); kept 25 (past deflection 4, turned 21)
   ../models/onshape/LaPavoni.step: 2062 faces; ours 0 (none); after 0 (none); kept 0 (none)
-  ../models/onshape/VW.step: 16509 faces; ours 3 (boundary crossing 2, topology or sampling 1); after 0 (none); kept 7 (past deflection 3, turned 4)
+  ../models/onshape/VW.step: 16509 faces; ours 2 (boundary crossing 1, topology or sampling 1); after 0 (none); kept 7 (past deflection 3, turned 4)
   ../models/projector-lift/projector-lift-ap203.step: 778 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/projector-lift/projector-lift-ap214.step: 778 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/projector-lift/projector-lift-ap242.step: 778 faces; ours 0 (none); after 0 (none); kept 0 (none)
@@ -34,39 +34,41 @@ per file: faces; failed by ours alone (by class); holes after the fallback (by c
   ../models/sit-stand/sit-stand-ap214.step: 2229 faces; ours 0 (none); after 0 (none); kept 0 (none)
   ../models/sit-stand/sit-stand-ap242.step: 2229 faces; ours 0 (none); after 0 (none); kept 0 (none)
 
-total: 205297 faces; ours alone failed 49; holes after the fallback 0
-  ours alone by class: boundary crossing 44, topology or sampling 5
+total: 205297 faces; ours alone failed 40; holes after the fallback 0
+  ours alone by class: boundary crossing 35, topology or sampling 5
   after the fallback by class: none
-  kept with defects by ours (meshed, not failed): 63; by defect: past deflection 14, turned 49
+  kept with defects by ours (meshed, not failed): 60; by defect: past deflection 11, turned 49
 
 parts the chain gives no triangles: with faces 0; with no faces 6 (GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION 6)
 
-ours's time, CPU (the worker thread's) summed over parts: 3692.9 s; the slowest parts: CPU s, wall s, file, part, faces
-  123.7	126.2	../models/onshape/Kuka.step	#4099	1569 faces
-  74.8	74.8	../models/sit-stand/sit-stand-ap214.step	#1663	150 faces
-  72.1	72.8	../models/sit-stand/sit-stand-ap242.step	#1655	150 faces
-  71.3	71.3	../models/sit-stand/sit-stand-ap203.step	#1663	150 faces
-  61.7	62.0	../models/onshape/LMP1.step	#172545	285 faces
-  60.8	60.9	../models/onshape/LMP1.stpZ	#172545	285 faces
-  59.9	60.0	../models/onshape/LMP1.step	#172433	69 faces
-  59.6	59.9	../models/onshape/LMP1.step	#172690	285 faces
-  58.7	58.8	../models/onshape/LMP1.stpZ	#172433	69 faces
-  58.1	58.2	../models/onshape/LMP1.stpZ	#172690	285 faces
-  52.1	54.5	../models/onshape/LMP1.step	#172931	285 faces
-  51.2	51.4	../models/onshape/LMP1.step	#172490	285 faces
-  50.6	50.6	../models/onshape/LMP1.stpZ	#172490	285 faces
-  49.7	49.8	../models/onshape/LMP1.stpZ	#172931	285 faces
-  47.3	47.4	../models/onshape/LMP1.step	#172440	2865 faces
+parts with loose curves or points (curve items, wire bodies, point items): 6; whose curves or points no backend delivers: 0
+
+ours's time, CPU (the worker thread's) summed over parts: 3550.0 s; the slowest parts: CPU s, wall s, file, part, faces
+  98.1	98.2	../models/onshape/Kuka.step	#4099	1569 faces
+  83.4	83.4	../models/sit-stand/sit-stand-ap214.step	#1663	150 faces
+  82.1	82.1	../models/sit-stand/sit-stand-ap203.step	#1663	150 faces
+  82.0	82.0	../models/sit-stand/sit-stand-ap242.step	#1655	150 faces
+  60.5	60.6	../models/onshape/LMP1.stpZ	#172690	285 faces
+  59.1	61.2	../models/onshape/LMP1.stpZ	#172931	285 faces
+  58.9	60.6	../models/onshape/LMP1.step	#172690	285 faces
+  57.4	57.5	../models/onshape/LMP1.stpZ	#172490	285 faces
+  56.4	57.5	../models/onshape/LMP1.step	#172490	285 faces
+  54.7	54.8	../models/onshape/LMP1.stpZ	#172545	285 faces
+  54.4	55.1	../models/onshape/LMP1.step	#172931	285 faces
+  53.5	54.7	../models/onshape/LMP1.step	#172545	285 faces
+  47.9	48.0	../models/onshape/LMP1.stpZ	#172440	2865 faces
+  46.4	47.0	../models/onshape/LMP1.step	#172440	2865 faces
+  31.8	32.2	../models/onshape/LMP1.stpZ	#172878	2503 faces
 
 per surface kind: faces, failed by ours alone, holes after the fallback, kept with defects
-  primitives (plane, cylinder, cone, sphere, torus): 167703 faces, failed 17, holes 0, kept 7
-    cylinder: 71362 faces, failed 0, holes 0, kept 3
-    plane: 68975 faces, failed 13, holes 0, kept 0
+  primitives (plane, cylinder, cone, sphere, torus): 167703 faces, failed 9, holes 0, kept 4
+    cylinder: 71362 faces, failed 0, holes 0, kept 0
+    plane: 68975 faces, failed 5, holes 0, kept 0
     torus: 14574 faces, failed 0, holes 0, kept 4
     cone: 10348 faces, failed 0, holes 0, kept 0
     sphere: 2444 faces, failed 4, holes 0, kept 0
-  the rest (free-form, swept, offset): 37594 faces, failed 32, holes 0, kept 56
-    bspline: 37594 faces, failed 32, holes 0, kept 56
+  the rest (free-form, swept, offset): 37594 faces, failed 31, holes 0, kept 56
+    bspline: 37594 faces, failed 31, holes 0, kept 56
 
 every face ours fails: file, part, face, surface, class: cause, after the fallback
   ../models/lightarm/lightarm-ap203.step	#3784	#91488	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
@@ -75,10 +77,6 @@ every face ours fails: file, part, face, surface, class: cause, after the fallba
   ../models/onshape/Kuka.step	#4099	#27606	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#173335	#1085957	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#173335	#1085958	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.step	#172995	#1073191	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.step	#172995	#1073209	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.step	#172992	#1073137	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.step	#172992	#1073155	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172922	#1068185	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172719	#1058227	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172522	#1049684	sphere	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
@@ -86,20 +84,16 @@ every face ours fails: file, part, face, surface, class: cause, after the fallba
   ../models/onshape/LMP1.step	#172440	#1041642	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172440	#1041644	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172433	#1039840	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.step	#172433	#1039841	bspline	topology or sampling: noConvergence: kept with a defect, but 7138 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
+  ../models/onshape/LMP1.step	#172433	#1039841	bspline	topology or sampling: noConvergence: kept with a defect, but 7396 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
   ../models/onshape/LMP1.step	#172433	#1039871	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172427	#1039657	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172427	#1039658	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.step	#172427	#1039663	bspline	topology or sampling: noConvergence: kept with a defect, but 8973 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
+  ../models/onshape/LMP1.step	#172427	#1039663	bspline	topology or sampling: noConvergence: kept with a defect, but 8298 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
   ../models/onshape/LMP1.step	#172427	#1039664	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172377	#1037354	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.step	#172357	#1035605	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#173335	#1085957	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#173335	#1085958	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.stpZ	#172995	#1073191	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.stpZ	#172995	#1073209	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.stpZ	#172992	#1073137	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.stpZ	#172992	#1073155	plane	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172922	#1068185	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172719	#1058227	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172522	#1049684	sphere	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
@@ -107,22 +101,18 @@ every face ours fails: file, part, face, surface, class: cause, after the fallba
   ../models/onshape/LMP1.stpZ	#172440	#1041642	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172440	#1041644	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172433	#1039840	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.stpZ	#172433	#1039841	bspline	topology or sampling: noConvergence: kept with a defect, but 7138 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172433	#1039841	bspline	topology or sampling: noConvergence: kept with a defect, but 7396 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172433	#1039871	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172427	#1039657	bspline	boundary crossing: invalidModel: its boundary in (u, v) through its own point (an edge through an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172427	#1039658	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/LMP1.stpZ	#172427	#1039663	bspline	topology or sampling: noConvergence: kept with a defect, but 8973 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
+  ../models/onshape/LMP1.stpZ	#172427	#1039663	bspline	topology or sampling: noConvergence: kept with a defect, but 8298 edges used twice the same way or more than twice (a triangle wound backwards)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172427	#1039664	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172377	#1037354	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/LMP1.stpZ	#172357	#1035605	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
-  ../models/onshape/VW.step	#2478	#302055	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
   ../models/onshape/VW.step	#2452	#298974	bspline	topology or sampling: noConvergence: a pole's fan folds over itself: 3 edges used twice the same way	fallback meshes it
   ../models/onshape/VW.step	#2407	#294279	bspline	boundary crossing: invalidModel: its boundary in (u, v) crossing itself (an edge and an edge)	fallback meshes it
 
 every face ours keeps with a defect: file, part, face, surface, defect: as said
-  ../models/arm/arm-ap203.step	#122	#1198	cylinder	past deflection: at least 2.518 x the larger of d and tol, past the limits
-  ../models/arm/arm-ap214.step	#122	#1198	cylinder	past deflection: at least 2.518 x the larger of d and tol, past the limits
-  ../models/arm/arm-ap242.step	#114	#1190	cylinder	past deflection: at least 2.518 x the larger of d and tol, past the limits
   ../models/onshape/Kuka.step	#4099	#28466	bspline	turned: 332 triangles turned, past the limits
   ../models/onshape/LMP1.step	#172990	#1073024	bspline	past deflection: 1.054 x the larger of d and tol
   ../models/onshape/LMP1.step	#172969	#1072094	bspline	turned: 1 triangles turned
