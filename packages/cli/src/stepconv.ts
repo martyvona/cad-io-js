@@ -226,10 +226,11 @@ ${PROFILE_LINES}
       --heal-on <fixes>, --heal-off <fixes>
                            these fixes on or off (comma-separated), healing on: strayPole, pcurveMissingOnPlane,
                            pcurveMissingOnElementary, pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace,
-                           pcurveEnds, edgeTolerance, vertexTolerance, orientShells (all on by default but the
-                           pcurveMissing ones, which make a p-curve for every bare use on planes, on cylinders,
-                           cones, spheres and tori, and on other surfaces; pcurveMissing: the last two;
-                           orientShells turns a solid's shell facing into its material)
+                           pcurveEnds, edgeTolerance, vertexTolerance, orientShells, pcurveTight (all on by
+                           default but the pcurveMissing ones, which make a p-curve for every bare use on planes,
+                           on cylinders, cones, spheres and tori, and on other surfaces; pcurveMissing: the last
+                           two; orientShells turns a solid's shell facing into its material; pcurveTight fits
+                           p-curves tightly where the loose projections collapse a face)
       --heal-fit <mm>      the tolerance a p-curve healing makes for a bare use is fitted within, where tighter
                            than its edge's (default ${PCURVE_FIT_TOLERANCE}: as fine as the fine profile meshes)
   -j, --workers <n>        parts tessellated (and healed) at once, each in a worker (default ${defaultWorkers()}); 0: one at a time

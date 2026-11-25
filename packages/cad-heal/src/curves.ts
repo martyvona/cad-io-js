@@ -75,7 +75,7 @@ export const PROGRESS_EVERY = 200;
  */
 export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>, edit: ModelEdit,
   diagnostics: Diagnostic[], tracer: Tracer = stubTracer(g), progress: (what: string) => void = () => {},
-  fitTolerance: number = PCURVE_FIT_TOLERANCE): CurvesRecord {
+  fitTolerance: number = PCURVE_FIT_TOLERANCE, tight: ReadonlyMap<number, number> = new Map()): CurvesRecord {
   const nc = rowCount(d, 'coedge'), tol = tolerances(d), nan = () => new Float64Array(nc).fill(NaN);
   const record: CurvesRecord = { pcurveFrom: new Uint8Array(nc), deviation: nan(),
     edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), traces: [] };
@@ -269,7 +269,10 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
           worstTraced = Math.max(worstTraced, need);
           return need;
         };
-        if (pc < 0 && !fixes.has(missing)) {
+        // (pcurveTight's faces' bare uses made p-curves as the pcurveMissing fixes make them, within its fit.)
+        const tightFit = fixes.has(missing) ? undefined : tight.get(f), by: HealFix = tightFit === undefined ? missing
+          : 'pcurveTight';
+        if (pc < 0 && !fixes.has(missing) && tightFit === undefined) {
           bare();
           continue;
         }
@@ -342,23 +345,23 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         if (pc < 0) {
           // Fitted as a trace is, as the mesher projects a use it isn't given (within fitTolerance where that's
           // tighter than the edge's tolerance), else at the edge's (the face API's own projection).
-          const tolE = tol.edge(e), fine = Math.min(tolE, fitTolerance);
+          const tolE = tol.edge(e), fine = Math.min(tolE, fitTolerance, tightFit ?? Infinity);
           let p = fine < tolE ? projected(g, c, g.projectCoedge(c, fine)) : undefined;
           if (!p || 'why' in p) p = projected(g, c);
           const curve = 'why' in p ? undefined : onRange(p.curve, p.range);
           if (!curve) {
-            add(notMade.get(missing) ?? notMade.set(missing, new Map()).get(missing)!, 'why' in p ? p.why
+            add(notMade.get(by) ?? notMade.set(by, new Map()).get(by)!, 'why' in p ? p.why
               : 'on another range', c);
             bare(false);
             continue;
           }
-          const pl = placed(curve, c, missing, range), error = p.error + pl.moved;
+          const pl = placed(curve, c, by, range), error = p.error + pl.moved;
           edit.set('coedge', 'pcurve', c, edit.addCurve2(pl.curve));
           newRange();
           record.pcurveFrom[c] = PROVENANCE.healed;
           record.deviation[c] = error;
           needs(e, error);
-          const t = made.get(missing) ?? made.set(missing, { t: new Tally(), worst: 0 }).get(missing)!;
+          const t = made.get(by) ?? made.set(by, { t: new Tally(), worst: 0 }).get(by)!;
           t.worst = Math.max(t.worst, error);
           t.t.add(coedgeName(c));
           continue;
