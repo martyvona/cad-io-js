@@ -70,6 +70,10 @@ export function details(model: NodeModel, ids: readonly number[], causes?: Reado
     const failure = model.failure(n.id);
     const report = n.face ? faceReportOf(model, n.id) : undefined;
     const areas = report?.area !== undefined ? ` (${mm(report.meshArea)} of ${mm(report.area)} mm^2 meshed)` : '';
+    // (At a defect of its part's mesh: scene-graph.ts's defectFaces.)
+    const partObject = n.face ? model.nodes[model.partOf(n.id)]?.object : undefined;
+    const atDefect = !!n.face && !!partObject?.children.some((c) => (c.userData.defectFaces as number[] | undefined)
+      ?.includes(n.face!.source));
     if (n.face && report?.failure === 'excess') out.push(`Its mesh is larger than the face (its mesh ` +
       `${mm(report.meshArea)} mm^2, the face ${mm(report.area!)} mm^2): outlined in red`);
     else if (n.face && report?.failure === 'unverified') out.push(
@@ -79,20 +83,28 @@ export function details(model: NodeModel, ids: readonly number[], causes?: Reado
     // (Its cause, where the face failed and its backend said: tess-cadio's, a face kept by its debugging switch none.)
     const cause = n.face && (failure === 'failed' || failure === 'partly') ? causes?.get(n.face.source) : undefined;
     if (cause) out.push(`Cause: ${cause}`);
-    else if (failure === 'partly' && n.face) out.push(`Part of it failed to mesh${areas}: outlined in red`);
-    else if (failure === 'partly') {
+    else if (failure === 'partly' && n.face) {
+      if (report?.failure === 'partly' || !atDefect) out.push(`Part of it failed to mesh${areas}: outlined in red`);
+    } else if (failure === 'partly') {
       const m = n.object!.children.find((c) => (c.userData.failedFaces as number[] | undefined)?.length ||
-        (c.userData.partlyFailedFaces as number[] | undefined)?.length)!;
+        (c.userData.partlyFailedFaces as number[] | undefined)?.length ||
+        (c.userData.defectFaces as number[] | undefined)?.length)!;
       const kinds = new Map<string, number>();
       for (const r of Object.values((m.userData.faceReport ?? {}) as Record<number, FaceReport>)) {
         if (r.failure) kinds.set(r.failure, (kinds.get(r.failure) ?? 0) + 1);
       }
       const said = { failed: 'failed to mesh', partly: 'partly', excess: 'meshed larger than the face',
         unverified: "couldn't be verified" } as const;
-      out.push(`Of ${plural((m.userData.faces as number[]).length, 'face')}, ` + (['failed', 'excess', 'unverified',
-        'partly'] as const).flatMap((k) => (kinds.get(k) ? [`${num(kinds.get(k)!)} ${said[k]}`] : [])).join(', ') +
-        ' (outlined in red)');
+      const failed = (['failed', 'excess', 'unverified', 'partly'] as const).flatMap((k) => (kinds.get(k)
+        ? [`${num(kinds.get(k)!)} ${said[k]}`] : []));
+      const defects = (m.userData.defectFaces as number[] | undefined)?.length ?? 0;
+      out.push(`Of ${plural((m.userData.faces as number[]).length, 'face')}, ` + [
+        ...(failed.length ? [failed.join(', ') + ' (outlined in red)'] : []),
+        ...(defects ? [`${num(defects)} at a defect of the mesh (not a closed, oriented manifold there)`] : [])]
+        .join('; '));
     }
+    if (atDefect) out.push("At a defect of its part's mesh: not a closed, oriented manifold there (an edge used " +
+      "once, twice the same way or more than twice, or a vertex whose triangles aren't one fan)");
     // Its geometry, from its part's B-rep (geometry-info.ts): a face's surface, an edge's or curve's curve; a vertex's
     // point; an isolated point's, from the mesh.
     const partIndex = model.nodes[model.partOf(n.id)]?.object?.userData.part as number | undefined;

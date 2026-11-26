@@ -405,6 +405,10 @@ export class SceneGraph implements Looks {
     const failures = faceFailures(mesh, measured ? { measured } : {});
     const failedFaces = faceSources.filter((s) => failures.has(s) && failures.get(s) !== 'partly');
     const partlyFailedFaces = faceSources.filter((s) => failures.get(s) === 'partly');
+    // Faces at a defect that keeps the mesh from being a closed, oriented manifold (cad-scene's Mesh.defectFaces):
+    // marked as partly failed in the tree, drawn as meshed.
+    const defects = new Set(mesh.defectFaces ?? []);
+    const defectFaces = faceSources.filter((s) => defects.has(s));
     // (Each face's areas only when Details asks: measuring every face of a large file took a quarter second.)
     let report: Record<number, FaceReport> | undefined;
     const faceReport = () => (report ??= reportOf(mesh, failures, p.measures));
@@ -435,7 +439,7 @@ export class SceneGraph implements Looks {
         obj = new THREE.Group();
       }
       const closed = this.scene.parts[part]!.closed;
-      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces,
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces, defectFaces,
         ...(closed === undefined ? {} : { closed }) };
       Object.defineProperty(obj.userData, 'faceReport', { get: faceReport, enumerable: true });
       obj.name = group.name;

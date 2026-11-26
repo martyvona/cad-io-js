@@ -6,7 +6,7 @@
 // levels of detail (the scene holds its geometry, exact and meshed).
 
 import { degenerateMessage, dropDegenerate, faceFailures, orientShells } from './mesh.ts';
-import { notManifoldDiagnostic } from './manifold.ts';
+import { notManifoldMessage, reported, shellDefects, shellsManifold } from './manifold.ts';
 import { openEdgesCount } from './open-edges.ts';
 import { addLod } from './lod.ts';
 import { meshBox, sceneBounds } from './bounds.ts';
@@ -295,8 +295,11 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
         }
       }
       if (mesh && (opts.manifold ?? true)) {
-        const x = notManifoldDiagnostic(brep.model, mesh, openEdgesCount(diagnostics) > 0);
-        if (x) diagnostics.push({ ...x, ...(source ? { source } : {}) });
+        const x = reported(shellDefects(brep.model, mesh), openEdgesCount(diagnostics) > 0);
+        if (!shellsManifold(x)) {
+          diagnostics.push({ severity: 'error', message: notManifoldMessage(x), ...(source ? { source } : {}) });
+          mesh = { ...mesh, defectFaces: x.faces.map(([f]) => f) };
+        }
       }
     } catch (e) {
       diagnostics.push({ severity: 'error', message: `tessellation failed: ${(e as Error).message}`,

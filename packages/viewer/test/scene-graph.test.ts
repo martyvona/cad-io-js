@@ -331,6 +331,48 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
 });
 
+test('faces at a defect of the mesh (Mesh.defectFaces, not a closed, oriented manifold): partly, drawn as meshed; '
+  + 'Details', async () => {
+  const { NodeModel } = await import('../src/model.ts');
+  const { details } = await import('../src/details.ts');
+  // (A face the mesh doesn't have, 99, left out.)
+  const graph = new SceneGraph(scene(), 'model');
+  const [obj] = graph.addMesh(0, { ...plate(), defectFaces: [8, 99] });
+  assert.deepEqual([obj!.userData.failedFaces, obj!.userData.partlyFailedFaces, obj!.userData.defectFaces],
+    [[], [], [8]]);
+  assert.equal(obj!.children.filter((c) => c.name === 'outline').length, 0);
+  const model = new NodeModel(graph.root, graph);
+  model.setDetail(true);
+  const part = model.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const face = (s: number) => detailOf(model, part).find((c) => model.nodes[c]!.face?.source === s)!;
+  assert.deepEqual([model.failure(face(8)), model.failure(face(7)), model.failure(part)],
+    ['partly', undefined, 'partly']);
+  const said = details(model, [face(8)]);
+  assert.ok(said.some((l) => l.startsWith("At a defect of its part's mesh: not a closed, oriented manifold there")),
+    said.join('\n'));
+  assert.ok(!said.some((l) => l.startsWith('Part of it failed')), said.join('\n'));
+  assert.ok(!details(model, [face(7)]).some((l) => l.startsWith('At a defect')));
+  assert.ok(details(model, [part]).includes('Of 2 faces, 1 at a defect of the mesh (not a closed, oriented manifold '
+    + 'there)'), details(model, [part]).join('\n'));
+  // Also short of its measured area: both said.
+  const sc = scene();
+  sc.parts[0]!.measures = { by: 'test', faces: new Map([[8, { area: 645.16, perimeter: 76.2, valid: true }]]) };
+  const g2 = new SceneGraph(sc, 'model');
+  g2.addMesh(0, { ...plate(), defectFaces: [8] }, 0.001);
+  const m2 = new NodeModel(g2.root, g2);
+  m2.setDetail(true);
+  const p2 = m2.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const f2 = detailOf(m2, p2).find((c) => m2.nodes[c]!.face?.source === 8)!;
+  const both = details(m2, [f2]);
+  assert.ok(both.some((l) => l.startsWith('Part of it failed')) && both.some((l) => l.startsWith('At a defect')),
+    both.join('\n'));
+  assert.ok(details(m2, [p2]).includes('Of 2 faces, 1 partly (outlined in red); 1 at a defect of the mesh (not a '
+    + 'closed, oriented manifold there)'), details(m2, [p2]).join('\n'));
+  // None: as before.
+  const [clean] = new SceneGraph(scene(), 'model').addMesh(0, plate());
+  assert.deepEqual(clean!.userData.defectFaces, []);
+});
+
 test("setLook: a placement's opacity, its faces' own winning, hidden faces; back to the very materials", () => {
   const g = new SceneGraph(scene(), 'model');
   const made = g.addMesh(0, plate()) as THREE.Mesh[];

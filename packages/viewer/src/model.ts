@@ -257,6 +257,7 @@ export class NodeModel {
     const partIndex = o.userData.part as number;
     const failures = new Map<number, 'failed' | 'partly'>();
     for (const m of o.children) {
+      for (const f of (m.userData.defectFaces as number[] | undefined) ?? []) failures.set(f, 'partly');
       for (const f of (m.userData.partlyFailedFaces as number[] | undefined) ?? []) failures.set(f, 'partly');
       for (const f of (m.userData.failedFaces as number[] | undefined) ?? []) failures.set(f, 'failed');
     }
@@ -443,7 +444,8 @@ export class NodeModel {
 
   /**
    * Meshing failures: a face drawn as failed, or a part all of whose faces are, `failed`; a face short of its area
-   * (cad-scene's faceFailures), or a part some of whose faces failed in any way, `partly`.
+   * (cad-scene's faceFailures) or at a defect of its part's mesh (not a closed, oriented manifold: Mesh.defectFaces),
+   * or a part some of whose faces failed in any way, `partly`.
    */
   failure(id: number): 'failed' | 'partly' | undefined {
     const n = this.nodes[id];
@@ -455,8 +457,9 @@ export class NodeModel {
     for (const m of n.object.children) {
       const failed = (m.userData.failedFaces as number[] | undefined)?.length ?? 0;
       const partly = (m.userData.partlyFailedFaces as number[] | undefined)?.length ?? 0;
+      const defects = (m.userData.defectFaces as number[] | undefined)?.length ?? 0;
       if (failed && failed === (m.userData.faces as number[]).length) return 'failed';
-      if (failed || partly) return 'partly';
+      if (failed || partly || defects) return 'partly';
     }
     return undefined;
   }
