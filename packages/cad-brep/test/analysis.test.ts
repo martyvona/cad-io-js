@@ -116,7 +116,7 @@ test('writeAnalysis and openAnalysis: every column type round trips, the bytes d
     // The layout, worked out independently: the magic, the count, then columns in order from the header's end, each
     // starting at the next multiple of 8, zeros between, the buffer ending on one.
     const v = new DataView(a.buffer), bytes = new Uint8Array(a.buffer);
-    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA7');
+    assert.equal(String.fromCharCode(...bytes.subarray(0, 4)), 'CBA8');
     assert.equal(v.getUint32(4, true), ANALYSIS_COLUMNS.length);
     let at = 8 + 8 * ANALYSIS_COLUMNS.length;
     ANALYSIS_COLUMNS.forEach((c, k) => {
@@ -179,8 +179,8 @@ test('writeAnalysis: a table left out is empty; values a column can\'t hold, mis
 test('openAnalysis refuses a buffer whose header is corrupt, and a model buffer; openBrep refuses an analysis',
   async () => {
     const d = MODELS.everyKind().finish(), a = writeAnalysis(sampleRows(d, await modelHash(d)));
-    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA7/);
-    assert.throws(() => openBrep(a.buffer), /magic "CBA7", not CBR6/);
+    assert.throws(() => openAnalysis(d.buffer), /magic "CBR6", not CBA8/);
+    assert.throws(() => openBrep(a.buffer), /magic "CBA8", not CBR6/);
     assert.throws(() => openAnalysis(new ArrayBuffer(8 + 8 * ANALYSIS_COLUMNS.length - 1)), /too short/);
     const col = (table: string, column: string) =>
       ANALYSIS_COLUMNS.findIndex((c) => c.table === table && c.column === column);

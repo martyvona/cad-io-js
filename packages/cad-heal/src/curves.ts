@@ -23,6 +23,8 @@ export interface CurvesRecord {
   deviation: Float64Array;
   /** Per edge: PROVENANCE of its range (healed where the pass wrote one the source left out). */
   edgeRangeFrom: Uint8Array;
+  /** Per edge: its curve's parameters at start and end as the face API derived them (2 each; NaN: not asked). */
+  ranges: Float64Array;
   /** The coedges traced, as the analysis buffer's trace rows (TRACE_STATUS, TRACE_STOP), in the order traced. */
   traces: { coedge: number; status: number; tol: number; offSurface: number; stopAt: number; stopWhy: number }[];
 }
@@ -78,7 +80,8 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
   fitTolerance: number = PCURVE_FIT_TOLERANCE, tight: ReadonlyMap<number, number> = new Map()): CurvesRecord {
   const nc = rowCount(d, 'coedge'), tol = tolerances(d), nan = () => new Float64Array(nc).fill(NaN);
   const record: CurvesRecord = { pcurveFrom: new Uint8Array(nc), deviation: nan(),
-    edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), traces: [] };
+    edgeRangeFrom: new Uint8Array(rowCount(d, 'edge')), ranges: new Float64Array(2 * rowCount(d, 'edge')).fill(NaN),
+    traces: [] };
   // The traces: p-curves kept at the edge's tolerance, kept with it grown, none kept (by why), stops (where, why).
   const tracedAtTol = new Tally(), tracedGrown = new Tally(), tracedBare = new Map<string, Tally>();
   const stopped = new Tally();
@@ -191,6 +194,7 @@ export function healCurves(g: Geometry, d: BrepData, fixes: ReadonlySet<HealFix>
         if (pc >= 0) record.pcurveFrom[c] = PROVENANCE.given;
         const range = d.edge.curve[e]! >= 0 ? edgeRange(g, e) : undefined;
         if (!range) continue;
+        record.ranges[2 * e] = range[0], record.ranges[2 * e + 1] = range[1];
         const newRange = () => {
           if (Number.isNaN(edit.get('edge', 'range', 2 * e))) {
             edit.set('edge', 'range', 2 * e, range[0]), edit.set('edge', 'range', 2 * e + 1, range[1]);

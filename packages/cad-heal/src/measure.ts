@@ -5,7 +5,7 @@
 // (each way: the p-curve's points from the curve, the curve's from the p-curve's points). The tolerance the edge is
 // judged by is tolerance.h's rule, as the face API's.
 
-import { type BrepData, rowCount } from 'cad-brep';
+import type { BrepData } from 'cad-brep';
 import type { Geometry } from 'cad-geom';
 
 /** Parameters sampled across a range (both ends included). */
@@ -13,8 +13,9 @@ export const SAMPLES = 33;
 
 /** tolerance.h's rule: the largest of the part's uncertainty (1e-5 mm where it gives none), the row's own and 1e-9 x
  * the part's size (its vertices' box diagonal). */
-export function tolerances(d: BrepData) {
-  const nv = rowCount(d, 'vertex'), p = d.vertex.point;
+export function tolerances(d: Pick<BrepData, 'part'> & { vertex: Pick<BrepData['vertex'], 'point' | 'tolerance'>;
+  edge: Pick<BrepData['edge'], 'tolerance'> }) {
+  const p = d.vertex.point, nv = p.length / 3;
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < 3 * nv; i++) lo[i % 3] = Math.min(lo[i % 3]!, p[i]!), hi[i % 3] = Math.max(hi[i % 3]!, p[i]!);
   const size = nv ? Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
