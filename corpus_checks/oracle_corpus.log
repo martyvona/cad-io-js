@@ -1,50 +1,58 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 6.9; speed 5414 on 1 thread, 59599 on 18
-517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 677.9 s, today's 57.2 s
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 19.9; speed 4334 on 1 thread, 42050 on 18
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 19.9; speed 4672 on 1 thread, 40716 on 18
+517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 650.0 s, today's 74.3 s
 
 Coverage (every face of every part), by surface kind:
-   26983  plane       trusted
-   25885  cylinder    trusted
-    8741  bspline     flagged projectedBoundary
+   26851  plane       trusted
+   21108  cylinder    trusted
+   12562  bspline     flagged projectedBoundary
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #974
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #1871
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4440
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4636
             gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1589 face #3295
             gkv311-opencascade-dataset/step/trj2_as1-id-203.stp #1589 face #3304
-    4388  cone        trusted
-    4247  bspline     invalidModel: a projection failed
-            gkv311-opencascade-dataset/step/trj6_k1-id-203.stp #127 face #2276
-            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1485
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #164
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #797
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1705
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #2425
-    3244  torus       trusted
-    2538  bspline     trusted
-    2132  sphere      trusted
-    1080  extrusion   trusted
-    1051  cylinder    error estimate past 1e-9
+    5828  cylinder    error estimate past 1e-9
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #701
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #778
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #816
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #382
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1502
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1913
-     761  bspline     error estimate past 1e-9
+    3437  cone        trusted
+    2578  torus       trusted
+    2567  bspline     trusted
+    1858  sphere      trusted
+    1141  bspline     error estimate past 1e-9
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5564
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5635
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5664
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5735
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5764
             gkv311-opencascade-dataset/step/bug21802_as1-oc-214.stp #3812 face #5835
-     540  plane       error estimate past 1e-9
+    1080  extrusion   trusted
+    1028  cone        error estimate past 1e-9
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012
+            gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #243
+            gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #378
+            gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61566
+            gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61567
+     735  torus       error estimate past 1e-9
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #327
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #339
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1459
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1476
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1884
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1901
+     673  plane       error estimate past 1e-9
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #655
+            gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #4085 face #3800
             gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #4085 face #3935
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #17
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #714
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #896
-            gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #1967
-     505  bspline     flagged loose, projectedBoundary
+     523  bspline     flagged loose, projectedBoundary
             gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #544
             gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #578
             gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #612
@@ -72,6 +80,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #561
             gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #597
             gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #774
+     320  sphere      error estimate past 1e-9
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1417
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1437
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1767
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1803
+            gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1079
+            gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1093
      310  cone        flagged loose
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #94529 face #93984
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #94529 face #94062
@@ -79,7 +94,7 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #94529 face #94163
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #94529 face #94350
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #94529 face #94361
-     288  revolution  flagged orientation, projectedBoundary
+     288  revolution  flagged winds, projectedBoundary
             gkv311-opencascade-dataset/step/bug30790.step #2448 face #3501
             gkv311-opencascade-dataset/step/bug30790.step #2448 face #6243
             gkv311-opencascade-dataset/step/bug30790.step #2448 face #3543
@@ -93,7 +108,7 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #95321 face #95285
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #95136 face #95001
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #94717 face #94681
-     220  extrusion   flagged projectedBoundary
+     235  extrusion   flagged projectedBoundary
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #296
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1281
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1619
@@ -114,14 +129,14 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #68339
             gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #93962
             gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #94758
-     136  revolution  trusted
-     123  revolution  flagged projectedBoundary
+     153  revolution  flagged projectedBoundary
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #26
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #885
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #4549
             gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5573
             gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5285
             gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #5416 face #5301
+     146  revolution  trusted
      123  torus       flagged loose
             gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1405
             gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1512
@@ -143,20 +158,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30344
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30417
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30767
-      90  bspline     flagged loose
+      97  bspline     flagged loose
             gkv311-opencascade-dataset/step/trj8_c2-ac-214.stp #245 face #235
+            gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #347
+            gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #394
             gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #244
             gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #460
             gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #611
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #762
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #1037
-      67  cone        error estimate past 1e-9
-            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999
-            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012
-            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #2271
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35795
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #37543
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #38491
       66  bspline     flagged orientation, loose
             gkv311-opencascade-dataset/step/trj9_c2-pe-203.stp #113 face #67
             gkv311-opencascade-dataset/step/trj9_c2-pe-214.stp #113 face #67
@@ -164,34 +172,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #3246
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #3565
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #3802
-      61  torus       error estimate past 1e-9
-            gkv311-opencascade-dataset/step/bug32314_corrupted.stp #390426 face #390615
-            gkv311-opencascade-dataset/step/bug32314_corrupted.stp #390112 face #390301
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #269
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #270
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #271
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #272
-      56  revolution  invalidModel: a projection failed
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #482
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1059
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1348
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1480
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1610
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #2145
-      50  bspline     flagged offSurface, projectedBoundary
+      53  bspline     flagged offSurface, projectedBoundary
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #128930
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #334072
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #12620
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #12650
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #22147
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #22170
-            gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1297
-            gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1298
-      46  sphere      error estimate past 1e-9
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1767
-            gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #1787
-            gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #117
-            gkv311-opencascade-dataset/step/bug25823_280612.stp #13 face #134
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #4371
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7855
       40  cone        unsupported: an edge without a 3D curve
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17525 face #21069
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17485 face #21053
@@ -206,13 +193,6 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-203.stp #6268 face #4646
             gkv311-opencascade-dataset/step/trj4_k1_geo-pe-214.stp #6272 face #4650
             gkv311-opencascade-dataset/step/trj4_k1_geo-tu-214.stp #2080 face #803
-      28  extrusion   invalidModel: a projection failed
-            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1452
-            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1453
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1218
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #3391
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #4050
-            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #4986
       25  sphere      flagged sphereSide
             gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1931
             gkv311-opencascade-dataset/step/trj4_s1-ai-214.stp #3140 face #1933
@@ -234,13 +214,20 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #727
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #743
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #1198
-      12  cone        flagged orientation
-            gkv311-opencascade-dataset/step/PRO7071.stp #403 face #370
-            gkv311-opencascade-dataset/step/PRO7071.stp #403 face #382
-            gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 face #10986
-            gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #1157
-            gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #1814
-            gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #1839
+      18  revolution  flagged loose, projectedBoundary
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #453
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #686
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #962
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1234
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1359
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1477
+      15  revolution  error estimate past 1e-9
+            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #2774
+            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #4125
+            gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #2824
+            gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #4175
+            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #75942
+            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #85332
       12  cylinder    unsupported: an edge's parameters not found
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #197
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #262
@@ -248,27 +235,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #90309 face #90296
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #89629 face #89605
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #89629 face #89616
-      11  bspline     invalidModel: a p-curve's range off its domain
-            gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3441
-            gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3620
-            gkv311-opencascade-dataset/step/OCC623.step #11 face #7998
-            gkv311-opencascade-dataset/step/OCC623.step #11 face #10155
-            gkv311-opencascade-dataset/step/OCC623.step #11 face #17591
-            gkv311-opencascade-dataset/step/OCC623.step #11 face #17752
-      11  revolution  error estimate past 1e-9
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #75942
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #85332
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #85468
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #85520
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #85572
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #90496
-      10  revolution  flagged loose, projectedBoundary
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #686
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1597
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1722
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1871
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #2320
-            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #2447
+      12  extrusion   error estimate past 1e-9
+            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1452
+            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1453
+            gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #1175
+            gkv311-opencascade-dataset/step/trj6_k1-md-214.stp #10 face #1187
+            gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1391
+            gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #3913
        9  cylinder    flagged orientation
             gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8480
             gkv311-opencascade-dataset/step/Checking_Fixture_Clamping.STEP #5594 face #8400
@@ -283,20 +256,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj4_k1_top-id-214.stp #44 face #1419
             gkv311-opencascade-dataset/step/trj5_k1-id-214.stp #44 face #1321
             gkv311-opencascade-dataset/step/trj5_k1-id-214.stp #44 face #1419
-       7  bspline     flagged orientation, projectedBoundary
+       6  bspline     flagged orientation, projectedBoundary
             gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #794022
-            gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #799366
             gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #793880
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1311
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1317
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1323
-       7  plane       flagged orientation
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #2631 face #2727
-            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 face #190
-            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 face #304
-            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #462 face #190
+            gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1329
        6  plane       flagged offSurface
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #195244
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #94
@@ -304,6 +270,13 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #156
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #216
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #342
+       6  plane       flagged orientation
+            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3141
+            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #3049 face #3504
+            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 face #190
+            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #463 face #304
+            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #462 face #190
+            gkv311-opencascade-dataset/step/trj9_ap209-mp.stp #462 face #304
        6  sphere      noConvergence: 
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1481
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1533
@@ -311,36 +284,23 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #105 face #156
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #13 face #16
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #13 face #53
+       5  extrusion   flagged loose, projectedBoundary
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #1114
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3078
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3683
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #4544
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #4679
        5  extrusion   invalidModel: a p-curve's range off its domain
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #1529
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #1759
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #2269
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #4421
             gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp #4779 face #4586
-       4  extrusion   error estimate past 1e-9
-            gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #1391
-            gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #3913
-            gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #4524
-            gkv311-opencascade-dataset/step/trj4_k1_top-ec-214.stp #10 face #6327
        4  plane       unsupported: an edge's parameters not found
             gkv311-opencascade-dataset/step/bug31292.stp #62 face #65
             gkv311-opencascade-dataset/step/bug31292.stp #62 face #423
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #68
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #132
-       4  torus       flagged orientation, winds
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #15405
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #18393
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #14965
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #19681
-       4  torus       flagged winds
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #16227
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #20973
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #17901
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #21653
-       3  bspline     flagged orientation
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #264
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2106
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2241
        3  cone        unsupported: an edge's parameters not found
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #865
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #92610 face #92586
@@ -361,12 +321,27 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #131755
             gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 face #5297
             nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_07_asme1_ap242-e2.stp #13541 face #1929
+       2  bspline     flagged offSurface
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #21309
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #18763
        2  bspline     invalidModel: a coedge's p-curve range not found
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #413
             gkv311-opencascade-dataset/step/bm2_pe_t4-B.stp #877 face #763
+       2  bspline     invalidModel: a p-curve's range off its domain
+            gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3441
+            gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3620
+       2  cone        flagged orientation
+            gkv311-opencascade-dataset/step/ec_turbine-A.stp #11 face #10986
+            gkv311-opencascade-dataset/step/trj6_b1-ec-214.stp #10 face #18689
        2  plane       unsupported: an edge without a 3D curve
             gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3530
             gkv311-opencascade-dataset/step/bug22871_null-swept-curve.stp #10 face #3742
+       2  revolution  flagged loose
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #2517
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #3753
+       2  revolution  flagged sphereSide, loose, projectedBoundary
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #2028
+            gkv311-opencascade-dataset/step/trj4_k1_geo-tc-214.stp #5203 face #4241
        1  bspline     flagged orientation, offSurface, projectedBoundary
             gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #793922
        1  plane       flagged noLoops
@@ -377,63 +352,49 @@ Coverage (every face of every part), by surface kind:
             gkv311-opencascade-dataset/step/bug28414_bug_toroidal_surface.stp #163 face #329
 
 Against today's area oracle (area-oracle.ts):
-   60373  perimeters agree (vertices on curves)
+   54305  perimeters agree (vertices on curves)
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #341: 521.5043803987516 vs 521.5043803745561
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #551: 603.1857894013758 vs 603.1857892900416
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #574: 288.46015346433626 vs 288.4601534515578
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581: 288.46015346433626 vs 288.4601534515578
-            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #701: 224.77876538547588 vs 224.77876537633324
-            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723: 224.77876538547588 vs 224.77876537633324
-   60077  both trust, areas agree
-    1820  both trust, areas agree (vertices off their curves)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #327: 49.19006214453129 vs 49.190062144531566 (+/- 4.1e-13, vertex gap 0.0000031, OCCT 49.19006214450264)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #339: 49.19006214453128 vs 49.19006214453105 (+/- 6.5e-13, vertex gap 0.0000031, OCCT 49.19006214453654)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1459: 18.97315714251817 vs 18.973157143178156 (+/- 6.6e-10, vertex gap 2.5e-7, OCCT 18.973154684091657)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1476: 4.905150447659978 vs 4.905150450591554 (+/- 2.9e-9, vertex gap 0.0000011, OCCT 4.9051504473844245)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1528: 3.1328937197982514 vs 3.1328943546169623 (+/- 6.6e-10, vertex gap 5.8e-7, OCCT 3.1328933513536263)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #1840: 252.76631563453853 vs 252.76630299806502 (+/- 8.6e-10, vertex gap 0.000010, OCCT 252.76636174432906)
-    1694  today's trusts, ours doesn't (ok)
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #862: 376.991160158875 vs 376.99116014116936
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #908: 376.991160158875 vs 376.9911601411697
+   54106  both trust, areas agree
+    8442  today's trusts, ours doesn't (ok)
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #655
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #701
+            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #778
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #816
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #999
-            gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #1012
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #370
-     345  ours trusts, today's doesn't (its error)
+    1153  both trust, areas agree (vertices off their curves)
+            gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5075: 1.2885490326694018 vs 1.2885489756037383 (+/- 5.6e-8, vertex gap 8.6e-8, OCCT 1.2885464772593296)
+            gkv311-opencascade-dataset/step/trj7_k1-ec-214.stp #6446 face #5099: 1.2885490313643995 vs 1.2885489742987002 (+/- 5.6e-8, vertex gap 8.6e-8, OCCT 1.2885511791189843)
+            gkv311-opencascade-dataset/step/bug32314_corrupted.stp #390426 face #390564: 46412.469448089 vs 46412.46944846402 (+/- 3.7e-7, vertex gap 0.000015, OCCT 46412.46944809873)
+            gkv311-opencascade-dataset/step/bug32314_corrupted.stp #389484 face #389622: 46412.472897101514 vs 46412.472897475884 (+/- 3.7e-7, vertex gap 0.000015, OCCT 46412.47289711509)
+            gkv311-opencascade-dataset/step/bug32314_corrupted.stp #389484 face #389673: 1539.6594362482272 vs 1539.6594358739837 (+/- 3.7e-7, vertex gap 0.000015, OCCT 1539.6582865701666)
+            gkv311-opencascade-dataset/step/bug25045_ick_0433.stp #109 face #410: 67.66824025465212 vs 67.6682372267448 (+/- 0.000021, vertex gap 0.0000013, OCCT 67.668240040998)
+     283  ours trusts, today's doesn't (its error)
             gkv311-opencascade-dataset/step/trj3_s1-tc-214.stp #1157 face #1148
             gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #80 face #634
             gkv311-opencascade-dataset/step/trj5_s1-ug-214.stp #75 face #703
             gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #1795 face #1588
             gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #4775
             gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #7908
-     203  both trust, areas DISAGREE within the tolerance strip, OCCT nearer ours
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #627: 3.408123329198663 vs 3.4081240601069527 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.4081233292036464)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #803: 3.408123329198663 vs 3.408124060106953 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.408123329198663)
+     186  both trust, areas DISAGREE within the tolerance strip, OCCT nearer ours
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #627: 3.4081233291986623 vs 3.4081240601069545 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.4081233292036464)
+            gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #803: 3.408123329198663 vs 3.4081240601069536 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.408123329198663)
             gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1794: 3.408123329169893 vs 3.408124060078108 (+/- 7.3e-7, vertex gap 2.3e-13, OCCT 3.408123329169891)
             gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1853: 3.4081233291698934 vs 3.40812406007811 (+/- 7.3e-7, vertex gap 2.3e-13, OCCT 3.4081233291697717)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #647: 3.408123329198663 vs 3.4081240601069527 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.4081233292036464)
-            gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #823: 3.408123329198663 vs 3.408124060106953 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.408123329198663)
-      70  both trust, areas DISAGREE within the tolerance strip, OCCT nearer today's
-            gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300: 140.30076690213005 vs 140.30071332396915 (+/- 1.2e-10, vertex gap 2.1e-9, OCCT 140.2176748516884)
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #231541: 23.793562108970946 vs 23.793560517724398 (+/- 1.7e-9, vertex gap 6.6e-11, OCCT 23.79356109686672)
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #375337 face #468490: 26800.253636576534 vs 26800.253868961136 (+/- 0.000073, vertex gap 1.9e-13, OCCT 26800.254001750887)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15945 face #20437: 1.6932855042192132 vs 1.6932854722305384 (+/- 7.1e-12, vertex gap 3.0e-12, OCCT 1.6932854722294457)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15940 face #20435: 1.7093982943644213 vs 1.7093977588490101 (+/- 4.8e-11, vertex gap 2.4e-12, OCCT 1.7093977588544866)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14845 face #19997: 1.280320783559124 vs 1.2803207902812679 (+/- 8.8e-13, vertex gap 6.1e-13, OCCT 1.2803216317180137)
-      51  ours trusts, today's doesn't (orientation)
+            gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #647: 3.4081233291986623 vs 3.4081240601069545 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.4081233292036464)
+            gkv311-opencascade-dataset/step/trj7_k1-ct-203.stp #1947 face #823: 3.408123329198663 vs 3.4081240601069536 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.408123329198663)
+      48  ours trusts, today's doesn't (orientation)
             gkv311-opencascade-dataset/step/bug28118_18547.stp #11 face #509
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10288
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11514
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11604
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11694
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11784
-      29  both trust, areas DISAGREE, OCCT nearer ours
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16680 face #20731: 0.05747800964537238 vs 0.05780299285309818 (+/- 6.1e-10, vertex gap 2.8e-13, OCCT 0.05747800949839682)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15570 face #20287: 44.497524236025995 vs 44.55412464596898 (+/- 2.8e-12, vertex gap 3.6e-13, OCCT 44.49752416425391)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15160 face #20123: 86.28985293222685 vs 86.29159120538723 (+/- 3.3e-12, vertex gap 8.8e-13, OCCT 86.28985293227048)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14935 face #20033: 5.8379370947920055 vs 5.840610200752462 (+/- 2.6e-14, vertex gap 1.9e-9, OCCT 5.837908723479729)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14870 face #20007: 381.17473560195305 vs 381.16308645958225 (+/- 2.7e-9, vertex gap 2.4e-9, OCCT 381.1748392017213)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14795 face #19977: 0.12016886922308295 vs 0.12016719625837048 (+/- 5.5e-9, vertex gap 1.1e-12, OCCT 0.12016886922060224)
       21  today's trusts, ours doesn't (an edge's vertices against its curve's sense)
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #394
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #644
@@ -448,13 +409,20 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/pr1sy.stp #293 face #186
             gkv311-opencascade-dataset/step/pr1sy.stp #293 face #206
             gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #1499 face #1489
-       6  perimeters DISAGREE (vertices on curves)
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #461022: 4.741868434355726 vs 4.7418284631260725
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #110876: 4.741770411317261 vs 4.741751702849493
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #1557: 5.1821033431317485 vs 5.182057048759388
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #472594: 4.741770412810182 vs 4.7417517043424615
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #376903: 5.051735353773239 vs 5.051708319186775
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #67724: 5.051735357945301 vs 5.0517083234731475
+       7  both trust, areas DISAGREE, OCCT nearer ours
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14375 face #19809: 132.27913567648315 vs 132.27921135534658 (+/- 5.7e-11, vertex gap 4.4e-9, OCCT 132.27913566963326)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11555 face #18681: 198.81683433371288 vs 198.81736164631536 (+/- 1.5e-11, vertex gap 4.1e-10, OCCT 198.81683433377643)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11305 face #18581: 147.15360462148513 vs 147.15370833865174 (+/- 1.4e-10, vertex gap 4.7e-10, OCCT 147.15360283461376)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10975 face #18449: 118.6042995510376 vs 118.6040679866516 (+/- 2.7e-11, vertex gap 9.0e-10, OCCT 118.60429955126091)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10930 face #18431: 132.27913525617637 vs 132.2792109348029 (+/- 4.1e-10, vertex gap 4.1e-10, OCCT 132.2791352476885)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10775 face #18369: 147.15360462126046 vs 147.15370833854988 (+/- 6.1e-12, vertex gap 4.7e-10, OCCT 147.15360283479038)
+       6  both trust, areas DISAGREE within the tolerance strip, OCCT nearer today's
+            gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300: 140.30076690213005 vs 140.30071332396915 (+/- 1.2e-10, vertex gap 2.1e-9, OCCT 140.2176748516884)
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #375337 face #468490: 26800.253636576534 vs 26800.253868961136 (+/- 0.000073, vertex gap 9.5e-13, OCCT 26800.254001750887)
+            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36830: 842.488506353466 vs 842.4885101056202 (+/- 0.0000027, vertex gap 1.6e-11, OCCT 842.5647187522707)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #4521: 0.6380108378161606 vs 0.63801232882623 (+/- 7.7e-15, vertex gap 2.2e-13, OCCT 0.6380118318234647)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #12576: 0.6380108378189266 vs 0.6380123288261524 (+/- 1.4e-13, vertex gap 1.8e-13, OCCT 0.6380118318234645)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #21877: 0.6380108378164733 vs 0.6380123288261705 (+/- 1.5e-13, vertex gap 1.4e-13, OCCT 0.6380118318234722)
        6  today's trusts, ours doesn't (noConvergence)
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1481
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1533
@@ -468,80 +436,67 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #156
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #216
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #342
+       4  ours trusts, today's doesn't (minor-winding)
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #16227
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #14965
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #19681
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #21653
+       4  ours trusts, today's doesn't (minor-winding, orientation)
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #15405
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #18393
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #20973
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2757 face #17901
        2  today's trusts, ours doesn't (orientation, offSurface)
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #54
             gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #238
   the largest agreeing difference: 9.42e-7 (gkv311-opencascade-dataset/step/tr9_r1001-ec.stp #11 face #24052)
 
 Against OCCT's measures, where ours is trusted and OCCT's valid:
-   25738  plane       within 1e-6
-   21610  cylinder    within 1e-6
-    3745  cone        within 1e-6
-    2992  torus       within 1e-6
-    1689  bspline     within 1e-6
-    1512  sphere      within 1e-6
-    1227  cylinder    within 1e-4
-     810  plane       within 1e-4
-     689  cylinder    within 0.01
+   25648  plane       within 1e-6
+   18173  cylinder    within 1e-6
+    3332  cone        within 1e-6
+    2537  torus       within 1e-6
+    1700  bspline     within 1e-6
+    1387  sphere      within 1e-6
+     778  plane       within 1e-4
      631  extrusion   within 1e-6
-     478  bspline     within 0.01
-     437  sphere      within 1e-4
-     410  plane       within 0.01
-     362  bspline     within 1e-4
-     333  cone        within 1e-4
+     482  bspline     within 0.01
+     400  plane       within 0.01
+     376  bspline     within 1e-4
+     354  cylinder    within 0.01
+     342  sphere      within 1e-4
+     339  cylinder    within 1e-4
      305  extrusion   within 0.01
-     291  cone        within 0.01
-     216  torus       within 1e-4
      144  extrusion   within 1e-4
-     126  sphere      within 0.01
-     124  cylinder    past 0.01
-     104  revolution  within 1e-6
-      56  sphere      past 0.01
+     114  revolution  within 1e-6
+      96  sphere      within 0.01
+      57  cone        within 0.01
+      48  cone        within 1e-4
+      33  sphere      past 0.01
       32  revolution  within 1e-4
-      27  torus       within 0.01
-      19  cone        past 0.01
-       9  torus       past 0.01
+      32  torus       within 1e-4
+       9  cylinder    past 0.01
+       9  torus       within 0.01
        8  plane       past 0.01
        2  bspline     past 0.01
-  relative difference of the area: <= 1e-12: 45033, <= 1e-9: 6538, <= 1e-6: 6450, <= 1e-4: 3561, <= 1e-2: 2326, <= 1e-1: 201, <= inf: 17
-  of the perimeter, planes only: <= 1e-12: 25931, <= 1e-9: 399, <= 1e-6: 345, <= 1e-4: 256, <= 1e-2: 29, <= 1e-1: 2, <= inf: 4
+  relative difference of the area: <= 1e-12: 44689, <= 1e-9: 4835, <= 1e-6: 3998, <= 1e-4: 2091, <= 1e-2: 1703, <= 1e-1: 46, <= inf: 6
+  of the perimeter, planes only: <= 1e-12: 25771, <= 1e-9: 428, <= 1e-6: 345, <= 1e-4: 255, <= 1e-2: 29, <= 1e-1: 2, <= inf: 4
 
 OCCT's measure more than 1 % off ours, by its own mesh:
-      74  cylinder    its mesh nearer ours
-            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #8554: ours 176.77246, OCCT's 174.13506, its mesh 176.77833
-            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25631: ours 0.044022137, OCCT's 0.033034982, its mesh 0.042750546
-            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25642: ours 0.044022137, OCCT's 0.033034982, its mesh 0.042756186
-            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25691: ours 0.39289937, OCCT's 0.39710137, its mesh 0.39434905
-            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25814: ours 0.0051348957, OCCT's 0.0031822844, its mesh 0.0049165542
-            gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4613: ours 7.7992673, OCCT's 7.7017556, its mesh 7.7927899
-      50  cylinder    its mesh nearer its measure
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #8335: ours 0.0061123775, OCCT's 0.0063168470, its mesh 0.0063168167
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #8845: ours 0.011266275, OCCT's 0.011813264, its mesh 0.011813320
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #9324: ours 0.017638733, OCCT's 0.018790164, its mesh 0.018790177
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #9789: ours 0.024899734, OCCT's 0.025203550, its mesh 0.025422172
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #10268: ours 0.031930952, OCCT's 0.032365114, its mesh 0.032359104
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #10426: ours 0.031930784, OCCT's 0.032364955, its mesh 0.032359508
-      46  sphere      its mesh nearer ours
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #277: ours 3.0882177, OCCT's 3.1242828, its mesh 3.0681195
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #280: ours 3.0882104, OCCT's 3.1242672, its mesh 3.0679469
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #283: ours 3.0882086, OCCT's 3.1242601, its mesh 3.0679171
+      31  sphere      its mesh nearer ours
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #452366: ours 0.00012419726, OCCT's 0.00012050813, its mesh 0.00012618284
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #355346: ours 0.00012419726, OCCT's 0.00012050813, its mesh 0.00012618284
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16975 face #20849: ours 0.0023311661, OCCT's 0.0022924000, its mesh 0.0024873606
-      15  cone        its mesh nearer ours
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11240: ours 5.0783052, OCCT's 5.0161635, its mesh 5.0722105
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11330: ours 5.0783052, OCCT's 5.0161635, its mesh 5.0722086
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11420: ours 5.0783052, OCCT's 5.0161635, its mesh 5.0722100
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11510: ours 5.0783052, OCCT's 5.0161635, its mesh 5.0722083
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11600: ours 5.0783052, OCCT's 5.0161635, its mesh 5.0722110
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11690: ours 5.0783052, OCCT's 5.0161635, its mesh 5.0722090
-      10  sphere      its mesh nearer its measure
-            gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 face #1095: ours 10788.798, OCCT's 34450.136, its mesh 34404.258
-            gkv311-opencascade-dataset/step/trj3_s1-db-214.stp #4045 face #3850: ours 107.88788, OCCT's 344.50154, its mesh 342.44603
-            gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #2255 face #1939: ours 10788.755, OCCT's 34449.916, its mesh 34386.217
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10028: ours 1.7685383, OCCT's 1.7479192, its mesh 1.7568306
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10103: ours 1.7685383, OCCT's 1.7479192, its mesh 1.7568310
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10114: ours 1.7685383, OCCT's 1.7479192, its mesh 1.7568308
+            gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4761: ours 0.33831338, OCCT's 0.30830505, its mesh 0.33631540
+            gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4762: ours 0.33831338, OCCT's 0.30830478, its mesh 0.33632093
+            gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4765: ours 0.33831338, OCCT's 0.30830505, its mesh 0.33634247
+       9  cylinder    its mesh nearer ours
+            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25631: ours 0.044022137, OCCT's 0.033034982, its mesh 0.042750546
+            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25642: ours 0.044022137, OCCT's 0.033034982, its mesh 0.042756186
+            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25691: ours 0.39289937, OCCT's 0.39710137, its mesh 0.39434905
+            gkv311-opencascade-dataset/step/bug32239.STEP #89905 face #42230: ours 3.9346152, OCCT's 3.9740232, its mesh 3.9334575
+            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10168: ours 0.61059272, OCCT's 0.63074607, its mesh 0.61114209
+            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10180: ours 0.61059272, OCCT's 0.63074607, its mesh 0.61114189
        8  plane       its mesh nearer ours
             gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61662: ours 169.08035, OCCT's 165.95082, its mesh 169.08023
             gkv311-opencascade-dataset/step/bug30014.stp #41105 face #36193: ours 774.51899, OCCT's 764.58724, its mesh 773.25200
@@ -549,134 +504,140 @@ OCCT's measure more than 1 % off ours, by its own mesh:
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #440904: ours 1228.8075, OCCT's 1210.4599, its mesh 1227.7983
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #52171: ours 3467.5133, OCCT's 3506.1685, its mesh 3466.2576
             gkv311-opencascade-dataset/step/trj4_k1_top-tu-214.stp #2402 face #794: ours 35.469524, OCCT's 36.172961, its mesh 35.401327
-       5  torus       its mesh nearer ours
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #262: ours 0.024765195, OCCT's 0.027696860, its mesh 0.025050380
-            gkv311-opencascade-dataset/step/bug24593_285330.stp #13 face #263: ours 0.024765195, OCCT's 0.027696860, its mesh 0.025050380
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10885 face #18413: ours 5.6158290, OCCT's 5.8954454, its mesh 5.6853280
-            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #19398: ours 6.3113508, OCCT's 6.2187164, its mesh 6.3214175
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10187: ours 0.081707669, OCCT's 0.11485078, its mesh 0.081353233
-       4  cone        its mesh nearer its measure
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16190 face #20535: ours 0.85169093, OCCT's 0.87365941, its mesh 0.86919150
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16145 face #20517: ours 0.85169093, OCCT's 0.87365941, its mesh 0.86919150
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15715 face #20345: ours 0.84961416, OCCT's 0.87521527, its mesh 0.86630006
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14310 face #19783: ours 0.84961416, OCCT's 0.87521527, its mesh 0.86630006
-       4  torus       its mesh nearer its measure
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10057: ours 0.00050150560, OCCT's 0.00051335807, its mesh 0.00052777318
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10075: ours 0.00050150560, OCCT's 0.00051335807, its mesh 0.00052772681
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10155: ours 0.00050150560, OCCT's 0.00051335807, its mesh 0.00052777535
-            gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #10175: ours 0.00050150560, OCCT's 0.00051335807, its mesh 0.00052772761
        2  bspline     its mesh nearer ours
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1351: ours 343.37262, OCCT's 356.00311, its mesh 343.37262
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1371: ours 343.37262, OCCT's 356.00311, its mesh 343.37262
+       2  sphere      its mesh nearer its measure
+            gkv311-opencascade-dataset/step/trj5_s1-in-214.stp #1106 face #1095: ours 10788.798, OCCT's 34450.136, its mesh 34404.258
+            gkv311-opencascade-dataset/step/trj3_s1-db-214.stp #4045 face #3850: ours 107.88788, OCCT's 344.50154, its mesh 342.44603
 
 The trust rule with the boundary's bound against the rule before it (no flags, the error alone): faces newly trusted or refused, by the nearer of OCCT's and SMLib's measures:
-    1474  newly trusted: bspline     the nearer measure within 1e-6
+    3034  newly refused: cylinder    the nearer measure within 1e-6
+    2209  newly refused: cylinder    the nearer measure within 1e-9
+    1469  newly trusted: bspline     the nearer measure within 1e-6
      675  newly trusted: bspline     the nearer measure within 1e-9
      600  newly trusted: extrusion   the nearer measure within 1e-9
-     467  newly refused: cylinder    the nearer measure within 1e-6
-     447  newly refused: cylinder    the nearer measure within 1e-9
+     523  newly refused: cone        the nearer measure within 1e-6
+     522  newly refused: bspline     the nearer measure within 1e-6
+     497  newly refused: cylinder    the nearer measure within 1e-4
+     437  newly refused: torus       the nearer measure within 1e-6
      370  newly trusted: extrusion   the nearer measure within 1e-6
-     359  newly refused: bspline     the nearer measure within 1e-6
-     246  newly refused: plane       the nearer measure within 1e-6
-     157  newly refused: bspline     the nearer measure within 1e-9
-     155  newly refused: bspline     the nearer measure within 1e-2
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14: 5490.160933006112 vs 5488.544408213709, 5487.917244143194, boundary 11.4
-            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2612: 5490.160933028077 vs 5488.544408237606, 5487.917244164594, boundary 11.4
+     322  newly refused: bspline     the nearer measure within 1e-4
+     316  newly refused: cone        the nearer measure within 1e-4
+     277  newly refused: plane       the nearer measure within 1e-6
+     253  newly refused: plane       the nearer measure within 1e-9
+     204  newly refused: torus       the nearer measure within 1e-9
+     158  newly refused: sphere      the nearer measure within 1e-6
+     152  newly refused: bspline     the nearer measure within 1e-2
+            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14: 5490.160933006111 vs 5488.544408213709, 5487.917244143194, boundary 11.4
+            gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2612: 5490.160933028078 vs 5488.544408237606, 5487.917244164594, boundary 11.4
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #319: 7.951037253323186 vs 7.975683677421095, 7.953339286089996, boundary 0.0157
-            gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #589: 173.4717132517622 vs 181.66584249502364, 173.541240287291, boundary 0.0185
-            gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #698: 173.464138649358 vs 170.97838183521952, 173.5321688652318, boundary 0.0185
+            gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #589: 173.47171325176222 vs 181.66584249502364, 173.541240287291, boundary 0.0185
+            gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #698: 173.46413864935798 vs 170.97838183521952, 173.5321688652318, boundary 0.0185
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #765: 7.950979817770828 vs 7.768600066152765, 7.953974709734365, boundary 0.0186
-     154  newly refused: plane       the nearer measure within 1e-9
-     115  newly refused: cylinder    the nearer measure within 1e-4
-     106  newly refused: plane       the nearer measure within 1e-4
-     104  newly trusted: revolution  the nearer measure within 1e-9
-      90  newly refused: bspline     the nearer measure within 1e-4
-      84  newly trusted: bspline     the nearer measure within 1e-4
+     145  newly refused: bspline     the nearer measure within 1e-9
+     125  newly refused: cone        the nearer measure within 1e-9
+     116  newly refused: sphere      the nearer measure within 1e-4
+     107  newly refused: plane       the nearer measure within 1e-4
+     106  newly trusted: revolution  the nearer measure within 1e-9
+      90  newly refused: torus       the nearer measure within 1e-4
       84  newly trusted: extrusion   the nearer measure within 1e-4
-      37  newly refused: torus       the nearer measure within 1e-6
-      32  newly refused: plane       the nearer measure within 1e-2
+      79  newly trusted: bspline     the nearer measure within 1e-4
+      74  newly refused: cylinder    the nearer measure within 1e-2
+            gkv311-opencascade-dataset/step/trj5_k1-sh-203.stp #1489 face #1446: 0.7835527412118384 vs 0.7833296881799832, 0.6470034934961595, boundary 0.000630
+            gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #2126 face #2055: 8455.385670661119 vs 8454.285981276253, boundary 0.0910
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #17100 face #20899: 248.8390283444272 vs 248.91004959315902, boundary 0.315
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14210 face #19743: 4.199723698639538 vs 4.200951171859724, boundary 0.00429
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12590 face #19095: 7.481499361240403 vs 7.484188335938067, boundary 0.00177
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11385 face #18613: 4.199723698628418 vs 4.20095117184956, boundary 0.00429
+      63  newly refused: cone        the nearer measure within 1e-2
+            gkv311-opencascade-dataset/step/bug32745_pmi1.stp #791 face #291: 6.760020011189601 vs 6.75772713528801, boundary 0.000991
+            gkv311-opencascade-dataset/step/bug32745_pmi1.stp #791 face #581: 6.760020011189347 vs 6.757727135288148, boundary 0.000991
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16409: 20.26306734558404 vs 20.259913235834496, boundary 0.0194
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16420: 20.263067345584044 vs 20.259913235834496, boundary 0.0194
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16443: 20.26306734558404 vs 20.259913235834496, boundary 0.0194
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16454: 20.263067345584044 vs 20.259913235834496, boundary 0.0194
+      34  newly refused: plane       the nearer measure within 1e-2
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11627: 0.03158157827964105 vs 0.03143443124783063, 0.031088790469843457, boundary 0.00328
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11657: 0.03158158074923813 vs 0.03143443354212172, 0.03108868305203971, boundary 0.00328
             gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #469441: 41.25650302221663 vs 41.26495571383885, 41.26458022071074, boundary 0.0164
-            gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #354: 0.161046504859532 vs 0.16170320772518482, boundary 0.00107
+            gkv311-opencascade-dataset/step/bug25415_part_of_hdrv8w64p254_4x2_1016x502h838p.stp #418 face #354: 0.161046504859532 vs 0.16170320772518482, boundary 0.00193
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16505 face #20661: 0.0005655543924010931 vs 0.0005654214641145753, boundary 0.0000461
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15510 face #20263: 21.790644471938197 vs 21.795695078498195, boundary 0.00167
-            gkv311-opencascade-dataset/step/trj8_b1-ec-214.stp #10 face #11620: 0.03158157827964105 vs 0.03143443124783063, 0.031088790469843457, boundary 0.00328
-      30  newly refused: cone        the nearer measure within 1e-4
-      21  newly refused: cone        the nearer measure within 1e-9
-      20  newly refused: sphere      the nearer measure within 1e-4
-      20  newly refused: torus       the nearer measure within 1e-4
-      20  newly trusted: revolution  the nearer measure within 1e-6
-      19  newly refused: sphere      the nearer measure within 1e-6
-      12  newly refused: cone        the nearer measure within 1e-2
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35795: 13.894186736661226 vs 13.891703158034245, 13.89243374376315, boundary 0.000469
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #37543: 8.311662313866478 vs 8.310264955835049, 8.31057449083994, boundary 0.000122
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #39225: 8.311662215750033 vs 8.310265365504229, 8.310575342525965, boundary 0.000138
-            gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 face #1006: 1.9250593739948543 vs 1.9245398165819896, 1.924691746810634, boundary 0.00283
-            gkv311-opencascade-dataset/step/trj8_k1-ac-203.stp #2712 face #1041: 37.73107346902889 vs 37.72589127912115, 37.71723370236785, boundary 0.0278
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #168383 face #226693: 851.159109658586 vs 850.622893580767, 850.6238206274729, boundary 0.00461
+      30  newly refused: sphere      the nearer measure within 1e-9
+      28  newly trusted: revolution  the nearer measure within 1e-6
+      13  newly refused: revolution  the nearer measure within 1e-6
+      13  newly refused: sphere      the nearer measure within 1e-2
+            gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #2126 face #1885: 2421.26054793573 vs 2421.7165138770706, boundary 0.0316
+            gkv311-opencascade-dataset/step/trj4_s1-tu-214.stp #2126 face #1970: 2421.2603125423484 vs 2422.694705929859, boundary 0.00877
+            gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157: 0.44303520111968586 vs 0.44521323031043997, boundary 0.0923
+            nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp #14149 face #9598: 13.080630478135163 vs 13.100237884388346, boundary 0.0000630
+            nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp #14149 face #11067: 8.157745920915204 vs 8.178402770726667, boundary 0.0000335
+            nist-pmi-models/NIST_MBE_PMI_CTC_Definitions/NIST_MBE_PMI_CTC_Definitions/nist_ctc_04_asme1_rd.stp #14149 face #11222: 8.15774592091509 vs 8.178402776298604, boundary 0.0000335
+      12  newly refused: cylinder    the nearer measure past 1e-2
+            gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #8554: 176.77246275863527 vs 174.13505531864303, 165.17575756411242, boundary 0.172
+            gkv311-opencascade-dataset/step/trj12_b3-tu-203.stp #27964 face #25814: 0.005134895747874957 vs 0.0031822843986775693, 0.005013460880106093, boundary 6.62e-9
+            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1203: 0.16144709291405832 vs 0.15568112530998482, boundary 0.0103
+            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1205: 0.021246273259903768 vs 0.020740409610858428, boundary 0.000717
+            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1209: 0.17931704451894576 vs 0.1750475910780186, boundary 0.0104
+            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1211: 0.02675644316570716 vs 0.026119384995094974, boundary 0.000751
       12  newly trusted: revolution  the nearer measure within 1e-4
-      11  newly refused: revolution  the nearer measure within 1e-6
-      10  newly refused: cylinder    the nearer measure past 1e-2
-            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1203: 0.16144709291405832 vs 0.15568112530998482, boundary 0.00575
-            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1205: 0.021246273259903768 vs 0.020740409610858428, boundary 0.000634
-            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1209: 0.17931704451894576 vs 0.1750475910780186, boundary 0.00426
-            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1211: 0.02675644316570716 vs 0.026119384995094974, boundary 0.000638
-            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1215: 0.13622405170122853 vs 0.13135890699760439, boundary 0.00487
-            nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1217: 0.2668183149460242 vs 0.25728908941223744, boundary 0.00949
-      10  newly refused: cylinder    the nearer measure within 1e-2
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14210 face #19743: 4.199723698639538 vs 4.200951171859724, boundary 0.00362
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11385 face #18613: 4.199723698628418 vs 4.20095117184956, boundary 0.00362
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10325 face #18189: 4.19972369863182 vs 4.200951171852228, boundary 0.00362
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10055 face #18081: 4.199723698630066 vs 4.2009511718510355, boundary 0.00362
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #7832: 0.8424530860949474 vs 0.8375796553833563, 0.8400145959635363, boundary 0.00487
-            gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #12209: 0.006112817031945236 vs 0.006322165281198688, 0.006113852512015981, boundary 0.00000829
-       6  newly refused: sphere      the nearer measure within 1e-9
-       4  newly refused: torus       the nearer measure within 1e-9
-       3  newly refused: cone        the nearer measure within 1e-6
-       2  newly refused: extrusion   the nearer measure within 1e-4
-       2  newly refused: extrusion   the nearer measure within 1e-6
+       8  newly trusted: torus       the nearer measure within 1e-9
+       7  newly refused: extrusion   the nearer measure within 1e-4
+       5  newly refused: extrusion   the nearer measure within 1e-6
+       3  newly refused: sphere      the nearer measure past 1e-2
+            gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #2255 face #1939: 10788.75519457314 vs 34449.91600850475, boundary 0.0358
+            gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #2221 face #1905: 10788.75519457314 vs 34449.91600850475, boundary 0.0358
+            gkv311-opencascade-dataset/step/cax_stepLib/s1-c5-214/HEAD_BACK.stp #593 face #314: 10788.756691833907 vs 34438.80693473831, boundary 0.0180
+       3  newly refused: torus       the nearer measure within 1e-2
+            gkv311-opencascade-dataset/step/OCC5157.stp #11 face #4623: 26.337227778967012 vs 26.340439318422305, 26.34427430449635, boundary 0.122
+            gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 face #607: 81.21871232845423 vs 81.22853644461925, boundary 0.0226
+            gkv311-opencascade-dataset/step/nist/bug28444_nist_ftc_06_asme1_ct5240_rd.stp #7107 face #709: 81.2187123268561 vs 81.22853644521446, boundary 0.0226
        2  newly refused: plane       the nearer measure past 1e-2
             nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1204: 0.31250071057811635 vs 0.30320009419186295, boundary 0.00930
             nist-pmi-models/NIST-PMI-STEP-Files/NIST-PMI-STEP-Files/nist_ftc_11_asme1_ap242-e2.stp #466 face #1210: 0.28900286405369685 vs 0.28212184348098945, boundary 0.00688
-       1  newly refused: sphere      the nearer measure within 1e-2
-            gkv311-opencascade-dataset/step/bug25013_25013face.stp #2003 face #4157: 0.44303520111968586 vs 0.44521323031043997, boundary 0.0923
+       2  newly refused: revolution  the nearer measure within 1e-4
+       1  newly refused: torus       the nearer measure past 1e-2
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10885 face #18413: 5.615829034000288 vs 5.895445350603827, boundary 0.00103
        1  newly trusted: bspline     the nearer measure no measure
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1295: 593.4014989417603 vs , boundary 1.58e-11
 
-Faces judged (trusted) at each threshold, of 86142: 0.000001: 66386 (before the bound 65500); 0.0001: 69657 (before the bound 65503); 0.001: 73356 (before the bound 65503)
+Faces judged (trusted) at each threshold, of 86142: 0.000001: 59625 (before the bound 65942); 0.0001: 67855 (before the bound 65945); 0.001: 76003 (before the bound 65945)
 
 Free-form faces against OCCT's and SMLib's measures, past 1e-4 by OCCT's mesh:
-    3373  not trusted (projectedBoundary): within 1e-6 of SMLib's measure only
-    1870  not trusted (projectedBoundary): within 1e-4 of a measure
-    1556  trusted: within 1e-6 of both measures
-    1528  not trusted (projectedBoundary): within 1e-6 of both measures
-    1003  not trusted (projectedBoundary): within 1e-6 of OCCT's measure only
-     751  trusted: within 1e-6 of SMLib's measure only
-     629  not trusted (projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+    4669  not trusted (projectedBoundary): within 1e-6 of SMLib's measure only
+    3220  not trusted (projectedBoundary): within 1e-4 of a measure
+    2226  not trusted (projectedBoundary): within 1e-6 of both measures
+    1570  trusted: within 1e-6 of both measures
+    1352  not trusted (projectedBoundary): within 1e-6 of OCCT's measure only
+     773  trusted: within 1e-6 of SMLib's measure only
+     672  not trusted (projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
             gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1900 face #2795: ours 3.024894580 (+/- 0.0047), OCCT's 3.025828560, SMLib's 3.025831873, OCCT's mesh 3.0775711
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #40: ours 63.52552493 (+/- 0.34), OCCT's 63.55333536, SMLib's 63.55270263, OCCT's mesh 64.201110
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #134: ours 63.52599113 (+/- 0.34), OCCT's 63.55369912, SMLib's 63.55345800, OCCT's mesh 64.166365
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #138: ours 63.11269145 (+/- 0.77), OCCT's 62.69655757, SMLib's 63.19105407, OCCT's mesh 61.362687
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #139: ours 2.974651462 (+/- 0.033), OCCT's 2.976602882, SMLib's 2.975898008, OCCT's mesh 2.9633323
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #140: ours 2.971834833 (+/- 0.038), OCCT's 2.973863843, SMLib's 2.973422040, OCCT's mesh 2.9625678
-     252  not trusted (its error): within 1e-6 of both measures
-     250  not trusted (projectedBoundary): the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
+     341  not trusted (projectedBoundary): the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
             gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1578 face #5507: ours 510.1133817 (+/- 0.55), OCCT's 510.1165811, SMLib's 510.1166843, OCCT's mesh 508.98767
             gkv311-opencascade-dataset/step/trj3_s1-id-203.stp #1374 face #5860: ours 1965.995539 (+/- 0.80), OCCT's 1966.005671, SMLib's 1966.006841, OCCT's mesh 1962.8110
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #38: ours 940.4100942 (+/- 0.086), OCCT's 940.4012425, SMLib's 940.4008153, OCCT's mesh 938.93826
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #41: ours 4178.862395 (+/- 1.9), OCCT's 4178.650479, SMLib's 4178.648402, OCCT's mesh 4177.8833
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #45: ours 1424.381406 (+/- 0.50), OCCT's 1424.373296, SMLib's 1424.373112, OCCT's mesh 1425.1991
             gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp #22 face #69: ours 61.71994150 (+/- 0.045), OCCT's 61.72154788, SMLib's 61.72155425, OCCT's mesh 61.562674
-     174  not trusted (its error): within 1e-6 of SMLib's measure only
-     166  not trusted (loose, projectedBoundary): within 1e-4 of a measure
-     151  not trusted (its error): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+     311  not trusted (its error): within 1e-4 of a measure
+     270  not trusted (its error): within 1e-6 of SMLib's measure only
+     255  not trusted (its error): within 1e-6 of both measures
+     167  not trusted (loose, projectedBoundary): within 1e-4 of a measure
+     148  not trusted (its error): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
             gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14: ours 5490.160933 (+/- 11), OCCT's 5488.544408, SMLib's 5487.917244, OCCT's mesh 5488.9437
             gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #2612: ours 5490.160933 (+/- 11), OCCT's 5488.544408, SMLib's 5487.917244, OCCT's mesh 5488.9437
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #319: ours 7.951037253 (+/- 0.016), OCCT's 7.975683677, SMLib's 7.953339286, OCCT's mesh 7.9511848
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #589: ours 173.4717133 (+/- 0.019), OCCT's 181.6658425, SMLib's 173.5412403, OCCT's mesh 173.56731
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #698: ours 173.4641386 (+/- 0.019), OCCT's 170.9783818, SMLib's 173.5321689, OCCT's mesh 173.50947
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #765: ours 7.950979818 (+/- 0.019), OCCT's 7.768600066, SMLib's 7.953974710, OCCT's mesh 7.9517045
-     129  trusted: within 1e-6 of OCCT's measure only
+     137  not trusted (its error): within 1e-6 of OCCT's measure only
+     126  trusted: within 1e-6 of OCCT's measure only
      115  not trusted (loose, projectedBoundary): the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30290: ours 96.44611105 (+/- 0.59), OCCT's 96.42407925, SMLib's 96.42407889, OCCT's mesh 96.383087
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30554: ours 16.13649987 (+/- 0.10), OCCT's 16.12342237, SMLib's 16.12342865, OCCT's mesh 16.148946
@@ -684,31 +645,29 @@ Free-form faces against OCCT's and SMLib's measures, past 1e-4 by OCCT's mesh:
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #33285: ours 52.55885575 (+/- 0.076), OCCT's 52.55938780, SMLib's 52.55941237, OCCT's mesh 52.614493
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #36012: ours 16.13608429 (+/- 0.10), OCCT's 16.12323412, SMLib's 16.12323871, OCCT's mesh 16.148818
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #36265: ours 16.16507196 (+/- 0.14), OCCT's 16.13738552, SMLib's 16.13738335, OCCT's mesh 16.164535
-     109  not trusted (loose, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+     110  not trusted (loose, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+            gkv311-opencascade-dataset/step/trj4_k1_geo-md-203.stp #542 face #1923: ours 286.3751402 (+/- 0.0012), OCCT's 286.1035571, SMLib's 155.8050375, OCCT's mesh 286.30820
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #31192: ours 31.39507366 (+/- 0.62), OCCT's 31.44345263, SMLib's 31.44309148, OCCT's mesh 31.267811
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #31315: ours 547.7714651 (+/- 8.4), OCCT's 548.1838269, SMLib's 548.1876493, OCCT's mesh 542.80140
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #31405: ours 31.34729505 (+/- 0.70), OCCT's 31.44264572, SMLib's 31.44170103, OCCT's mesh 31.338720
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #31444: ours 1.891830385 (+/- 0.019), OCCT's 1.891577095, SMLib's 1.899809902, OCCT's mesh 1.9013018
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #31520: ours 27.56852880 (+/- 0.13), OCCT's 27.57255568, SMLib's 27.57278053, OCCT's mesh 27.552235
-            gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #31632: ours 27.56866014 (+/- 0.13), OCCT's 27.57254823, SMLib's 27.57291537, OCCT's mesh 27.513328
-      88  not trusted (its error): within 1e-6 of OCCT's measure only
-      83  trusted: within 1e-4 of a measure
-      81  not trusted (its error): within 1e-4 of a measure
-      74  not trusted (projectedBoundary): within 1e-6 of SMLib's measure
-      56  not trusted (loose, projectedBoundary): within 1e-6 of both measures
+      84  trusted: within 1e-4 of a measure
+      72  not trusted (projectedBoundary): within 1e-6 of SMLib's measure
+      64  not trusted (loose, projectedBoundary): within 1e-6 of both measures
       54  not trusted (orientation, loose): within 1e-6 of both measures
+      52  not trusted (loose): within 1e-4 of a measure
       52  not trusted (orientation, loose, projectedBoundary): within 1e-4 of a measure
-      43  not trusted (loose): within 1e-4 of a measure
-      38  not trusted (offSurface, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+      39  not trusted (offSurface, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #311928: ours 121.5247356 (+/- 1.5e+3), SMLib's 121.0548022, OCCT's mesh 716.77404
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #12620: ours 0.000004413926059 (+/- 0.000016), OCCT's 0.000004429835565, SMLib's 0.000004349442830, OCCT's mesh 0.0000049878529
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #12650: ours 0.000003888597890 (+/- 0.0000027), OCCT's 0.000004241609084, SMLib's 0.000003963087183, OCCT's mesh 0.0000041436065
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #22147: ours 0.000004413926113 (+/- 0.000016), OCCT's 0.000004429835470, SMLib's 0.000004349442837, OCCT's mesh 0.0000049878952
             gkv311-opencascade-dataset/step/OCC5099.stp #14343 face #22170: ours 0.000003888597991 (+/- 0.0000027), OCCT's 0.000004278048338, SMLib's 0.000003963087103, OCCT's mesh 0.0000041434932
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1344: ours 71.80485291 (+/- 1.0e+2), OCCT's 70.85685783, SMLib's 58.43536130, OCCT's mesh 53.985371
-            gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1347: ours 71.80485291 (+/- 1.0e+2), OCCT's 72.50977301, SMLib's 70.42960737, OCCT's mesh 89.970734
       34  not trusted (loose, projectedBoundary): within 1e-6 of OCCT's measure only
-      31  not trusted (loose): within 1e-6 of both measures
-      25  not trusted (loose, projectedBoundary): within 1e-6 of SMLib's measure only
+      33  not trusted (loose, projectedBoundary): within 1e-6 of SMLib's measure only
+      32  not trusted (loose): within 1e-6 of both measures
       24  not trusted (orientation, loose, projectedBoundary): the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30213: ours 131.8830550 (+/- 0.14), OCCT's 131.8836473, SMLib's 131.8836468, OCCT's mesh 131.78504
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #30767: ours 1631.005419 (+/- 0.19), OCCT's 1631.002519, SMLib's 1631.002372, OCCT's mesh 1631.7216
@@ -723,36 +682,18 @@ Free-form faces against OCCT's and SMLib's measures, past 1e-4 by OCCT's mesh:
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #50066: ours 55.83018749 (+/- 0.22), OCCT's 56.15523856, SMLib's 55.82143278, OCCT's mesh 55.502289
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #52927: ours 67.73896112 (+/- 1.2), OCCT's 67.75654098, SMLib's 67.75426919, OCCT's mesh 67.384903
             gkv311-opencascade-dataset/step/wgehaeuse_surface.stp #71291 face #54267: ours 30.03314693 (+/- 0.12), OCCT's 30.02509239, SMLib's 30.02502580, OCCT's mesh 29.993720
-      10  not trusted (orientation, loose): within 1e-6 of OCCT's measure only
-       9  not trusted (orientation, loose, projectedBoundary): within 1e-6 of OCCT's measure only
-       8  not trusted (its error): the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
-            gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #21628: ours 5.595895073 (+/- 0.000020), OCCT's 5.595887827, SMLib's 5.595888387, OCCT's mesh 5.5756441
+      11  not trusted (its error): the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
+            gkv311-opencascade-dataset/step/trj4_k1_top-tc-214.stp #5699 face #1705: ours 3.131811362 (+/- 0.0022), OCCT's 3.131766229, SMLib's 3.131763833, OCCT's mesh 3.1228604
+            gkv311-opencascade-dataset/step/trj5_k1-tc-203.stp #5753 face #1755: ours 3.131811362 (+/- 0.0022), OCCT's 3.131766229, SMLib's 3.131763833, OCCT's mesh 3.1228604
             gkv311-opencascade-dataset/step/trj5_k1-pe-203.stp #5316 face #2357: ours 46.64453154 (+/- 30), OCCT's 46.64418862, SMLib's 46.64417724, OCCT's mesh 46.392259
             gkv311-opencascade-dataset/step/trj5_k1-pe-203.stp #5316 face #4954: ours 46.64453154 (+/- 30), OCCT's 46.64418862, SMLib's 46.64417724, OCCT's mesh 46.392260
             gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316 face #2357: ours 46.64453154 (+/- 30), OCCT's 46.64418862, SMLib's 46.64417724, OCCT's mesh 46.392259
             gkv311-opencascade-dataset/step/trj5_k1-pe-214.stp #5316 face #4954: ours 46.64453154 (+/- 30), OCCT's 46.64418862, SMLib's 46.64417724, OCCT's mesh 46.392260
-            gkv311-opencascade-dataset/step/trj8_k1-db-214.stp #5 face #5826: ours 289.8634989 (+/- 0.0021), OCCT's 289.8616428, SMLib's 289.8616428, OCCT's mesh 289.86167
-       8  not trusted (loose): within 1e-6 of SMLib's measure only
-       8  trusted: the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #189594: ours 3.366746632 (+/- 0.0000032), OCCT's 3.366754710, SMLib's 3.366754722, OCCT's mesh 3.3409056
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #156960: ours 3.366746631 (+/- 0.0000032), OCCT's 3.366754710, SMLib's 3.366754722, OCCT's mesh 3.3408820
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #25172: ours 3.366746632 (+/- 0.0000032), OCCT's 3.366754710, SMLib's 3.366754722, OCCT's mesh 3.3408983
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #196202: ours 3.366746632 (+/- 0.0000032), OCCT's 3.366754710, SMLib's 3.366754722, OCCT's mesh 3.3408819
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #152140: ours 3.366746632 (+/- 0.0000032), OCCT's 3.366754710, SMLib's 3.366754722, OCCT's mesh 3.3408932
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #172901: ours 3.394636605 (+/- 0.0000031), OCCT's 3.394628861, SMLib's 3.394631832, OCCT's mesh 3.3659633
+      10  not trusted (loose): within 1e-6 of SMLib's measure only
+      10  not trusted (orientation, loose): within 1e-6 of OCCT's measure only
+       9  not trusted (orientation, loose, projectedBoundary): within 1e-6 of OCCT's measure only
        6  trusted: within 1e-6 of SMLib's measure
-       5  not trusted (loose): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #8950: ours 0.05941585628 (+/- 0.016), OCCT's 0.05945718913, SMLib's 0.05944225786, OCCT's mesh 0.058006656
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #9250: ours 0.05941585628 (+/- 0.016), OCCT's 0.05945718913, SMLib's 0.05944225794, OCCT's mesh 0.058006656
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #9970: ours 0.3515451598 (+/- 0.019), OCCT's 0.3516593062, SMLib's 0.3513984208, OCCT's mesh 0.35095280
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #10182: ours 0.3515451598 (+/- 0.019), OCCT's 0.3516574593, SMLib's 0.3513983682, OCCT's mesh 0.35095578
-            gkv311-opencascade-dataset/step/trj4_k1_geo-ac-214.stp #10298 face #10264: ours 0.07175449776 (+/- 0.021), OCCT's 0.07171216092, SMLib's 0.07230469085, OCCT's mesh 0.071689464
-       5  not trusted (projectedBoundary): the measures within 1e-6 of each other, not of ours: DISAGREE
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #38795: ours 5.139906866 (+/- 6.2e-14), OCCT's 5.139919742, SMLib's 5.139919015, OCCT's mesh 5.0893217
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #303856: ours 5.139906865 (+/- 6.1e-14), OCCT's 5.139919742, SMLib's 5.139919015, OCCT's mesh 5.0893323
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #254312: ours 5.139906866 (+/- 6.5e-14), OCCT's 5.139919742, SMLib's 5.139919015, OCCT's mesh 5.0893293
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #322138: ours 5.139906865 (+/- 6.1e-14), OCCT's 5.139919742, SMLib's 5.139919015, OCCT's mesh 5.0893236
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #143682: ours 5.139906865 (+/- 6.4e-14), OCCT's 5.139919742, SMLib's 5.139919015, OCCT's mesh 5.0893323
+       5  not trusted (its error): within 1e-6 of SMLib's measure
        5  not trusted (sphereSide, projectedBoundary): within 1e-4 of a measure
        4  not trusted (its error): past 1e-4 of the measures, OCCT's mesh nearer ours
             gkv311-opencascade-dataset/step/bm2_ec_exhaust-A.stp #9 face #2491: ours 23166.74276 (+/- 1.9e+3), OCCT's 22974.66631, SMLib's 22995.55421, OCCT's mesh 23303.310
@@ -774,36 +715,39 @@ Free-form faces against OCCT's and SMLib's measures, past 1e-4 by OCCT's mesh:
        3  not trusted (offSurface, projectedBoundary): within 1e-6 of both measures
        3  not trusted (orientation, loose, projectedBoundary): within 1e-6 of SMLib's measure only
        3  not trusted (orientation, loose, projectedBoundary): within 1e-6 of both measures
-       3  not trusted (orientation, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
-            gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #794022: ours 0.004867647984 (+/- 0.0013), OCCT's 0.004879011782, SMLib's 0.004906692274, OCCT's mesh 0.0050778353
-            gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #799366: ours 7.863635570 (+/- 0.25), OCCT's 7.875411423, SMLib's 7.871464471, OCCT's mesh 7.9160147
-            gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #793880: ours 0.1108918026 (+/- 0.042), OCCT's 0.1100849960, SMLib's 0.1103011437, OCCT's mesh 0.10882506
        3  not trusted (sphereSide, projectedBoundary): within 1e-6 of SMLib's measure only
-       2  not trusted (its error): within 1e-6 of SMLib's measure
+       3  trusted: the measures within 1e-6 of each other, not of ours, within the tolerance strip: DISAGREE
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #172901: ours 3.394636605 (+/- 0.0000031), OCCT's 3.394628861, SMLib's 3.394631832, OCCT's mesh 3.3659633
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #206858 face #90290: ours 3.394616083 (+/- 0.0000031), OCCT's 3.394608332, SMLib's 3.394611269, OCCT's mesh 3.3659460
+            gkv311-opencascade-dataset/step/bug31670_russian.stp #26312 face #15906: ours 0.03562203640 (+/- 4.7e-15), OCCT's 0.03562197812, SMLib's 0.03562195252, OCCT's mesh 0.035610277
+       2  not trusted (offSurface): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #21309: ours 0.8185489551 (+/- 0.11), OCCT's 0.8197534230, SMLib's 0.8187487857, OCCT's mesh 0.83137542
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #1549 face #18763: ours 0.8176877694 (+/- 0.12), OCCT's 0.8195108913, SMLib's 0.8184653549, OCCT's mesh 0.83022821
        2  not trusted (offSurface, projectedBoundary): within 1e-4 of a measure
        2  not trusted (offSurface, projectedBoundary): within 1e-6 of OCCT's measure only
+       2  not trusted (offSurface, projectedBoundary): within 1e-6 of SMLib's measure
        2  not trusted (offSurface, projectedBoundary): within 1e-6 of SMLib's measure only
        2  not trusted (orientation, loose): within 1e-4 of a measure
+       2  not trusted (orientation, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
+            gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #794022: ours 0.004867647984 (+/- 0.0013), OCCT's 0.004879011782, SMLib's 0.004906692274, OCCT's mesh 0.0050778353
+            gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #793880: ours 0.1108918026 (+/- 0.042), OCCT's 0.1100849960, SMLib's 0.1103011437, OCCT's mesh 0.10882506
        2  not trusted (projectedBoundary): no referee (neither measured it)
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #16311
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #18168
        2  not trusted (projectedBoundary): past 1e-4 of the measures, OCCT's mesh nearer ours
             gkv311-opencascade-dataset/step/as1_motor.step #1070 face #1808: ours 104316975.5 (+/- 8.9e+2), OCCT's 104369924.9, OCCT's mesh 1.0431627e+8
             gkv311-opencascade-dataset/step/as1_motor.step #1070 face #2933: ours 104316599.5 (+/- 2.2e+3), OCCT's 104335299.5, OCCT's mesh 1.0431588e+8
-       1  not trusted (its error): the measures within 1e-6 of each other, not of ours: DISAGREE
-            gkv311-opencascade-dataset/step/r0901_ec.stp #11 face #40364: ours 7.118514063 (+/- 0.000075), OCCT's 7.118451937, SMLib's 7.118450057, OCCT's mesh 7.1304989
+       2  not trusted (projectedBoundary): past 1e-4, OCCT's mesh nearer SMLib's measure: DISAGREE
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #329592 face #206982: ours 0.004288769220 (+/- 0.0019), OCCT's 3.296041636, SMLib's 3.295903773, OCCT's mesh 3.2857877
+            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022 face #21557: ours 3512.197717 (+/- 0.13), SMLib's 637.0415120, OCCT's mesh 401.50621
        1  not trusted (offSurface, projectedBoundary): no referee (neither measured it)
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1299
+       1  not trusted (offSurface, projectedBoundary): past 1e-4, OCCT's mesh nearer SMLib's measure, within the tolerance strip: DISAGREE
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #174483 face #334072: ours 2126.589738 (+/- 1.2e+3), SMLib's 3485.891132, OCCT's mesh 3241.9806
        1  not trusted (offSurface, projectedBoundary): within 1e-6 of OCCT's measure
-       1  not trusted (offSurface, projectedBoundary): within 1e-6 of SMLib's measure
-       1  not trusted (orientation): within 1e-4 of a measure
-       1  not trusted (orientation): within 1e-6 of OCCT's measure only
-       1  not trusted (orientation): within 1e-6 of SMLib's measure only
        1  not trusted (orientation, offSurface, projectedBoundary): past 1e-4 of the measures, within OCCT's mesh's resolution (perimeter x deflection)
             gkv311-opencascade-dataset/step/bug25013_25013faces.stp #821282 face #793922: ours 0.005912987969 (+/- 0.0020), OCCT's 0.006113869952, SMLib's 0.005851602489, OCCT's mesh 0.0062451773
-       1  not trusted (projectedBoundary): past 1e-4, OCCT's mesh nearer SMLib's measure: DISAGREE
-            gkv311-opencascade-dataset/step/Median_cx-fs01_bicycle.stp #2022 face #21557: ours 3512.197717 (+/- 0.13), SMLib's 637.0415120, OCCT's mesh 401.50621
        1  trusted: no referee (neither measured it)
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1295
-  trusted, the nearer measure's relative difference: <= 1e-12: 701, <= 1e-9: 134, <= 1e-6: 1611, <= 1e-4: 91, <= 1e-2: 0, <= 1e-1: 0, <= inf: 0
-  the free-form faces' oracle time 615.9 s, the slowest 86096 ms (gkv311-opencascade-dataset/step/bug26889_export.step #33 face #1854); SMLib failed on 2 parts
+  trusted, the nearer measure's relative difference: <= 1e-12: 724, <= 1e-9: 125, <= 1e-6: 1630, <= 1e-4: 87, <= 1e-2: 0, <= 1e-1: 0, <= inf: 0
+  the free-form faces' oracle time 575.8 s, the slowest 93525 ms (gkv311-opencascade-dataset/step/bug26889_export.step #33 face #1854); SMLib failed on 2 parts

@@ -321,7 +321,9 @@ function quarterCap(R: number, v1: number): BrepData {
 }
 
 test('a cone\'s sector beyond its apex (the other nappe)', { skip }, async () => {
-  for (const [r, a, beta, vb] of [[1, PI / 6, 1, -4], [2, 0.3, 4, -10]] as const) {
+  // Past a semi-angle of 45 degrees too, where a point on the other nappe has its foot on the near nappe's generator
+  // on that generator's own side of the apex.
+  for (const [r, a, beta, vb] of [[1, PI / 6, 1, -4], [2, 0.3, 4, -10], [1, 1.2, 1, -2], [2, PI / 3, 2, -3]] as const) {
     const rho = r + vb * Math.tan(a);
     near(await measure(coneBeyondApex(r, a, beta, vb)), beta * rho * rho / (2 * Math.sin(a)), `cone ${r} ${a} ${vb}`);
   }
@@ -362,8 +364,44 @@ async function refusedWinds(d: BrepData, what: string): Promise<void> {
   }
 }
 
-test('a torus face whose loops wind its minor circle is flagged winds, its area refused', { skip }, async () => {
-  await refusedWinds(torusBand(3, 1, 1.2), 'torus');
+/**
+ * A face whose loops wind a period and whose area takes the seam's term: flagged winds, the area `expected` within
+ * 1e-9, its error under 1e-8 and covering the difference, trusted; flux and moments still refused (their seam's term
+ * isn't taken).
+ */
+async function seamArea(d: BrepData, expected: number, what: string): Promise<void> {
+  using o = new Oracle(await init(), d.buffer);
+  const m = o.face(0);
+  assert.ok(m.flags.includes('winds') && m.flags.every((f) => f === 'winds' || f === 'projectedBoundary'),
+    `${what}: ${JSON.stringify(m)}`);
+  assert.ok(m.area.status === 'ok' && m.area.error <= 1e-8 * expected, `${what}: ${JSON.stringify(m)}`);
+  const off = Math.abs(m.area.value - expected);
+  assert.ok(off <= 1e-9 * expected && off <= m.area.error + 4e-16 * expected,
+    `${what}: ${m.area.value} vs ${expected} (+/- ${m.area.error})`);
+  assert.ok(trusted(m, 1e-6), what);
+  const c: [number, number, number] = [1, 2, 3];
+  for (const e of [...o.faceMoments(0, { center: c, degree: 1 }).map((x) => x.n).flat(), ...o.faceFlux(0, c)]) {
+    assert.ok(e.status === 'unsupported' && Number.isNaN(e.value), `${what}: ${JSON.stringify(e)}`);
+  }
+}
+
+test('a torus face whose loops wind its minor circle: the seam\'s term, its area the band\'s (Pappus), or the '
+  + 'complement\'s against its sense', { skip }, async () => {
+  // Between the meridians at u = 0 and u = gamma, 2 pi r R gamma: a narrow band, one past half the torus.
+  for (const gamma of [1.2, 4.5]) {
+    const d = torusBand(3, 1, gamma);
+    await seamArea(d, 2 * PI * 3 * gamma, `gamma ${gamma}`);
+    d.face.sameSense[0] = 0;
+    await seamArea(d, 2 * PI * 3 * (2 * PI - gamma), `gamma ${gamma} against its sense`);
+  }
+});
+
+test('a torus face with one loop round its minor circle (its windings not cancelling): flagged winds, its area '
+  + 'refused', { skip }, async () => {
+  const d = torusBand(3, 1, 1.2);
+  // (Its first loop alone: the region it bounds on the torus is no face.)
+  d.face.loopCount[0] = 1;
+  await refusedWinds(d, 'one loop');
 });
 
 test('a revolution with one pole at its bounded profile\'s end', { skip }, async () => {
@@ -804,10 +842,10 @@ test('faceAndFlux: on a free-form face faceFlux\'s bits and face\'s measure from
 
 /**
  * A band round a tube between two of its profile's circles: the revolution about z of a circle of radius r centred
- * R from the axis (in the xz plane), between the angles 0 and gamma; each loop a closed profile circle, the two
+ * R from the axis (in the xz plane), between the angles u0 and u0 + gamma; each loop a closed profile circle, the two
  * winding the profile's period opposite ways (their sum none). Area r gamma 2 pi R. As a torus too (`torus`).
  */
-function tubeBand(R: number, r: number, gamma: number, torus = false): BrepData {
+function tubeBand(R: number, r: number, gamma: number, torus = false, u0 = 0): BrepData {
   const b = new BrepBuilder();
   const surface = torus
     ? b.addSurface({ kind: 'torus', majorRadius: R, minorRadius: r, position: { origin: O, axis: Z, xDir: X } })
@@ -820,17 +858,79 @@ function tubeBand(R: number, r: number, gamma: number, torus = false): BrepData 
       axis: [Math.sin(u), -Math.cos(u), 0], xDir: x } }), start: p, end: p, sameSense: true, range: [0, 2 * PI] });
   };
   b.addFace({ surface, sameSense: true, loops: [
-    { kind: 'edge', bound: 'outer', coedges: [{ edge: ring(0), orientation: 'reversed' }] },
-    { kind: 'edge', bound: 'outer', coedges: [{ edge: ring(gamma), orientation: 'forward' }] }] });
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: ring(u0), orientation: 'reversed' }] },
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: ring(u0 + gamma), orientation: 'forward' }] }] });
   return b.finish();
 }
 
 test('a band round a tube between two profile circles (loops winding the profile opposite ways): flagged winds, its '
-  + 'area refused, as a revolution and as a torus', { skip }, async () => {
-  // (The method's H du is nothing along a loop winding v, u constant there: without the flag the area came out about
-  // 0 with an error far below the band's area, bug30790's tube bands at 3e-12 +/- 8.6e-4 against about 0.38 mm^2.)
-  for (const torus of [false, true]) await refusedWinds(tubeBand(10, 0.2, 0.3, torus), torus ? 'torus' : 'revolution');
+  + 'area the seam\'s term (Pappus), as a revolution and as a torus', { skip }, async () => {
+  // (The method's H du is nothing along a loop winding v, u constant there: all of the band's area is the seam's
+  // term. Narrow and far from the axis as bug30790's bands, about 0.38 mm^2; across u's seam; past half a turn.)
+  for (const torus of [false, true]) {
+    for (const [R, r, gamma, u0] of [[10, 0.2, 0.3, 0], [400, 0.15, 1e-3, 0], [10, 0.2, 0.3, -0.1],
+      [10, 0.2, 5, 1]] as const) {
+      const what = `${torus ? 'torus' : 'revolution'} R ${R} r ${r} gamma ${gamma} from ${u0}`;
+      const d = tubeBand(R, r, gamma, torus, u0);
+      await seamArea(d, 2 * PI * r * R * gamma, what);
+      d.face.sameSense[0] = 0;
+      await seamArea(d, 2 * PI * r * R * (2 * PI - gamma), `${what}, against its sense`);
+    }
+  }
 });
+
+/**
+ * A band round a tube as tubeBand's (a revolution, or a torus), its first loop stepped: from u = a, along the inner
+ * parallel (v = pi) to a + delta, the profile's lower half there down to v = 0, back along the outer parallel (v = 0)
+ * and up the profile's upper half at a; the other loop the profile circle at a + gamma. The loop starts on the inner
+ * parallel, so its start's u isn't its first piece's end's. Area: each half of the profile pi R r of J (the sines
+ * cancel), so pi R r (2 gamma - delta).
+ */
+function steppedBand(R: number, r: number, a: number, gamma: number, delta: number, torus: boolean): BrepData {
+  const b = new BrepBuilder();
+  const surface = torus
+    ? b.addSurface({ kind: 'torus', majorRadius: R, minorRadius: r, position: { origin: O, axis: Z, xDir: X } })
+    : b.addSurface({ kind: 'revolution', axisOrigin: O, axisDirection: Z,
+      curve: b.addCurve({ kind: 'circle', radius: r, position: { origin: [R, 0, 0], axis: [0, -1, 0], xDir: X } }) });
+  const at = (u: number, t: number): V => [(R + r * Math.cos(t)) * Math.cos(u), (R + r * Math.cos(t)) * Math.sin(u),
+    r * Math.sin(t)];
+  const meridian = (u: number) => b.addCurve({ kind: 'circle', radius: r, position: { origin: [R * Math.cos(u),
+    R * Math.sin(u), 0], axis: [Math.sin(u), -Math.cos(u), 0], xDir: [Math.cos(u), Math.sin(u), 0] } });
+  const parallel = (rho: number) => b.addCurve({ kind: 'circle', radius: rho, position: { origin: O, axis: Z,
+    xDir: X } });
+  const p0 = b.addVertex({ point: at(a, 0) }), p1 = b.addVertex({ point: at(a + delta, 0) });
+  const p2 = b.addVertex({ point: at(a + delta, PI) }), p3 = b.addVertex({ point: at(a, PI) });
+  const p4 = b.addVertex({ point: at(a + gamma, 0) });
+  const edge = (curve: number, start: number, end: number, range: [number, number]) =>
+    b.addEdge({ curve, start, end, sameSense: true, range });
+  b.addFace({ surface, sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', coedges: [
+      { edge: edge(parallel(R - r), p3, p2, [a, a + delta]), orientation: 'forward' },
+      { edge: edge(meridian(a + delta), p1, p2, [0, PI]), orientation: 'reversed' },
+      { edge: edge(parallel(R + r), p0, p1, [a, a + delta]), orientation: 'reversed' },
+      { edge: edge(meridian(a), p3, p0, [PI, 2 * PI]), orientation: 'reversed' }] },
+    { kind: 'edge', bound: 'outer', coedges: [{ edge: edge(meridian(a + gamma), p4, p4, [0, 2 * PI]),
+      orientation: 'forward' }] }] });
+  return b.finish();
+}
+
+test('a band round a tube with a stepped loop (its start\'s u not its first piece\'s end\'s): the seam\'s term at the '
+  + 'loop\'s start, as a revolution and as a torus', { skip }, async () => {
+  for (const torus of [false, true]) {
+    const [R, r, a, gamma, delta] = [10, 0.2, 0.5, 1, 0.3];
+    await seamArea(steppedBand(R, r, a, gamma, delta, torus), PI * R * r * (2 * gamma - delta),
+      torus ? 'torus' : 'revolution');
+  }
+});
+
+test('a band round a tube with one loop (its windings not cancelling): flagged winds, its area refused', { skip },
+  async () => {
+    for (const torus of [false, true]) {
+      const d = tubeBand(10, 0.2, 0.3, torus);
+      d.face.loopCount[0] = 1;
+      await refusedWinds(d, torus ? 'torus' : 'revolution');
+    }
+  });
 
 test('a B-spline cylinder face with one loop, once round it: flagged winds, its area refused', { skip }, async () => {
   // (A rational quadratic ring swept along z; the loop the circle at z = 1, no pole to close the face by.)

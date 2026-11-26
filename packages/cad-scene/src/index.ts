@@ -8,7 +8,7 @@ export { identity, multiply, scaling, Y_UP_METRES, yUpFrame, LENGTH_UNITS, type 
 export { badFaces, compareVerdicts, FallbackTessellator, judgeResult, pastLimits, type Verdict } from './fallback.ts';
 export { type DeviationJudge, deviationJudge, setDeviationJudge } from './deviation.ts';
 export { areaOracle, type AreaOracle, type FaceArea, modelFaceArea, OFF_SURFACE, ORACLE_DENSITY, ORACLE_DISAGREE,
-  ORACLE_RELATIVE, oracleAreas, oracleMeasures, setAreaOracle, TS_AREA_ORACLE, type OracleArea, type OracleFlag,
+  ORACLE_RELATIVE, ORACLE_REPLACE, oracleAreas, oracleMeasures, setAreaOracle, TS_AREA_ORACLE, type OracleArea, type OracleFlag,
   type OracleOptions, type OracleResult, type OracleSurface, type OracleUnsupported, trustedArea }
   from './area-oracle.ts';
 export { edgeUsers, openEdges, openEdgesCount, openEdgesDiagnostic, openEdgesMessage } from './open-edges.ts';

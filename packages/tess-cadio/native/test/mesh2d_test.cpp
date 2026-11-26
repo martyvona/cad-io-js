@@ -1235,6 +1235,119 @@ TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, a
   }
 }
 
+TEST_CASE("a point the field says crowds a fixed segment (SizeField::crowds) is refused: the segment wanted split, "
+  "frozen or not, told which") {
+  // A unit square, its bottom in 20 segments of 0.05; accept() refuses a triangle on the bottom of area over 0.0009
+  // (its apex over 0.036 up): refinement puts points under 0.045. A field crowding every bottom segment within 0.045
+  // of it: no point there, more triangles on the bottom refused, more of it wanted split; frozen, none wanted, still
+  // no point there, and crowds told it was frozen. Asked only of points near the segment in (u, v), within its
+  // length of it (a point across a fold or a seam can be near it in 3D, no needle).
+  struct Flat : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2* t) const override {
+      const int low = (t[0].y == 0) + (t[1].y == 0) + (t[2].y == 0);
+      return low < 2 || std::fabs(area(t[0], t[1], t[2])) <= 0.0009;
+    }
+  };
+  struct Crowding : Flat {
+    mutable int asked = 0, askedFrozen = 0, askedFar = 0;
+    bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override {
+      if (a.y != 0 || b.y != 0) return false;
+      asked++, askedFrozen += frozen, askedFar += q.y > std::fabs(b.x - a.x);
+      return q.y < 0.045;
+    }
+  };
+  const int n = 20;
+  Domain2 d;
+  std::vector<Vec2> pts;
+  for (int i = 0; i < n; i++) pts.push_back({double(i) / n, 0});
+  pts.insert(pts.end(), {{1, 0}, {1, 1}, {0, 1}});
+  addLoop(d, pts);
+  auto lowest = [&](const Mesh2& m) {
+    double y = INFINITY;
+    for (size_t i = d.points.size(); i < m.points.size(); i++) y = std::fmin(y, m.points[i].y);
+    return y;
+  };
+  auto bottomWanted = [&](const Mesh2& m) {
+    int k = 0;
+    for (const SplitWanted& w : m.splitWanted) k += w.segment < n;
+    return k;
+  };
+  Mesh2 base = mesh2(d, Flat());
+  CHECK_EQ(validate(d, base, "uncrowded", false), 0);
+  CHECK(lowest(base) < 0.045);
+  for (bool freeze : {false, true}) {
+    d.frozen.assign(freeze ? n : 0, 1);
+    Crowding f;
+    Mesh2 m = mesh2(d, f);
+    CHECK_EQ(validate(d, m, freeze ? "crowded, frozen" : "crowded", false), 0);
+    CHECK(lowest(m) >= 0.045);
+    CHECK(m.rejected.size() > base.rejected.size());
+    if (freeze) CHECK_EQ(bottomWanted(m), 0);
+    else CHECK(bottomWanted(m) > bottomWanted(base));
+    CHECK(f.asked > 0);
+    CHECK_EQ(f.askedFrozen, freeze ? f.asked : 0);
+    CHECK_EQ(f.askedFar, 0);
+  }
+}
+
+TEST_CASE("no point inserted where a vertex already ships (SizeField::shippedAt): refined or seeded") {
+  // A unit square at size 0.02 whose points ship rounded to a grid of 0.05 (as float32 rounds them far from the
+  // origin): refinement puts several points in a cell, so without the rule many share a position. With it, every
+  // vertex ships at its own, fewer of them; of two seeds shipping as one, the second is skipped.
+  struct Coarse : Uniform {
+    Coarse() : Uniform(0.02) {}
+    bool shippedAt(Vec2 p, float out[3]) const override {
+      out[0] = static_cast<float>(std::round(p.x / 0.05)), out[1] = static_cast<float>(std::round(p.y / 0.05));
+      out[2] = 0;
+      return true;
+    }
+  };
+  // (The boundary sampled at 0.05, one point a cell.)
+  Domain2 d;
+  std::vector<Vec2> pts;
+  for (int i = 0; i < 20; i++) pts.push_back({i / 20.0, 0});
+  for (int i = 0; i < 20; i++) pts.push_back({1, i / 20.0});
+  for (int i = 0; i < 20; i++) pts.push_back({1 - i / 20.0, 1});
+  for (int i = 0; i < 20; i++) pts.push_back({0, 1 - i / 20.0});
+  addLoop(d, pts);
+  auto clashes = [](const Mesh2& m) {
+    std::set<std::pair<long, long>> at;
+    int n = 0;
+    for (const Vec2& p : m.points) n += !at.insert({std::lround(p.x / 0.05), std::lround(p.y / 0.05)}).second;
+    return n;
+  };
+  Mesh2 plain = mesh2(d, Uniform(0.02));
+  CHECK(clashes(plain) > 0);
+  Mesh2 m = mesh2(d, Coarse());
+  CHECK_EQ(validate(d, m, "shipped apart", false), 0);
+  CHECK_EQ(clashes(m), 0);
+  CHECK(m.points.size() < plain.points.size());
+  d.seeds = {{0.51, 0.51}, {0.5, 0.5}};
+  Mesh2 s = mesh2(d, Coarse());
+  CHECK_EQ(clashes(s), 0);
+  // Refused triangles broken at the field's worst point (the centroid), past the other candidates: also kept apart.
+  struct CoarseWorst : Coarse {
+    bool accept(const Vec2* t) const override { return std::fabs(area(t[0], t[1], t[2])) <= 2e-4; }
+    bool worstPoint(const Vec2 t[3], Vec2& at) const override {
+      at = {(t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3};
+      return true;
+    }
+  };
+  {
+    Domain2 e = d;
+    e.seeds.clear();
+    Mesh2 w = mesh2(e, CoarseWorst());
+    CHECK_EQ(validate(e, w, "worst apart", false), 0);
+    CHECK_EQ(clashes(w), 0);
+  }
+  bool first = false, second = false;
+  for (size_t i = d.points.size(); i < s.points.size(); i++)
+    first = first || s.points[i].x == 0.51, second = second || s.points[i].x == 0.5;
+  CHECK(first);
+  CHECK(!second);
+}
+
 TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
   // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
   // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.

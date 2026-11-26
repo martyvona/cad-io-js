@@ -127,22 +127,94 @@ test('healed p-curves: the analysis\'s deviations taken instead of measured; wit
   assert.equal(measure(h.model, openAnalysis(new Uint8Array(a.buffer.slice(0))).buffer).boundary, with_.boundary);
 });
 
-test('closed forms: no p-curve deviation (integrated along the edges\' curves), only vertex gaps: here rounding\'s',
-  async () => {
+test('closed forms: no p-curve (integrated along the edges\' curves), each curve\'s distance from the surface and the '
+  + 'vertex gaps counted', async () => {
   const { cylinderSide } = await import('../../cad-heal/test/models.ts');
   const m = measure(cylinderSide({ bottom: {} }).finish());
-  assert.ok(m.boundary >= 0 && m.boundary < 1e-12, `${m.boundary}`);
+  assert.ok(m.boundary >= 0 && m.boundary < 1e-12, `on the surface, rounding's: ${m.boundary}`);
+  // The bottom circle of radius 2 + d, d off the cylinder all round (its vertex on it, so the seam's line misses that
+  // vertex by d): d times the circle's length, plus the seam's gap d times its length 5 for each of its two uses;
+  // trusted at 1e-6 while that's within 1e-6 of the area (20 pi), not past it. The disk under it, the same circle on
+  // its plane: nothing (the distance is the coedge's from its own face's surface).
+  for (const d of [1e-6, 1e-4, 1e-2]) {
+    const b = cylinderSide({ bottom: {} }, 1e-6, 0, undefined, 2 + d, undefined, true).finish();
+    using o = new Oracle(module, b.buffer);
+    const side = o.face(0), disk = o.face(1), want = d * 2 * Math.PI * (2 + d) + 2 * d * 5;
+    assert.equal(side.method, 'closedForm');
+    assert.ok(Math.abs(side.boundary - want) <= 0.01 * want, `d ${d}: ${side.boundary} against ${want}`);
+    assert.ok(side.area.error >= side.boundary, `d ${d}: the bound in the error`);
+    assert.equal(trusted(side, 1e-6), d < 1e-5, `d ${d}: at 1e-6 (${side.boundary / side.area.value})`);
+    assert.ok(disk.area.status === 'ok' && disk.boundary < 1e-12, `d ${d}: the disk's ${disk.boundary}`);
+  }
+});
+
+test('closed forms on a cone: an edge off it taken to its nearest points, not to the cone at its height', async () => {
+  // A band of the cone of radius 2 at z = 0 and semi-angle b (70 degrees: shallow) up to z = H, its top circle moved d
+  // off the cone along the cone's normal (radius r + d cos b at height H - d sin b): its nearest points are the
+  // cone's circle at H, so the area is the band's, pi (2 + r) H / cos b (the same height's would be short by about
+  // d tan b times the circle's length). The seam's line runs from the bottom vertex to the top one, its feet on u = 0.
+  const { BrepBuilder } = await import('cad-brep');
+  const b = 70 * Math.PI / 180, H = 1, r = 2 + H * Math.tan(b);
+  for (const d of [0, 1e-3, 1e-2]) {
+    const B = new BrepBuilder({ uncertainty: 1e-6 });
+    const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+    const zt = H - d * Math.sin(b), rt = r + d * Math.cos(b);
+    const bottom = B.addCurve({ kind: 'circle', position: axis, radius: 2 });
+    const top = B.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, zt] }, radius: rt });
+    const len = Math.hypot(rt - 2, zt);
+    const seam = B.addCurve({ kind: 'line', point: [2, 0, 0], direction: [(rt - 2) / len, 0, zt / len], magnitude: 1 });
+    const v0 = B.addVertex({ point: [2, 0, 0] }), v1 = B.addVertex({ point: [rt, 0, zt] });
+    const eb = B.addEdge({ curve: bottom, start: v0, end: v0, sameSense: true, range: [0, 2 * Math.PI] });
+    const et = B.addEdge({ curve: top, start: v1, end: v1, sameSense: true, range: [0, 2 * Math.PI] });
+    const es = B.addEdge({ curve: seam, start: v0, end: v1, sameSense: true, range: [0, len] });
+    const cone = B.addSurface({ kind: 'cone', radius: 2, semiAngle: b, position: axis });
+    const face = B.addFace({ surface: cone, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: eb, orientation: 'forward' }, { edge: es, orientation: 'forward' },
+        { edge: et, orientation: 'reversed' }, { edge: es, orientation: 'reversed' }] }] });
+    const shell = B.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    B.addItem({ kind: 'body', ref: B.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const m = measure(B.finish()), want = Math.PI * (2 + r) * H / Math.cos(b);
+    assert.equal(m.method, 'closedForm');
+    assert.ok(Math.abs(m.area.value - want) <= 1e-9 * want, `d ${d}: ${m.area.value} against ${want}`);
+    assert.ok(Math.abs(m.boundary - d * 2 * Math.PI * rt) <= 0.01 * d * 2 * Math.PI * rt + 1e-12 + 2 * d * len,
+      `d ${d}: ${m.boundary}`);
+  }
+});
+
+test('closed forms on a sphere: an edge cut at the axis into runs takes the largest distance of any of them', async () => {
+  // A circle through both poles of the sphere of radius 2, of radius 2 + d about (d, 0, 0), starting at the top: its
+  // distance from the sphere about d (1 + sin t), 2d at t = pi / 2 (the first run's, to the axis near t = pi), about d
+  // in the last runs; the bound about 2d times its length.
+  const { BrepBuilder } = await import('cad-brep');
+  for (const d of [1e-4, 1e-3]) {
+    const b = new BrepBuilder({ uncertainty: 1e-6 });
+    const R = 2 + d;
+    const circle = b.addCurve({ kind: 'circle', position: { origin: [d, 0, 0], axis: [0, 1, 0], xDir: [0, 0, 1] },
+      radius: R });
+    const v = b.addVertex({ point: [d, 0, R] });
+    const e = b.addEdge({ curve: circle, start: v, end: v, sameSense: true, range: [0, 2 * Math.PI] });
+    const sphere = b.addSurface({ kind: 'sphere', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] },
+      radius: 2 });
+    const face = b.addFace({ surface: sphere, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: e, orientation: 'forward' }] }] });
+    const shell = b.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const m = measure(b.finish()), want = 2 * d * 2 * Math.PI * R;
+    assert.equal(m.area.status, 'ok', m.why);
+    assert.ok(Math.abs(m.boundary - want) <= 0.02 * want, `d ${d}: ${m.boundary} against ${want}`);
+  }
 });
 
 test('trusted(): the boundary\'s error unknown (NaN) refuses the face, whatever the quadrature\'s; projectedBoundary '
-  + 'alone doesn\'t; other flags do', () => {
+  + 'and winds (a computed area: its seam\'s term taken) don\'t; other flags do', () => {
   const m = (boundary: number, flags: string[] = []) => ({ area: { value: 1, error: 1e-12, status: 'ok' as const },
     perimeter: { value: 4, error: 0, status: 'ok' as const }, method: 'freeForm' as const, flags: flags as never,
     offSurface: NaN, boundary, why: '' });
   assert.equal(trusted(m(0)), true);
   assert.equal(trusted(m(NaN)), false);
   assert.equal(trusted(m(0, ['projectedBoundary'])), true);
-  for (const f of ['orientation', 'sphereSide', 'loose', 'winds', 'noLoops', 'offSurface', 'cells']) {
+  assert.equal(trusted(m(0, ['winds', 'projectedBoundary'])), true);
+  for (const f of ['orientation', 'sphereSide', 'loose', 'noLoops', 'offSurface', 'cells']) {
     assert.equal(trusted(m(0, [f, 'projectedBoundary'])), false, f);
   }
 });

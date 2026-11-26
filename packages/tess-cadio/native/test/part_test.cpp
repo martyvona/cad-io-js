@@ -480,6 +480,168 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   CHECK(c->accept(thin));
 }
 
+TEST_CASE("a point crowds a fixed segment (crowds) within a tenth of the floor of it, along it and past its ends, "
+  "whatever the boundary's distance from its surface; a frozen one only where the needle turns as shipped; never a "
+  "fold's sliver") {
+  // (pcurveNear's plane at d 0.1: the floor 0.01, the band 0.001; the segment (0, 0) to (3, 0).)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 a{0, 0}, b{3, 0};
+  CHECK(c->crowds(a, b, {1.5, 0.0009}, false));
+  CHECK(c->crowds(b, a, {1.5, -0.0009}, false));
+  CHECK(!c->crowds(a, b, {1.5, 0.0011}, false));
+  CHECK(c->crowds(a, b, {3.0009, 0.0005}, false));
+  CHECK(c->crowds(a, b, {-0.0009, 0}, false));
+  CHECK(!c->crowds(a, b, {3.0011, 0}, false));
+  CHECK(!c->crowds(a, b, {-0.0011, 0}, false));
+  // Frozen, the needle facing up in double and unrounded: not crowding.
+  CHECK(!c->crowds(a, b, {1.5, 0.0009}, true));
+  // The boundary 0.005 off its surface (a point's own 0.005 above the plane): the band still a tenth of the floor.
+  c->setBoundaryPoints({{a, Vec3{0, 0, 0.005}}});
+  CHECK(!c->crowds(a, b, {1.5, 0.0045}, false));
+  CHECK(c->crowds(a, b, {1.5, 0.0009}, false));
+  c->setBoundaryPoints({});
+  // Frozen, a needle turned as shipped (the corners of the setBoundaryPoints case's flip, float32 minus an origin 1
+  // below them): crowding; in double, not.
+  {
+    auto c2 = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(c2);
+    const Vec2 fa{0, 6e-8}, fb{3, 5.8e-8}, fq{1.5, 5.91e-8};
+    CHECK(!c2->crowds(fa, fb, fq, true));
+    const double origin[3] = {0, -1, 0};
+    c2->setOutputOrigin(origin);
+    CHECK(c2->crowds(fa, fb, fq, true));
+    CHECK(c2->crowds(fb, fa, fq, true));
+  }
+  // A fold's sliver (pleatStrip at a deflection of 1: the floor 0.2, the band 0.02): the segment 0.01 along y from
+  // the fold at (0.5, 0.5), across it, isn't crowded by the fold's point; 0.01 along y from it a point off the fold
+  // (v 0.25) is.
+  cadgeom::Model p = load("pleatStrip");
+  REQUIRE(p.ok());
+  auto ps = cadgeom::makeSurface(p, p.faceSurface(0), st);
+  auto pc = makeCriteria(p, 0, *ps, cadgeom::Box2{{0, 1}, {0, 1}}, Deflections{1, 15 * M_PI / 180}, st);
+  REQUIRE(pc);
+  const double e = 0.01 / 190;
+  CHECK(!pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.5}, false));
+  CHECK(pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.25}, false));
+}
+
+TEST_CASE("the deviation test counts a corner's own distance from the surface (setBoundaryPoints): a triangle within "
+  "d on the surface's points refused where its sag and that distance pass max(d, the face's tolerance); not where the "
+  "distance alone is past it") {
+  // A triangle across u whose bound on the surface's points is 0.8 d, a corner's own point g off the surface along
+  // its normal: refused exactly where g < within = max(d, tol) and the bound > min(d, within - g). On cylinderLong
+  // (r 2, bounded), torusOuterHalf, spheres' hemisphere (closed form, then by inversion near its pole),
+  // tubeGapFaceTolerance at d 1e-4 (its face's tolerance 1e-3 over the part's: within that, not d) and coneApexLoop
+  // away from its apex (closed form).
+  struct Case {
+    const char* name;
+    int face;
+    double d;
+    bool box;
+    cadgeom::Box2 uv;
+  };
+  for (const Case& k : {Case{"cylinderLong", 0, 0.1, true, {{-1, 1}, {0, 10}}},
+         Case{"torusOuterHalf", 0, 0.1, false, {}}, Case{"spheres", 1, 0.1, false, {}},
+         Case{"tubeGapFaceTolerance", 0, 1e-4, false, {}}, Case{"coneApexLoop", 0, 0.1, true, {{0, 6.28}, {0, 3}}}}) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(k.face), st);
+    REQUIRE(s);
+    const cadgeom::SurfaceDomain D = s->domain();
+    const cadgeom::Box2 box = k.box ? k.uv : cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}};
+    const double d = k.d, within = std::fmax(d, cadgeom::Tolerances(m).face(k.face));
+    const Vec2 c{0.5 * (box.x.lo + box.x.hi), 0.5 * (box.y.lo + box.y.hi)};
+    auto tri = [&](double a, Vec2 t[3]) { t[0] = {c.x - a, c.y}, t[1] = {c.x + a, c.y}, t[2] = {c.x, c.y + a}; };
+    auto fresh = [&] { return makeCriteria(m, k.face, *s, box, Deflections{d, 1.5}, st); };
+    auto c0 = fresh();
+    REQUIRE(c0);
+    // (The triangle's size by bisection to a bound of 0.8 d.)
+    double lo = 1e-6, hi = 0.25 * (box.x.hi - box.x.lo), bound = 0;
+    Vec2 t[3];
+    for (int i = 0; i < 80; i++) {
+      const double a = 0.5 * (lo + hi);
+      tri(a, t);
+      // (No bound, as over a B-spline's knots far apart may give none: too large.)
+      (c0->deviationBound(t, bound) && bound < 0.8 * d ? lo : hi) = a;
+    }
+    tri(lo, t);
+    REQUIRE(c0->deviationBound(t, bound));
+    if (!(bound > 0.7 * d && bound < 0.9 * d)) std::printf("  %s: bound %g\n", k.name, bound);
+    REQUIRE((bound > 0.7 * d && bound < 0.9 * d));
+    CHECK(c0->accept(t));
+    cadgeom::SurfacePoint sp;
+    REQUIRE(s->eval(t[0].x, t[0].y, 1, sp) == cadgeom::Status::ok);
+    Vec3 n = cadgeom::cross(sp.du, sp.dv);
+    n = (1 / cadgeom::norm(n)) * n;
+    for (double g : {d - bound + 0.05 * d, d - bound - 0.05 * d, within - 0.5 * bound, within + 0.5 * d}) {
+      auto c1 = fresh();
+      c1->setBoundaryPoints({{t[0], sp.p + g * n}});
+      const bool refused = g < within && bound > std::fmin(d, within - g);
+      if (c1->accept(t) == refused) std::printf("  %s: g %g bound %g within %g\n", k.name, g, bound, within);
+      CHECK_EQ(c1->accept(t), !refused);
+      // (Its bound on the surface's points unchanged: the part's check adds the distance itself.)
+      double b1;
+      REQUIRE(c1->deviationBound(t, b1));
+      CHECK_EQ(b1, bound);
+    }
+  }
+}
+
+TEST_CASE("a point ships (shippedAt) as float32 minus the output's origin, a boundary point as its own point") {
+  // (pcurveNear's plane: (u, v) its (x, y) at z 0.)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  float f[3];
+  REQUIRE(c->shippedAt({1, 2}, f));
+  CHECK((f[0] == 1 && f[1] == 2 && f[2] == 0));
+  const double origin[3] = {0, -1, 0};
+  c->setOutputOrigin(origin);
+  REQUIRE(c->shippedAt({1, 2}, f));
+  CHECK((f[0] == 1 && f[1] == 3 && f[2] == 0));
+  c->setBoundaryPoints({{{1, 2}, Vec3{5, 5, 5}}});
+  REQUIRE(c->shippedAt({1, 2}, f));
+  CHECK((f[0] == 5 && f[1] == 6 && f[2] == 5));
+  // (Far out, two points 1e-6 apart ship as one.)
+  const double far[3] = {0, -3000, 0};
+  c->setOutputOrigin(far);
+  float g[3];
+  REQUIRE(c->shippedAt({0.5, 0.5}, f));
+  REQUIRE(c->shippedAt({0.5, 0.5 + 1e-6}, g));
+  CHECK((f[0] == g[0] && f[1] == g[1] && f[2] == g[2]));
+}
+
+TEST_CASE("a triangle across a B-spline's knot is within the refinement floor as one within a span is (belowFloor "
+  "bounds the pieces between the breaks), not by the poles' hull along the whole other span") {
+  // bsplineTube: degree 2 x 1, u knots 0 to 4, one span along v 5 long; at d 0.1 the floor 0.01. A triangle 2e-4
+  // across in (u, v), about 4e-4 mm in 3D, across the knot u = 1 and within the span at u = 1.5: both within the
+  // floor. (The hull over the knot's spans is the tube's whole length, 5 mm.) One 0.02 across, past the floor: not.
+  cadgeom::Model m = load("bsplineTube");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{0, 4}, {0, 1}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  auto tri = [](double u, double a, Vec2 t[3]) { t[0] = {u - a, 0.5}, t[1] = {u + a, 0.5}, t[2] = {u, 0.5 + a}; };
+  Vec2 t[3];
+  tri(1, 1e-4, t);
+  CHECK(c->belowFloor(t));
+  tri(1.5, 1e-4, t);
+  CHECK(c->belowFloor(t));
+  tri(1, 0.01, t);
+  CHECK(!c->belowFloor(t));
+}
+
 TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
   "against the mean of its corners' normals, not against any one of them") {
   // (cylinderLong, r = 2: corners at u = -0.1, 0.1 and 0, their normals 0.2 apart; own points whose facet's normal is
@@ -2942,14 +3104,16 @@ TEST_CASE("an edge off its surface, its feet nearly affine (Iron.step #47's kind
 
 TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit for bit as asking the criteria again") {
   // Parts whose faces are meshed again in split rounds (edges 4 times coarser than the faces want, a band's hole, a
-  // cusp), and some meshed once.
+  // cusp), some meshed once, and some whose points crowd their boundary (SizeField::crowds: a tube thinner than its
+  // tolerance, a fold at a corner).
   struct Case {
     const char* name;
     double d, angle, scale;
   };
   const Case cases[] = {{"seamCylinder", 0.01, 0.26, 4}, {"band", 0.01, 0.26, 4}, {"spheres", 0.01, 0.26, 4},
     {"twisted", 0.01, 0.26, 4}, {"bandHoleAtVertex", 0.01, 0.26, 1}, {"cuspPocket", 0.3, 0.12, 1},
-    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}};
+    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}, {"thinTube", 0.1, 0.26, 1}, {"thinTube", 0.01, 0.26, 1},
+    {"cornerFoldTight", 0.1, 0.26, 1}, {"cornerFoldTight", 0.01, 0.26, 1}};
   for (const Case& c : cases) {
     cadgeom::Model m = load(c.name);
     PartOptions o = options(c.d, c.angle), fresh = o;
@@ -2981,6 +3145,26 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
       if (!same) std::printf("  %s face %d differs (rounds %d)\n", c.name, f, a.rounds());
       CHECK(same);
     }
+  }
+}
+
+TEST_CASE("verdicts reused (reuseVerdicts) shipped far from the origin: the same meshes as asking again, positions "
+  "the output would weld kept apart alike (SizeField::shippedAt)") {
+  // (spheres at d 0.01 shipped from an origin 1e8 away, float32 there 8 apart: points refinement would put at
+  // one position.)
+  cadgeom::Model m = load("spheres");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.01, 0.26), fresh = o;
+  o.outputOrigin[0] = fresh.outputOrigin[0] = 1e8;
+  o.outputOrigin[1] = o.outputOrigin[2] = fresh.outputOrigin[1] = fresh.outputOrigin[2] = 0;
+  fresh.reuseVerdicts = false;
+  PartMesher a(m, o), b(m, fresh);
+  for (int f = 0; f < m.faces(); f++) {
+    const FaceMesh &x = a.face(f), &y = b.face(f);
+    bool same = x.status == y.status && x.triangles == y.triangles && x.points.size() == y.points.size();
+    for (size_t i = 0; same && i < x.points.size(); i++) same = key(x.points[i]) == key(y.points[i]);
+    if (!same) std::printf("  spheres far: face %d differs\n", f);
+    CHECK(same);
   }
 }
 

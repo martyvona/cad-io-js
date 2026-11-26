@@ -60,6 +60,27 @@ public:
     (void)tri, (void)at;
     return false;
   }
+  /**
+   * Whether a point at q would make a needle with the fixed segment from a to b: within a small band of it in 3D (a
+   * share of criteria.h's refinement floor), a needle the criteria accept below the floor and whose facet turns.
+   * Refinement treats such a q as encroaching the segment. `frozen`: the segment can't be split (Domain2::frozen),
+   * so the caller says yes only where the needle would turn as shipped, since refusing q there leaves the triangle
+   * as it is. None by default. A field wrapping another must pass it on.
+   */
+  virtual bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const {
+    (void)a, (void)b, (void)q, (void)frozen;
+    return false;
+  }
+  /**
+   * The position a point at p ships at (its 3D point as the output rounds it), into `out`; false where the caller
+   * keeps none (the default). The mesher inserts no point at a position a vertex of its already ships at: the output
+   * would weld them, and its triangles there fold (edges used twice the same way). A field wrapping another must pass
+   * it on.
+   */
+  virtual bool shippedAt(Vec2 p, float out[3]) const {
+    (void)p, (void)out;
+    return false;
+  }
 };
 
 /**
