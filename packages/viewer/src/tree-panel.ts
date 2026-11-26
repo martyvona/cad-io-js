@@ -103,6 +103,8 @@ export class TreePanel {
   private selection: number[] = [];
   /** The selection changed in the tree. */
   onSelect?: (ids: readonly number[]) => void;
+  /** Whether multi-select is on (tree-view.ts's `multi`). */
+  multi?: () => boolean;
   /** A row's context menu asked for, at a point of the page (client pixels). */
   onContextMenu?: (id: number, x: number, y: number) => void;
   /** The row under the mouse: its node, or undefined once the mouse leaves the tree (tree-view.ts's onHover). */
@@ -147,6 +149,7 @@ export class TreePanel {
         this.onSelect?.(this.selection);
       },
       onHover: (id) => this.onHover?.(id === undefined ? undefined : num(id)),
+      multi: () => this.multi?.() ?? false,
     });
     this.container = container;
     // A row's context menu: right-click, or a long press with a finger; the focus moved to the row (the selection not).

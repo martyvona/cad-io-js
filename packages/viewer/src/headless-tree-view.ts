@@ -20,21 +20,25 @@ const OVERSCAN = 5;
 const END = 6;
 
 /** What the library keeps between clicks (`selectUpToAnchorId`: the row last clicked without shift), and ours. */
-type ClickData = { selectUpToAnchorId?: string | null; holdSelection?: boolean };
+type ClickData = { selectUpToAnchorId?: string | null; holdSelection?: boolean; multi?: () => boolean };
 
 // Plain clicks select and focus; only the expander expands and collapses. A shift-click with nothing selected (a
 // click on nothing in the 3D view may have cleared it) is a plain click: the library's range would start at the row
 // last clicked, no longer selected, so its anchor is dropped first (with none, selectUpTo selects the row alone).
 // A click on a selected row takes it out of the selection, a shift-click the rows from it to the anchor (as a
 // shift-click selects them), instead of what the library does; its selection changes on the way aren't reported
-// (`holdSelection`), only the result. A ctrl/cmd-click is the library's toggle.
+// (`holdSelection`), only the result. A ctrl/cmd-click is the library's toggle. With multi-select on (`multi`) every
+// click is taken as ctrl/cmd held: a plain click toggles the row, a shift-click adds the span to the selection.
 const clickSelectsOnly: FeatureImplementation<string> = {
   key: 'click-selects-only',
   itemInstance: {
     getProps: ({ tree, item, itemId, prev }) => {
       const p = prev?.() ?? {};
-      return { ...p, onClick: (e: MouseEvent) => {
+      return { ...p, onClick: (clicked: MouseEvent) => {
         const data = tree.getDataRef().current as ClickData;
+        // (A plain object, as Space's click is: the library reads only the keys.)
+        const e = data.multi?.() && !clicked.ctrlKey && !clicked.metaKey ? { shiftKey: clicked.shiftKey,
+          ctrlKey: true, metaKey: false } as MouseEvent : clicked;
         const before = tree.getState().selectedItems ?? [];
         if (e.shiftKey && before.length === 0) data.selectUpToAnchorId = null;
         const deselect = item.isSelected() && (e.shiftKey || !(e.ctrlKey || e.metaKey));
@@ -151,6 +155,7 @@ export class HeadlessTreeView implements TreeView {
           handler: (_e, tree) => this.clickFocused(tree, true) },
       },
     });
+    (this.tree.getDataRef().current as ClickData).multi = () => opts.multi?.() ?? false;
     this.tree.setMounted(true);
     this.tree.rebuildTree();
     applyProps(this.scroller, this.tree.getContainerProps('Model tree'));

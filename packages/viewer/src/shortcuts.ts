@@ -16,7 +16,9 @@ export type Shortcut =
   /** Show the tree, or not. */
   | { type: 'tree' }
   /** Triangle edges, the next of its values (nextTriangleEdges). */
-  | { type: 'triangleEdges' };
+  | { type: 'triangleEdges' }
+  /** Select none (Escape). */
+  | { type: 'selectNone' };
 
 /** The views by their keys, 1 to 7, in Look Along an Axis's order. */
 export const VIEW_KEYS: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
@@ -46,6 +48,7 @@ export function shortcutOf(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' 
   if (k === 's') return { type: 'show' };
   if (k === 't') return { type: 'tree' };
   if (k === 'g') return { type: 'triangleEdges' };
+  if (k === 'Escape') return { type: 'selectNone' };
   const n = /^[1-7]$/.test(k) ? Number(k) : 0;
   return n ? { type: 'view', view: VIEW_KEYS[n - 1]! } : undefined;
 }

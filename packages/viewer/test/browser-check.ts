@@ -1233,6 +1233,8 @@ await check('view context menu', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
     await cadViewer.idle();
+    // (Multi-select off: its clicks are checked as they are then; 'multi-select' checks it on.)
+    ui.selection.multi = false;
     const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
     const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
     const send = (type, x, y, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
@@ -1708,6 +1710,8 @@ await check('replaced while meshing', async () => {
 // placement is hidden in every placement of its part; show all shows everything again.
 await check('tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    // (Multi-select off: its clicks are checked as they are then; 'multi-select' checks it on.)
+    ui.selection.multi = false;
     const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     const p = ui.panel(), m = p.model;
     const rows = () => [...document.querySelectorAll('.tree-row')].filter((r) => r.style.display !== 'none')
@@ -1842,6 +1846,8 @@ await check('tree', async () => {
 // level a click picks a face (or the edges on it); all instances tints the part's other placements.
 await check('picking', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    // (Multi-select off: its clicks are checked as they are then; 'multi-select' checks it on.)
+    ui.selection.multi = false;
     const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     const m = ui.panel().model, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
     const click = (x, y, ctrlKey = false) => {
@@ -1887,7 +1893,7 @@ await check('picking', async () => {
     click(rect.left + 2, rect.top + 2);
     await frame();
     const none = [...ui.selected()];
-    // Multi-select (touch): taps toggle without keys; select parent: the selection's parents.
+    // Multi-select: taps toggle without keys; select parent: the selection's parents.
     ui.selection.multi = true;
     click(spots[0].x, spots[0].y);
     click(spots[1].x, spots[1].y);
@@ -4356,6 +4362,121 @@ await check('triangle edges on a selected face', async () => {
 // cycles triangle edges (selected or all to off; off to selected with a selection, else all). None in a text field,
 // with a modifier, or repeated; recorded as the controls they press. Each control shows its key, greyed, after its
 // name, whole (the names themselves, which recordings use, unchanged).
+// Multi-select (on by default, its control so named): in the tree a click adds a row and a click on a selected row
+// takes it out, a shift-click adds the span from the row last clicked to what's selected and a shift-click on a
+// selected row takes the span out; in the 3D view a click adds what's under it, a click on it again takes it out, a
+// click on nothing leaves the selection; Escape (on the tree, on the view) selects nothing, recorded as Select none.
+// With it off, a plain click selects the row alone and a shift-click the span alone.
+await check('multi-select', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const p = ui.panel(), m = p.model;
+    const control = ui.gui.controllersRecursive().find((c) => c.property === 'multi' && c.object === ui.selection);
+    const named = control?._name, on = control?.getValue();
+    const rows = () => [...document.querySelectorAll('.tree-row')].filter((r) => r.style.display !== 'none');
+    p.expandAll();
+    await frame();
+    const click = (row, shiftKey = false) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey }));
+    const parts = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    const rowOf = async (id) => {
+      p.scrollToRow(id, 0);
+      await frame();
+      return rows().find((r) => +r.dataset.id === id);
+    };
+    // The parts' rows in the tree's order, so a span between two is known.
+    const order = rows().map((r) => +r.dataset.id);
+    const between = (a, b) => order.slice(Math.min(order.indexOf(a), order.indexOf(b)),
+      Math.max(order.indexOf(a), order.indexOf(b)) + 1);
+    const sel = () => [...ui.selected()].sort((a, b) => a - b);
+    const sorted = (x) => [...x].sort((a, b) => a - b);
+    const out = { named, on };
+    const [a, b, c, d] = parts;
+    click(await rowOf(a));
+    await frame();
+    out.one = sel();
+    click(await rowOf(b));
+    await frame();
+    out.two = sel();
+    click(await rowOf(a));
+    await frame();
+    out.removed = sel();
+    // (The row last clicked without shift: a.)
+    click(await rowOf(d), true);
+    await frame();
+    out.span = sel();
+    out.spanExpected = sorted(new Set([b, ...between(a, d)]));
+    click(await rowOf(c), true);
+    await frame();
+    out.spanOut = sel();
+    out.spanOutExpected = sorted(out.span.filter((x) => !between(a, c).includes(x)));
+    // Escape on the tree's focused row.
+    const key = (on) => on.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true,
+      cancelable: true }));
+    cadViewer.record(true);
+    key(document.activeElement ?? document.body);
+    const rec = cadViewer.record(false);
+    out.escTree = sel();
+    out.recorded = rec.events.filter((e) => e.type === 'control').map((e) => e.path);
+    // The 3D view: two parts' centres, clicked.
+    const canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const spots = [];
+    for (let y = 0.2; y < 0.85 && spots.length < 2; y += 0.05) for (let x = 0.2; x < 0.85 && spots.length < 2;
+      x += 0.05) {
+      const px = rect.left + x * rect.width, py = rect.top + y * rect.height;
+      if (!viewer.pickAt(px, py)) continue;
+      ui.select([]);
+      ui.pickAt(px, py, false);
+      const got = ui.selected()[0];
+      if (got !== undefined && !spots.some((s) => s.id === got)) spots.push({ x: px, y: py, id: got });
+    }
+    ui.select([]);
+    const pick = (s) => ui.pickAt(s.x, s.y, false);
+    pick(spots[0]);
+    pick(spots[1]);
+    out.view2 = sel();
+    pick(spots[0]);
+    out.viewRemoved = sel();
+    ui.pickAt(rect.left + 2, rect.top + 2, false);
+    out.viewNothing = sel();
+    pick(spots[0]);
+    key(canvas);
+    out.escView = sel();
+    out.spots = sorted(spots.map((s) => s.id));
+    // Off: the row alone, the span alone, the view's pick alone.
+    control.setValue(false);
+    click(await rowOf(a));
+    click(await rowOf(b));
+    await frame();
+    out.offOne = sel();
+    click(await rowOf(d), true);
+    await frame();
+    out.offSpan = sel();
+    out.offSpanExpected = sorted(between(b, d));
+    pick(spots[0]);
+    pick(spots[1]);
+    out.offView = sel();
+    return out;
+  })()`) as { after: Record<string, unknown> };
+  const a = r.after as Record<string, number[]> & { named: string; on: boolean; recorded: string[] };
+  const j = JSON.stringify(a);
+  const same = (x: number[], y: number[]) => JSON.stringify(x) === JSON.stringify(y);
+  expect(a.named === 'Multi-select' && a.on === true, `named Multi-select, on by default: ${j}`);
+  expect(a.one!.length === 1 && a.two!.length === 2 && a.removed!.length === 1 && !a.removed!.includes(a.one![0]!),
+    `tree: a click adds, a click on a selected row takes it out: ${j}`);
+  expect(same(a.span!, a.spanExpected!) && a.span!.length >= 3, `tree: a shift-click adds the span: ${j}`);
+  expect(same(a.spanOut!, a.spanOutExpected!) && a.spanOut!.length < a.span!.length,
+    `tree: a shift-click on a selected row takes the span out: ${j}`);
+  expect(a.escTree!.length === 0 && same(a.recorded as unknown as number[], ['Selection/Select none'] as unknown as
+    number[]), `Escape in the tree: nothing selected, recorded as Select none: ${j}`);
+  expect(a.spots!.length === 2 && same(a.view2!, a.spots!) && a.viewRemoved!.length === 1
+    && same(a.viewNothing!, a.viewRemoved!) && a.escView!.length === 0,
+    `the view: a click adds, again takes out, on nothing leaves it; Escape clears: ${j}`);
+  expect(a.offOne!.length === 1 && same(a.offSpan!, a.offSpanExpected!) && a.offView!.length === 1,
+    `off: the row, the span, the pick alone: ${j}`);
+  return undefined;
+});
 await check('keyboard shortcuts', async () => {
   // (Other checks' keys forgotten first, before the page's scripts: they're in the same browser, and the hints must
   // show here for the mouse alone.)
@@ -4396,6 +4517,8 @@ await check('keyboard shortcuts', async () => {
     out.viewCalls = take();
     out.h = [key('h'), hidden()];
     out.s = [key('s'), hidden()];
+    out.escape = [key('Escape'), ui.selected().length];
+    ui.select([part.id]);
     const tree0 = control('Show the tree').getValue();
     key('t');
     const tree1 = control('Show the tree').getValue();
@@ -4433,7 +4556,8 @@ await check('keyboard shortcuts', async () => {
     return out;
   })()`, { first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { f: [boolean, string[]];
     fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[];
-    h: [boolean, boolean]; s: [boolean, boolean]; tree: boolean[]; g: string[]; control: string; ignored: boolean[];
+    h: [boolean, boolean]; s: [boolean, boolean]; escape: [boolean, number]; tree: boolean[]; g: string[];
+    control: string; ignored: boolean[];
     ignoredCalls: string[]; recorded: string[]; hints: [string, string, boolean, boolean, boolean][] } };
   const a = r.after, j = JSON.stringify(a);
   expect(a.f[0] && a.f[1].join() === 'all' && a.fSelected[0] && a.fSelected[1].join() === 'selected',
@@ -4441,13 +4565,14 @@ await check('keyboard shortcuts', async () => {
   expect(a.views.join() === 'true,true,true,true,true,true,true,false,false'
     && a.viewCalls.join() === 'front,back,left,right,top,bottom,iso', `1 to 7: the views, in order: ${j}`);
   expect(a.h.join() === 'true,true' && a.s.join() === 'true,false', `h hides the selection, s shows it: ${j}`);
+  expect(a.escape.join() === 'true,0', `Escape: nothing selected: ${j}`);
   expect(a.tree[0] !== a.tree[1] && a.tree[0] === a.tree[2], `t: the tree shown or not: ${j}`);
   expect(a.g.join() === 'off,selected,off,all,off' && a.control === 'off',
     `g: off to selected with a selection, to all without; back to off: ${j}`);
   expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
     `none in a text field, with a modifier, repeated, or unbound: ${j}`);
   expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Front 1,Back 2,Left 3,'
-    + 'Right 4,Top 5,Bottom 6,Iso 7,Show the tree t,Hide selected h,Show selected s,Triangle edges g'
+    + 'Right 4,Top 5,Bottom 6,Iso 7,Show the tree t,Select none Esc,Hide selected h,Show selected s,Triangle edges g'
     && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
   expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|Tree/Show the tree=false|Tree/Show the tree=true|'
     + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off', `recorded as their controls: ${j}`);

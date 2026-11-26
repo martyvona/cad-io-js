@@ -868,8 +868,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
   recolour = () => highlighter.setColor(parseInt(look.selectionColor.slice(1), 16));
   recolour();
-  // Details on by default.
-  const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: true };
+  // Multi-select and Details on by default.
+  const selection = { level: 'part' as PickLevel, multi: true, instances: false, details: true };
   // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
   // when meshing again restores the selection: the selection comes back with the tree, the meshes later, each in a
   // new object); it's then highlighted (and described) again.
@@ -978,6 +978,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.triangleEdges.select([]);
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
+    panel.multi = () => selection.multi;
     panel.onSelect = (ids) => select(ids, 'tree');
     panel.onContextMenu = nodeMenu;
     panel.onHover = (id) => {
@@ -1289,11 +1290,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
     'Face, edge, curve, vertex': 'detail' }).name('Pick').onChange(hover);
-  selFolder.add(selection, 'multi').name('Multi-select (touch)');
+  selFolder.add(selection, 'multi').name('Multi-select');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
   selFolder.add({ parent: () => ui.selectParent() }, 'parent').name('Select parent');
   selFolder.add({ children: () => ui.selectChildren() }, 'children').name('Select children');
-  selFolder.add({ none: selectNone }, 'none').name('Select none');
+  const noneControl = selFolder.add({ none: selectNone }, 'none').name('Select none');
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(ui, 'invertSelection').name('Invert selection');
   selFolder.add({ byId: selectById }, 'byId').name('Select by ID...');
@@ -1335,6 +1336,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   hint(showControl, 's');
   hint(openControl, 't');
   hint(triangleEdges, 'g');
+  hint(noneControl, 'Esc');
   // The hints show where there's a mouse or trackpad (index.html), and once a physical keyboard has been seen (a class
   // on the page, remembered in this browser): a tablet's keyboard alone isn't told to the page any other way.
   const keyboardSeen = () => document.documentElement.classList.add('cv-keyboard');
@@ -1356,6 +1358,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     else if (s.type === 'hide') press(hideControl);
     else if (s.type === 'show') press(showControl);
     else if (s.type === 'tree') set(openControl!, !tree.open);
+    else if (s.type === 'selectNone') press(noneControl);
     else set(triangleEdges, nextTriangleEdges(look.triangleEdges, selected.length > 0));
   });
 

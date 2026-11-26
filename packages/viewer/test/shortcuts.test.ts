@@ -9,17 +9,18 @@ const press = (key: string, o: Partial<Parameters<typeof shortcutOf>[0]> = {}) =
 const inside = (...starts: string[]) => ({ closest: (sel: string) => (sel.split(',').some((s) =>
   starts.some((t) => s.trim().startsWith(t))) ? {} : null) }) as unknown as EventTarget;
 
-test('shortcutOf: f, h, s, t, g, and 1 to 7 the views in Look Along an Axis\'s order; other keys none', () => {
+test('shortcutOf: f, h, s, t, g, Escape, and 1 to 7 the views in Look Along an Axis\'s order; other keys none', () => {
   assert.deepEqual(press('f'), { type: 'zoom' });
   assert.deepEqual(press('h'), { type: 'hide' });
   assert.deepEqual(press('s'), { type: 'show' });
   assert.deepEqual(press('t'), { type: 'tree' });
   assert.deepEqual(press('g'), { type: 'triangleEdges' });
+  assert.deepEqual(press('Escape'), { type: 'selectNone' });
   assert.deepEqual(['1', '2', '3', '4', '5', '6', '7'].map((k) => press(k)),
     ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'].map((view) => ({ type: 'view', view })));
   // (The menu's order is VIEWS's.)
   assert.deepEqual(VIEW_KEYS, Object.keys(VIEWS));
-  for (const k of ['0', '8', '9', '12', 'a', 'x', 'F', 'Enter', 'Escape', 'ArrowUp', ' ']) {
+  for (const k of ['0', '8', '9', '12', 'a', 'x', 'F', 'Enter', 'Esc', 'ArrowUp', ' ']) {
     assert.equal(press(k), undefined, k);
   }
 });
@@ -28,9 +29,11 @@ test('shortcutOf: none with a modifier, repeated, already handled, or in a text 
   for (const m of ['ctrlKey', 'metaKey', 'altKey', 'shiftKey', 'repeat', 'defaultPrevented'] as const) {
     assert.equal(press('f', { [m]: true }), undefined, m);
     assert.equal(press('1', { [m]: true }), undefined, m);
+    assert.equal(press('Escape', { [m]: true }), undefined, m);
   }
   for (const t of ['input', 'textarea', 'select', 'dialog', '[contenteditable']) {
     assert.equal(press('f', { target: inside(t) }), undefined, t);
+    assert.equal(press('Escape', { target: inside(t) }), undefined, t);
   }
   // Elsewhere (the page, the canvas, the tree, a control's button): taken.
   assert.deepEqual(press('f', { target: inside('div') }), { type: 'zoom' });
