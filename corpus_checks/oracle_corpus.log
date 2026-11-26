@@ -1,5 +1,6 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 12.1; speed 4713 on 1 thread, 46629 on 18
-517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 760.5 s, today's 73.3 s
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 4.9; speed 5694 on 1 thread, 68233 on 18
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 4.9; speed 5653 on 1 thread, 69408 on 18
+517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 568.9 s, today's 60.8 s
 
 Coverage (every face of every part), by surface kind:
    26851  plane       trusted
@@ -358,7 +359,7 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581: 288.46015346433626 vs 288.4601534515578
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #862: 376.991160158875 vs 376.99116014116936
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #908: 376.991160158875 vs 376.9911601411697
-   54106  both trust, areas agree
+   53999  both trust, areas agree
     8444  today's trusts, ours doesn't (ok)
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #655
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #701
@@ -380,7 +381,7 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #1795 face #1588
             gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #4775
             gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #7908
-     186  both trust, areas DISAGREE within the tolerance strip, OCCT nearer ours
+     263  both trust, areas DISAGREE within the tolerance strip, OCCT nearer ours
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #627: 3.4081233291986623 vs 3.4081240601069545 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.4081233292036464)
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #803: 3.408123329198663 vs 3.4081240601069536 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.408123329198663)
             gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1794: 3.408123329169893 vs 3.408124060078108 (+/- 7.3e-7, vertex gap 2.3e-13, OCCT 3.408123329169891)
@@ -394,6 +395,13 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11604
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11694
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11784
+      36  both trust, areas DISAGREE within the tolerance strip, OCCT nearer today's
+            gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300: 140.30076690213005 vs 140.30071332396915 (+/- 1.2e-10, vertex gap 2.1e-9, OCCT 140.2176748516884)
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #375337 face #468490: 26800.253636576534 vs 26800.253868961136 (+/- 0.000073, vertex gap 9.5e-13, OCCT 26800.254001750887)
+            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36830: 842.488506353466 vs 842.4885101056202 (+/- 0.0000027, vertex gap 1.6e-11, OCCT 842.5647187522707)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #4521: 0.6380108378161606 vs 0.6380123288329074 (+/- 2.7e-13, vertex gap 2.2e-13, OCCT 0.6380118318234647)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #12576: 0.6380108378189266 vs 0.6380123288329166 (+/- 1.5e-13, vertex gap 1.8e-13, OCCT 0.6380118318234645)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #21877: 0.6380108378164733 vs 0.638012328832902 (+/- 4.7e-14, vertex gap 1.4e-13, OCCT 0.6380118318234722)
       21  today's trusts, ours doesn't (an edge's vertices against its curve's sense)
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #394
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #644
@@ -409,19 +417,12 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/pr1sy.stp #293 face #206
             gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #1499 face #1489
        7  both trust, areas DISAGREE, OCCT nearer ours
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14375 face #19809: 132.27913569548795 vs 132.27921135517167 (+/- 4.1e-10, vertex gap 4.4e-9, OCCT 132.27913566963326)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11555 face #18681: 198.8168343630641 vs 198.8173616456818 (+/- 2.1e-12, vertex gap 4.1e-10, OCCT 198.81683433377643)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11305 face #18581: 147.15360466246273 vs 147.15370833814734 (+/- 2.3e-10, vertex gap 4.7e-10, OCCT 147.15360283461376)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10975 face #18449: 118.60429939498195 vs 118.60406796962529 (+/- 4.8e-12, vertex gap 9.0e-10, OCCT 118.60429955126091)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10930 face #18431: 132.27913527518118 vs 132.27921093447762 (+/- 6.0e-10, vertex gap 4.1e-10, OCCT 132.2791352476885)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10775 face #18369: 147.15360466226716 vs 147.15370833787145 (+/- 1.4e-10, vertex gap 4.7e-10, OCCT 147.15360283479038)
-       6  both trust, areas DISAGREE within the tolerance strip, OCCT nearer today's
-            gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300: 140.30076690213005 vs 140.30071332396915 (+/- 1.2e-10, vertex gap 2.1e-9, OCCT 140.2176748516884)
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #375337 face #468490: 26800.253636576534 vs 26800.253868961136 (+/- 0.000073, vertex gap 9.5e-13, OCCT 26800.254001750887)
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36830: 842.488506353466 vs 842.4885101056202 (+/- 0.0000027, vertex gap 1.6e-11, OCCT 842.5647187522707)
-            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #4521: 0.6380108378248577 vs 0.6380123288329074 (+/- 2.7e-13, vertex gap 2.2e-13, OCCT 0.6380118318234647)
-            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #12576: 0.6380108378278511 vs 0.6380123288329166 (+/- 1.5e-13, vertex gap 1.8e-13, OCCT 0.6380118318234645)
-            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #21877: 0.6380108378253977 vs 0.638012328832902 (+/- 4.7e-14, vertex gap 1.4e-13, OCCT 0.6380118318234722)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14375 face #19809: 132.27913567648315 vs 132.27921135517167 (+/- 4.1e-10, vertex gap 4.4e-9, OCCT 132.27913566963326)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11555 face #18681: 198.81683433371288 vs 198.8173616456818 (+/- 2.1e-12, vertex gap 4.1e-10, OCCT 198.81683433377643)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11305 face #18581: 147.15360462148513 vs 147.15370833814734 (+/- 2.3e-10, vertex gap 4.7e-10, OCCT 147.15360283461376)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10975 face #18449: 118.6042995510376 vs 118.60406796962529 (+/- 4.8e-12, vertex gap 9.0e-10, OCCT 118.60429955126091)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10930 face #18431: 132.27913525617637 vs 132.27921093447762 (+/- 6.0e-10, vertex gap 4.1e-10, OCCT 132.2791352476885)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10775 face #18369: 147.15360462126046 vs 147.15370833787145 (+/- 1.4e-10, vertex gap 4.7e-10, OCCT 147.15360283479038)
        6  today's trusts, ours doesn't (noConvergence)
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1481
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1533
@@ -453,7 +454,7 @@ Against today's area oracle (area-oracle.ts):
 Against OCCT's measures, where ours is trusted and OCCT's valid:
    25648  plane       within 1e-6
    18173  cylinder    within 1e-6
-    3310  cone        within 1e-6
+    3332  cone        within 1e-6
     2537  torus       within 1e-6
     1700  bspline     within 1e-6
     1387  sphere      within 1e-6
@@ -469,8 +470,8 @@ Against OCCT's measures, where ours is trusted and OCCT's valid:
      144  extrusion   within 1e-4
      114  revolution  within 1e-6
       96  sphere      within 0.01
-      70  cone        within 1e-4
       57  cone        within 0.01
+      48  cone        within 1e-4
       33  sphere      past 0.01
       32  revolution  within 1e-4
       32  torus       within 1e-4
@@ -478,7 +479,7 @@ Against OCCT's measures, where ours is trusted and OCCT's valid:
        9  torus       within 0.01
        8  plane       past 0.01
        2  bspline     past 0.01
-  relative difference of the area: <= 1e-12: 43921, <= 1e-9: 5459, <= 1e-6: 4120, <= 1e-4: 2113, <= 1e-2: 1703, <= 1e-1: 46, <= inf: 6
+  relative difference of the area: <= 1e-12: 44689, <= 1e-9: 4835, <= 1e-6: 3998, <= 1e-4: 2091, <= 1e-2: 1703, <= 1e-1: 46, <= inf: 6
   of the perimeter, planes only: <= 1e-12: 25771, <= 1e-9: 428, <= 1e-6: 345, <= 1e-4: 255, <= 1e-2: 29, <= 1e-1: 2, <= inf: 4
 
 OCCT's measure more than 1 % off ours, by its own mesh:
@@ -516,24 +517,16 @@ The trust rule with the boundary's bound against the rule before it (no flags, t
     1469  newly trusted: bspline     the nearer measure within 1e-6
      675  newly trusted: bspline     the nearer measure within 1e-9
      600  newly trusted: extrusion   the nearer measure within 1e-9
+     523  newly refused: cone        the nearer measure within 1e-6
      522  newly refused: bspline     the nearer measure within 1e-6
      497  newly refused: cylinder    the nearer measure within 1e-4
      437  newly refused: torus       the nearer measure within 1e-6
      370  newly trusted: extrusion   the nearer measure within 1e-6
-     351  newly refused: cone        the nearer measure within 1e-9
      322  newly refused: bspline     the nearer measure within 1e-4
+     316  newly refused: cone        the nearer measure within 1e-4
      277  newly refused: plane       the nearer measure within 1e-6
-     259  newly refused: cone        the nearer measure within 1e-4
      253  newly refused: plane       the nearer measure within 1e-9
-     220  newly refused: cone        the nearer measure within 1e-6
      204  newly refused: torus       the nearer measure within 1e-9
-     193  newly refused: cone        the nearer measure within 1e-2
-            gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61566: 209.7862384266475 vs 209.80885469028826, 209.81074990163236, boundary 0.0906
-            gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61567: 209.7862384276632 vs 209.80881720452413, 209.81047737084668, boundary 0.0906
-            gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61594: 209.78623842665985 vs 209.8088172047792, 209.81047737372757, boundary 0.0906
-            gkv311-opencascade-dataset/step/bug25281_tess_infloop_extract.step #11 face #61595: 209.7862384276875 vs 209.80885469101366, 209.81074990312368, boundary 0.0906
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #35795: 13.894186736661226 vs 13.891703158034245, 13.89243374376315, boundary 0.000469
-            gkv311-opencascade-dataset/step/trj4_pm2-ec-214.stp #22794 face #37543: 8.311662313866478 vs 8.310264955835049, 8.31057449083994, boundary 0.000122
      158  newly refused: sphere      the nearer measure within 1e-6
      152  newly refused: bspline     the nearer measure within 1e-2
             gkv311-opencascade-dataset/step/ec_exhaust-A.stp #11 face #14: 5490.160933006111 vs 5488.544408213709, 5487.917244143194, boundary 11.4
@@ -543,6 +536,7 @@ The trust rule with the boundary's bound against the rule before it (no flags, t
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #698: 173.46413864935798 vs 170.97838183521952, 173.5321688652318, boundary 0.0185
             gkv311-opencascade-dataset/step/bug25166_piston.stp #30604 face #765: 7.950979817770828 vs 7.768600066152765, 7.953974709734365, boundary 0.0186
      145  newly refused: bspline     the nearer measure within 1e-9
+     125  newly refused: cone        the nearer measure within 1e-9
      116  newly refused: sphere      the nearer measure within 1e-4
      107  newly refused: plane       the nearer measure within 1e-4
      106  newly trusted: revolution  the nearer measure within 1e-9
@@ -556,6 +550,13 @@ The trust rule with the boundary's bound against the rule before it (no flags, t
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14210 face #19743: 4.199723698639538 vs 4.200951171859724, boundary 0.00429
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #12590 face #19095: 7.481499361240403 vs 7.484188335938067, boundary 0.00177
             gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11385 face #18613: 4.199723698628418 vs 4.20095117184956, boundary 0.00429
+      63  newly refused: cone        the nearer measure within 1e-2
+            gkv311-opencascade-dataset/step/bug32745_pmi1.stp #791 face #291: 6.760020011189601 vs 6.75772713528801, boundary 0.000991
+            gkv311-opencascade-dataset/step/bug32745_pmi1.stp #791 face #581: 6.760020011189347 vs 6.757727135288148, boundary 0.000991
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16409: 20.26306734558404 vs 20.259913235834496, boundary 0.0194
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16420: 20.263067345584044 vs 20.259913235834496, boundary 0.0194
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16443: 20.26306734558404 vs 20.259913235834496, boundary 0.0194
+            gkv311-opencascade-dataset/step/sp7_04-do-242.stp #17823 face #16454: 20.263067345584044 vs 20.259913235834496, boundary 0.0194
       34  newly refused: plane       the nearer measure within 1e-2
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11627: 0.03158157827964105 vs 0.03143443124783063, 0.031088790469843457, boundary 0.00328
             gkv311-opencascade-dataset/step/trj7_b1-ec-214.stp #10 face #11657: 0.03158158074923813 vs 0.03143443354212172, 0.03108868305203971, boundary 0.00328
@@ -584,11 +585,6 @@ The trust rule with the boundary's bound against the rule before it (no flags, t
        8  newly trusted: torus       the nearer measure within 1e-9
        7  newly refused: extrusion   the nearer measure within 1e-4
        5  newly refused: extrusion   the nearer measure within 1e-6
-       4  newly refused: cone        the nearer measure past 1e-2
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16190 face #20535: 0.8516909332115756 vs 0.8736594124173217, boundary 0.0155
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #16145 face #20517: 0.8516909332115641 vs 0.8736594124172294, boundary 0.0155
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #15715 face #20345: 0.8496141550871598 vs 0.8752152744125664, boundary 0.0178
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14310 face #19783: 0.8496141550871676 vs 0.8752152744125618, boundary 0.0178
        3  newly refused: sphere      the nearer measure past 1e-2
             gkv311-opencascade-dataset/step/trj3_s1-ct-203.stp #2255 face #1939: 10788.75519457314 vs 34449.91600850475, boundary 0.0358
             gkv311-opencascade-dataset/step/trj3_s1-ct-214.stp #2221 face #1905: 10788.75519457314 vs 34449.91600850475, boundary 0.0358
@@ -754,4 +750,4 @@ Free-form faces against OCCT's and SMLib's measures, past 1e-4 by OCCT's mesh:
        1  trusted: no referee (neither measured it)
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1295
   trusted, the nearer measure's relative difference: <= 1e-12: 724, <= 1e-9: 125, <= 1e-6: 1630, <= 1e-4: 87, <= 1e-2: 0, <= 1e-1: 0, <= inf: 0
-  the free-form faces' oracle time 664.0 s, the slowest 100072 ms (gkv311-opencascade-dataset/step/bug26889_export.step #33 face #1854); SMLib failed on 2 parts
+  the free-form faces' oracle time 504.7 s, the slowest 88684 ms (gkv311-opencascade-dataset/step/bug26889_export.step #33 face #1854); SMLib failed on 2 parts
