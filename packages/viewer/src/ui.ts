@@ -16,7 +16,7 @@ import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
-import { highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
+import { highlightForNode, highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
   from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
@@ -726,8 +726,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const look = viewer.render;
   // (The selection's colour is the Highlighter's, made below.)
   let recolour = () => {};
+  // The tree's row under the mouse in the highlight's colour, its text dark or light to stand out on it.
+  const hoverColours = () => {
+    const c = parseInt(look.highlightColor.slice(1), 16);
+    const luma = 0.299 * (c >> 16) + 0.587 * (c >> 8 & 255) + 0.114 * (c & 255);
+    treeElement.style.setProperty('--row-hovered', look.highlightColor);
+    treeElement.style.setProperty('--row-hovered-fg', luma > 140 ? '#111' : '#fff');
+  };
+  hoverColours();
   const restyle = () => {
     recolour();
+    hoverColours();
     viewer.setRender(look);
   };
   rendering.add(look, 'ao').name('Ambient occlusion').onChange(restyle);
@@ -847,6 +856,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let openControl: { setValue(v: boolean): unknown } | undefined;
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
+  /** The node of the tree's row under the mouse, if any (highlighted as the 3D view's hover is). */
+  let treeHovered: number | undefined;
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
   recolour = () => highlighter.setColor(parseInt(look.selectionColor.slice(1), 16));
@@ -963,6 +974,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     panel = new TreePanel(treeElement, nodes);
     panel.onSelect = (ids) => select(ids, 'tree');
     panel.onContextMenu = nodeMenu;
+    panel.onHover = (id) => {
+      treeHovered = id;
+      hover();
+    };
+    treeHovered = undefined;
     if (tree.detail) panel.setDetail(true);
     if (restore) {
       // Exactly the overrides before (the file's own hiding giving way to them).
@@ -985,11 +1001,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
     return hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level, hit.item);
   };
-  // What the pointer's over, highlighted at the pick level (the last kept, for a change of level).
+  // What the pointer's over, highlighted at the pick level (the last kept, for a change of level); or the tree's row
+  // under the mouse, its node.
   let hovering: Pick | undefined;
   const hover = () => {
     const nodes = viewer.nodes;
-    viewer.setHighlight(hovering && nodes ? highlightForPick(nodes, hovering, selection.level) : undefined);
+    viewer.setHighlight(!nodes ? undefined : treeHovered !== undefined ? highlightForNode(nodes, treeHovered)
+      : hovering ? highlightForPick(nodes, hovering, selection.level) : undefined);
   };
   viewer.onHover = (hit) => {
     hovering = hit;

@@ -26,6 +26,11 @@ export interface TreeViewOptions {
   renderRow(id: string, content: HTMLElement): void;
   /** The selection changed by the user (clicks, ctrl/cmd-click, shift-click, keys). */
   onSelectionChange(ids: string[]): void;
+  /**
+   * The row under the mouse changed (moved, or rows scrolled under it; not touch): its node, or undefined once the
+   * mouse leaves the tree. The view marks that row `hovered`.
+   */
+  onHover?(id: string | undefined): void;
 }
 
 export interface TreeView {

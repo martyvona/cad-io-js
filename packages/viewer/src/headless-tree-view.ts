@@ -97,6 +97,9 @@ export class HeadlessTreeView implements TreeView {
   /** The focus cleared (focus(undefined)): the library, focused on nothing, would outline the first row. */
   private unfocused = false;
   private scheduled = false;
+  /** Where the mouse is over the tree (client pixels), and the node of the row there. */
+  private pointer: { x: number; y: number } | undefined;
+  private hovered: string | undefined;
   /** The widest row drawn so far (pixels). */
   private width = 0;
 
@@ -152,6 +155,15 @@ export class HeadlessTreeView implements TreeView {
     this.tree.rebuildTree();
     applyProps(this.scroller, this.tree.getContainerProps('Model tree'));
     this.scroller.addEventListener('scroll', () => this.schedule());
+    this.scroller.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      this.pointer = { x: e.clientX, y: e.clientY };
+      this.hoverAt();
+    });
+    this.scroller.addEventListener('pointerleave', () => {
+      this.pointer = undefined;
+      this.hoverAt();
+    });
     new ResizeObserver(() => this.schedule()).observe(this.scroller);
     this.draw();
   }
@@ -253,6 +265,7 @@ export class HeadlessTreeView implements TreeView {
       el.style.paddingLeft = `${item.getItemMeta().level * INDENT}px`;
       applyProps(el, item.getProps());
       el.classList.toggle('selected', item.isSelected());
+      el.classList.toggle('hovered', item.getId() === this.hovered);
       el.classList.toggle('focused', item.isFocused() && !(this.unfocused &&
         this.tree.getState().focusedItem === null));
       el.dataset.id = item.getId();
@@ -270,6 +283,19 @@ export class HeadlessTreeView implements TreeView {
     this.width = widest;
     // (The rows, absolutely placed, make the scroller as wide; at least as wide as it, for the selection's colour.)
     for (let s = 0; s < slot; s++) this.rows[s]!.style.width = `${this.width}px`;
+    // (Rows drawn again may have moved under a still mouse: scrolled, or the tree's shape changed.)
+    this.hoverAt();
+  }
+
+  /** The node of the row under the mouse, marked and reported if it changed. */
+  private hoverAt(): void {
+    const p = this.pointer;
+    const el = p && document.elementFromPoint(p.x, p.y)?.closest<HTMLElement>('.tree-row');
+    const id = el && this.scroller.contains(el) && el.style.display !== 'none' ? el.dataset.id : undefined;
+    if (id === this.hovered) return;
+    this.hovered = id;
+    for (const row of this.rows) row.classList.toggle('hovered', id !== undefined && row.dataset.id === id);
+    this.opts.onHover?.(id);
   }
 
   refresh(): void {
@@ -366,6 +392,8 @@ export class HeadlessTreeView implements TreeView {
   }
 
   dispose(): void {
+    this.pointer = undefined;
+    this.hoverAt();
     this.tree.setMounted(false);
     this.scroller.remove();
   }

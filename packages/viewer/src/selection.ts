@@ -230,6 +230,21 @@ export function highlightForPick(model: NodeModel, hit: { object: THREE.Object3D
   return id === undefined ? none : { outline: piecesOf(model, [id]), marks: [] };
 }
 
+/**
+ * A tree node's highlight, as hovering in the 3D view at its level would give it: faces, parts, assemblies and the
+ * faces group a silhouette of their pieces (a failed face's outline marked); edges, curves, vertices and points, and
+ * their groups, marks.
+ */
+export function highlightForNode(model: NodeModel, id: number): { outline: Piece[]; marks: Piece[] } {
+  const n = model.nodes[id];
+  if (!n || n.dead) return { outline: [], marks: [] };
+  const pieces = piecesOf(model, [id]);
+  if (n.item || n.kind === 'edges' || n.kind === 'vertices') return { outline: [], marks: pieces };
+  if (!n.face) return { outline: pieces, marks: [] };
+  const failed = (p: Piece) => p.object.userData.outlineFace !== undefined;
+  return { outline: pieces.filter((p) => !failed(p)), marks: pieces.filter(failed) };
+}
+
 /** The placements of a part node's part: the part nodes of the same scene part. */
 export function instancesOf(model: NodeModel, part: number): number[] {
   const key = (id: number) => model.nodes[id]!.object!.userData.part as number;

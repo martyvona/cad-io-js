@@ -164,6 +164,11 @@
     .tree-row.hidden.failed { opacity: 0.6; }
     /* Appearance overrides (tree-panel.ts): an eye after the name, crossed out for a hidden one. */
     .tree-override { display: inline-flex; color: var(--icon); opacity: 0.85; }
+    /* The row under the mouse (headless-tree-view.ts), in the 3D view's highlight colour (ui.ts sets both). */
+    .tree-row.hovered, .tree-row.hovered .tree-icon:not(.broken), .tree-row.hovered .tree-override {
+      color: var(--row-hovered-fg, #111);
+    }
+    .tree-row.hovered { background: var(--row-hovered, #ffe100); }
     /* Context menus (context-menu.ts). */
     .cv-menu {
       position: fixed; z-index: 2000; min-width: 160px; padding: 4px 0; color: var(--panel-fg);

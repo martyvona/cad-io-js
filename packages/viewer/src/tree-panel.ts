@@ -105,6 +105,8 @@ export class TreePanel {
   onSelect?: (ids: readonly number[]) => void;
   /** A row's context menu asked for, at a point of the page (client pixels). */
   onContextMenu?: (id: number, x: number, y: number) => void;
+  /** The row under the mouse: its node, or undefined once the mouse leaves the tree (tree-view.ts's onHover). */
+  onHover?: (id: number | undefined) => void;
   private readonly container: HTMLElement;
   private readonly listeners: [string, EventListener][] = [];
 
@@ -144,6 +146,7 @@ export class TreePanel {
         this.selection = ids.map(num);
         this.onSelect?.(this.selection);
       },
+      onHover: (id) => this.onHover?.(id === undefined ? undefined : num(id)),
     });
     this.container = container;
     // A row's context menu: right-click, or a long press with a finger; the focus moved to the row (the selection not).

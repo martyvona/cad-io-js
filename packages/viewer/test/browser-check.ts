@@ -5315,6 +5315,91 @@ await check('fat edges', async () => {
   expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
   return undefined;
 });
+// Hovering in the tree: the row under the mouse in the highlight's colour (text dark on yellow, light on blue), its
+// node highlighted in the 3D view as hovering there would (a part outlined, a face outlined by its ranges, an edge
+// marked, an edges group marked whole); rows scrolled under a still mouse; none once the mouse leaves.
+await check('tree hover', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 20)));
+    const p = ui.panel(), m = p.model, scroller = document.querySelector('#tree .tree-scroller');
+    p.setDetail(true);
+    p.expandAll();
+    await frame();
+    const rowOf = async (id) => {
+      p.scrollToRow(id, 0);
+      await frame();
+      return [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === id);
+    };
+    const move = (x, y, pointerType = 'mouse') => scroller.dispatchEvent(new PointerEvent('pointermove',
+      { bubbles: true, clientX: x, clientY: y, pointerType }));
+    const over = async (id) => {
+      const b = (await rowOf(id)).getBoundingClientRect();
+      move(b.left + 10, b.top + b.height / 2);
+      await frame();
+    };
+    const state = () => {
+      const rows = [...document.querySelectorAll('#tree .tree-row.hovered')].filter((x) => x.style.display !== 'none');
+      const h = viewer.highlights.highlight;
+      const part = (o) => { let n = m.nodeOf(o); while (n !== undefined && m.nodes[n].kind !== 'part')
+        n = m.nodes[n].parent; return n; };
+      return { rows: rows.map((x) => +x.dataset.id), bg: rows[0] && getComputedStyle(rows[0]).backgroundColor,
+        fg: rows[0] && getComputedStyle(rows[0]).color,
+        outline: h.outline.map((x) => ({ part: part(x.object), ranges: x.ranges?.length ?? 0 })),
+        marks: h.marks.map((x) => ({ part: part(x.object), ranges: x.ranges?.length ?? 0 })) };
+    };
+    const kind = (k) => m.nodes.find((n) => n.kind === k).id;
+    const partId = kind('part'), face = kind('face'), edge = kind('edge'), edges = kind('edges');
+    const out = { partId, face, edge, edges, faceOf: m.partOf(face), edgeOf: m.partOf(edge), edgesOf: m.partOf(edges) };
+    await over(partId);
+    out.part = state();
+    await over(face);
+    out.faceRow = state();
+    await over(edge);
+    out.edgeRow = state();
+    await over(edges);
+    out.edgesRow = state();
+    // Scrolled a row under the still mouse: the next row hovered.
+    scroller.scrollTop += 18;
+    await frame();
+    await frame();
+    out.scrolled = state();
+    ui.setRender({ highlightColor: '#1f3fff' });
+    await frame();
+    out.blue = state();
+    ui.setRender({ highlightColor: '#ffe100' });
+    scroller.dispatchEvent(new PointerEvent('pointerleave', { clientX: 0, clientY: 0, pointerType: 'mouse' }));
+    await frame();
+    out.left = state();
+    // A touch moving over the tree: no hover.
+    const b = (await rowOf(partId)).getBoundingClientRect();
+    move(b.left + 10, b.top + b.height / 2, 'touch');
+    await frame();
+    out.touch = state();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after;
+  const j = (o: unknown) => JSON.stringify(o);
+  const one = (s: { rows: number[] }, id: number) => s.rows.length === 1 && s.rows[0] === id;
+  expect(one(a.part, a.partId) && a.part.bg === 'rgb(255, 225, 0)' && a.part.fg === 'rgb(17, 17, 17)' &&
+    a.part.outline.length > 0 && a.part.outline.every((x: { part: number; ranges: number }) => x.part === a.partId &&
+    x.ranges === 0) && a.part.marks.length === 0, `a part's row: ${j(a.part)}`);
+  expect(one(a.faceRow, a.face) && a.faceRow.outline.length === 1 && a.faceRow.outline[0].part === a.faceOf &&
+    a.faceRow.outline[0].ranges > 0 && a.faceRow.marks.length === 0, `a face's row: ${j(a.faceRow)}`);
+  expect(one(a.edgeRow, a.edge) && a.edgeRow.outline.length === 0 && a.edgeRow.marks.length === 1 &&
+    a.edgeRow.marks[0].part === a.edgeOf && a.edgeRow.marks[0].ranges === 1, `an edge's row: ${j(a.edgeRow)}`);
+  expect(one(a.edgesRow, a.edges) && a.edgesRow.outline.length === 0 && a.edgesRow.marks.length > 0 &&
+    a.edgesRow.marks.every((x: { part: number; ranges: number }) => x.part === a.edgesOf && x.ranges === 0),
+    `the edges group's row: ${j(a.edgesRow)}`);
+  expect(a.scrolled.rows.length === 1 && a.scrolled.rows[0] !== a.edges && a.scrolled.marks.length +
+    a.scrolled.outline.length > 0 && j(a.scrolled.marks) !== j(a.edgesRow.marks), `scrolled: ${j(a.scrolled)}`);
+  expect(a.blue.bg === 'rgb(31, 63, 255)' && a.blue.fg === 'rgb(255, 255, 255)', `blue: ${j(a.blue)}`);
+  expect(a.left.rows.length === 0 && a.left.outline.length === 0 && a.left.marks.length === 0,
+    `the mouse gone: ${j(a.left)}`);
+  expect(a.touch.rows.length === 0 && a.touch.outline.length === 0, `touch: ${j(a.touch)}`);
+  return undefined;
+});
 // Hover highlights (outline.ts): the mouse over a part outlines it in the highlight's colour, outside the part (nothing
 // strong over its own pixels), dim where another part is in front (an x-ray: the bracket's outline behind the rod); at
 // the detail level a face outlined, an edge marked (thin and fat edges), a vertex marked (Vertices on); a drag, or the
