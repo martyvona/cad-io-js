@@ -2808,6 +2808,37 @@ TEST_CASE("the developed plane taken only where the face's metric is nearer isot
   CHECK(mesh("cylinderVast", true) != mesh("cylinderVast", false));
 }
 
+TEST_CASE("shippedAt through the developed plane (PartOptions::develop): cylinderVast shipped far from the origin, "
+  "no two of a face's vertices at one position as the output rounds them") {
+  // (cylinderVast developed, shipped from an origin 1e10 away, where float32 is 1024 apart: the developed field asks
+  // its positions at (u, v), mapped back from the plane. Its edges' samples weld among themselves there, as given; no
+  // point of the mesher's ships where another vertex does.)
+  cadgeom::Model m = load("cylinderVast");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.1, 0.26);
+  o.outputOrigin[0] = 1e10, o.outputOrigin[1] = o.outputOrigin[2] = 0;
+  PartMesher pm(m, o);
+  for (int f = 0; f < m.faces(); f++) {
+    const FaceMesh& fm = pm.face(f);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    std::set<std::tuple<double, double, double>> samples;
+    for (int e = 0; e < m.edges(); e++)
+      for (const Vec3& q : pm.edges().edge(e).points) samples.insert({q.x, q.y, q.z});
+    std::set<std::tuple<float, float, float>> at;
+    auto shipped = [](const Vec3& p) {
+      return std::tuple<float, float, float>{static_cast<float>(p.x - 1e10), static_cast<float>(p.y),
+        static_cast<float>(p.z)};
+    };
+    for (const Vec3& p : fm.points)
+      if (samples.count({p.x, p.y, p.z})) at.insert(shipped(p));
+    int welded = 0;
+    for (const Vec3& p : fm.points)
+      if (!samples.count({p.x, p.y, p.z})) welded += !at.insert(shipped(p)).second;
+    if (welded) std::printf("  cylinderVast far: face %d, %d vertices welded\n", f, welded);
+    CHECK_EQ(welded, 0);
+  }
+}
+
 TEST_CASE("crowds through the developed plane (PartOptions::develop): thinTube's mesher points kept out of the band "
   "about its boundary's segments as in (u, v)") {
   // (thinTube at d 0.1: a half cylinder of radius 0.005, its plane developed; the band a tenth of the floor, 0.001.
