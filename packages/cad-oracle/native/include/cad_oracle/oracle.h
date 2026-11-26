@@ -106,9 +106,9 @@ struct FaceMeasure {
    * p-curve's deviation is measured in its own parameter along the use (a p-curve needn't share its edge's parameter):
    * each S(p(s)) against its nearest point on the curve within the edge's range, the feet going one way and the use's
    * ends against the edge's (where the use runs over the edge's own range, |S(p(t)) - C(t)| at the same t, which bounds
-   * that); a healed one's the analysis's; a projected one's the projection's error; none where the area is integrated
-   * along the edges' 3D curves (closed forms), whose vertex gaps still count. An edge without a 3D curve counts nothing
-   * (its p-curve is the boundary). NaN where a deviation or gap couldn't be had (a projection not made, a use's feet
+   * that); a healed one's the analysis's; a projected one's the projection's error; where the area is integrated along
+   * the edges' 3D curves (closed forms), the largest distance of the curve's sampled points from the surface. An edge
+   * without a 3D curve counts nothing (its p-curve is the boundary). NaN where a deviation or gap couldn't be had (a projection not made, a use's feet
    * going back along its curve). Included in area.error (the error reported with the area: the quadrature's plus this)
    * where it's known; where it's NaN, area.error is the quadrature's alone and trusted() refuses the face.
    */

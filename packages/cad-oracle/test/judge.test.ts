@@ -8,6 +8,21 @@ import { areaOracle, init, JUDGE_PROJECT, JUDGE_REL_TOL, JUDGE_RELATIVE, Oracle,
 
 const module = await init();
 
+test('judging\'s level (JUDGE_RELATIVE, 1e-2) apart from the oracle\'s verdicts\' and healing\'s (1e-3)', async () => {
+  // A cylinder's side (area 20 pi) whose bottom circle is d = 0.014 off it: its boundary's bound about d (4 pi + 10),
+  // 5e-3 of the area: judged (within 1e-2), but not trusted at 1e-3, so the shell's volume isn't known by it.
+  const { cylinderSide } = await import('../../cad-heal/test/models.ts');
+  assert.equal(JUDGE_RELATIVE, 1e-2);
+  const d = cylinderSide({ bottom: {} }, 1e-6, 0, undefined, 2.014).finish();
+  const f = areaOracle(module).areas(d).get(9);
+  assert.ok(f && f.error > 1e-3 * f.area && f.error <= 1e-2 * f.area, JSON.stringify(f));
+  assert.equal(areaOracle(module, { relative: 1e-3 }).areas(d).size, 0);
+  d.body.kind[0] = 1;
+  d.shell.kind[0] = 1;
+  const [shell] = shellVolumes(module, d);
+  assert.deepEqual([shell!.known, shell!.why], [false, 'face row 0\'s area isn\'t trusted']);
+});
+
 test('areaOracle: the faces trusted at JUDGE_RELATIVE by id, with their errors; faces sharing an id left out', () => {
   // The B-spline cylinder's circles have no p-curves: by default not projected, so the face isn't judged.
   const d = bsplineCylinder(line2([1, 0], [0, 1])).finish();

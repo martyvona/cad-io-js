@@ -19,7 +19,7 @@ Each face's mesh is measured by these, in this order (the order is also the tie-
 | k | Complete: the face has triangles | | always |
 | a | Manifold: (a.1) within the face, its boundary edges aside; (a.2) sewn into its shell, every edge's polyline shared exactly with its other uses after the exact join (a seam's within the face) | | always |
 | j | Oriented: a closed shell's mesh faces out | | always |
-| b | Area against the area oracle's exact area, where it trusts one | the judge's: short by more than max(3 % of A, d x P), over by more than max(10 % of A, d x P) | always |
+| b | Area against the area oracle's exact area, where it trusts one (its error, the boundary's bound included, within 1 % of it: `JUDGE_RELATIVE`, a third of the 3 % short limit) | the judge's: short by more than max(3 % of A, d x P), over by more than max(10 % of A, d x P) | always |
 | c | Distance from the surface | the linear deflection d (max(d, the face's tolerance)) | off by default |
 | d | Angle between normals | the angular deflection | off by default |
 | e | Turned triangles: a facet against the mean of its corners' normals, as shipped | none | always |

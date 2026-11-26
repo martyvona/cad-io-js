@@ -355,6 +355,13 @@ export const ORACLE_RELATIVE = 1e-4;
  * with it within 1e-4 on 97 % of faces.
  */
 export const ORACLE_DISAGREE = 0.01;
+/**
+ * The oracle's area replaces a backend's sound measure (ORACLE_DISAGREE) only where its error is within this of it:
+ * judging's level (cad-oracle's JUDGE_RELATIVE, 1e-2) is as large as ORACLE_DISAGREE, so a measure 1 % off could
+ * otherwise give way to an area as far off. A face the backend didn't measure, or measured unsoundly, takes the
+ * oracle's area at any level it was given.
+ */
+export const ORACLE_REPLACE = 1e-3;
 
 /** A face's area and perimeter, in the model's units; `error` the area's error estimate, where the oracle gives one. */
 export type FaceArea = { area: number; perimeter: number; error?: number };
