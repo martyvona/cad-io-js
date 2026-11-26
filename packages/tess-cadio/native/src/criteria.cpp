@@ -335,9 +335,25 @@ private:
       return false;
     Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
-    Box3 b;
-    if (s_.bound(ru, rv, b) != Status::ok) return false;
-    return std::hypot(b.x.width(), b.y.width(), b.z.width()) <= floor_;
+    // (Cut at the surface's breaks, each piece bounded and the boxes joined: across a B-spline's knot its bound is
+    // the poles' hull over the spans there, as long as the surface along the other parameter's span, LMP1 #172665's
+    // #1055631 a tiny triangle across a u knot bounded 1,790 mm and refined for its thinness without end.)
+    std::vector<double> us, vs;
+    s_.breaks(ru, rv, us, vs);
+    if (us.size() < 2 || vs.size() < 2 || (us.size() - 1) * (vs.size() - 1) > kMaxPieces) return false;
+    Box3 all;
+    bool any = false;
+    for (size_t i = 0; i + 1 < us.size(); i++)
+      for (size_t j = 0; j + 1 < vs.size(); j++) {
+        Box3 b;
+        if (s_.bound({us[i], us[i + 1]}, {vs[j], vs[j + 1]}, b) != Status::ok) return false;
+        if (!any) all = b, any = true;
+        else
+          all = {{std::fmin(all.x.lo, b.x.lo), std::fmax(all.x.hi, b.x.hi)},
+            {std::fmin(all.y.lo, b.y.lo), std::fmax(all.y.hi, b.y.hi)},
+            {std::fmin(all.z.lo, b.z.lo), std::fmax(all.z.hi, b.z.hi)}};
+      }
+    return any && std::hypot(all.x.width(), all.y.width(), all.z.width()) <= floor_;
   }
 
   /** The triangle's corners on the surface, as at() gives them; whether all three evaluated. */

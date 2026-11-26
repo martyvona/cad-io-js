@@ -592,6 +592,28 @@ TEST_CASE("the deviation test counts a corner's own distance from the surface (s
   }
 }
 
+TEST_CASE("a triangle across a B-spline's knot is within the refinement floor as one within a span is (belowFloor "
+  "bounds the pieces between the breaks), not by the poles' hull along the whole other span") {
+  // bsplineTube: degree 2 x 1, u knots 0 to 4, one span along v 5 long; at d 0.1 the floor 0.01. A triangle 2e-4
+  // across in (u, v), about 4e-4 mm in 3D, across the knot u = 1 and within the span at u = 1.5: both within the
+  // floor. (The hull over the knot's spans is the tube's whole length, 5 mm.) One 0.02 across, past the floor: not.
+  cadgeom::Model m = load("bsplineTube");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{0, 4}, {0, 1}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  auto tri = [](double u, double a, Vec2 t[3]) { t[0] = {u - a, 0.5}, t[1] = {u + a, 0.5}, t[2] = {u, 0.5 + a}; };
+  Vec2 t[3];
+  tri(1, 1e-4, t);
+  CHECK(c->belowFloor(t));
+  tri(1.5, 1e-4, t);
+  CHECK(c->belowFloor(t));
+  tri(1, 0.01, t);
+  CHECK(!c->belowFloor(t));
+}
+
 TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
   "against the mean of its corners' normals, not against any one of them") {
   // (cylinderLong, r = 2: corners at u = -0.1, 0.1 and 0, their normals 0.2 apart; own points whose facet's normal is
