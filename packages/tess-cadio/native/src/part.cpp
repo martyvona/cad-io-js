@@ -497,7 +497,7 @@ struct PartMesher::Impl {
         fan.smooth = R.smooth;
         const bool farA = std::fabs(da) > 1.5 * r, farB = std::fabs(db) > 1.5 * r;
         const double lo = farA ? q0 : freeOf(a.uv, S.isoU), hi = farB ? q1 : freeOf(b.uv, S.isoU);
-        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular);
+        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular, o.d.maxEdge);
         std::vector<double> qs;
         double piece = (hi - lo) / pieces;
         if (farA) qs.push_back(q0);
@@ -2270,7 +2270,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       FaceBoundary fb = I.em->face(f);
       if (fb.status != Status::ok) continue;
       I.rings[f] = facePoles(m, f, *I.surfaces[f], fb, *I.em, *I.criteria[f], tols.face(f), I.o.d.linear,
-        I.o.d.angular);
+        I.o.d.angular, I.o.d.maxEdge);
     }
     shareRings(sp, I.rings, tols.part());
     std::vector<RingCut> cuts;

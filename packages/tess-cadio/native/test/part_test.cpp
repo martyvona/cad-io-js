@@ -3972,3 +3972,56 @@ TEST_CASE("maxEdge: no triangle edge on a long plate or a long band past it; par
     CHECK(std::fabs(got - size) <= within * size);
   }
 }
+
+TEST_CASE("maxEdge: a pole's fan no longer than it, its spokes (the ring's reach) and its ring's chords") {
+  // A sphere's cap (its pole clear of the boundary), a whole sphere (an edge through its pole), a cone's apex and a
+  // B-spline's: off, the fans' spokes past the limit; with it, no edge at the pole past it, at the edge rules' angle
+  // and at a coarse one (the ring's pieces then as long as their spokes, held by the limit alone).
+  const double limit = 0.2;
+  for (const char* name : {"cap", "wholeSphereVertex", "coneApexLoop", "bsplineApex"})
+    for (double angle : {0.26, 1.5}) {
+      const tessfixtures::Model* t = tessfixtures::model(name);
+      REQUIRE(t);
+      std::vector<uint8_t> b(t->data, t->data + t->size);
+      const cadgeom::Model m(b.data(), b.size());
+      cadgeom::Status st;
+      const std::unique_ptr<cadgeom::Surface> s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+      REQUIRE(s);
+      std::vector<cadgeom::Singularity> sing;
+      s->singularities(sing);
+      REQUIRE(!sing.empty());
+      // The longest edge with an end at a pole (the fans'), and the longest of the ring's (the fans' far sides).
+      auto atPole = [&](const FaceMesh& fm, double& ring) {
+        double l = 0;
+        ring = 0;
+        for (size_t i = 0; i + 2 < fm.triangles.size(); i += 3)
+          for (int k = 0; k < 3; k++) {
+            const Vec3 p = fm.points[fm.triangles[i + k]], q = fm.points[fm.triangles[i + (k + 1) % 3]],
+              r = fm.points[fm.triangles[i + (k + 2) % 3]];
+            auto pole = [&](Vec3 x) {
+              for (const cadgeom::Singularity& g : sing)
+                if (g.kind != cadgeom::Singularity::normalVanishes && norm(x - g.point) < 1e-9) return true;
+              return false;
+            };
+            const bool pp = pole(p), qp = pole(q), rp = pole(r);
+            if (pp || qp) l = std::max(l, norm(q - p));
+            else if (rp) ring = std::max(ring, norm(q - p));
+          }
+        return l;
+      };
+      double ring = 0;
+      PartMesher off(m, options(0.1, angle));
+      REQUIRE(off.face(0).status == cadgeom::Status::ok);
+      CHECK(atPole(off.face(0), ring) > 1.4 * limit);
+      PartOptions o = options(0.1, angle);
+      o.d.maxEdge = limit;
+      PartMesher pm(m, o);
+      REQUIRE(pm.face(0).status == cadgeom::Status::ok);
+      const double l = atPole(pm.face(0), ring);
+      if (!(l <= limit * (1 + 1e-9)) || !(ring <= limit * (1 + 1e-9)))
+        std::printf("  %s at %g: spoke %.6g, ring chord %.6g, limit %g\n", name, angle, l, ring, limit);
+      CHECK(l <= limit * (1 + 1e-9));
+      CHECK(ring <= limit * (1 + 1e-9));
+      CHECK(l > 0.5 * limit);
+    }
+}

@@ -66,18 +66,20 @@ double ringReach(const cadgeom::Surface& s, const PoleRing& ring, double r);
 /** The offset whose ring reaches `reach` (the reach grows with the offset near the pole), within the domain. */
 double ringRadius(const cadgeom::Surface& s, const PoleRing& ring, double reach);
 
-/** The pieces a run's ring is divided into at offset r: by the edge rules, the chords within the deflection, each
- * piece's tangent turning at most `angle`. */
+/** The pieces a run's ring is divided into at offset r: by the edge rules, the chords within the deflection and
+ * (where `maxEdge` is past 0) at most maxEdge long, each piece's tangent turning at most `angle`. */
 int ringPieces(const cadgeom::Surface& s, const PoleRing& ring, std::pair<double, double> run, double r,
-  double deflection, double angle);
+  double deflection, double angle, double maxEdge);
 
 /**
  * Face f's poles, each with the ring it asks for (wanted, reach and radius, before sharing). `criteria` judges the
  * fans (each ring piece's two ends and the pole, as the fans are meshed): accept() at a smooth pole, acceptDeviation()
- * at an apex-like one (no normal there to hold a triangle's to); `tol` the face's tolerance.
+ * at an apex-like one (no normal there to hold a triangle's to); `tol` the face's tolerance. Where `maxEdge` is past
+ * 0 (Deflections::maxEdge) the ring reaches at most that far, so the fans' spokes are no longer, and its pieces'
+ * chords are at most that long.
  */
 std::vector<PoleRing> facePoles(const cadgeom::Model& m, int f, const cadgeom::Surface& s, const FaceBoundary& fb,
-  const EdgeMesh& em, const SurfaceCriteria& criteria, double tol, double deflection, double angle);
+  const EdgeMesh& em, const SurfaceCriteria& criteria, double tol, double deflection, double angle, double maxEdge);
 
 /**
  * One reach per pole across the part's faces (poles within `tol` of one another are one): the least any face asks,
