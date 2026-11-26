@@ -196,6 +196,19 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
   // are times L.
   const curves = new Map<string, number | null>();
   const specs: Curve[] = [];
+  /**
+   * Whether a curve's parameter is an angle, so trims on it are in the file's angle unit: a circle's or an ellipse's,
+   * and so a trimmed, offset or surface curve's on one (each keeps its basis's parameter), however deeply wrapped.
+   * Only for a curve that has been read (a cycle fails reading first).
+   */
+  function angular(p: number): boolean {
+    if (r.is(p, 'CIRCLE') || r.is(p, 'ELLIPSE')) return true;
+    if (r.is(p, 'SURFACE_CURVE')) return angular(r.ref(p, 'curve_3d'));
+    if (r.is(p, 'TRIMMED_CURVE') || r.is(p, 'OFFSET_CURVE_3D') || r.is(p, 'OFFSET_CURVE_2D')) {
+      return angular(r.ref(p, 'basis_curve'));
+    }
+    return false;
+  }
   function curve(p: number, s: Scale = ONE): number | undefined {
     if (r.is(p, 'SURFACE_CURVE')) return curve(r.ref(p, 'curve_3d'), s);
     const key = isOne(s) ? `${p}` : `${p}:${s[0]}:${s[1]}`;
@@ -264,8 +277,7 @@ export function stepBrep(r: Reader, items: number[], o: StepBrepOptions, warn: W
     if (r.is(p, 'TRIMMED_CURVE')) {
       const bp = r.ref(p, 'basis_curve'), basis = curve(bp, s);
       if (basis === undefined) return note('a trimmed curve whose basis can\'t be read', p);
-      // Trim parameters on circles and ellipses are angles, in the file's unit.
-      const k = r.is(bp, 'CIRCLE') || r.is(bp, 'ELLIPSE') ? A : 1;
+      const k = angular(bp) ? A : 1;
       const trim = (name: string) => {
         const out: { parameter?: number; point?: Point } = {};
         for (const v of listOf(r.attr(p, name))) {

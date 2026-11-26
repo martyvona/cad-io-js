@@ -842,6 +842,18 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
       basis: b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 }),
       trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true, preference: 'parameter' }), distance: 1,
     selfIntersect: false, refDirection: [0, 0, 1] }), [0, -1, 0], [1, -1, 0]],
+    // A trim of an offset (1, reference direction z) of a line of magnitude 2 along x, trimmed 0.5..1.5: the trim's
+    // parameters the line's (times its magnitude in OCCT, through the offset): (1, -1) to (3, -1).
+    ['a trimmed offset line', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'offset',
+      basis: b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 2 }), distance: 1,
+      selfIntersect: false, refDirection: [0, 0, 1] }), trim1: { parameter: 0.5 }, trim2: { parameter: 1.5 },
+    sense: true, preference: 'parameter' }), [1, -1, 0], [3, -1, 0]],
+    // A trim 0..pi/2 of a trim 0..pi of an ellipse whose first semi-axis is the minor one (OCCT's shifted by pi/2,
+    // through the inner trim): (1, 0) to (0, 3).
+    ['a trimmed trimmed ellipse', (b) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'trimmed',
+      basis: b.addCurve({ kind: 'ellipse', position: XY, semiAxis1: 1, semiAxis2: 3 }), trim1: { parameter: 0 },
+      trim2: { parameter: Math.PI }, sense: true, preference: 'parameter' }), trim1: { parameter: 0 },
+    trim2: { parameter: Math.PI / 2 }, sense: true, preference: 'parameter' }), [1, 0, 0], [0, 3, 0]],
   ];
   for (const [what, make, p, q] of curveCases) {
     const b = new BrepBuilder();
@@ -929,6 +941,68 @@ test('the native route, parameters that only loose geometry shows: trimmed and o
     const got = faces(r2).get(5)!.area;
     assert.ok(Math.abs(got - 4 * Math.PI) < 0.02 * 4 * Math.PI || Math.abs(got - 12 * Math.PI) < 0.02 * 12 * Math.PI,
       `a lone boundary on a sphere: ${got}`);
+  }
+});
+
+test('the native route, composites as OCCT\'s STEP translator takes them: nested ones flattened, in a curve item and '
+  + 'in a curve-bounded face\'s boundary', { skip }, async () => {
+  const { step, native } = await both();
+  // Unit lines along x, trimmed 0..1: piece k from (k, 0) to (k + 1, 0), run forward or back.
+  const piece = (b: BrepBuilder, k: number) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line',
+    point: [k, 0, 0], direction: [1, 0, 0], magnitude: 1 }), trim1: { parameter: 0 }, trim2: { parameter: 1 },
+  sense: true, preference: 'parameter' });
+  const seg = (curve: number, sameSense: boolean) => ({ curve, sameSense, transition: 'continuous' as const });
+  // 0 to 4 along x: piece 0; then a composite run against itself of a composite of pieces 3 and 2 each run back
+  // (so 4 to 2, run back 2 to 4) and piece 1 run back (2 to 1, run back 1 to 2): 0..1, 1..2, 2..3, 3..4 in all.
+  const nested = (b: BrepBuilder) => {
+    const back = b.addCurve({ kind: 'composite', segments: [seg(piece(b, 3), false), seg(piece(b, 2), false)],
+      selfIntersect: false });
+    const inner = b.addCurve({ kind: 'composite', segments: [seg(back, true), seg(piece(b, 1), false)],
+      selfIntersect: false });
+    return b.addCurve({ kind: 'composite', segments: [seg(piece(b, 0), true), seg(inner, false)],
+      selfIntersect: false, id: 7 });
+  };
+  // Each route's polylines of curve 7, in order, each by its ends.
+  const polylines = (r: TessellationResult, id: number) => (r.curves ?? []).filter((c) => c.entityId === id)
+    .map((c) => [c.start, c.start + c.count - 1].map((k) => [0, 1, 2].map((j) => +r.curvePositions![3 * k + j]!
+      .toFixed(6))));
+  {
+    const b = new BrepBuilder();
+    b.addItem({ kind: 'curve', ref: nested(b), id: 7 });
+    const req = request(new Uint8Array(b.finish().buffer));
+    const r1 = await step.tessellate(req), r2 = await native.tessellate(req);
+    assert.deepEqual(r2.diagnostics.filter((d) => d.severity !== 'info'), []);
+    same(r1, r2, 'a nested composite curve item', 1e-9, req.data);
+    const got = polylines(r2, 7);
+    assert.deepEqual(got, polylines(r1, 7));
+    assert.deepEqual(got.map(([p, q]) => [p![0], q![0]].sort()), [[0, 1], [1, 2], [2, 3], [3, 4]]);
+  }
+  // A curve-bounded face: the rectangle 0..4 by 0..1, its bottom the nested composite (an edge on a composite, as
+  // the importer makes a boundary's composite segment), its other sides lines; against the STEP route too (the
+  // writer writing the composite untrimmed, whose translation flattens it).
+  {
+    const b = new BrepBuilder();
+    const c = [[4, 0, 0], [4, 1, 0], [0, 1, 0], [0, 0, 0]];
+    const sides = c.slice(0, 3).map((p, j) => { const q = c[j + 1]!, n = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+      return b.addEdge({ curve: b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: p,
+        direction: [(q[0]! - p[0]!) / n, (q[1]! - p[1]!) / n, 0], magnitude: 1 }), trim1: { parameter: 0 },
+      trim2: { parameter: n }, sense: true, preference: 'parameter' }), sameSense: true, id: 62 + j }); });
+    const bottom = b.addEdge({ curve: nested(b), sameSense: true, id: 61 });
+    const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, id: 5,
+      loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [bottom, ...sides].map((edge) => ({ edge,
+        orientation: 'forward' as const })) }] });
+    b.addItem({ kind: 'face', ref: face, id: 5 });
+    const req = request(new Uint8Array(b.finish().buffer));
+    const r1 = await step.tessellate(req), r2 = await native.tessellate(req);
+    assert.deepEqual(r2.diagnostics.filter((d) => d.severity !== 'info'), []);
+    same(r1, r2, 'a curve-bounded face with a nested composite segment', 1e-9, req.data);
+    const area = faces(r2).get(5)!.area;
+    assert.ok(Math.abs(area - 4) < 1e-6, `its area: ${area}`);
+    // The bottom's four pieces each an edge with its id, end to end along it.
+    assert.deepEqual((r2.edges ?? []).map((e) => e.entityId).sort(), [61, 61, 61, 61, 62, 63, 64]);
+    const pieces = (r2.edges ?? []).filter((e) => e.entityId === 61).map((e) => [e.start, e.start + e.count - 1]
+      .map((k) => +r2.edgePositions![3 * k]!.toFixed(6)).sort()).sort((p, q) => p[0]! - q[0]!);
+    assert.deepEqual(pieces, [[0, 1], [1, 2], [2, 3], [3, 4]]);
   }
 });
 
