@@ -148,6 +148,39 @@ test('closed forms: no p-curve (integrated along the edges\' curves), each curve
   }
 });
 
+test('closed forms on a cone: an edge off it taken to its nearest points, not to the cone at its height', async () => {
+  // A band of the cone of radius 2 at z = 0 and semi-angle b (70 degrees: shallow) up to z = H, its top circle moved d
+  // off the cone along the cone's normal (radius r + d cos b at height H - d sin b): its nearest points are the
+  // cone's circle at H, so the area is the band's, pi (2 + r) H / cos b (the same height's would be short by about
+  // d tan b times the circle's length). The seam's line runs from the bottom vertex to the top one, its feet on u = 0.
+  const { BrepBuilder } = await import('cad-brep');
+  const b = 70 * Math.PI / 180, H = 1, r = 2 + H * Math.tan(b);
+  for (const d of [0, 1e-3, 1e-2]) {
+    const B = new BrepBuilder({ uncertainty: 1e-6 });
+    const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+    const zt = H - d * Math.sin(b), rt = r + d * Math.cos(b);
+    const bottom = B.addCurve({ kind: 'circle', position: axis, radius: 2 });
+    const top = B.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, zt] }, radius: rt });
+    const len = Math.hypot(rt - 2, zt);
+    const seam = B.addCurve({ kind: 'line', point: [2, 0, 0], direction: [(rt - 2) / len, 0, zt / len], magnitude: 1 });
+    const v0 = B.addVertex({ point: [2, 0, 0] }), v1 = B.addVertex({ point: [rt, 0, zt] });
+    const eb = B.addEdge({ curve: bottom, start: v0, end: v0, sameSense: true, range: [0, 2 * Math.PI] });
+    const et = B.addEdge({ curve: top, start: v1, end: v1, sameSense: true, range: [0, 2 * Math.PI] });
+    const es = B.addEdge({ curve: seam, start: v0, end: v1, sameSense: true, range: [0, len] });
+    const cone = B.addSurface({ kind: 'cone', radius: 2, semiAngle: b, position: axis });
+    const face = B.addFace({ surface: cone, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: eb, orientation: 'forward' }, { edge: es, orientation: 'forward' },
+        { edge: et, orientation: 'reversed' }, { edge: es, orientation: 'reversed' }] }] });
+    const shell = B.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    B.addItem({ kind: 'body', ref: B.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const m = measure(B.finish()), want = Math.PI * (2 + r) * H / Math.cos(b);
+    assert.equal(m.method, 'closedForm');
+    assert.ok(Math.abs(m.area.value - want) <= 1e-9 * want, `d ${d}: ${m.area.value} against ${want}`);
+    assert.ok(Math.abs(m.boundary - d * 2 * Math.PI * rt) <= 0.01 * d * 2 * Math.PI * rt + 1e-12 + 2 * d * len,
+      `d ${d}: ${m.boundary}`);
+  }
+});
+
 test('closed forms on a sphere: an edge cut at the axis into runs takes the largest distance of any of them', async () => {
   // A circle through both poles of the sphere of radius 2, of radius 2 + d about (d, 0, 0), starting at the top: its
   // distance from the sphere about d (1 + sin t), 2d at t = pi / 2 (the first run's, to the axis near t = pi), about d
