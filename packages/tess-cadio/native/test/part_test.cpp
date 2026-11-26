@@ -2695,7 +2695,8 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   }
 }
 
-TEST_CASE("apexSector: a cone face reaching its apex and crossing u's seam, meshed in its development: its boundary "
+TEST_CASE("apexSector: a cone face reaching its apex and crossing u's seam, meshed in (u, v) or its development "
+  "(whichever its metric is nearer isotropic in): its boundary "
   "the edges' samples bit for bit, every triangle within d of the cone, nothing refused, in few rounds") {
   // (apexSector(2.5): seamCone's cone between the rulings at u = -2.5 and 2.5, from its apex to its base circle. Its
   // distance from the cone at a point: |rho - (z + 1)| / sqrt 2, rho the distance from the axis, z above -1.)
@@ -2730,6 +2731,31 @@ TEST_CASE("apexSector: a cone face reaching its apex and crossing u's seam, mesh
     CHECK_EQ(far, 0);
     CHECK_EQ(missing, 0);
   }
+}
+
+TEST_CASE("the developed plane taken only where the face's metric is nearer isotropic there (PartOptions::develop): "
+  "a cone to its apex, sized across by the angle, meshed as in (u, v) bit for bit; a vast half cylinder developed") {
+  // (apexSector at d 0.1 and 15 degrees: across, the angle's size, about half |R|, is under the sag's sqrt(8 d |R|)
+  // everywhere (|R| up to 1): a constant share of u, so (u, v) is the metric's uniform frame and its plane's stretch
+  // grows as 1 / rho towards the apex. cylinderVast, radius 8000: across the sag's 80 mm, a hundredth of u, along
+  // the same either way, so its plane divides the stretch by its radius.)
+  auto mesh = [](const char* name, bool develop) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.1, 0.26);
+    o.develop = develop;
+    PartMesher pm(m, o);
+    std::vector<double> out;
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& fm = pm.face(f);
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      for (int32_t v : fm.triangles) out.push_back(v);
+      for (const Vec3& p : fm.points) out.insert(out.end(), {p.x, p.y, p.z});
+    }
+    return out;
+  };
+  CHECK(mesh("apexSector", true) == mesh("apexSector", false));
+  CHECK(mesh("cylinderVast", true) != mesh("cylinderVast", false));
 }
 
 TEST_CASE("crowds through the developed plane (PartOptions::develop): thinTube's mesher points kept out of the band "

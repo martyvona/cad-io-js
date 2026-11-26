@@ -1697,9 +1697,47 @@ struct PartMesher::Impl {
    * Face f's developed plane (PartOptions::develop) for domain d: a cone's exact development (developCone), its apex
    * in the face or not; else the upper Cholesky factor of the mean first fundamental form over a 9 x 9 grid of the
    * domain's box, scaled so v keeps its unit; none where that form is degenerate or the identity, or the face has a
-   * pole's ring (the form vanishing towards it, one map for the face far off near it).
+   * pole's ring (the form vanishing towards it, one map for the face far off near it), or where the face's metric is
+   * no nearer isotropic in that plane than in (u, v) (nearerIsotropic).
    */
   Development developedMap(int f, const Domain2& d) const {
+    const Development dev = developedCandidate(f, d);
+    return dev.active() && nearerIsotropic(f, d, dev) ? dev : Development{};
+  }
+
+  /**
+   * Whether face f's criteria's metric over domain d is nearer isotropic through `dev` than in (u, v): its largest
+   * log stretch (half the log of its eigenvalues' ratio) over a 9 x 9 grid of the domain's box the lower. The first
+   * triangulation is Delaunay in its frame, and refinement builds the metric's anisotropy from it by thinness: a cone
+   * towards its apex, sized across by the angle (0.51 |R| at medium), is uniform in (u, v), stretch 14, but 21 to 319
+   * in its plane (nist_ctc_02 #20640: 37 triangles in (u, v), 736 and slivers developed); a band of a wide cone,
+   * |R| 95, the reverse (firetherm #168383's #223558: 2,450 in (u, v) with u in radians, 28 developed). The largest,
+   * not the mean: a grid even over the box weights an apex cone's rim, where its plane is near isotropic, as much as
+   * its ring, where the slivers come (#20640's means 2.69 and 2.68, its largest 2.79 and 5.77).
+   */
+  bool nearerIsotropic(int f, const Domain2& d, const Development& dev) const {
+    if (!criteria[f]) return true;
+    double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+    for (Vec2 q : d.points)
+      ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
+    auto stretch = [](const Metric2& M) {
+      const double h = 0.5 * (M.a + M.c), r = std::sqrt(std::max(0.0, h * h - (M.a * M.c - M.b * M.b)));
+      return h - r > 0 ? 0.5 * std::log((h + r) / (h - r)) : NAN;
+    };
+    double inUv = 0, inPlane = 0;
+    for (int i = 0; i <= 8; i++)
+      for (int j = 0; j <= 8; j++) {
+        const Vec2 uv{ulo + (uhi - ulo) * i / 8, vlo + (vhi - vlo) * j / 8};
+        const Metric2 M = criteria[f]->metric(uv);
+        const double a = stretch(M), b = stretch(dev.metric(uv, M));
+        if (!std::isfinite(a) || !std::isfinite(b)) continue;
+        inUv = std::max(inUv, a), inPlane = std::max(inPlane, b);
+      }
+    return inPlane < inUv || (inUv == 0 && inPlane == 0);
+  }
+
+  /** Face f's developed plane as developedMap describes it, before the isotropy test (nearerIsotropic). */
+  Development developedCandidate(int f, const Domain2& d) const {
     if (!surfaces[f]) return {};
     if (m.surfaceKind(m.faceSurface(f)) == CBR_SURFACE_CONE) {
       ConeMap cone;
