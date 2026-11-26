@@ -19,7 +19,6 @@
 
 import { openAnalysis, openBrep, type BrepAnalysis, type BrepData } from 'cad-brep';
 import * as THREE from 'three';
-import { biasTowardCamera } from './depth-bias.ts';
 import { faceFailures, instances, partInstances, placedName, stretchWords, type FaceFailure, type Mat4, type Measures,
   type Mesh, type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
@@ -99,12 +98,11 @@ interface MeshedPart {
 }
 
 /**
- * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), in red (so where they should be can be
- * found). The tree marks their nodes the same red (tree-panel.ts).
+ * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), objects drawn as nothing here, kept
+ * for picking (pick-ids.ts draws their ids) and highlights: the Viewer's alerts draw them, over everything (so where
+ * they should be can be found). The tree marks their nodes red (tree-panel.ts).
  */
-export const FAILED_COLOR = 0xe02020;
-// (Drawn in front of the black edges along the same B-rep edges: depth-bias.ts.)
-const OUTLINE = biasTowardCamera(new THREE.LineBasicMaterial({ color: FAILED_COLOR }));
+export const OUTLINE = new THREE.LineBasicMaterial({ colorWrite: false, depthWrite: false });
 
 /** Hidden faces' triangles: drawn with nothing. */
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
@@ -461,11 +459,10 @@ export class SceneGraph implements Looks {
         obj.add(d);
       }
       this.addVertices(part, obj);
-      // (On the edges' layer too, so fat edges draw them fat; picked as their face.)
+      // (Picked as their face.)
       for (const [source, g] of outlines) {
         const l = Object.assign(new THREE.LineSegments(g, OUTLINE), { name: 'outline' });
         l.userData.outlineFace = source;
-        l.layers.enable(EDGES);
         l.visible = !faceHidden(this.looks.get(instance), source);
         obj.add(l);
       }

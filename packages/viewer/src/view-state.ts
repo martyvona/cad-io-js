@@ -79,7 +79,7 @@ const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'sele
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
   'hatchWidth', 'depthOffset', 'highlightWidth'] as const;
 /** Colours, `#rrggbb`, in links as the six digits. */
-const COLOURS = ['highlightColor', 'selectionColor'] as const;
+const COLOURS = ['highlightColor', 'selectionColor', 'alertColor'] as const;
 /** Settings that are one of a few words. */
 const CHOICES = { edgeStyle: ['thin', 'fat'], capStyle: ['drawing', 'parts'] } as const;
 

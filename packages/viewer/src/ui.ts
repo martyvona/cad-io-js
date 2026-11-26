@@ -757,9 +757,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   edgeWidth.show(look.edgeStyle === 'fat');
   // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
   rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
-  // Vertices' dots and failed faces' outlines toward the camera (depth-bias.ts): the faces they lie on cut into them
-  // with less, what's just behind a face shows through it with more.
-  rendering.add(look, 'depthOffset', 0, 16, 0.5).name('Depth offset (pixels)').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
@@ -776,6 +773,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   rendering.addColor(look, 'highlightColor').name('Highlight colour').onChange(restyle);
   rendering.add(look, 'highlightWidth', 0.5, 8, 0.25).name('Highlight width (pixels)').onChange(restyle);
   rendering.addColor(look, 'selectionColor').name('Selection colour').onChange(restyle);
+  // Alerts (Viewer.alerts: failed faces' outlines) drawn over everything.
+  rendering.addColor(look, 'alertColor').name('Alert colour').onChange(restyle);
   // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
   // theme's colour); remembered in this browser.
   const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));

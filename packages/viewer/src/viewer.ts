@@ -26,9 +26,12 @@ import { Highlights, type Highlight } from './outline.ts';
 import { Composer } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
+import { faceEdges } from './geometry-info.ts';
+import { Marks } from './marks.ts';
+import { alertForNode, type Piece } from './selection.ts';
 import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
-import { biasFor, depthBias } from './depth-bias.ts';
+import { biasFor, depthBias, dotBias, EDGE_BIAS_PIXELS } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
@@ -251,6 +254,14 @@ export class Viewer {
   private readonly idCamera = new THREE.Matrix4();
   /** The highlight (outline.ts): what the pointer is over, at the pick level (ui.ts sets it, from onHover). */
   readonly highlights = new Highlights();
+  /**
+   * Alerts: the failed faces' outlines and the nodes `alertNodes` gives, their lines (a vertex's or point's dot) drawn
+   * again in the alert colour over everything, after the model (neither depth test nor write); made again when meshes
+   * or models change, following their sources' visibility and placement each frame.
+   */
+  readonly alerts = new Marks('alerts', { grow: 0, onTop: true });
+  private alerted: readonly number[] = [];
+  private alertsStale = true;
   /** Where the mouse is over the view, no button down (client pixels); undefined elsewhere. */
   private hoverAt?: { x: number; y: number };
   /** What the pointer was last found over (a key: hoverKey), so onHover is told of changes only. */
@@ -329,7 +340,8 @@ export class Viewer {
     this.headlight.position.set(1, 1, 2);
     this.camera.add(this.headlight, this.headlight.target);
     this.scene.add(this.camera, this.display);
-    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group, this.highlights.group);
+    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group, this.highlights.group,
+      this.alerts.group);
     this.composer.setFinal(this.highlights.pass);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
@@ -674,8 +686,9 @@ export class Viewer {
     this.controls.update();
     this.shift();
     clipTo(this.camera, this.bounds);
-    depthBias.value = biasFor(this.render.depthOffset, this.pixelSize(),
-      meshDeflections(deflectionsOf(this.settings)).linearDeflection);
+    const deflection = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
+    depthBias.value = biasFor(EDGE_BIAS_PIXELS, this.pixelSize(), deflection);
+    dotBias.value = biasFor(this.render.depthOffset, this.pixelSize(), deflection);
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     const fat = this.render.edges && this.render.edgeStyle === 'fat';
@@ -698,6 +711,9 @@ export class Viewer {
     if (this.hoverAt && this.idFresh) this.resolveHover();
     this.highlights.update(this.renderer, this.camera, this.idFresh ? this.idPass.target : undefined,
       this.idFresh ? this.idPass.ids.idsOf(this.highlights.outlinePieces) : [], (m) => this.pointPixels(m));
+    if (this.alertsStale) this.makeAlerts();
+    this.alerts.setWidth(fat ? this.render.edgeWidth : 1);
+    this.alerts.update();
     // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
     // picking.
     if (fat) this.camera.layers.disable(EDGES);
@@ -761,6 +777,7 @@ export class Viewer {
     this.sections.setStyle(s.capStyle);
     this.sections.setHatchWidth(s.hatchWidth);
     this.highlights.setColor(parseInt(s.highlightColor.slice(1), 16));
+    this.alerts.setColor(parseInt(s.alertColor.slice(1), 16));
     this.display.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) {
@@ -849,7 +866,8 @@ export class Viewer {
   /** Draws the ids of what the camera shows now (pick-ids.ts). */
   private renderIds(): void {
     this.idPass.render(this.renderer, this.scene, this.camera, this.camera.layers.mask, this.root ? this.display
-      : undefined, [this.fatEdges.group, this.triangleEdges.group, this.highlights.group], (m) => this.pointPixels(m));
+      : undefined, [this.fatEdges.group, this.triangleEdges.group, this.highlights.group, this.alerts.group],
+      (m) => this.pointPixels(m));
     this.idCamera.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.idFresh = true;
   }
@@ -925,6 +943,29 @@ export class Viewer {
   }
 
   /** Highlights these (outline.ts), in place of the last; none: nothing. */
+  /** Alerts these nodes (in place of the last), besides the failed faces (`alerts`). */
+  alertNodes(ids: readonly number[]): void {
+    this.alerted = [...ids];
+    this.alertsStale = true;
+    this.redraw();
+  }
+
+  /** The alerts made again: every failed face's outline, and the alerted nodes' pieces (selection.ts). */
+  private makeAlerts(): void {
+    this.alertsStale = false;
+    const pieces: Piece[] = [];
+    this.root?.traverse((o) => {
+      if (o.userData.outlineFace !== undefined) pieces.push({ object: o as THREE.LineSegments });
+    });
+    const graph = this.graph, nodes = this.nodes;
+    const edgesOf = (part: number, face: number) => {
+      const d = graph?.modelOf(part);
+      return d ? faceEdges(d, face) : [];
+    };
+    if (nodes) for (const id of this.alerted) pieces.push(...alertForNode(nodes, id, edgesOf));
+    this.alerts.set(pieces);
+  }
+
   setHighlight(h: Highlight | undefined): void {
     this.highlights.set(h ?? { outline: [], marks: [] });
     if (!this.drawing) this.redraw();
@@ -950,6 +991,7 @@ export class Viewer {
   private show(root: THREE.Object3D, model: ModelInfo, looks: Looks | undefined, keep: boolean): void {
     this.clear();
     this.setHighlight(undefined);
+    this.alerted = [];
     this.hovered = '';
     this.root = root;
     this.nodes = new NodeModel(root, looks);
@@ -969,6 +1011,7 @@ export class Viewer {
     this.fit.start();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
+    this.alertsStale = true;
     this.transparencyStale = true;
     this.sections.invalidate();
     this.onModel?.(this.nodes);
@@ -1171,6 +1214,7 @@ export class Viewer {
   private modelChanged(graph: SceneGraph, part: number): void {
     if (graph !== this.graph) return;
     for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+    this.alertsStale = true;
     this.onMeshes?.();
     this.redraw();
   }
@@ -1229,6 +1273,7 @@ export class Viewer {
     const edgesAdded = (part: number) => {
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.fatEdges.invalidate();
+      this.alertsStale = true;
       this.onMeshes?.();
     };
     const added = (part: number, mesh: Mesh) => this.partChanged(graph!, part, mesh);
@@ -1340,6 +1385,7 @@ export class Viewer {
     this.sections.invalidate();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
+    this.alertsStale = true;
     this.transparencyStale = true;
     this.onMeshes?.();
   }

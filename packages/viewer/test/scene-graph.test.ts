@@ -179,11 +179,11 @@ test('the fallback: SMLib for OCCT by default; none, the backend itself or none 
   assert.equal(fallbackOf({ backend: 'occt' } as Parameters<typeof fallbackOf>[0]), undefined);
 });
 
-test('faces that failed to mesh: outlined in red per placement, marked failed, hidden with their face, picked as it',
+test('faces that failed to mesh: outlines per placement (drawn by the alerts), marked failed, hidden with their face, picked as it',
   async () => {
     const { NodeModel } = await import('../src/model.ts');
-    const { nodeForPick, piecesOf } = await import('../src/selection.ts');
-    const { FAILED_COLOR } = await import('../src/scene-graph.ts');
+    const { alertForNode, nodeForPick, piecesOf } = await import('../src/selection.ts');
+    const { OUTLINE } = await import('../src/scene-graph.ts');
     const graph = new SceneGraph(scene(), 'model');
     // The plate with face 7 failed (a range of none) and its outline: two polylines.
     const m: Mesh = { ...plate(), indices: Uint32Array.of(0, 1, 2), faces: [{ source: 8, start: 0, count: 3 },
@@ -196,10 +196,11 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
       const lines = o.children.filter((c) => c.name === 'outline') as THREE.LineSegments[];
       assert.equal(lines.length, 1);
       assert.equal(lines[0]!.userData.outlineFace, 7);
-      assert.equal((lines[0]!.material as THREE.LineBasicMaterial).color.getHex(), FAILED_COLOR);
+      // (Drawn as nothing: the Viewer's alerts draw them.)
+      assert.ok(lines[0]!.material === OUTLINE && !OUTLINE.colorWrite && !OUTLINE.depthWrite);
       // Three segments: two in the first polyline, one in the second, none across.
       assert.deepEqual(Array.from(lines[0]!.geometry.index!.array), [0, 1, 1, 2, 3, 4]);
-      assert.ok(lines[0]!.layers.isEnabled(0) && lines[0]!.layers.isEnabled(EDGES));
+      assert.ok(lines[0]!.layers.isEnabled(0) && !lines[0]!.layers.isEnabled(EDGES));
     }
     const model = new NodeModel(graph.root, graph);
     model.setDetail(true);
@@ -221,6 +222,27 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     assert.equal(nodeForPick(model, line, undefined, 'detail'), failed);
     assert.equal(nodeForPick(model, line, undefined, 'part'), parts[0]!.id);
     assert.ok(piecesOf(model, [failed]).some((p) => p.object === line && !p.ranges));
+    // Alerts (Viewer.alerts): a face's lines, never its triangles: its outline where it failed, and its edges as its
+    // part's B-rep gives them (here edge 4 for face 7); a part's every line, whole; an edge itself; an edges group its
+    // members; nothing for a node that isn't there.
+    const edgesOf = (_part: number, face: number) => face === 7 ? [4] : [];
+    const said = (pieces: { object: THREE.Object3D; ranges?: { start: number; count: number }[] }[]) =>
+      pieces.map((p) => `${p.object.name}${p.ranges ? ':' + p.ranges.map((r) => `${r.start}+${r.count}`).join() : ''}`)
+        .sort();
+    const placed = objs[0]!;
+    assert.deepEqual(said(alertForNode(model, failed, edgesOf)), ['edges:0+2', 'outline']);
+    assert.deepEqual(said(alertForNode(model, failed)), ['outline']);
+    assert.deepEqual(said(alertForNode(model, ok, edgesOf)), []);
+    assert.deepEqual(said(alertForNode(model, parts[0]!.id, edgesOf)), ['edges', 'outline']);
+    const groups = detailOf(model, parts[0]!.id);
+    const group = (k: string) => groups.find((c) => model.nodes[c]!.kind === k)!;
+    assert.deepEqual(said(alertForNode(model, group('faces'))), ['edges', 'outline']);
+    assert.deepEqual(said(alertForNode(model, group('edges'))), ['edges']);
+    const edge4 = detailOf(model, parts[0]!.id).find((c) => model.nodes[c]!.item?.source === 4)!;
+    assert.deepEqual(said(alertForNode(model, edge4)), ['edges:0+2']);
+    assert.ok(alertForNode(model, failed, edgesOf).every((p) => p.object.parent === placed || p.object === placed
+      .children.find((c) => c.name === 'edges')));
+    assert.deepEqual(alertForNode(model, 9999), []);
     // A part whose faces all failed (no triangles: a group, no mesh): failed.
     const graph2 = new SceneGraph(scene(), 'model');
     graph2.addMesh(0, { origin: [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(),

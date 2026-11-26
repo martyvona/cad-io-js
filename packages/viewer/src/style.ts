@@ -29,8 +29,9 @@ export interface RenderSettings {
   /** The model's B-rep vertices as discs in the edges' colour (vertex-points.ts), a little wider than the edges. */
   vertices: boolean;
   /**
-   * How far the vertices' dots and failed faces' outlines are drawn toward the camera, in the view's pixels
-   * (depth-bias.ts): so the faces they lie on don't cut into them; what's behind a face by less shows through it.
+   * How far the vertices' dots and edges' highlights are drawn toward the camera, in the view's pixels (depth-bias.ts):
+   * so the faces they lie on don't cut into them; what's behind a face by less shows through it. No control: 0 by
+   * default (vertices popped through nearer faces), a link may still set it.
    */
   depthOffset: number;
   /** Phong shininess of faces. */
@@ -49,9 +50,12 @@ export interface RenderSettings {
   highlightWidth: number;
   /** The selection's tint (selection.ts), `#rrggbb`. */
   selectionColor: string;
+  /** Alerts' colour (alerts, Viewer.alerts: failed faces' outlines), `#rrggbb`. */
+  alertColor: string;
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
-  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, depthOffset: 2, triangleEdges: 'off',
+  smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, depthOffset: 0, triangleEdges: 'off',
   shininess: 30, specular: 0.2, ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH,
-  highlightColor: '#ffe100', highlightWidth: 2.5, selectionColor: '#ff9a2e' };
+  highlightColor: '#ffe100', highlightWidth: 2.5, selectionColor: '#ff9a2e',
+  alertColor: '#ff0000' };

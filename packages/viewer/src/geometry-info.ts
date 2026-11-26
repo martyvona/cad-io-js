@@ -5,7 +5,8 @@
 // the analysis's shell volumes (the oracle's, where healing measured them) and by its mesh's triangles. Rows are
 // found by the source id the mesh and the tree's nodes carry (each table's `id` column).
 
-import { BODY_KIND, decode, rowCount, type BrepAnalysis, type BrepData, type Curve, type Surface } from 'cad-brep';
+import { BODY_KIND, decode, LOOP_KIND, rowCount, type BrepAnalysis, type BrepData, type Curve, type Surface }
+  from 'cad-brep';
 import type { Mesh } from 'cad-scene';
 
 /** What an icon shows: a surface's or curve's kind as the model names it, a wrapper's (trimmed, offset) its basis's. */
@@ -189,6 +190,22 @@ export function geometryText(d: BrepData, kind: 'face' | 'edge' | 'curve', id: n
   }
   const c = kind === 'edge' ? edgeCurve(d, id) : itemCurve(d, id);
   return c === undefined ? undefined : `Curve: ${curveText(d, c)}`;
+}
+
+/** The edges a face's edge loops run through, by id; none for an unknown face or one without edge loops. */
+export function faceEdges(d: BrepData, id: number): number[] {
+  const f = rowOf(d, 'face', id);
+  const edges = new Set<number>();
+  if (f === undefined) return [];
+  const first = d.face.firstLoop[f]!;
+  for (let l = first; l < first + d.face.loopCount[f]!; l++) {
+    if (d.loop.kind[l] !== LOOP_KIND.edge) continue;
+    for (let c = d.loop.first[l]!; c < d.loop.first[l]! + d.loop.count[l]!; c++) {
+      const e = d.edge.id[d.coedge.edge[c]!]!;
+      if (e) edges.add(e);
+    }
+  }
+  return [...edges];
 }
 
 /** A vertex's point in its part's frame (mm), by its id. */

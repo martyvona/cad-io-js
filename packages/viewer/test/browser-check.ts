@@ -2831,8 +2831,12 @@ await check('failed faces', async () => {
     const m = viewer.nodes, parts = m.nodes.filter((n) => n.kind === 'part');
     const outlines = [];
     viewer.display.traverse((o) => { if (o.name === 'outline') outlines.push(o); });
+    // The outlines drawn as nothing in the model, by the alerts over everything, in the alert colour.
+    const alertLines = viewer.alerts.group.children;
     const out = { failedCount: viewer.model.parts.failed, total: viewer.model.parts.total, outlines: outlines.length,
-      red: outlines.every((o) => o.material.color.getHex() === 0xe02020),
+      red: outlines.every((o) => o.material.colorWrite === false) && alertLines.length === outlines.length &&
+        alertLines.every((o) => o.material.color.getHex() === 0xff0000 && !o.material.depthTest &&
+        !o.material.depthWrite),
       partsFailed: parts.filter((n) => m.failure(n.id) === 'failed').length, parts: parts.length,
       // (Placed parts with triangles drawn, the rest.)
       meshed: parts.filter((n) => { let t = false; n.object?.traverse((o) => { t ||= !!o.isMesh
@@ -2851,12 +2855,31 @@ await check('failed faces', async () => {
     out.row = row ? { failed: row.classList.contains('failed'), broken: !!row.querySelector('.tree-icon.broken'),
       colour: getComputedStyle(row).color } : null;
     out.details = ui.details();
+    // The Alert colour; any node alerted (its lines: a part's edges, curves and outlines), then none but the failed.
+    // (Rendering's controls: Alert colour; no Depth offset, its setting 0.)
+    const controls = ui.gui.controllersRecursive();
+    controls.find((c) => c._name === 'Alert colour').setValue('#00c000');
+    out.green = viewer.alerts.line.color.getHex() === 0x00c000 && viewer.alerts.dots.color.getHex() === 0x00c000 &&
+      !controls.some((c) => /^Depth offset/.test(c._name)) && viewer.render.depthOffset === 0;
+    controls.find((c) => c._name === 'Alert colour').setValue('#ff0000');
+    // (Every part may have failed: its outlines alerted again with it.)
+    const one = parts.find((n) => m.failure(n.id) !== 'failed') ?? parts[0];
+    let lines = 0;
+    one.object.traverse((o) => { if (o.isLineSegments) lines++; });
+    viewer.alertNodes([one.id]);
+    viewer.draw();
+    out.alerted = [viewer.alerts.count - outlines.length, lines];
+    viewer.alertNodes([]);
+    viewer.draw();
+    out.cleared = viewer.alerts.count === outlines.length;
     return out;
   })()`) as { after: { failedCount: number; total: number; outlines: number; red: boolean; partsFailed: number;
     parts: number; meshed: number; picked: string[]; row: { failed: boolean; broken: boolean; colour: string } | null;
-    details: string[] } };
+    details: string[]; green: boolean; alerted: number[]; cleared: boolean } };
   const a = r.after, j = JSON.stringify(a);
   expect(a.total > 0 && a.failedCount > 0 && a.outlines > 0 && a.red, `the failed parts outlined in red: ${j}`);
+  expect(a.green && a.alerted[0]! > 0 && a.alerted[0] === a.alerted[1] && a.cleared,
+    `the alert colour; a node alerted, then none: ${j}`);
   expect(a.partsFailed > 0 && a.partsFailed + a.meshed === a.parts, `every part not meshed marked failed: ${j}`);
   expect(a.picked.length === 1 && a.picked[0] === 'face:failed', `an outline picks its face: ${j}`);
   // (Red in either theme: #d32f2f light, #ff6b6b dark, as the system prefers.)
@@ -2886,8 +2909,8 @@ await check('failed faces', async () => {
       rows.push(!!row && row.classList.contains('failed') && !!row.querySelector('.tree-icon.broken'));
     }
     const rowsRed = rows.filter((x) => x).length;
-    // The outlines drawn red over the black edges along the same B-rep edges (depth-bias.ts), thin and fat: each
-    // outline seen close, the pixels at its segments' midpoints read back.
+    // The outlines drawn red by the alerts over everything (the black edges along the same B-rep edges, the faces in
+    // front), thin and fat: each outline seen close, the pixels at its segments' midpoints read back.
     const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
     const frames = (n) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
     const lines = [];
@@ -2934,11 +2957,10 @@ await check('failed faces', async () => {
   expect(b.rows > 0 && b.rowsRed === b.rows, `broken rows not all red: ${b.rowsRed} of ${b.rows}`);
   expect(b.outlines > 0 && b.partly > 0 && b.faces >= b.partly && b.red > 0 && b.failedParts === 0,
     `the bicycle's failed faces: ${JSON.stringify(b)}`);
-  // Black where the red outline should be, at its midpoints (OCCT's meshes, its measures replaced by the area
-  // oracle's where they disagree): without the bias 242 fat and 110 thin of 2,011; with it 6 and 12 (thin lines lose
-  // more to the faces beside them, behind which the file's curve can lie).
-  expect(b.fat.all > 1000 && b.fat.black <= b.fat.all / 250 && b.thin.black <= b.thin.all / 50,
-    `outlines under the black edges: ${JSON.stringify({ thin: b.thin, fat: b.fat })}`);
+  // Red at the outlines' midpoints (OCCT's meshes, its measures replaced by the area oracle's where they disagree):
+  // over everything, 2,005 thin and 2,006 fat of 2,011, none black (a few midpoints off the view's pixels).
+  expect(b.fat.all > 1000 && b.fat.red >= 0.99 * b.fat.all && b.thin.red >= 0.99 * b.thin.all && b.fat.black === 0 &&
+    b.thin.black === 0, `outlines not drawn over everything: ${JSON.stringify({ thin: b.thin, fat: b.fat })}`);
   return undefined;
 });
 // B-Rep Meshing's Timeout: a limit too short for most parts (a millisecond) fails them, timed out (said in the
@@ -5786,7 +5808,6 @@ await check('vertices', async () => {
     out.wide = { edgeWidth: 6, ...width(frame()) };
     set({ depthOffset: 0 });
     out.flat = width(frame());
-    set({ depthOffset: 2 });
     set({ edgeStyle: 'thin' });
     out.thin = width(frame());
     out.ratio = ratio;

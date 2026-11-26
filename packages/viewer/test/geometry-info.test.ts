@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BrepBuilder, writeAnalysis, type BrepData } from 'cad-brep';
 import type { Mesh } from 'cad-scene';
-import { geometryKind, geometryOf, geometryText, meshVolume, oracleVolume, rowOf, vertexPoint } from '../src/geometry-info.ts';
+import { faceEdges, geometryKind, geometryOf, geometryText, meshVolume, oracleVolume, rowOf, vertexPoint } from '../src/geometry-info.ts';
 
 const XY = { origin: [1, 2, 3], axis: [0, 0, 1], xDir: [1, 0, 0] };
 
@@ -102,6 +102,25 @@ test('geometry: names with their wrappers, outermost first, a word repeated once
   assert.deepEqual(named('edge', [11, 12, 13, 14, 15]), ['curve:circle: circle', 'curve:circle: trimmed circle',
     'curve:circle: offset trimmed circle', 'curve:circle: trimmed circle', 'curve:offset: offset curve']);
   assert.equal(geometryOf(d, 'face', 99), undefined);
+});
+
+test("geometry: a face's edges by id: each once (a seam used twice), its edge loops', a vertex loop's none", () => {
+  const b = new BrepBuilder();
+  const plane = b.addSurface({ kind: 'plane', position: XY });
+  const v = [0, 1, 2].map((i) => b.addVertex({ point: [i, i * i, 0] }));
+  const line = () => b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [1, 0, 0], magnitude: 1 });
+  const e = [[51, 0, 1], [52, 1, 2], [53, 2, 0], [0, 0, 2]].map(([id, a, z]) => b.addEdge({ ...(id ? { id } : {}),
+    curve: line(), start: v[a!]!, end: v[z!]!, sameSense: true }));
+  const use = (edge: number) => ({ edge, orientation: 'forward' as const });
+  b.addFace({ id: 60, surface: plane, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: [use(e[0]!), use(e[1]!), use(e[2]!), use(e[1]!)] }, { kind: 'edge', bound: 'inner', sense: true,
+    coedges: [use(e[3]!)] }] });
+  b.addFace({ id: 61, surface: plane, sameSense: true, loops: [{ kind: 'vertex', bound: 'outer', sense: true,
+    vertex: v[0]! }] });
+  const d = b.finish();
+  assert.deepEqual(faceEdges(d, 60), [51, 52, 53]);
+  assert.deepEqual(faceEdges(d, 61), []);
+  assert.deepEqual(faceEdges(d, 99), []);
 });
 
 test("geometry: Details' words, parameters in millimetres and degrees, B-splines summarized", () => {

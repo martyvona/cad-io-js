@@ -5,12 +5,12 @@
 // default layer, so it shows whatever Vertices is. The dots' size and the depth bias are uniforms every copy shares
 // (a selection's tint is a clone: copy below), set before each frame (setDotSize). They test depth but don't write it
 // (a nearer disc's rim, written, would cut into a farther one beside it), and are drawn toward the camera by the
-// outlines' depth bias (depth-bias.ts), so the faces they lie on don't cut into them; clipped by the section planes as
-// everything is. Blended at the rim, so transparent, which the Viewer's search for transparent materials passes over
-// (`userData.dots`): they'd otherwise turn on the composer's transparency handling.
+// dots' depth bias (depth-bias.ts: none by default), so the faces they lie on don't cut into them; clipped by the
+// section planes as everything is. Blended at the rim, so transparent, which the Viewer's search for transparent
+// materials passes over (`userData.dots`): they'd otherwise turn on the composer's transparency handling.
 
 import * as THREE from 'three';
-import { depthBias } from './depth-bias.ts';
+import { dotBias } from './depth-bias.ts';
 import type { EdgeStyle } from './fat-edges.ts';
 
 /**
@@ -84,8 +84,8 @@ void main() {
 export class DiscMaterial extends THREE.ShaderMaterial {
   constructor(color: THREE.ColorRepresentation = 0x000000) {
     super({ vertexShader: VERTEX, fragmentShader: FRAGMENT, clipping: true, transparent: true, depthWrite: false,
-      uniforms: { color: { value: new THREE.Color(color) }, opacity: { value: 1 }, size, radius, ratio, depthBias,
-        grow: { value: 0 } } });
+      uniforms: { color: { value: new THREE.Color(color) }, opacity: { value: 1 }, size, radius, ratio,
+        depthBias: dotBias, grow: { value: 0 } } });
     this.userData.dots = true;
   }
 
@@ -99,7 +99,7 @@ export class DiscMaterial extends THREE.ShaderMaterial {
     this.uniforms.size = size;
     this.uniforms.radius = radius;
     this.uniforms.ratio = ratio;
-    this.uniforms.depthBias = depthBias;
+    this.uniforms.depthBias = dotBias;
     return this;
   }
 }
