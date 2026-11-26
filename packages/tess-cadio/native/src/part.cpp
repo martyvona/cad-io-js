@@ -279,6 +279,7 @@ struct PartMesher::Impl {
     e.projectMissingPcurves = o.projectMissingPcurves;
     e.deflection = o.d.linear;
     e.angle = o.d.angular;
+    if (o.d.maxEdge > 0) e.maxSpacing = o.d.maxEdge;
     e.analysis = o.analysis, e.analysisSize = o.analysisSize;
     return e;
   }

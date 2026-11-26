@@ -1040,6 +1040,11 @@ private:
       if (h1 > d_.stretchCap * h2) h1 = d_.stretchCap * h2;
       else if (h2 > d_.stretchCap * h1) h2 = d_.stretchCap * h1;
     }
+    // (Deflections::maxEdge: over sqrt 2, the longest edge the mesher accepts in its metric.)
+    if (d_.maxEdge > 0) {
+      const double cap = d_.maxEdge / std::sqrt(2.0);
+      h1 = std::min(h1, cap), h2 = std::min(h2, cap);
+    }
     double s1 = length2({E, F, G}, x1.x, x1.y);
     if (!(s1 > 0) || r <= 1e-12 * (std::fabs(H) + 1e-300) || !std::isfinite(s1)) {
       // An umbilic (or no curvature): every direction alike, the smaller size.

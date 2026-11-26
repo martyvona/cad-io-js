@@ -6,6 +6,7 @@
 #include <tess_cadio/criteria.h>
 #include <tess_cadio/edges.h>
 #include <tess_cadio/part.h>
+#include <tess_cadio/part_size.h>
 
 #include <cad_geom/surface.h>
 #include <cad_geom/tolerance.h>
@@ -3887,3 +3888,87 @@ TEST_CASE("a sphere face bounded by one plain circle is the side its loop's dire
   }
 }
 
+
+TEST_CASE("maxEdge: no triangle edge on a long plate or a long band past it; partSize the box's diagonal, a whole "
+  "sphere's from its surface") {
+  auto load = [](const char* name) {
+    const tessfixtures::Model* t = tessfixtures::model(name);
+    return t ? std::vector<uint8_t>(t->data, t->data + t->size) : std::vector<uint8_t>{};
+  };
+  auto longest = [](const FaceMesh& fm) {
+    double l = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      for (int k = 0; k < 3; k++)
+        l = std::max(l, norm(fm.points[fm.triangles[t + (k + 1) % 3]] - fm.points[fm.triangles[t + k]]));
+    return l;
+  };
+  // (Off, each face's longest edge is far past the limits tested: the plate's two triangles' diagonal, the band's
+  // straight lines along it. The sweep's normal inward, its principal curvatures the other way round.)
+  for (auto [name, size, limit] : {std::tuple{"longPlate", std::hypot(100.0, 4.0), 3.0},
+         std::tuple{"longBand", std::sqrt(4 * 4 + 4 * 4 + 100.0 * 100), 1.5},
+         std::tuple{"longSweep", std::sqrt(4 * 4 + 4 * 4 + 100.0 * 100), 1.5}}) {
+    std::vector<uint8_t> b = load(name);
+    REQUIRE(!b.empty());
+    const cadgeom::Model m(b.data(), b.size());
+    CHECK(std::fabs(partSize(m) - size) <= 1e-9 * size);
+    PartMesher off(m, options(0.1, 0.26));
+    REQUIRE(off.face(0).status == cadgeom::Status::ok);
+    CHECK(longest(off.face(0)) > 4 * limit);
+    PartOptions o = options(0.1, 0.26);
+    o.d.maxEdge = limit;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    if (fm.status != cadgeom::Status::ok) std::printf("  %s: %s\n", name, fm.cause.c_str());
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    const double l = longest(fm);
+    if (!(l <= limit * (1 + 1e-9))) std::printf("  %s: longest edge %.6g, limit %.6g\n", name, l, limit);
+    CHECK(l <= limit * (1 + 1e-9));
+    // (Not much finer than it asks: the longest edge within a factor 2 of it.)
+    CHECK(l > 0.5 * limit);
+  }
+  {
+    std::vector<uint8_t> b = load("wholeSphereVertex");
+    REQUIRE(!b.empty());
+    const cadgeom::Model m(b.data(), b.size());
+    CHECK(std::fabs(partSize(m) - 2 * std::sqrt(3.0)) <= 1e-9);
+  }
+  // A lune across the seam, its (u, v) box its own patch, not the rest of the sphere, a hole's feet past the seam
+  // from its outer loop's joined to it; a half disc's arc without a range, its vertices' parameters bounding it, not
+  // its whole circle; a quarter disc's, its end's parameter (0) taken a period on; a torus's band the wider way round
+  // between its circles, from the one it lies above to the one it lies below (the narrower way, its inside, sqrt 53).
+  for (auto [name, size] : {std::pair{"luneAcrossSeam", std::sqrt(1 + 4 * std::pow(std::sin(M_PI / 8), 2) + 4)},
+         std::pair{"luneHoleAcrossSeam", std::sqrt(1 + 4 * std::pow(std::sin(M_PI / 8), 2) + 4)},
+         std::pair{"halfDisc", std::sqrt(5.0)}, std::pair{"quarterDisc", std::sqrt(2.0)},
+         std::pair{"torusOuterBand", std::sqrt(132.0)}}) {
+    std::vector<uint8_t> b = load(name);
+    REQUIRE(!b.empty());
+    const cadgeom::Model m(b.data(), b.size());
+    const double got = partSize(m);
+    if (!(std::fabs(got - size) <= 1e-9 * size))
+      std::printf("  %s: partSize %.12g, expected %.12g\n", name, got, size);
+    CHECK(std::fabs(got - size) <= 1e-9 * size);
+  }
+  {
+    // (Its lines' edges without ranges: their vertices bound them.)
+    std::vector<uint8_t> b = load("wrongSense");
+    REQUIRE(!b.empty());
+    const cadgeom::Model m(b.data(), b.size());
+    CHECK(std::fabs(partSize(m) - std::sqrt(2.0)) <= 1e-12);
+  }
+  // A cap's box up to its pole, which its circle doesn't reach (from the edge's points inverted, or its p-curve); the
+  // rest of the sphere (the face against its surface, or its use reversed), down to the other pole and out to the
+  // equator (within 1 %: the grid's rows miss the equator).
+  const double r = std::sqrt(0.5);
+  for (auto [name, size, within] : {std::tuple{"cap", std::sqrt(8 * r * r + (1 - r) * (1 - r)), 1e-9},
+         std::tuple{"capPcurve", std::sqrt(8 * r * r + (1 - r) * (1 - r)), 1e-9},
+         std::tuple{"capRest", std::sqrt(8 + (1 + r) * (1 + r)), 0.01},
+         std::tuple{"capBelow", std::sqrt(8 + (1 + r) * (1 + r)), 0.01}}) {
+    std::vector<uint8_t> b = load(name);
+    REQUIRE(!b.empty());
+    const cadgeom::Model m(b.data(), b.size());
+    const double got = partSize(m);
+    if (!(std::fabs(got - size) <= within * size))
+      std::printf("  %s: partSize %.12g, expected %.12g\n", name, got, size);
+    CHECK(std::fabs(got - size) <= within * size);
+  }
+}
