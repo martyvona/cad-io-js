@@ -54,4 +54,4 @@ export interface RenderSettings {
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
   smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, depthOffset: 2, triangleEdges: 'off',
   shininess: 30, specular: 0.2, ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH,
-  highlightColor: '#ffe100', highlightWidth: 3.5, selectionColor: '#ff9a2e' };
+  highlightColor: '#ffe100', highlightWidth: 2.5, selectionColor: '#ff9a2e' };
