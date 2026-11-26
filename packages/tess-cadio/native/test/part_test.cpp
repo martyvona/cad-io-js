@@ -592,6 +592,33 @@ TEST_CASE("the deviation test counts a corner's own distance from the surface (s
   }
 }
 
+TEST_CASE("a point ships (shippedAt) as float32 minus the output's origin, a boundary point as its own point") {
+  // (pcurveNear's plane: (u, v) its (x, y) at z 0.)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  float f[3];
+  REQUIRE(c->shippedAt({1, 2}, f));
+  CHECK((f[0] == 1 && f[1] == 2 && f[2] == 0));
+  const double origin[3] = {0, -1, 0};
+  c->setOutputOrigin(origin);
+  REQUIRE(c->shippedAt({1, 2}, f));
+  CHECK((f[0] == 1 && f[1] == 3 && f[2] == 0));
+  c->setBoundaryPoints({{{1, 2}, Vec3{5, 5, 5}}});
+  REQUIRE(c->shippedAt({1, 2}, f));
+  CHECK((f[0] == 5 && f[1] == 6 && f[2] == 5));
+  // (Far out, two points 1e-6 apart ship as one.)
+  const double far[3] = {0, -3000, 0};
+  c->setOutputOrigin(far);
+  float g[3];
+  REQUIRE(c->shippedAt({0.5, 0.5}, f));
+  REQUIRE(c->shippedAt({0.5, 0.5 + 1e-6}, g));
+  CHECK((f[0] == g[0] && f[1] == g[1] && f[2] == g[2]));
+}
+
 TEST_CASE("a triangle across a B-spline's knot is within the refinement floor as one within a span is (belowFloor "
   "bounds the pieces between the breaks), not by the poles' hull along the whole other span") {
   // bsplineTube: degree 2 x 1, u knots 0 to 4, one span along v 5 long; at d 0.1 the floor 0.01. A triangle 2e-4
@@ -3117,6 +3144,26 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
       if (!same) std::printf("  %s face %d differs (rounds %d)\n", c.name, f, a.rounds());
       CHECK(same);
     }
+  }
+}
+
+TEST_CASE("verdicts reused (reuseVerdicts) shipped far from the origin: the same meshes as asking again, positions "
+  "the output would weld kept apart alike (SizeField::shippedAt)") {
+  // (spheres at d 0.01 shipped from an origin 1e8 away, float32 there 8 apart: points refinement would put at
+  // one position.)
+  cadgeom::Model m = load("spheres");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.01, 0.26), fresh = o;
+  o.outputOrigin[0] = fresh.outputOrigin[0] = 1e8;
+  o.outputOrigin[1] = o.outputOrigin[2] = fresh.outputOrigin[1] = fresh.outputOrigin[2] = 0;
+  fresh.reuseVerdicts = false;
+  PartMesher a(m, o), b(m, fresh);
+  for (int f = 0; f < m.faces(); f++) {
+    const FaceMesh &x = a.face(f), &y = b.face(f);
+    bool same = x.status == y.status && x.triangles == y.triangles && x.points.size() == y.points.size();
+    for (size_t i = 0; same && i < x.points.size(); i++) same = key(x.points[i]) == key(y.points[i]);
+    if (!same) std::printf("  spheres far: face %d differs\n", f);
+    CHECK(same);
   }
 }
 

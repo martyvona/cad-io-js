@@ -1291,6 +1291,63 @@ TEST_CASE("a point the field says crowds a fixed segment (SizeField::crowds) is 
   }
 }
 
+TEST_CASE("no point inserted where a vertex already ships (SizeField::shippedAt): refined or seeded") {
+  // A unit square at size 0.02 whose points ship rounded to a grid of 0.05 (as float32 rounds them far from the
+  // origin): refinement puts several points in a cell, so without the rule many share a position. With it, every
+  // vertex ships at its own, fewer of them; of two seeds shipping as one, the second is skipped.
+  struct Coarse : Uniform {
+    Coarse() : Uniform(0.02) {}
+    bool shippedAt(Vec2 p, float out[3]) const override {
+      out[0] = static_cast<float>(std::round(p.x / 0.05)), out[1] = static_cast<float>(std::round(p.y / 0.05));
+      out[2] = 0;
+      return true;
+    }
+  };
+  // (The boundary sampled at 0.05, one point a cell.)
+  Domain2 d;
+  std::vector<Vec2> pts;
+  for (int i = 0; i < 20; i++) pts.push_back({i / 20.0, 0});
+  for (int i = 0; i < 20; i++) pts.push_back({1, i / 20.0});
+  for (int i = 0; i < 20; i++) pts.push_back({1 - i / 20.0, 1});
+  for (int i = 0; i < 20; i++) pts.push_back({0, 1 - i / 20.0});
+  addLoop(d, pts);
+  auto clashes = [](const Mesh2& m) {
+    std::set<std::pair<long, long>> at;
+    int n = 0;
+    for (const Vec2& p : m.points) n += !at.insert({std::lround(p.x / 0.05), std::lround(p.y / 0.05)}).second;
+    return n;
+  };
+  Mesh2 plain = mesh2(d, Uniform(0.02));
+  CHECK(clashes(plain) > 0);
+  Mesh2 m = mesh2(d, Coarse());
+  CHECK_EQ(validate(d, m, "shipped apart", false), 0);
+  CHECK_EQ(clashes(m), 0);
+  CHECK(m.points.size() < plain.points.size());
+  d.seeds = {{0.51, 0.51}, {0.5, 0.5}};
+  Mesh2 s = mesh2(d, Coarse());
+  CHECK_EQ(clashes(s), 0);
+  // Refused triangles broken at the field's worst point (the centroid), past the other candidates: also kept apart.
+  struct CoarseWorst : Coarse {
+    bool accept(const Vec2* t) const override { return std::fabs(area(t[0], t[1], t[2])) <= 2e-4; }
+    bool worstPoint(const Vec2 t[3], Vec2& at) const override {
+      at = {(t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3};
+      return true;
+    }
+  };
+  {
+    Domain2 e = d;
+    e.seeds.clear();
+    Mesh2 w = mesh2(e, CoarseWorst());
+    CHECK_EQ(validate(e, w, "worst apart", false), 0);
+    CHECK_EQ(clashes(w), 0);
+  }
+  bool first = false, second = false;
+  for (size_t i = d.points.size(); i < s.points.size(); i++)
+    first = first || s.points[i].x == 0.51, second = second || s.points[i].x == 0.5;
+  CHECK(first);
+  CHECK(!second);
+}
+
 TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
   // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
   // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.

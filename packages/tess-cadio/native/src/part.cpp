@@ -73,6 +73,7 @@ public:
   int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
   bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
   bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override { return field_.crowds(a, b, q, frozen); }
+  bool shippedAt(Vec2 p, float out[3]) const override { return field_.shippedAt(p, out); }
 
 private:
   /**

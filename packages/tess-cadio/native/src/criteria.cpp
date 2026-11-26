@@ -1013,6 +1013,18 @@ private:
     shipped_ = std::isfinite(o[0]) && std::isfinite(o[1]) && std::isfinite(o[2]);
     for (int k = 0; k < 3; k++) origin_[k] = o[k];
   }
+  /** As shipped: float32 minus the output's origin where it's known (setOutputOrigin), float32 else. */
+  bool shippedAt(Vec2 uv, float out[3]) const override {
+    // (A boundary point ships as its own point, setBoundaryPoints.)
+    Vec3 x;
+    auto it = boundary_.empty() ? boundary_.end() : boundary_.find({bits(uv.x), bits(uv.y)});
+    if (it != boundary_.end()) x = it->second;
+    else if (!corner(uv, x)) return false;
+    const double o[3] = {shipped_ ? origin_[0] : 0, shipped_ ? origin_[1] : 0, shipped_ ? origin_[2] : 0};
+    out[0] = static_cast<float>(x.x - o[0]), out[1] = static_cast<float>(x.y - o[1]);
+    out[2] = static_cast<float>(x.z - o[2]);
+    return true;
+  }
   /** The facet's normal (unnormalized) of corners p, as shipped where the output's origin is known. */
   Vec3 facet(const Vec3 p[3]) const {
     if (!shipped_) return cross(p[1] - p[0], p[2] - p[0]);

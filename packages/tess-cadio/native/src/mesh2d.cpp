@@ -19,11 +19,14 @@
 // angles or lengths of the triangles on it (splitting it wouldn't end that: the next one along would be wanted), so a
 // domain fine enough reports nothing. Quality near the boundary is so limited by the boundary's own spacing.
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <map>
 #include <cmath>
 #include <queue>
 #include <set>
 #include <tuple>
+#include <unordered_set>
 
 #include "cdt.h"
 #include "mesh2d_impl.h"
@@ -216,6 +219,33 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       cause = detail && options.refusalKinds ? static_cast<uint8_t>(2 + std::clamp(field.refusalKind(p), 0, 7)) : 2;
     queue.push({key, seq++, t, R.gen, cause});
   };
+  // Every vertex's position as shipped (SizeField::shippedAt), where the field gives them: no point is inserted at one
+  // already there. (Welded in the output, their triangles fold: edges used twice the same way, bug26889 #33's #1854,
+  // points refined to 1e-7 mm of one another 2,500 mm from the origin.)
+  struct ShippedHash {
+    size_t operator()(const std::array<uint32_t, 3>& k) const {
+      return std::hash<uint64_t>()((uint64_t(k[0]) * 0x9e3779b97f4a7c15ull ^ k[1]) * 0xff51afd7ed558ccdull ^ k[2]);
+    }
+  };
+  std::unordered_set<std::array<uint32_t, 3>, ShippedHash> shipped;
+  auto shippedKey = [&](Vec2 q, std::array<uint32_t, 3>& k) {
+    float f[3];
+    if (!field.shippedAt(q, f)) return false;
+    for (int i = 0; i < 3; i++) std::memcpy(&k[i], &f[i], 4), k[i] = f[i] == 0 ? 0 : k[i];  // (+0 and -0 one)
+    return true;
+  };
+  for (const Vec2& q : T.points()) {
+    std::array<uint32_t, 3> k;
+    if (std::isfinite(q.x) && shippedKey(q, k)) shipped.insert(k);
+  }
+  auto coincides = [&](Vec2 q) {
+    std::array<uint32_t, 3> k;
+    return !shipped.empty() && shippedKey(q, k) && shipped.count(k) > 0;
+  };
+  auto ship = [&](Vec2 q) {
+    std::array<uint32_t, 3> k;
+    if (shippedKey(q, k)) shipped.insert(k);
+  };
   int steiner = 0;
   std::vector<int32_t> created;
   {
@@ -234,8 +264,11 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       const cdt::Tri& W = T.tris()[at];
       if (W.v[2] == kGhost || !W.inside) continue;
       Metric2 Mq = field.metric(q);
+      // (A point the last meshing kept may ship as one with a vertex here, its neighbours new.)
+      if (coincides(q)) continue;
       double l11 = std::sqrt(std::max(Mq.a, 1e-300)), l12 = Mq.b / l11;
       if (T.insertPoint(q, at, created, {l11, l12, std::sqrt(std::max(Mq.c - l12 * l12, 1e-300))}) < 0) continue;
+      ship(q);
       steiner++;
       D.inserted[10]++;
       if (!created.empty()) hint = created[0];
@@ -339,6 +372,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       double floor = 0.1 * std::min(1.0, l[s]);
       for (int32_t w : T.tris()[at].v)
         if (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor) placed = false, nearVertex = true;
+      if (placed && coincides(c)) placed = false, nearVertex = true;
     }
     // A triangle only a much shorter segment stands in the way of (each one it encroached shorter in the metric than
     // its longest edge over kShortSegment) is broken from inside instead, at its centroid where that's clear:
@@ -360,6 +394,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         bool near = false;
         double floor = 0.1 * std::min(1.0, l[s]);
         for (int32_t w : T.tris()[at].v) near = near || (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor);
+        near = near || coincides(c);
         if (near) placed = false;
         else D.brokenInside++;
       }
@@ -377,6 +412,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         const double area = 0.5 * std::fabs(cross(sub(p[1], p[0]), sub(p[2], p[0]))) * std::sqrt(M.a * M.c - M.b * M.b);
         double floor = 0.1 * std::min(1.0, 2 * area / std::max({l[0], l[1], l[2]}));
         for (int32_t v : T.tris()[atW].v) near = near || (v >= 0 && mlen(M, sub(w, T.points()[v])) < floor);
+        near = near || coincides(w);
         if (!near) c = w, at = atW, placed = true, f = 1, D.brokenWorst++;
       }
     }
@@ -406,6 +442,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       finals.insert({it.t, it.gen});
       continue;
     }
+    ship(c);
     steiner++;
     D.inserted[it.cause]++;
     for (int32_t t : created) consider(t);
