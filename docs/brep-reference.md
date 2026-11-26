@@ -77,7 +77,7 @@ Each kind with its pool layout (reals; ints), its definition $C(t)$, natural ran
 - ![bspline icon](icons/curve-bspline.svg) **`bspline`** (ints: degree $p \geq 1$, pole count $n$, knot count $k$, rational 0/1, closed (LOGICAL), self-intersecting (LOGICAL), form, then $k$ multiplicities; reals: $k$ knots, $n$ poles of $d$ numbers, then $n$ weights if rational). Knots are distinct and strictly increasing with multiplicities $m_i$; the full knot vector $U$ repeats each knot by its multiplicity and has $n + p + 1$ entries. $C(t) = \sum_i N_{i,p}(t)\,w_i P_i / \sum_i N_{i,p}(t)\,w_i$ (all $w_i = 1$ if not rational; Piegl and Tiller's definitions, `geometry.ts`). Range $[U_p, U_n]$ (zero-based: the $(p+1)$-th knot to the $(n+1)$-th of the full vector). Interior multiplicities are at most $p$, the end ones at most $p + 1$: Part 42 allows **unclamped** ends (end multiplicity below $p + 1$; the uniform form has every multiplicity 1), where the curve doesn't start at its first pole; kernels that need clamped curves must clamp them, keeping the range. Weights are positive. There is no periodic flag: a source's periodic B-spline arrives as a closed curve with its knots written out; whether to treat it as periodic (OCCT does when its knots are in periodic form, or when said closed, of degree 2 or more, and closed in fact) is the consumer's choice.
 - ![polyline icon](icons/curve-polyline.svg) **`polyline`** (ints: point count $n \geq 2$; reals: the points). Segment $k$ runs from point $k$ to point $k+1$ over $t \in [k, k+1]$; range $[0, n-1]$. (Part 42 doesn't define a polyline's parameterization; this one is OCCT's, and the library's.)
 - **`trimmed`** (ints: basis curve, sense agreement 0/1, master representation (`TRIM_PREFERENCES`: unspecified, parameter, cartesian); reals: trim 1 parameter, trim 2 parameter, trim 1 point ($d$), trim 2 point ($d$), each `NaN` if not given). A piece of the basis curve from trim 1 to trim 2. Each trim may be given by a parameter on the basis, a point on it, or both; where both are given they should agree, and the master representation says which to believe (unspecified: either; OCCT's reader takes the parameter where given). A point is turned into a parameter by projection onto the basis. With sense agreement true the trimmed curve runs from trim 1 to trim 2 in the basis's direction (on a closed basis, the arc reached by increasing parameter, $t_2$ taken one period on if $t_2 \leq t_1$); with false it runs from trim 1 to trim 2 against the basis's direction (the other arc on a closed basis), and the trimmed curve's own direction is the basis's reversed. Parameters on a trimmed curve (an edge's range) are the basis's: `geometry.ts`'s evaluator keeps the basis's parameter and gives the range sorted, $[\min(t_1, t_2), \max(t_1, t_2)]$, so its `d1` points along the basis even when the trimmed curve runs against it. Equal trims on a closed basis mean the whole curve once round. Trims on circles and ellipses are in radians.
-- ![composite icon](icons/curve-composite.svg) **`composite`** (ints: segment count $n \geq 1$, self-intersecting (LOGICAL), then per segment: curve, same sense 0/1, transition (`TRANSITIONS`: discontinuous, continuous, same gradient, same curvature)). Segments joined end to end, each run with or against its own direction as `same sense` says; the segments must be bounded curves (trimmed curves, B-splines, polylines). The library parameterizes segment $k$ over $[k, k+1]$, mapped linearly onto the segment's own range (reversed where it runs against itself); range $[0, n]$. (The library's choice, `geometry.ts`, not taken from Part 42; it is not affine in any segment's parameter, so p-curves and trims can't refer to a composite through a fixed parameter map.) Transitions are the source's claims. In the corpus, composites occur as loose curves and as the boundaries of curve-bounded surfaces, never as an edge's curve.
+- ![composite icon](icons/curve-composite.svg) **`composite`** (ints: segment count $n \geq 1$, self-intersecting (LOGICAL), then per segment: curve, same sense 0/1, transition (`TRANSITIONS`: discontinuous, continuous, same gradient, same curvature)). Segments joined end to end, each run with or against its own direction as `same sense` says. Part 42 requires each segment to be a bounded curve; the library requires only that each has a finite range (see "Curves and surfaces made of others"). The library parameterizes segment $k$ over $[k, k+1]$, mapped linearly onto the segment's own range (reversed where it runs against itself); range $[0, n]$. (The library's choice, `geometry.ts`, not taken from Part 42; it is not affine in any segment's parameter, so p-curves and trims can't refer to a composite through a fixed parameter map.) Transitions are the source's claims. In the corpus, composites occur as loose curves and as the boundaries of curve-bounded surfaces, never as an edge's curve.
 - **`offset`** (ints: basis curve, self-intersecting (LOGICAL); reals: distance $\delta$, then in 3D a unit reference direction $V$). 3D: $C(t) = B(t) + \delta\,\widehat{B'(t) \times V}$; 2D: $C(t) = B(t) + \delta\,\widehat{(B'_2(t), -B'_1(t))}$ (the tangent turned -90 degrees, to the right). Parameter and range the basis's; the library's derivative is numerical. (Part 42's `OFFSET_CURVE_3D` and `OFFSET_CURVE_2D`; the formulas are OCCT's, which the library follows.)
 
 ### Surfaces
@@ -95,6 +95,111 @@ Each kind with its pool layout, its definition $S(u, v)$, natural ranges and nor
 - **`offset`** (ints: basis surface, self-intersecting (LOGICAL); reals: distance $\delta$). $S(u, v) = B(u, v) + \delta\,\widehat{B_u \times B_v}$: the basis's parameters and ranges, moved along its unit normal. The basis's parameter map (if a kernel needs one) carries over unchanged. Where the basis's normal vanishes (a pole) the offset is undefined.
 - **`rectangularTrimmed`** (ints: basis surface, u sense 0/1, v sense 0/1; reals: $u_1, u_2, v_1, v_2$, with $u_1 \neq u_2$, $v_1 \neq v_2$). The basis restricted to $[u_1, u_2] \times [v_1, v_2]$ in its own parameters (angles in radians); `u sense` and `v sense` say whether the trimmed surface's parameters run with the basis's (Part 42's `RECTANGULAR_TRIMMED_SURFACE`; the library's evaluator keeps the basis's parameters and sorts the bounds). A face on one may have loops or none (then the rectangle bounds it).
 - ![swept surface icon](icons/node-face.svg) **`curveSwept`** (ints: swept curve, directrix curve, reference surface) and **`fixedReferenceSwept`** (ints: swept curve, directrix curve; reals: fixed reference direction): Part 42's `SURFACE_CURVE_SWEPT_SURFACE` and `FIXED_REFERENCE_SWEPT_SURFACE`, a profile moved along a directrix with a frame from a reference surface or direction. Held but **not evaluated** by the library (their evaluators are undefined); OCCT has no counterpart, and OCCT's STEP reader and our native builder drop faces on them (the builder with a warning). None in the corpus. A backend may support them from Part 42's definitions or drop their faces with a warning.
+
+### Curves and surfaces made of others
+
+Some kinds are built from other rows:
+
+- trimmed curves (from a basis);
+- composite curves (from segments);
+- offset curves and surfaces (from a basis);
+- rectangular trimmed surfaces (from a basis);
+- extrusions and revolutions (from a swept curve);
+- the swept kinds.
+
+These can nest. The standard, the library and the corpus each allow or contain a different set of nestings, given in turn below. The standard's rules come from AP242's EXPRESS schema (`third_party/stepcode/data/ap242/242_mim_lf.exp`, the source of `packages/step-schemas/dict/ap242.json`). The rules quoted are its WHERE rules, which the dictionaries don't carry.
+
+**What the standard allows:**
+
+- **Trimmed curve:** the basis (`basis_curve`) may be any curve, including trimmed, composite and offset curves and surface curves. The schema's rules for it constrain only the trims: each trim gives at most one parameter and one point.
+- **Composite curve segment:** the segment (`parent_curve`) is typed `CURVE`, but WR1 requires a `BOUNDED_CURVE`. The bounded curves are:
+  - polyline
+  - B-spline curve
+  - trimmed curve
+  - bounded p-curve
+  - bounded surface curve
+  - composite curve
+  - locally refined spline curve
+
+  So a composite may contain composites. These may not be segments as they are and must be wrapped in a trimmed curve:
+  - an offset curve, even of a bounded basis, since it is a plain `CURVE`;
+  - a line, conic or plain surface curve, even a whole circle or ellipse.
+
+  Wrapped kinds have their own rules: a `BOUNDED_SURFACE_CURVE` needs a bounded 3D curve, and a `BOUNDED_PCURVE` a bounded 2D curve.
+- **Composite curve:** WR1 requires exactly one discontinuous transition in an open composite (the last) and none in a closed one. A `REPARAMETRISED_COMPOSITE_CURVE_SEGMENT` gives its segment a `param_length` of its own. The composite's subtypes are:
+  - `COMPOSITE_CURVE_ON_SURFACE`;
+  - `BOUNDARY_CURVE` and `OUTER_BOUNDARY_CURVE`, the boundaries of a `CURVE_BOUNDED_SURFACE`.
+- **Offset curve:** the basis may be any curve of the same dimension (WR1 of `OFFSET_CURVE_2D` and `_3D`), including a trimmed, composite or offset curve.
+- **Offset surface:** the basis may be any surface.
+- **Rectangular trimmed surface:** the basis may be any surface, so these can nest too. WR3 and WR4 require each sense to match its bounds' order (`usense` = $u_2 > u_1$). The exceptions are u on revolutions and on elementary surfaces other than planes, and v on spheres and tori.
+- **Curve-bounded surface:** the basis may be any surface.
+- **Swept surfaces:** the swept curve may be any curve.
+
+**What the library allows (it accepts more than the standard):**
+
+- **Validation:** a trimmed or offset curve's basis and a composite's segment may be any earlier curve row of the same dimension (`validateBrep`). Likewise an offset or rectangular trimmed surface's basis may be any earlier surface row, and a swept surface's curve any earlier 3D curve. Every reference points to an earlier row, so nesting can't form a cycle. Nothing requires a composite's segment to be bounded.
+- **The STEP importer** reads any nesting of these:
+  - A `SURFACE_CURVE` or one of its subtypes becomes the row of its 3D curve.
+  - It refuses a composite that mixes 2D and 3D segments.
+  - It ignores a reparametrised segment's `param_length`.
+  - A cycle in the file leaves the curve unread, with a warning.
+  - A `CURVE_BOUNDED_SURFACE` is not a surface row. It becomes a face on its basis: each boundary is a loop, and each segment is an edge without vertices, whose curve is the segment's 3D curve and whose p-curve goes to the coedge. A segment that is itself a composite becomes an edge on a composite curve.
+  - **Limitation (affects only files whose angle unit is degrees):** the importer converts a trim parameter from the file's angle unit only where the basis is itself a `CIRCLE` or `ELLIPSE`. A parameter trim on a trimmed, offset or surface curve whose curve underneath is a circle or ellipse would be misread. Surfaces don't have this problem: a rectangular trim's bounds take their unit from the surface underneath, through any number of trims and offsets. None of these cases is in the corpus.
+- **Evaluation (`geometry.ts`):**
+  - **Trimmed curve:** its parameter is its basis's, so a trim of a trim is in the innermost curve's parameter. Its trims replace the basis's range.
+  - **Trimmed curve on a composite:** the trims are read in the library's parameterization of the composite. A source that measured them in another parameterization is misread, and none is in the corpus.
+  - **Composite:** evaluated when each segment has a finite range. That covers nested composites (range $[0, n]$), trimmed curves, B-splines, polylines, circles and ellipses, and offsets of those. A composite with any segment of infinite range (an untrimmed line, hyperbola or parabola, or an offset of one) has no evaluator.
+  - **Offset:** takes its basis's range and period, so it is bounded exactly when its basis is.
+- **Canonicalization:** rule 4 unwraps every level of trimmed curve from an edge with both vertices, down to the first curve that isn't trimmed. Rule 5 likewise unwraps rectangular trims that keep both senses from a face with loops.
+- **Backends:**
+  - **OCCT's native builder:**
+    - builds a trimmed or offset curve on any curve it can build;
+    - builds a composite only as a loose curve item, one edge per segment, and leaves out (with a warning) a segment it can't bound, such as an untrimmed line;
+    - fails the part with an error for a composite anywhere else: as an edge's curve, as another composite's segment, as the basis of a trim or offset, or as a profile.
+  - **SMLib:**
+    - draws loose composites to any depth, nested ones included (up to 8 levels);
+    - leaves out, with a warning, the faces of edges on composite or offset curves.
+  - **truck:** builds none of the curves or surfaces made of others; it leaves out their faces and reports them.
+- **The viewer:** names composites as themselves (`composite curve #n`). A trimmed or offset curve or surface on any basis stacks its wrapper words (`trimmed composite curve #n`, `offset trimmed circle #n`); see "Curves" and "Surfaces".
+
+**What the corpus has:** the 517 STEP files and the 31 model files, scanned as raw STEP entities. No wrapper in them ever wraps a wrapper of its own kind, and no offset curve or surface appears at all.
+
+- **`TRIMMED_CURVE`:**
+  - Bases, all plain curves, never a trimmed, composite, offset or surface curve or a polyline:
+    - lines: 7,676, in 117 files;
+    - circles: 4,019, in 58 files;
+    - B-splines: 259, in 15 files;
+    - ellipses: 9, in 3 files.
+  - Used as:
+    - composite segments;
+    - loose curves (geometric sets and curve sets);
+    - p-curves: 1,895, in 13 files;
+    - the 3D curves of the boundary segments of curve-bounded surfaces;
+    - profiles of extrusions and revolutions: 17, in 2 files;
+    - edge curves: only 2, in `bug29478.stp`.
+- **`COMPOSITE_CURVE`:** 303, in 30 files.
+  - Segments:
+    - trimmed lines: 447;
+    - trimmed circles: 209;
+    - B-splines: 86;
+    - trimmed B-splines: 49, all in `OCC5099.stp`;
+    - untrimmed lines: 5, all in `OCC22459-TEST2.stp`, against WR1.
+  - The composites with untrimmed lines have no evaluator, and OCCT's builder leaves those lines out with a warning.
+  - No segment is a composite, an offset, a polyline or a surface curve.
+  - Every composite is a loose curve, in geometric sets, curve sets and constructive geometry. None is an edge's curve, a segment of another composite, a basis, a p-curve or a profile.
+- **Curve-bounded surface boundaries:** `BOUNDARY_CURVE` (427 in 11 files) and `OUTER_BOUNDARY_CURVE` (3,012 in 11 files).
+  - Segments:
+    - bounded surface curves, all written as complex instances of `SURFACE_CURVE` and `BOUNDED_CURVE`, whose 3D curves are trimmed curves or B-splines;
+    - trimmed lines and circles, and B-splines;
+    - 42 plain `SURFACE_CURVE`s, all in `bm2_pe_t4-B.stp`. These are not bounded curves, so they break WR1.
+  - No segment is a composite.
+- **Curve-bounded surfaces' bases:** planes, cylinders, cones, spheres, tori, B-splines, extrusions, and rectangular trimmed surfaces (22, in `trj4_k1_geo-tc-214.stp`).
+- **`RECTANGULAR_TRIMMED_SURFACE`:** only on surfaces of revolution (22, in the same file). None is nested.
+- **Absent:**
+  - offset curves and offset surfaces;
+  - `BOUNDED_PCURVE` and `BOUNDED_SURFACE_CURVE` by name;
+  - `COMPOSITE_CURVE_ON_SURFACE`;
+  - reparametrised segments.
 
 ### Parameterizations other kernels use
 
