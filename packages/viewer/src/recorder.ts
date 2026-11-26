@@ -434,7 +434,8 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const [cx, cy] = [r.left + e.x, r.top + e.y];
       const model = viewer.nodes;
       const hit = viewer.pickAt(cx, cy);
-      const id = hit && model ? nodeForPick(model, hit.object, hit.faceIndex, ui.selection.level) : undefined;
+      const id = hit && model ? nodeForPick(model, hit.object, hit.faceIndex, ui.selection.level,
+        hit.item) : undefined;
       const path = id !== undefined && model ? model.pathOf(id) : null;
       if (path !== e.path) divergences.push(`${at}: at (${e.x.toFixed(1)}, ${e.y.toFixed(1)}) picked ${path ??
         'nothing'}, recorded ${e.path ?? 'nothing'}`);

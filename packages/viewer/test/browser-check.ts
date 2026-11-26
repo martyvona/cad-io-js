@@ -1228,7 +1228,7 @@ await check('tree menu hide and show', async () => {
 // it, the selection unchanged, the tree's focus (outlined) on its row, revealed in a folded tree; its Hide hides that
 // part alone; on nothing, no menu and no focus; a right-drag (a pan) no menu; a long press with a finger the menu,
 // its lift no pick; a left click moves the focus to what it picks, or clears it on nothing; at the detail level, a
-// face's.
+// face's, edge's or vertex's.
 await check('view context menu', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
@@ -1320,7 +1320,7 @@ await check('view context menu', async () => {
   expect(a.turned.menu.length === 0, `a finger that moves: ${j}`);
   expect(a.left.focused === a.part && JSON.stringify(a.left.selected) === JSON.stringify([a.part]) &&
     a.leftEmpty.focused === null && a.leftEmpty.selected.length === 0, `left clicks: ${j}`);
-  expect(a.detail.menu[0] === 'Hide' && ['face', 'edges', 'curves', 'points'].includes(a.detailKind as string) &&
+  expect(a.detail.menu[0] === 'Hide' && ['face', 'edge', 'curve', 'vertex', 'point'].includes(a.detailKind as string) &&
     a.detail.selected.length === 0, `at the detail level: ${j}`);
   return undefined;
 });
@@ -1693,12 +1693,18 @@ await check('tree', async () => {
     await frame();
     const all = spacerRows(), nodes = m.nodes.length;
     const click = (row, ctrlKey = false) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
-    const parts = () => rows().filter((r) => m.nodes[+r.dataset.id].kind === 'part');
     const display = getComputedStyle(rows()[0]).display;
     const label = rows()[0].getAttribute('aria-label');
-    click(parts()[0]);
+    // (A part's row brought into view first: the first part's detail, every edge and vertex a row, fills the panel.)
+    const partIds = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    const rowOf = async (id) => {
+      p.scrollToRow(id, 0);
+      await frame();
+      return rows().find((r) => +r.dataset.id === id);
+    };
+    click(await rowOf(partIds[0]));
     await frame();
-    click(parts()[1], true);
+    click(await rowOf(partIds[1]), true);
     await frame();
     const selected = [...p.selected()];
     const afterClicks = spacerRows();
@@ -1871,7 +1877,8 @@ await check('rendering', async () => {
     const c = viewer.composer;
     const names = new Map([[c.n8ao, 'N8AOPass'], [c.smaa, 'SMAAPass'], [c.plain, 'RenderPass'],
       [c.output, 'OutputPass']]);
-    const passes = () => c.composer.passes.map((p) => names.get(p) ?? 'other');
+    // (Those drawn: the highlights' silhouette is there, off, without one.)
+    const passes = () => c.composer.passes.filter((p) => p.enabled).map((p) => names.get(p) ?? 'other');
     const gl = viewer.renderer.getContext();
     const edgesShown = () => viewer.camera.layers.isEnabled(1);
     const edgeHits = () => { let n = 0; viewer.display.traverse((o) => { if (o.isLine && o.name === 'edges' &&
@@ -2270,7 +2277,7 @@ await check('item errors and warnings', async () => {
     if (${face}) { ui.setTree({ detail: true }); for (const n of [...m.nodes]) m.children(n.id); }
     // The ids each node holds, found here: its own (step-ids' sources, a face's source), a part's model's.
     const ownIds = (n) => {
-      if (n.face) return graph.scene.parts[n.face.part] && m.nodes[n.parent].object.userData.stepFaces
+      if (n.face) return graph.scene.parts[n.face.part] && m.nodes[m.nodes[n.parent].parent].object.userData.stepFaces
         ? [n.face.source] : [];
       const own = n.object?.userData.sources ?? [];
       if (n.kind !== 'part') return own;
@@ -2289,7 +2296,7 @@ await check('item errors and warnings', async () => {
     const expected = (n) => diagnostics.filter((d) => {
       if (d.severity !== 'error' && d.severity !== 'warning') return false;
       if (n.face) return d.source?.format === 'step' && (d.source.id === n.face.source
-        || (m.nodes[n.parent].object.userData.sources ?? []).includes(d.source.id)
+        || (m.nodes[m.nodes[n.parent].parent].object.userData.sources ?? []).includes(d.source.id)
         && new RegExp('#' + n.face.source + '(?!\\\\d)').test(d.message));
       const hs = holders(d);
       // (A face's id is its part's too.)
@@ -2624,8 +2631,8 @@ await check('picks unfold the tree', async () => {
 // Selection's buttons in the tree: with every branch folded, Select all, Invert selection, Select parent, Select
 // children and Select none each leave every selected node shown, its branches unfolded, and the drawn rows highlighted
 // exactly as the selection is (none stale), the tree scrolled to show a selected row. Select children: the assemblies'
-// children; a part's nothing while the tree's detail is off (the selection kept, the detail left off), its faces,
-// edges and curves once it's on. The tree's menu: Select parent and
+// children; a part's nothing while the tree's detail is off (the selection kept, the detail left off), its groups
+// (faces, edges, vertices) once it's on, and theirs the faces, edges and vertices. The tree's menu: Select parent and
 // Select children on the row right-clicked (not the selection), the rest as the buttons.
 await check('selection buttons in the tree', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
@@ -2661,15 +2668,19 @@ await check('selection buttons in the tree', async () => {
     ui.select([part]);
     press('Select children');
     out.kept = JSON.stringify(ui.selected()) === JSON.stringify([part]) && !m.hasDetail();
-    const detail = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves');
+    const detail = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves, vertices');
     detail.setValue(true);
     detail._callOnFinishChange();
     press('Select children'); out.detail = await look();
     out.kinds = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
     out.detailAfter = m.hasDetail();
+    press('Select children');
+    out.items = [...new Set(ui.selected().map((id) => m.nodes[id].kind))].sort();
     press('Select none'); out.none = await look();
     // The menu: on a row not selected, Select parent selects that row's parent; Select children, its children.
     const menu = async (id, choose) => {
+      // (Its row in view: a selection of every edge and vertex scrolls far down.)
+      ui.panel().scrollToRow(id, 0);
       for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res));
       const row = [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === id);
       const b = row.getBoundingClientRect();
@@ -2702,7 +2713,8 @@ await check('selection buttons in the tree', async () => {
   expect(o.childrenOk === true, `the parents' children: ${j}`);
   expect(o.detailBefore === false && o.kept === true, `a part's children with the detail off: none, the selection `
     + `kept: ${j}`);
-  expect(o.detailAfter === true && (o.kinds as string[]).includes('face'), `with it on, its detail: ${j}`);
+  expect(o.detailAfter === true && (o.kinds as string[]).join() === 'edges,faces,vertices' &&
+    (o.items as string[]).join() === 'edge,face,vertex', `with it on, its detail's groups, then theirs: ${j}`);
   expect(o.menuParent === true && o.menuChildren === true && o.menuAll === true && o.menuNone === true,
     `the tree's menu: ${j}`);
   return undefined;
@@ -2776,11 +2788,13 @@ await check('failed faces', async () => {
     viewer.display.traverse((o) => { if (o.name === 'outline') outlines++; });
     const partly = parts.filter((n) => m.failure(n.id) === 'partly');
     ui.setTree({ detail: true });
-    // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area.)
-    const faces = partly.flatMap((n) => m.children(n.id)).map((c) => m.failure(c)).filter((f) => f);
+    // (Each partly failed part has a face that failed: wholly, red, or partly, short of its area. Its faces in its
+    // faces group.)
+    const facesOf = (id) => m.children(id).filter((g) => m.nodes[g].kind === 'faces').flatMap((g) => m.children(g));
+    const faces = partly.flatMap((n) => facesOf(n.id)).map((c) => m.failure(c)).filter((f) => f);
     // Rows that failed partly red too, with the broken icon: a partly failed part's, and a face of it short of its
     // area, each selected (so revealed and drawn).
-    const shortFace = partly.flatMap((n) => m.children(n.id)).find((c) => m.failure(c) === 'partly');
+    const shortFace = partly.flatMap((n) => facesOf(n.id)).find((c) => m.failure(c) === 'partly');
     const rows = [];
     for (const id of [partly[0].id, ...(shortFace === undefined ? [] : [shortFace])]) {
       ui.select([id]);
@@ -3326,7 +3340,9 @@ await check('mesh again', async () => {
     const lost = { status: document.getElementById('status').textContent,
       notRestored: JSON.parse(document.body.dataset.report).notRestored, paths: lostPaths };
     // A face selected: after meshing again, its overlay is on the face's new mesh, sharing that mesh's positions.
-    const face = viewer.nodes.nodes.find((n) => n.face && viewer.nodes.nodes[n.parent].object.children[0]?.geometry);
+    // (A face's parent its part's faces group: the part above that.)
+    const face = viewer.nodes.nodes.find((n) => n.face && !n.dead &&
+      viewer.nodes.nodes[viewer.nodes.nodes[n.parent].parent].object.children[0]?.geometry);
     const facePath = viewer.nodes.pathOf(face.id);
     ui.select([face.id]);
     const faceModel = viewer.nextLoad();
@@ -3939,9 +3955,9 @@ await check('mesh again in place', async () => {
   return undefined;
 });
 // Every slot of the appearance overrides drawn alike after Mesh again: an assembly hidden with a child shown, a part
-// transparent with one face back to the file's and one hidden, a part's triangle edges on with one face off, a face's
-// on and its part's edges hidden; what's drawn, face by face in every placement (shown, opacity, triangle edges) and
-// every line object, the same after meshing at another deflection, and the state's overrides too.
+// transparent with one face back to the file's and one hidden, a part's triangle edges on with one face off and one
+// edge hidden, a face's on and its part's edges hidden; what's drawn, face by face in every placement (shown, opacity,
+// triangle edges) and every line object, the same after meshing at another deflection, and the state's overrides too.
 await check('overrides after mesh again', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     const button = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
@@ -3955,10 +3971,13 @@ await check('overrides after mesh again', async () => {
     const size = (id) => m.nodes[id].kind === 'part' ? 1 : m.children(id).reduce((k, c) => k + size(c), 0);
     const asm = m.nodes.filter((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).length > 1)
       .sort((x, y) => size(x.id) - size(y.id))[0].id;
-    const parts = m.nodes.filter((n) => n.kind === 'part' && !under(n.id, asm) &&
-      m.children(n.id).filter((c) => m.nodes[c].kind === 'face').length >= 2).map((n) => n.id);
+    // (A part's faces, edges: its groups' nodes.)
+    const inGroup = (id, kind) => m.children(id).filter((g) => m.nodes[g].kind === kind)
+      .flatMap((g) => m.children(g));
+    const faces = (id) => inGroup(id, 'faces');
+    const parts = m.nodes.filter((n) => n.kind === 'part' && !under(n.id, asm) && faces(n.id).length >= 2)
+      .map((n) => n.id);
     const [p, q, s] = parts;
-    const faces = (id) => m.children(id).filter((c) => m.nodes[c].kind === 'face');
     ui.setHidden([asm], true);
     ui.setHidden([m.children(asm)[0]], false);
     ui.setOverride(p, { transparent: true, alpha: 0.4 });
@@ -3966,6 +3985,7 @@ await check('overrides after mesh again', async () => {
     ui.setOverride(faces(p)[1], { hidden: true });
     ui.setOverride(q, { triangleEdges: true });
     ui.setOverride(faces(q)[0], { triangleEdges: false });
+    ui.setOverride(inGroup(q, 'edges')[0], { hidden: true });
     ui.setOverride(faces(s)[0], { triangleEdges: true });
     const edges = m.children(s).find((c) => m.nodes[c].kind === 'edges');
     if (edges !== undefined) ui.setOverride(edges, { hidden: true });
@@ -3985,7 +4005,17 @@ await check('overrides after mesh again', async () => {
         const rec = { visible: on, lines: {}, faces: {} };
         for (const obj of g.children) {
           for (const c of obj.children) {
-            if (['edges', 'curves', 'points'].includes(c.name)) rec.lines[c.name] = on && c.visible;
+            // (Shown, and how many of its items: hidden one by one, items.ts. Lines: each item a run of chained
+            // segments, however many the deflection gives it; dots one index each.)
+            const items = (o) => {
+              const x = o.geometry.index?.array ?? [];
+              if (!o.isLineSegments) return x.length;
+              let k = x.length ? 1 : 0;
+              for (let i = 2; i < x.length; i += 2) if (x[i] !== x[i - 1]) k++;
+              return k;
+            };
+            if (['edges', 'curves', 'points', 'vertices'].includes(c.name)) rec.lines[c.name] = on && c.visible &&
+              items(c);
           }
           const pair = pairs.find((x) => x.source === obj);
           const index = obj.geometry.index?.array;
@@ -4107,7 +4137,9 @@ await check('triangle edges', async () => {
     ui.setHidden([part.id], false);
     // A face hidden: its group's edges not drawn.
     ui.setTree({ detail: true });
-    const face = m.children(part.id).map((id) => m.nodes[id]).find((n) => n.kind === 'face');
+    // (In its faces group.)
+    const face = m.children(part.id).flatMap((g) => m.children(g)).map((id) => m.nodes[id])
+      .find((n) => n.kind === 'face');
     ui.setHidden([face.id], true);
     await cadViewer.idle();
     const k = meshes.findIndex((x) => Array.isArray(x.material) && x.material.some((y) => !y.visible));
@@ -4362,7 +4394,11 @@ await check('control folders', async () => {
     ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name)).$button
       .click();
     for (let i = 0; i < 100 && !!document.fullscreenElement === before; i++) await new Promise((r) => setTimeout(r, 20));
-    await new Promise((r) => setTimeout(r, 50));
+    // (Its label changes on fullscreenchange, which comes at the next frame: later under load.)
+    const label = () => ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' &&
+      /fullscreen$/.test(c._name))._name;
+    const want = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen';
+    for (let i = 0; i < 100 && label() !== want; i++) await new Promise((r) => setTimeout(r, 20));
     const b = ui.gui.controllersRecursive().find((c) => c.parent._title === 'File' && /fullscreen$/.test(c._name));
     return { full: !!document.fullscreenElement, label: b._name, shown: b.$name.textContent };
   })()`;
@@ -4499,10 +4535,13 @@ await check('tree scrolls sideways', async () => {
     scroller.scrollLeft = scroller.scrollWidth;
     await frames();
     const scrolled = scroller.scrollLeft > 0;
-    // Down the tree and back: the widest so far kept.
+    // Down the tree (to the long name's row: every edge and vertex a row, the tree is long) and back: the widest so
+    // far kept.
     const ranges = [narrow.range], longs = [narrow.long];
-    for (const top of [scroller.scrollHeight / 2, scroller.scrollHeight, 0]) {
-      scroller.scrollTop = top;
+    const long = viewer.nodes.nodes.find((n) => n.name.includes(${JSON.stringify(longName)})).id;
+    for (const to of ['long', scroller.scrollHeight, 0]) {
+      if (to === 'long') ui.panel().scrollToRow(long, 0);
+      else scroller.scrollTop = to;
       await frames();
       const l = look();
       ranges.push(l.range);
@@ -4621,7 +4660,12 @@ await check('auto hide and select all', async () => {
     // (Ids change once the tree has detail: compared by path.)
     return { ...out, part, shown, assembly, parents: [...new Set(shown.map((id) => m.nodes[id].parent))],
       detailCount: detail.length, kinds, shownPaths: shown.map((id) => m.pathOf(id)).sort(),
-      detailParents: [...new Set(detail.map((id) => n.pathOf(n.nodes[id].parent)))].sort(),
+      // (Each one's part: a face's above its faces group.)
+      detailParents: [...new Set(detail.map((id) => {
+        let p = n.nodes[id].parent;
+        while (n.nodes[p].kind !== 'part') p = n.nodes[p].parent;
+        return n.pathOf(p);
+      }))].sort(),
       detailHidden: detail.filter((id) => n.hiddenInTree(id)).length, tree: cadViewer.state().tree };
   })()`) as { after: Record<string, unknown> & { part: number[]; shown: number[]; assembly: number[];
     parents: number[]; detailCount: number; kinds: string[]; shownPaths: string[]; detailParents: string[];
@@ -4639,7 +4683,9 @@ await check('auto hide and select all', async () => {
     JSON.stringify(a.invertedBack) === JSON.stringify([a.shown[0]]), `invert selection: ${j}`);
   expect(JSON.stringify([...a.part].sort()) === JSON.stringify([...a.shown].sort()), `select all, parts: ${j}`);
   expect(JSON.stringify([...a.assembly].sort()) === JSON.stringify([...a.parents].sort()), `assemblies: ${j}`);
-  expect(a.tree.detail && a.detailCount > a.shown.length && a.kinds.includes('face') && a.detailHidden === 0 &&
+  // (What a click selects at the detail level: a face, or the group of the lines or dots clicked.)
+  expect(a.tree.detail && a.detailCount > a.shown.length && a.kinds.join() === 'edges,face,vertices' &&
+    a.detailHidden === 0 &&
     JSON.stringify(a.detailParents) === JSON.stringify(a.shownPaths), `detail: ${j}`);
   return undefined;
 });
@@ -4801,18 +4847,29 @@ await check('transforms', async () => {
       const n = m.nodes.find((k) => k.kind === 'part' && k.name === name);
       ui.select([n.id]);
       ui.hideOthers();
+      // (Edges off: the circle at the far end of a nut's hole, seen through it, is picked within a few pixels.)
+      ui.setRender({ edges: false });
       await cadViewer.idle();
       // (A placed part's object holds its mesh.)
       const o = n.object.children.find((c) => c.isMesh);
       o.geometry.computeBoundingSphere();
       const c = o.geometry.boundingSphere.center.clone().applyMatrix4(o.matrixWorld);
       const at = c.clone().project(viewer.camera);
-      const hit = cadViewer.pickAt((at.x + 1) / 2, (1 - at.y) / 2);
-      const depth = hit && c.clone().set(...hit.point).project(viewer.camera).z;
+      // The pixel nearest the centre on the part's front, nearer than its centre (the centre is in its hole, which can
+      // be clear through, and next to the hole its far wall shows): none if its faces were drawn inside out.
+      let hit, depth;
+      const R = viewer.renderer.domElement.getBoundingClientRect();
+      for (let r = 0; r < 40 && !hit; r++) for (let k = 0; k < 8 && !hit; k++) {
+        const h = cadViewer.pickAt((at.x + 1) / 2 + r * Math.cos(k * Math.PI / 4) / R.width, (1 - at.y) / 2 + r *
+          Math.sin(k * Math.PI / 4) / R.height);
+        const d = h && c.clone().set(...h.point).project(viewer.camera).z;
+        if (h?.path?.endsWith(name) && d < at.z) [hit, depth] = [h, d];
+      }
       ui.selection.details = true;
       const stretched = ui.details().find((l) => l.startsWith('Stretched: ')) ?? null;
       ui.showAll();
       ui.select([]);
+      ui.setRender({ edges: true });
       await cadViewer.idle();
       return { det: Math.sign(o.matrixWorld.determinant()), path: hit?.path, near: hit ? depth < at.z : null,
         stretched };
@@ -5173,6 +5230,676 @@ await check('fat edges', async () => {
   expect(a.thinShown === false && a.widthHidden === true && a.widthShown === true, `thin: none; the width control: ${
     j}`);
   expect(a.tint === true && a.hidden === true && a.edgesOff === false, `selection, hiding, edges off: ${j}`);
+  return undefined;
+});
+// Hover highlights (outline.ts): the mouse over a part outlines it in the highlight's blue, outside the part (nothing
+// strong over its own pixels), dim where another part is in front (an x-ray: the bracket's outline behind the rod); at
+// the detail level a face outlined, an edge marked (thin and fat edges), a vertex marked (Vertices on); a drag, or the
+// mouse gone, nothing.
+await check('hover highlights', async () => {
+  const frames = '(async () => { for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r)); ' +
+    'await settled(); })()';
+  // The canvas drawn now against `base`: changed pixels by how far each moved toward the highlight's blue (1: all the
+  // way), strong (over 0.7) or dim (0.15 to 0.5) with no strong pixel beside it (not a line in sight's antialiased
+  // edge: an x-ray), and the strong ones over the hovered placement's own ids.
+  const SCAN = `globalThis.scan = (own) => {
+    const c = viewer.renderer.domElement; viewer.snapshot();
+    const g = Object.assign(document.createElement('canvas'), { width: c.width, height: c.height }).getContext('2d');
+    g.drawImage(c, 0, 0); const px = g.getImageData(0, 0, c.width, c.height).data;
+    if (!globalThis.base) return (globalThis.base = px, {});
+    const t = viewer.idPass.target, ids = new Uint8Array(4 * t.width * t.height);
+    viewer.renderer.readRenderTargetPixels(t, 0, 0, t.width, t.height, ids);
+    const tone = [0x1f, 0x6f, 0xff], was = globalThis.base;
+    let changed = 0, strong = 0, dim = 0, inside = 0;
+    const strength = new Float32Array(c.width * c.height);
+    for (let i = 0; i < px.length; i += 4) {
+      const d = Math.abs(px[i] - was[i]) + Math.abs(px[i + 1] - was[i + 1]) + Math.abs(px[i + 2] - was[i + 2]);
+      const all = Math.abs(tone[0] - was[i]) + Math.abs(tone[1] - was[i + 1]) + Math.abs(tone[2] - was[i + 2]);
+      strength[i / 4] = d < 12 ? 0 : d / Math.max(1, all);
+    }
+    const besideStrong = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (strength[(y + dy) * c.width + x + dx] > 0.7) return true; } return false; };
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+      const i = 4 * (y * c.width + x);
+      const d = Math.abs(px[i] - was[i]) + Math.abs(px[i + 1] - was[i + 1]) + Math.abs(px[i + 2] - was[i + 2]);
+      if (d < 12) continue;
+      changed++;
+      const all = Math.abs(tone[0] - was[i]) + Math.abs(tone[1] - was[i + 1]) + Math.abs(tone[2] - was[i + 2]);
+      const s = d / Math.max(1, all);
+      if (s > 0.7) strong++;
+      else if (s > 0.15 && s < 0.5 && !besideStrong(x, y)) dim++;
+      const k = 4 * ((c.height - 1 - y) * t.width + x);
+      const id = (ids[k] | ids[k + 1] << 8 | ids[k + 2] << 16 | ids[k + 3] << 24) >>> 0;
+      const at = id && viewer.idPass.ids.resolve(id);
+      if (own && s > 0.7 && at && at.placement === own) inside++;
+    }
+    // The marked pieces' lines' length on the canvas (device pixels).
+    let length = 0;
+    const p = new viewer.camera.position.constructor(), q = p.clone();
+    for (const { object, ranges } of viewer.highlights.highlight.marks) {
+      const pos = object.geometry.attributes.position, index = object.geometry.index;
+      const xy = (v, i) => v.fromBufferAttribute(pos, index.getX(i)).applyMatrix4(object.matrixWorld)
+        .project(viewer.camera).multiply({ x: c.width / 2, y: c.height / 2, z: 1 });
+      for (const r of ranges ?? []) for (let i = r.start; i + 1 < r.start + r.count; i += 2) {
+        length += xy(p, i).distanceTo(xy(q, i + 1));
+      }
+    }
+    return { changed, strong, dim, inside, length, outline: viewer.highlights.outlinePieces.length,
+      marks: viewer.highlights.group.children.length };
+  }`;
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    ${SCAN};
+    const m = ui.panel().model, rect = viewer.renderer.domElement.getBoundingClientRect();
+    const at = (x, y) => [rect.left + x * rect.width, rect.top + y * rect.height];
+    // A spot on the left bracket (behind the rod), and one on an edge, by picks over the view; a vertex's spot once
+    // they're shown.
+    let spot, edge;
+    for (let y = 0.2; y < 0.8 && !spot; y += 0.02) for (let x = 0.2; x < 0.8 && !spot; x += 0.02) {
+      const hit = viewer.pickAt(...at(x, y));
+      if (hit?.object.isMesh && hit.faceIndex !== undefined && /bracket/.test(hit.object.name)) spot = at(x, y);
+    }
+    for (let y = 0.2; y < 0.8 && !edge; y += 0.01) for (let x = 0.2; x < 0.8 && !edge; x += 0.01) {
+      const hit = viewer.pickAt(...at(x, y));
+      if (hit?.item !== undefined && hit.object.name === 'edges') edge = at(x, y);
+    }
+    scan();
+    globalThis.first = globalThis.base;
+    return { spot, edge };
+  })()`, { then: async (sessionId, after) => {
+    const a = after as { spot?: [number, number]; edge?: [number, number] };
+    const ev = async (expression: string) => ((await send('Runtime.evaluate', { expression, returnByValue: true,
+      awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+    const mouse = (type: string, [x, y]: [number, number], buttons = 0) => send('Input.dispatchMouseEvent',
+      { type, x, y, buttons, ...(type !== 'mouseMoved' || buttons ? { button: 'left', clickCount: 1 } : {}) },
+      sessionId);
+    // Moved there, and what it's over found (frames, in software rendering).
+    // (Not settled while a button's down: the view isn't idle while it's dragged.)
+    const over = async (p: [number, number], buttons = 0) => {
+      await mouse('mouseMoved', p, buttons);
+      await ev(`(async () => { for (let i = 0; i < 100 && viewer.hoverQueued; i++) await new Promise((r) =>
+        requestAnimationFrame(r)); ${buttons ? 'for (let i = 0; i < 5; i++) await new Promise((r) => ' +
+        'requestAnimationFrame(r));' : `await ${frames};`} })()`);
+    };
+    const shot = async (name: string) => {
+      if (!process.env.SHOTS) return;
+      // (The canvas, not the tab: with tab captures between them, later moves weren't found as hover.)
+      const data = (await ev('viewer.snapshot()') as string).split(',')[1]!;
+      fs.mkdirSync(process.env.SHOTS, { recursive: true });
+      fs.writeFileSync(path.join(process.env.SHOTS, `hover-${name}.png`), Buffer.from(data, 'base64'));
+    };
+    const out: Record<string, unknown> = {};
+    if (!a.spot || !a.edge) return out;
+    // Off the canvas: over the controls.
+    const gui = await ev(`(() => { const b = ui.gui.domElement.getBoundingClientRect();
+      return [b.left + b.width / 2, b.top + 10]; })()`) as [number, number];
+    await over(a.spot);
+    await shot('part');
+    out.part = await ev(`scan(viewer.pickAt(${a.spot}).object)`);
+    await ev(`ui.setPickLevel('detail')`);
+    await ev(frames);
+    await shot('face');
+    out.face = await ev('scan()');
+    await over(a.edge);
+    await shot('edge');
+    out.edge = await ev('scan()');
+    await ev(`(ui.setRender({ edgeStyle: 'fat' }), ${frames})`);
+    await over([a.edge[0] + 1, a.edge[1]]);
+    out.fat = await ev(`viewer.highlights.group.children.map((c) => c.type)`);
+    await ev(`(ui.setRender({ edgeStyle: 'thin' }), ${frames})`);
+    // Vertices shown: one picked over the view (at its point) marked.
+    const vertex = await ev(`(async () => {
+      ui.setRender({ vertices: true });
+      await ${frames};
+      const rect = viewer.renderer.domElement.getBoundingClientRect();
+      let found;
+      viewer.display.traverse((o) => {
+        if (found || o.name !== 'vertices' || !o.visible) return;
+        const p = new viewer.camera.position.constructor();
+        for (let i = 0; i < o.geometry.attributes.position.count && !found; i++) {
+          p.fromBufferAttribute(o.geometry.attributes.position, i).applyMatrix4(o.matrixWorld).project(viewer.camera);
+          const xy = [rect.left + (p.x + 1) / 2 * rect.width, rect.top + (1 - p.y) / 2 * rect.height];
+          if (viewer.pickAt(...xy)?.object.name === 'vertices') found = xy;
+        }
+      });
+      return found;
+    })()`) as [number, number] | undefined;
+    if (vertex) {
+      await over(vertex);
+      await shot('vertex');
+      out.vertex = await ev(`viewer.highlights.group.children.map((c) => c.type)`);
+      // Against the frame with Vertices on and the mouse away: the dot larger (its disc 3 CSS pixels across, the
+      // mark's 7).
+      await over(gui);
+      await ev('(base = undefined, scan())');
+      await over(vertex);
+      out.dot = await ev('scan()');
+    }
+    // Gone: off the canvas (over the controls), the frame as it was before any.
+    await ev(`(ui.setRender({ vertices: false }), ui.setPickLevel('part'), base = first, ${frames})`);
+    await over(a.spot);
+    await over(gui);
+    out.gone = await ev(`(() => { const s = scan(); return { changed: s.changed, outline: s.outline,
+      marks: s.marks }; })()`);
+    // Hidden edges aren't drawn into the lines' ids (on the faces' depth): at the pixels of the plate's segments'
+    // middles more than 2 mm behind the face drawn there (picked with edges off), the lines' ids are the plate's
+    // edges' only where a visible one crosses (a few). (A pick there can still give an edge in sight within reach,
+    // its point nearest the ray perhaps in its hidden part.)
+    out.hidden = await ev(`(async () => {
+      ui.setPickLevel('detail');
+      const m = ui.panel().model, rect = viewer.renderer.domElement.getBoundingClientRect();
+      const plate = m.nodes.find((n) => n.kind === 'part' && /plate/.test(n.name)).object;
+      const edges = plate.getObjectByName('edges'), pos = edges.geometry.attributes.position;
+      const index = edges.geometry.index, V = viewer.camera.position.constructor;
+      const look = viewer.camera.getWorldDirection(new V());
+      const middles = [];
+      for (let i = 0; i + 1 < index.count; i += 2) {
+        const a = new V().fromBufferAttribute(pos, index.getX(i)), b = new V().fromBufferAttribute(pos,
+          index.getX(i + 1));
+        middles.push(a.add(b).multiplyScalar(0.5).applyMatrix4(edges.matrixWorld));
+      }
+      const xy = (p) => { const q = p.clone().project(viewer.camera);
+        return [rect.left + (q.x + 1) / 2 * rect.width, rect.top + (1 - q.y) / 2 * rect.height]; };
+      ui.setRender({ edges: false });
+      await ${frames};
+      const behind = middles.filter((p) => {
+        const f = viewer.pickAt(...xy(p));
+        return f?.object.isMesh && p.dot(look) - f.point.dot(look) > 2;
+      });
+      ui.setRender({ edges: true });
+      await ${frames};
+      viewer.pickAt(...xy(behind[0] ?? middles[0]));
+      const k = viewer.idPass.target.width / rect.width;
+      const drawn = behind.filter((p) => {
+        const [x, y] = xy(p), w = viewer.idPass.readWindow(viewer.renderer, viewer.idPass.lines,
+          Math.floor((x - rect.left) * k), Math.floor((rect.bottom - y) * k), 1, 1);
+        return viewer.idPass.ids.resolve(w.ids[0] ?? 0)?.object === edges;
+      });
+      return { middles: middles.length, behind: behind.length, drawn: drawn.length };
+    })()`);
+    // A part cut, alone: its silhouette in sight along its cap too (the id drawn there its own), not dim.
+    out.cut = await ev(`(async () => {
+      ui.setPickLevel('part');
+      const m = ui.panel().model;
+      const plate = m.nodes.find((n) => n.kind === 'part' && /plate/.test(n.name));
+      ui.setHidden(m.nodes.filter((n) => n.kind === 'part' && n !== plate).map((n) => n.id), true);
+      const mesh = plate.object.children[0], V = viewer.camera.position.constructor;
+      mesh.geometry.computeBoundingBox();
+      const centre = mesh.geometry.boundingBox.getCenter(new V()).applyMatrix4(mesh.matrixWorld);
+      viewer.setSections({ ...viewer.sections.get(), x: { on: true, at: centre.x, flip: false }, caps: true });
+      await ${frames};
+      const rect = viewer.renderer.domElement.getBoundingClientRect();
+      const q = centre.clone().add(new V(-5, 0, 0)).project(viewer.camera);
+      return [rect.left + (q.x + 1) / 2 * rect.width, rect.top + (1 - q.y) / 2 * rect.height];
+    })()`);
+    if (Array.isArray(out.cut)) {
+      const at = out.cut as [number, number];
+      await over(gui);
+      await ev('(base = undefined, scan())');
+      await over(at);
+      await shot('cut');
+      out.cut = await ev(`(async () => { const s = scan(); ui.showAll();
+        viewer.setSections({ ...viewer.sections.get(), x: { on: false, at: 0, flip: false } });
+        await ${frames}; return s; })()`);
+    }
+    await over(gui);
+    // A part hidden whole behind another (a bracket under the plate, seen from below), outlined: all of it an
+    // x-ray, dim, none strong.
+    out.behind = await ev(`(async () => {
+      const camera = viewer.cameraState();
+      viewer.setView('bottom', { instant: true });
+      await ${frames};
+      base = undefined;
+      scan();
+      const m = ui.panel().model;
+      const part = m.nodes.find((n) => n.kind === 'part' && /bracket/.test(n.name)).object.children[0];
+      viewer.setHighlight({ outline: [{ object: part }], marks: [] });
+      await ${frames};
+      const s = scan();
+      globalThis.behindShot = viewer.snapshot();
+      viewer.setHighlight(undefined);
+      viewer.setCamera(camera);
+      base = first;
+      await ${frames};
+      return s;
+    })()`);
+    if (process.env.SHOTS) fs.writeFileSync(path.join(process.env.SHOTS, 'hover-behind.png'), Buffer.from(
+      (await ev('behindShot') as string).split(',')[1]!, 'base64'));
+    // Hidden and picked at once (no frame between): not picked (the ids drawn again).
+    out.stale = await ev(`(() => {
+      const m = ui.panel().model, hit = viewer.pickAt(...${JSON.stringify(a.spot)});
+      const part = m.nodeOf(hit.object), before = m.nodes[part].object;
+      ui.setHidden([part], true);
+      const again = viewer.pickAt(...${JSON.stringify(a.spot)});
+      ui.setHidden([part], false);
+      let o = again?.object;
+      while (o && o !== before) o = o.parent;
+      return { before: !!hit, again: !!o };
+    })()`);
+    // A drag (last: it turns the view): nothing while the button's down.
+    await over(a.spot);
+    await mouse('mousePressed', a.spot);
+    await over([a.spot[0] + 30, a.spot[1] + 20], 1);
+    out.drag = await ev(`({ outline: viewer.highlights.outlinePieces.length,
+      marks: viewer.highlights.group.children.length })`);
+    await mouse('mouseReleased', [a.spot[0] + 30, a.spot[1] + 20]);
+    return out;
+  } }) as { after?: unknown; then?: Record<string, { changed: number; strong: number; dim: number; inside: number;
+    length: number; outline: number; marks: number }> & { fat?: string[]; vertex?: string[]; drag?: { outline: number;
+    marks: number } } };
+  const t = r.then ?? {};
+  const j = JSON.stringify({ after: r.after, then: t });
+  expect(!!t.part && t.part.outline > 0 && t.part.strong > 50 && t.part.dim > 20 && t.part.inside === 0,
+    `a part outlined, dim behind the rod, nothing strong over itself: ${j}`);
+  expect(!!t.face && t.face.outline === 1 && t.face.strong > 10, `a face outlined: ${j}`);
+  expect(!!t.edge && t.edge.marks === 1 && t.edge.strong > 5 && t.edge.outline === 0, `an edge marked: ${j}`);
+  expect(t.fat?.join() === 'Wireframe', `a fat edge marked: ${j}`);
+  expect(t.vertex?.join() === 'Points', `a vertex marked: ${j}`);
+  // (A disc 3 CSS pixels across and its rim, about 20 pixels; the mark's 7 across, about 60.)
+  expect(!!t.dot && t.dot.changed >= 40, `a vertex's mark larger than its dot: ${j}`);
+  // (A thin edge one pixel wide; its mark 3 CSS pixels. Strong pixels: ambient occlusion changes others around it.)
+  expect(t.edge!.strong >= 2 * t.edge!.length && t.edge!.length > 3, `an edge's mark wider than the edge: ${j}`);
+  expect(!!t.behind && t.behind.dim > 20 && t.behind.strong <= 3, `a part hidden whole, outlined dim: ${j}`);
+  const stale = t.stale as unknown as { before: boolean; again: boolean } | undefined;
+  expect(stale?.before === true && stale.again === false, `a part hidden, picked at once: ${j}`);
+  expect(t.drag?.outline === 0 && t.drag.marks === 0, `nothing while dragging: ${j}`);
+  const hidden = t.hidden as unknown as { behind: number; drawn: number } | undefined;
+  expect(!!hidden && hidden.behind > 20 && hidden.drawn <= hidden.behind / 20, `hidden edges not drawn as ids: ${j}`);
+  expect(!!t.cut && t.cut.outline > 0 && t.cut.strong > 50 && t.cut.dim < t.cut.strong / 10,
+    `a cut part's silhouette in sight along its cap: ${j}`);
+  expect(!!t.gone && t.gone.changed === 0 && t.gone.outline === 0 && t.gone.marks === 0, `gone with the mouse: ${j}`);
+  console.log(`hover highlights: ${j}`);
+  return undefined;
+});
+
+// Vertices (Rendering's Vertices, vertex-points.ts): off by default; on, a disc at each B-rep vertex of each placement
+// (its model's vertex table, placed by the placement's group, projected here), round and as wide as asked: thin edges'
+// 1 device pixel plus 2 CSS pixels, fat ones' width 1.5 times but at least 3 CSS pixels more (measured across a disc
+// with edges off, by how much it darkens each pixel), each whole where it's seen (the faces at a corner not cutting
+// into it); in the edges' colour, a selection's tint too; gone with a hidden part and where a section plane cuts.
+await check('vertices', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&ao=0&smaa=0&edgeStyle=fat`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const control = ui.gui.controllersRecursive().find((c) => c._name === 'Vertices');
+    const out = { byDefault: viewer.render.vertices, control: control?.parent._title, checked: control?.getValue() };
+    viewer.setBackground(0xffffff);
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const ratio = viewer.renderer.getPixelRatio();
+    const set = (r) => ui.setRender({ ...viewer.render, ...r });
+    // Each vertex of each placement in the window's device pixels (from the canvas's bottom left), with its part.
+    const V3 = viewer.camera.position.constructor;
+    const vertices = [];
+    for (const [part, placements] of viewer.graph.placements) {
+      const m = viewer.graph.modelOf(part);
+      if (!m) continue;
+      for (const { group } of placements) {
+        for (let i = 0; i < m.vertex.point.length; i += 3) {
+          const p = m.vertex.point;
+          const w = new V3(p[i], p[i + 1], p[i + 2]).applyMatrix4(group.matrixWorld);
+          const q = w.clone().project(viewer.camera);
+          vertices.push({ part, group, world: w, x: Math.round((q.x + 1) / 2 * canvas.width - 0.5),
+            y: Math.round((q.y + 1) / 2 * canvas.height - 0.5) });
+        }
+      }
+    }
+    const inView = vertices.filter((v) => v.x >= 20 && v.y >= 20 && v.x < canvas.width - 20 &&
+      v.y < canvas.height - 20);
+    const frame = () => {
+      viewer.draw();
+      const px = new Uint8Array(4 * canvas.width * canvas.height);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return (x, y) => [...px.slice(4 * (y * canvas.width + x), 4 * (y * canvas.width + x) + 3)];
+    };
+    const isDark = (c) => c.every((v) => v < 60);
+    set({ edges: false });
+    const off = frame();
+    out.drawnOff = viewer.camera.layers.isEnabled(2);
+    // How many vertices' own pixel is dark: on, and not before.
+    const darkened = (on) => inView.filter((v) => isDark(on(v.x, v.y)) && !isDark(off(v.x, v.y)));
+    set({ vertices: true });
+    out.checkedOn = control.getValue();
+    let on = frame();
+    out.count = 0;
+    viewer.display.traverse((o) => { if (o.name === 'vertices' && o.isPoints) out.count += o.geometry.index.count; });
+    out.vertices = vertices.length;
+    const lit = darkened(on);
+    out.lit = lit.length;
+    out.inView = inView.length;
+    // With no faces drawn (their materials hidden), every one (wide, so a disc's centre is dark wherever it falls).
+    const faces = [];
+    viewer.display.traverse((o) => { if (o.isMesh) for (const m of [o.material].flat()) faces.push([m, m.visible]); });
+    for (const [m] of faces) m.visible = false;
+    set({ vertices: false });
+    const bare = frame();
+    set({ vertices: true, edgeWidth: 6 });
+    const all = frame();
+    set({ edgeWidth: 1.5 });
+    out.unhidden = inView.filter((v) => isDark(all(v.x, v.y)) && !isDark(bare(v.x, v.y))).length;
+    for (const [m, was] of faces) m.visible = was;
+    // Across a disc, along a row and a column through its centre: how much of each pixel it covers (its darkening of
+    // the pixel drawn without it), summed, so its rim counts in part (device pixels); the median over discs alone (no
+    // other vertex within 12 pixels).
+    const width = (at) => {
+      const alone = lit.filter((v) => !inView.some((u) => u !== v && Math.abs(u.x - v.x) < 12 &&
+        Math.abs(u.y - v.y) < 12));
+      // (In linear light, where the rim is blended.)
+      const linear = (c) => Math.max(...c.map((v) => ((v / 255 + 0.055) / 1.055) ** 2.4));
+      const cover = (x, y) => {
+        const was = linear(off(x, y)), now = linear(at(x, y));
+        return was < 0.05 ? 0 : Math.min(1, Math.max(0, 1 - now / was));
+      };
+      const runs = alone.map((v) => {
+        let a = 0, b = 0;
+        for (let k = -11; k <= 11; k++) { a += cover(v.x + k, v.y); b += cover(v.x, v.y + k); }
+        return [a, b];
+      });
+      const med = (xs) => xs.sort((p, q) => p - q)[Math.floor(xs.length / 2)];
+      return { least: Math.min(...runs.flat()), alone: alone.length, across: med(runs.map((r) => r[0])),
+        down: med(runs.map((r) => r[1])) };
+    };
+    out.thick = { edgeStyle: viewer.render.edgeStyle, edgeWidth: viewer.render.edgeWidth, ...width(on) };
+    set({ edgeWidth: 6 });
+    out.wide = { edgeWidth: 6, ...width(frame()) };
+    set({ edgeStyle: 'thin' });
+    out.thin = width(frame());
+    out.ratio = ratio;
+    set({ edgeStyle: 'fat', edgeWidth: 6 });
+    // A part selected: its discs in its edges' tint (not black).
+    const part = viewer.nodes.nodes.find((n) => n.kind === 'part' && lit.some((v) => v.group === n.object ||
+      v.group === n.object.parent || n.object.children?.includes(v.group)));
+    ui.select([part.id]);
+    set({ edges: true });
+    viewer.draw();
+    let edges; part.object.traverse((o) => { if (!edges && o.name === 'edges') edges = o; });
+    on = frame();
+    const mine = lit.filter((v) => { let p = v.group; while (p && p !== part.object) p = p.parent; return !!p; });
+    const tint = edges.material.color.getHex();
+    out.tint = { hex: tint, mine: mine.length, coloured: mine.filter((v) => !isDark(on(v.x, v.y))).length };
+    ui.select([]);
+    set({ edges: false });
+    // Hidden: none of its discs.
+    ui.setHidden([part.id], true);
+    on = frame();
+    out.hidden = { mine: mine.length, dark: mine.filter((v) => isDark(on(v.x, v.y))).length };
+    ui.setHidden([part.id], false);
+    // Cut along X at the middle: the discs on the side cut away gone, the others still there.
+    const xs = vertices.map((v) => v.world.x), mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const none = { on: false, at: 0, flip: false };
+    viewer.setSections({ x: { on: true, at: mid, flip: false }, y: none, z: none, caps: false });
+    on = frame();
+    const plane = viewer.renderer.clippingPlanes[0];
+    const away = lit.filter((v) => plane.distanceToPoint(v.world) < -0.5);
+    const kept = lit.filter((v) => plane.distanceToPoint(v.world) > 0.5);
+    out.cut = { planes: viewer.renderer.clippingPlanes.length, away: away.length,
+      awayDark: away.filter((v) => isDark(on(v.x, v.y))).length, kept: kept.length,
+      keptDark: kept.filter((v) => isDark(on(v.x, v.y))).length };
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.byDefault === false && a.control === 'Rendering' && a.checked === false && a.drawnOff === false,
+    `off by default, its control in Rendering: ${j}`);
+  expect(a.checkedOn === true && a.count === a.vertices && a.vertices > 50, `a disc for each vertex placed: ${j}`);
+  expect(a.unhidden === a.inView && a.inView > 50 && a.lit > 20, `drawn at the vertices: ${j}`);
+  // (Within half a pixel of what's asked.)
+  const within = (w: { alone: number; across: number; down: number }, css: number) => w.alone >= 5 &&
+    Math.abs(w.across - css * a.ratio) <= 0.5 && Math.abs(w.down - css * a.ratio) <= 0.5;
+  expect(within(a.thick, a.thick.edgeWidth + 3) && within(a.wide, 9) && within(a.thin, 1 / a.ratio + 2),
+    `as wide as asked: ${j}`);
+  // (Each whole, not cut into by the faces it lies on: at a concave corner, a face rises toward the camera.)
+  expect(a.wide.least >= 9 * a.ratio - 0.5, `the faces don't cut into them: ${j}`);
+  expect(a.tint.hex !== 0 && a.tint.mine > 0 && a.tint.coloured === a.tint.mine, `a selection's tint: ${j}`);
+  expect(a.hidden.mine > 0 && a.hidden.dark === 0, `none for a hidden part: ${j}`);
+  expect(a.cut.planes === 1 && a.cut.away > 0 && a.cut.awayDark === 0 && a.cut.kept > 0 &&
+    a.cut.keptDark > a.cut.kept / 2, `cut by a section plane: ${j}`);
+  return undefined;
+});
+// The tree's detail (Faces, edges, curves, vertices): below a part, its faces, edges and vertices groups, in that
+// order, each with a node per face, edge and vertex. One edge selected: the frame changes only along that edge (its
+// polyline as its part's mesh gives it, projected here), in the selection's tint, thin and fat (fat wider); one hidden:
+// only along it, the rest of its part's edges drawn. One vertex selected with Vertices off: a tinted dot at its point
+// (its part's B-rep model's vertex table), nothing else changed. Select by ID with an edge's id, the tree's detail off:
+// that edge (the detail turned on).
+await check('edges and vertices in the tree', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&ao=0&smaa=0`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const byId = (() => {
+      const [part, mesh] = [...viewer.graph.meshes].find(([, x]) => x.edges?.some((e) => e.source !== null));
+      const source = mesh.edges.find((e) => e.source !== null && e.kind !== 'seam').source;
+      const before = viewer.nodes.hasDetail();
+      ui.selectByIds(String(source));
+      const sel = ui.selected().map((id) => viewer.nodes.nodes[id]);
+      return { before, after: viewer.nodes.hasDetail(), n: sel.length, kinds: [...new Set(sel.map((n) => n.kind))],
+        sources: [...new Set(sel.map((n) => n.item?.source))].join() === String(source),
+        parts: sel.every((n) => viewer.graph.placements.get(part).some((p) => {
+          let q = n.parent;
+          while (viewer.nodes.nodes[q].kind !== 'part') q = viewer.nodes.nodes[q].parent;
+          return viewer.nodes.nodes[q].object === p.group;
+        })) };
+    })();
+    ui.select([]);
+    const control = ui.gui.controllersRecursive().find((c) => c._name === 'Faces, edges, curves, vertices');
+    control.setValue(true);
+    control._callOnFinishChange();
+    viewer.setBackground(0xffffff);
+    const m = viewer.nodes, graph = viewer.graph;
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const V3 = viewer.camera.position.constructor;
+    // (A part in view with edges and vertices: the plate, the largest.)
+    const part = m.nodes.find((n) => n.kind === 'part' && n.name.startsWith('plate'));
+    const groups = m.children(part.id).map((g) => m.nodes[g].kind);
+    const inGroup = (kind) => m.children(m.children(part.id).find((g) => m.nodes[g].kind === kind));
+    const counts = { faces: inGroup('faces').length, edges: inGroup('edges').length,
+      vertices: inGroup('vertices').length };
+    const index = part.object.userData.part, mesh = graph.meshes.get(index), model = graph.modelOf(index);
+    const group = part.object;
+    // A point of the part's mesh (its coordinates minus its origin) or model (its own) in canvas pixels.
+    const toPx = (x, y, z, origin = [0, 0, 0]) => {
+      const q = new V3(x + origin[0], y + origin[1], z + origin[2]).applyMatrix4(group.matrixWorld)
+        .project(viewer.camera);
+      return [(q.x + 1) / 2 * canvas.width, (q.y + 1) / 2 * canvas.height];
+    };
+    // An edge's polyline in canvas pixels, by its source id.
+    const polyline = (source) => {
+      const e = mesh.edges.find((x) => x.source === source), p = mesh.edgePositions;
+      return Array.from({ length: e.count }, (_, i) => toPx(p[3 * (e.start + i)], p[3 * (e.start + i) + 1],
+        p[3 * (e.start + i) + 2], mesh.origin));
+    };
+    const distTo = (pts, x, y) => {
+      let d = Infinity;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+        d = Math.min(d, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+      }
+      return d;
+    };
+    const frame = () => {
+      viewer.draw();
+      const px = new Uint8Array(4 * canvas.width * canvas.height);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    // The pixels that differ between two frames (by more than 40 in a channel): where, and whether orange (the tint).
+    const changed = (a, b) => {
+      const out = [];
+      for (let i = 0; i < a.length; i += 4) {
+        const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+        if (d <= 40) continue;
+        const k = i / 4;
+        out.push({ x: k % canvas.width + 0.5, y: Math.floor(k / canvas.width) + 0.5,
+          orange: b[i] > 180 && b[i + 1] > 80 && b[i + 1] < 200 && b[i + 2] < 120 });
+      }
+      return out;
+    };
+    const set = (r) => ui.setRender({ ...viewer.render, ...r });
+    // The edge: the one whose polyline is longest on screen.
+    const len = (pts) => pts.reduce((t, p, i) => i ? t + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : t, 0);
+    const edge = inGroup('edges').map((id) => m.nodes[id]).filter((n) => n.item.source !== null)
+      .sort((a, b) => len(polyline(b.item.source)) - len(polyline(a.item.source)))[0];
+    const line = polyline(edge.item.source);
+    const along = (cs, within) => ({ n: cs.length, near: cs.filter((c) => distTo(line, c.x, c.y) <= within).length,
+      orange: cs.filter((c) => c.orange).length });
+    const out = { byId, groups, counts, path: m.pathOf(edge.id), length: len(line) };
+    for (const style of ['thin', 'fat']) {
+      set({ edgeStyle: style });
+      ui.select([]);
+      const before = frame();
+      ui.select([edge.id]);
+      out[style] = along(changed(before, frame()), 4 * viewer.renderer.getPixelRatio() + 3);
+    }
+    // Hidden: only along it (the rest of the part's edges still drawn), thin and fat (fat edges following the lines'
+    // geometry without it).
+    ui.select([]);
+    set({ edgeStyle: 'fat' });
+    const fatShown = frame();
+    ui.setHidden([edge.id], true);
+    out.hiddenFat = along(changed(fatShown, frame()), 4 * viewer.renderer.getPixelRatio() + 3);
+    ui.setHidden([edge.id], false);
+    set({ edgeStyle: 'thin' });
+    const shown = frame();
+    ui.setHidden([edge.id], true);
+    out.hidden = along(changed(shown, frame()), 4);
+    let lines; group.traverse((o) => { if (!lines && o.name === 'edges') lines = o; });
+    out.edgesDrawn = lines.visible && lines.geometry.index.count > 0;
+    ui.setHidden([edge.id], false);
+    // A vertex, Vertices off: a dot in the tint at its point, nothing else changed.
+    const vertex = inGroup('vertices').map((id) => m.nodes[id]).find((n) => n.item.source !== null);
+    const row = Array.from(model.vertex.id).indexOf(vertex.item.source);
+    const at = toPx(model.vertex.point[3 * row], model.vertex.point[3 * row + 1], model.vertex.point[3 * row + 2]);
+    ui.select([]);
+    const plain = frame();
+    ui.select([vertex.id]);
+    const dot = changed(plain, frame());
+    out.vertex = { on: viewer.render.vertices, n: dot.length, near: dot.filter((c) => Math.hypot(c.x - at[0],
+      c.y - at[1]) <= 6 * viewer.renderer.getPixelRatio()).length, orange: dot.filter((c) => c.orange).length };
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(!a.byId.before && a.byId.after && a.byId.n > 0 && a.byId.kinds.join() === 'edge' && a.byId.sources &&
+    a.byId.parts, `Select by ID, an edge's: ${j}`);
+  expect(a.groups.join() === 'faces,edges,vertices' && a.counts.faces > 3 && a.counts.edges > 3 &&
+    a.counts.vertices > 3, `the part's groups: ${j}`);
+  expect(/\/edges\/edge#\d+$/.test(a.path), `an edge's path: ${j}`);
+  for (const s of ['thin', 'fat']) {
+    expect(a[s].n > a.length / 2 && a[s].near === a[s].n && a[s].orange > a[s].n / 2, `${s}: only along the edge, ` +
+      `in the tint: ${j}`);
+  }
+  expect(a.fat.n > a.thin.n * 1.3, `fat wider: ${j}`);
+  expect(a.hidden.n > a.length / 3 && a.hidden.near === a.hidden.n && a.edgesDrawn, `one edge hidden: ${j}`);
+  expect(a.hiddenFat.n > a.length / 3 && a.hiddenFat.near === a.hiddenFat.n, `one edge hidden, fat: ${j}`);
+  expect(a.vertex.on === false && a.vertex.n > 4 && a.vertex.near === a.vertex.n && a.vertex.orange > 0,
+    `a vertex selected with Vertices off: ${j}`);
+  return undefined;
+});
+// The B-rep's geometry in the tree and Details (geometry-info.ts), against the model's own columns read here by the
+// layout's numbers (cad-brep's layout.ts: SURFACE_KIND and CURVE_KIND; a placement 9 reals, then a cylinder's or a
+// circle's radius): each face's and edge's icon kind its surface's or curve's (wrappers aside), shown in its row's
+// icon (named in its tooltip) and in the view's context menu's header for a face picked there; Details giving a
+// cylinder's and a circle's radius, a vertex's point; faces' areas the sum of each one's; a part's volume on the exact
+// geometry (healed: the analysis's) near its mesh's; an assembly's the sum of its placements'.
+await check('geometry in the tree and details', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/arm-ap242.step')}&check&heal=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    ui.setTree({ open: true, detail: true });
+    const m = viewer.nodes, graph = viewer.graph;
+    const SURFACES = [, 'plane', 'cylinder', 'cone', 'sphere', 'torus', 'bspline', 'extrusion', 'revolution'];
+    const CURVES = [, 'line', 'circle', 'ellipse', 'hyperbola', 'parabola', 'bspline', 'polyline'];
+    const parts = m.nodes.filter((n) => n.kind === 'part');
+    const all = parts.flatMap((p) => m.children(p.id).flatMap((g) => m.children(g)));
+    const indexOf = (id) => { let p = id; while (m.nodes[p].kind !== 'part') p = m.nodes[p].parent;
+      return m.nodes[p].object.userData.part; };
+    // What the model says, read here: a face's surface row and kind, an edge's curve row and kind.
+    const row = (d, table, id) => Array.from(d[table].id).indexOf(id);
+    const truth = (id) => {
+      const n = m.nodes[id], d = graph.modelOf(indexOf(id));
+      if (n.kind === 'face') { const f = row(d, 'face', n.face.source), s = d.face.surface[f];
+        return { kind: SURFACES[d.surface.kind[s]], s, d }; }
+      if (n.kind === 'edge') { const e = row(d, 'edge', n.item.source), c = d.edge.curve[e];
+        return c < 0 ? undefined : { kind: 'curve:' + CURVES[d.curve.kind[c]], c, d }; }
+    };
+    let compared = 0, wrong = [];
+    const kinds = new Set();
+    for (const id of all) {
+      const t = truth(id);
+      if (!t?.kind || t.kind === 'curve:undefined') continue;
+      compared++;
+      kinds.add(t.kind);
+      if (m.geometryKind(id) !== t.kind) wrong.push([m.pathOf(id), m.geometryKind(id), t.kind]);
+    }
+    const pick = (kind) => all.find((id) => truth(id)?.kind === kind);
+    // Its row: the icon named by the kind.
+    const rowTitle = async (id) => {
+      ui.panel().select([id]);
+      for (let i = 0; i < 3; i++) await new Promise((res) => requestAnimationFrame(res));
+      return document.querySelector('#tree .tree-row[data-id="' + id + '"] .tree-icon')?.title;
+    };
+    const cyl = pick('cylinder'), circle = pick('curve:circle');
+    const out = { compared, wrong: wrong.slice(0, 5), kinds: [...kinds],
+      rows: [await rowTitle(cyl), await rowTitle(circle)] };
+    const d = (ids) => { ui.select(ids); return ui.details(); };
+    // A cylinder's and a circle's radius: after their placements' 9 reals.
+    const tc = truth(cyl), tl = truth(circle);
+    out.cylRadius = tc.d.pool.surfaceReal[tc.d.surface.real[tc.s] + 9];
+    out.cylLine = d([cyl]).find((l) => l.startsWith('Surface:'));
+    out.circleRadius = tl.d.pool.curveReal[tl.d.curve.real[tl.c] + 9];
+    out.circleLine = d([circle]).find((l) => l.startsWith('Curve:'));
+    const vertex = all.find((id) => m.nodes[id].kind === 'vertex');
+    const vd = graph.modelOf(indexOf(vertex)), vr = row(vd, 'vertex', m.nodes[vertex].item.source);
+    out.vertexPoint = Array.from(vd.vertex.point.slice(3 * vr, 3 * vr + 3));
+    out.vertexLine = d([vertex]).find((l) => l.startsWith('Point:'));
+    // Areas: three faces' the sum of each one's.
+    const area = (lines) => +(lines.find((l) => l.startsWith('Area on the exact geometry'))
+      ?.match(/: ([0-9,.]+) mm/)?.[1].replace(/,/g, '') ?? NaN);
+    const three = all.filter((id) => m.nodes[id].kind === 'face').slice(0, 3);
+    out.areas = { three: area(d(three)), each: three.map((id) => area(d([id]))) };
+    // Volumes: each placed part's, on the exact geometry and of the mesh; the root assembly's.
+    const volume = (lines, what) => +(lines.find((l) => l.startsWith(what))?.match(/: ([0-9,.]+) mm/)?.[1]
+      .replace(/,/g, '') ?? NaN);
+    out.parts = parts.map((p) => { const l = d([p.id]); return [volume(l, 'Volume on the exact geometry'),
+      volume(l, 'Volume of the mesh'), area(l), +(l.find((x) => x.startsWith('Triangles'))
+        ?.match(/area ([0-9,.]+) mm/)?.[1].replace(/,/g, '') ?? NaN)]; });
+    out.root = volume(d([m.roots[0]]), 'Volume on the exact geometry');
+    // The view's context menu for a face picked there, at the detail level: its header's icon named as the face's kind.
+    ui.select([]);
+    cadViewer.apply({ pick: 'detail' });
+    await cadViewer.idle();
+    const canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    let spot;
+    for (let i = 3; i < 8 && !spot; i++) for (let j = 3; j < 8 && !spot; j++) {
+      const p = cadViewer.pickAt(i / 10, j / 10)?.path, id = p && m.find(p);
+      if (id !== undefined && m.nodes[id].kind === 'face' && truth(id)?.kind) {
+        spot = { x: rect.left + i / 10 * rect.width, y: rect.top + j / 10 * rect.height, id };
+      }
+    }
+    const send = (type, x, y, o) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: x, clientY: y, ...o }));
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointerup', spot.x, spot.y, { button: 2, buttons: 0 });
+    await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    out.menu = { header: document.querySelector('.cv-menu .tree-icon')?.title, kind: truth(spot.id).kind };
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.compared > 50 && a.wrong.length === 0 && ['plane', 'cylinder', 'curve:line', 'curve:circle'].every((k) =>
+    a.kinds.includes(k)), `each face's and edge's kind: ${j}`);
+  expect(a.rows[0] === 'cylinder' && a.rows[1] === 'circle', `the rows' icons: ${j}`);
+  const near = (x: number, y: number) => Math.abs(x - y) <= 1e-4 * Math.max(1, Math.abs(y));
+  const said = (line: string | undefined, re: RegExp) => Number(line?.match(re)?.[1]?.replace(/,/g, ''));
+  expect(near(said(a.cylLine, /radius ([\d,.]+) mm/), a.cylRadius) && /^Surface: cylinder, /.test(a.cylLine),
+    `a cylinder's radius: ${j}`);
+  expect(near(said(a.circleLine, /radius ([\d,.]+) mm/), a.circleRadius) && /^Curve: circle, /.test(a.circleLine),
+    `a circle's radius: ${j}`);
+  const pt = (a.vertexLine as string | undefined)?.match(/\(([^)]*)\)/)?.[1]?.split(', ').map(Number) ?? [];
+  expect(pt.length === 3 && pt.every((x, i) => near(x, a.vertexPoint[i])), `a vertex's point: ${j}`);
+  const sum = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
+  expect(Math.abs(a.areas.three - sum(a.areas.each)) <= 0.2 && a.areas.three > 0, `faces' area: ${j}`);
+  // (Parts whose shells the oracle couldn't all measure say so: their mesh's alone. The root sums those it has.)
+  const parts = a.parts as (number | null)[][], measured = parts.filter(([o]) => o !== null);
+  expect(measured.length >= parts.length / 2 && parts.every(([, me]) => me != null && me > 0) &&
+    measured.every(([o, me]) => Math.abs(o! - me!) <= 0.03 * o!), `each part's volume, near its mesh's: ${j}`);
+  expect(Math.abs(a.root - sum(measured.map((p) => p[0]!))) <= 0.1 * parts.length, `the assembly's volume: ${j}`);
+  expect(parts.every((p) => p[2]! > 0 && Math.abs(p[2]! - p[3]!) <= 0.02 * p[2]!), `each part's area, near its ` +
+    `mesh's: ${j}`);
+  expect(a.menu.header === a.menu.kind.replace('curve:', ''), `the view's menu's header: ${j}`);
   return undefined;
 });
 // The axes gnomon (gnomon.ts): drawn in its box (#gnomon) over the view, X red, Y green, Z blue; each axis's
@@ -5766,7 +6493,7 @@ await check('snapshot: meshing and hidden faces', async () => {
     const nuts = m.nodes.filter((n) => n.kind === 'part' && partOf(n) === 'nut');
     const source = nuts[0].object.children[0].userData.faces[0];
     // (One face in every placement: faces are hidden per placement.)
-    const want = nuts.map((n) => m.pathOf(n.id) + '/face#' + source);
+    const want = nuts.map((n) => m.pathOf(n.id) + '/faces/face#' + source);
     cadViewer.hide(want);
     ui.setTree({ detail: false });
     const hidden = cadViewer.state().hidden;
@@ -5776,10 +6503,11 @@ await check('snapshot: meshing and hidden faces', async () => {
     cadViewer.view('top');
     await cadViewer.idle();
     const rec = cadViewer.record(false);
-    // A face hidden by a state with no node made for it (the tree without detail), then a state hiding nothing.
+    // A face hidden by a state with no node made for it (the tree without detail), by an older link's path (the face
+    // straight below its part), given back as it's named now; then a state hiding nothing.
     const bolt = m.nodes.find((n) => n.kind === 'part' && partOf(n) === 'bolt');
     cadViewer.apply({ hidden: [m.pathOf(bolt.id) + '/face#' + bolt.object.children[0].userData.faces[0]] });
-    const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/face#')).length;
+    const unmade = cadViewer.state().hidden.filter((p) => p.startsWith(m.pathOf(bolt.id) + '/faces/face#')).length;
     cadViewer.apply({ hidden: [] });
     const cleared = cadViewer.state().hidden;
     return { want, hidden, meshing: st.meshing, meshedWith: st.model.meshedWith, triangles: st.model.triangles, rec,
@@ -5871,7 +6599,7 @@ await check('automation', async () => {
     const other = cadViewer.screenshot();
     cadViewer.view('iso');
     // A view to link: top, a cut, no AO, a part hidden, a face selected (a path below a part, detail not shown).
-    const face = parts[2] + '/face#' + viewer.nodes.nodes[viewer.nodes.find(parts[2])].object.children[0]
+    const face = parts[2] + '/faces/face#' + viewer.nodes.nodes[viewer.nodes.find(parts[2])].object.children[0]
       .userData.faces[0];
     const problems = cadViewer.apply({ view: 'top', cut: { x: { at: 50, flip: true } }, render: { ao: false },
       hidden: [parts[3]], selected: [face] });
@@ -6574,11 +7302,13 @@ await check('screenshot', async () => {
       return pts.map(([x, y]) => [...g.getImageData(Math.floor((x - rc.left) * k), Math.floor((y - rc.top) * k), 1,
         1).data]);
     };
-    // Screenshot... with these choices; what the dialog showed, and the file.
+    // Screenshot... with these choices; what the dialog showed, and the file. One that fails throws its message (the
+    // dialog saying so closed, so the next run finds its own).
     const run = async (o = {}) => {
       files.length = 0;
       const done = shot.getValue().call(shot.object);
-      const d = await waitFor(() => document.querySelector('dialog.cv-dialog'));
+      const d = await waitFor(() => document.querySelector('dialog.cv-dialog select')?.closest('dialog'));
+      if (!d) throw new Error('no Screenshot dialog: ' + document.querySelector('dialog.cv-dialog')?.textContent);
       const [format, what, how] = d.querySelectorAll('select');
       const width = d.querySelector('input[type=number]');
       const shown = { format: format.value, what: what.value, how: how.value, modelOffered: !what.options[0].disabled,
@@ -6599,6 +7329,13 @@ await check('screenshot', async () => {
       shown.height = d.querySelector('p.note').textContent;
       d.querySelector(o.cancel ? 'button[value=cancel]' : 'button.primary').click();
       await done;
+      const failed = document.querySelector('dialog.cv-dialog');
+      if (failed) {
+        const text = [...failed.querySelectorAll('h2, p')].map((e) => e.textContent).join(': ');
+        failed.querySelector('button.primary').click();
+        await waitFor(() => !failed.isConnected);
+        throw new Error('Screenshot failed: ' + text);
+      }
       return { shown, file: files[0] };
     };
     // The model's box, worked out here: its sphere through the camera, within the tree's right and the controls' left.
@@ -6669,8 +7406,11 @@ await check('screenshot', async () => {
     }
     const detailsShown = !box.hidden && !box.classList.contains('faded') && db.width > 0;
     const w1 = await run({ what: 'window', how: 'redraw', format: 'png' });
-    const win = { ...w1, image: await read(w1.file.bytes, [inGui, [centre[0] / innerWidth, centre[1] / innerHeight]]),
-      view: await viewPx([centre]), guiColour, inner: [innerWidth, innerHeight], detailsShown };
+    // (A point of the view clear of the details box, which can reach down over the view's centre: below it then.)
+    const inBox = centre[0] >= db.left && centre[0] <= db.right && centre[1] >= db.top && centre[1] <= db.bottom;
+    const inView = inBox ? [centre[0], db.bottom + 8] : centre;
+    const win = { ...w1, image: await read(w1.file.bytes, [inGui, [inView[0] / innerWidth, inView[1] / innerHeight]]),
+      view: await viewPx([inView]), guiColour, inner: [innerWidth, innerHeight], detailsShown };
     const at = inDetails.map(([x, y]) => [x / (innerWidth - 1), y / (innerHeight - 1)]);
     const drawn = (await read(w1.file.bytes, at)).px;
     box.hidden = true;
@@ -6777,6 +7517,10 @@ await check('update badge', async () => {
     const { targetId } = await send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };
     const other = await send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
     await send('Page.bringToFront', {}, other.sessionId);
+    // (Hidden once the browser gets to it, later under load; then a while behind.)
+    for (let t = 0; t < 50 && await evaluate('document.visibilityState') !== 'hidden'; t++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
     const behind = await evaluate('[document.visibilityState, versionFetches]');
     await send('Page.bringToFront', {}, sessionId);
@@ -6859,7 +7603,10 @@ await check('update badge', async () => {
   expect(!!a && !!t, `no result: ${j}`);
   expect(a!.atLoad === 0, `fetched at load: ${j}`);
   expect(a!.served === a!.version, `the server's own: ${j}`);
-  expect(t!.away === 0 && t!.behind[0] === 'hidden' && t!.behind[1] === 0, `fetched while staying or behind: ${j}`);
+  // (Headless Chrome can keep the page visible behind another tab, as after a tab capture that failed to start:
+  // Screenshot...'s check. Then it's not checked behind, only that nothing was fetched.)
+  if (t!.behind[0] !== 'hidden') console.log(`  (behind another tab not checked: the page stayed ${t!.behind[0]})`);
+  expect(t!.away === 0 && t!.behind[1] === 0, `fetched while staying or behind: ${j}`);
   expect(t!.shown.fetches === 1 && !t!.shown.hidden && t!.shown.inside && t!.shown.ready &&
     t!.shown.title.includes('9.9.9-new') && /reload/.test(t!.shown.title), `the badge on coming back: ${j}`);
   expect(t!.about.open && !t!.about.folded && t!.about.fetched === 0 && !t!.about.hidden &&

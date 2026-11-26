@@ -25,6 +25,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -42,6 +43,8 @@ constexpr int kGrid = 16;
  * kMaxPieces at most. */
 constexpr int kSplit = 2;
 constexpr size_t kMaxPieces = 64;
+/** How near a fixed segment a mesher point crowds it (SizeField::crowds), as a share of the refinement floor. */
+constexpr double kCrowdFloor = 0.1;
 
 Metric2 scaled(Metric2 m, double s) { return {m.a * s, m.b * s, m.c * s}; }
 double length2(Metric2 m, double x, double y) { return m.a * x * x + 2 * m.b * x * y + m.c * y * y; }
@@ -120,11 +123,12 @@ public:
   /** The kinds whose deviation has a closed form: their frame (origin, axis), and radius and a second parameter. */
   enum class Kind { none, sphere, cone, torus };
   Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, Kind kind, Vec3 centre,
-    Vec3 axis, double radius, double second, double tolerance, bool elementary)
+    Vec3 axis, double radius, double second, double tolerance, double faceTolerance, bool elementary)
     : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), elementary_(elementary),
       kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second),
-      floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance) {
+      floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance),
+      within_(std::fmax(d.linear, faceTolerance)) {
     std::vector<Singularity> sing;
     s.singularities(sing);
     for (const Singularity& g : sing)
@@ -374,12 +378,52 @@ private:
     n = it->second.v;
     return it->second.st;
   }
+  /** foldNormal at (u, v), the criteria's tolerance, memoized as normalAt; whether it's a fold's. */
+  struct Folded {
+    Status st;
+    Vec3 v;
+    bool folded;
+  };
+  mutable std::unordered_map<std::pair<uint64_t, uint64_t>, Folded, PairHash> folded_;
+  Status foldNormalAt(double u, double v, Vec3& n, bool& folded) const {
+    if (folded_.size() > kEvalMemo) folded_.clear();
+    auto [it, fresh] = folded_.try_emplace({bits(u), bits(v)});
+    if (fresh) it->second.st = foldNormal(s_, u, v, tolerance_, it->second.v, &it->second.folded);
+    n = it->second.v, folded = it->second.folded;
+    return it->second.st;
+  }
+  Status scaleNormal(Vec2 uv, Vec3& n, bool& folded) const override { return foldNormalAt(uv.x, uv.y, n, folded); }
 
   /** The boundary's own points by (u, v)'s bits (setBoundaryPoints). */
   std::unordered_map<std::pair<uint64_t, uint64_t>, Vec3, PairHash> boundary_;
   void setBoundaryPoints(const std::vector<std::pair<Vec2, Vec3>>& points) override {
     boundary_.clear();
     for (const auto& [uv, p] : points) boundary_[{bits(uv.x), bits(uv.y)}] = p;
+  }
+  /**
+   * Within kCrowdFloor x the floor of the segment's chord between its ends on the surface, along it from that far
+   * before a to that far past b; beside a frozen segment only where the needle of the three turns as shipped
+   * (turnedAsOutput), beside another never where it is a fold's sliver (foldSliver). (The whole floor, or a band as
+   * wide as the boundary's distance from its surface, refuses by the thousand thin triangles the criteria judge, and
+   * their segments split, refinement then runs on: trj6_pm4 #43110's faces to the round cap, a fold along an edge
+   * off its surface twice its triangles. A frozen segment's crowding points all refused leave a reversed triangle
+   * there unmended.)
+   */
+  bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override {
+    Vec3 A, B, Q;
+    if (!corner(a, A) || !corner(b, B) || !corner(q, Q)) return false;
+    const double band = kCrowdFloor * floor_;
+    const Vec3 e = B - A;
+    const double L = norm(e);
+    const double t = L > 0 ? dot(Q - A, e) / L : 0;
+    if (!(t >= -band && t <= L + band && norm(Q - A - (L > 0 ? t / L : 0) * e) <= band)) return false;
+    Vec2 tri[3] = {a, b, q};
+    if (cross(b - a, q - a) < 0) std::swap(tri[0], tri[1]);
+    Vec3 p[3], o[3];
+    if (!corners(tri, p)) return false;
+    if (!frozen) return !foldSliver(tri, p);
+    output(tri, p, o);
+    return turnedAsOutput(tri, p, o);
   }
   /**
    * A triangle's corners as the output has them: the boundary's own point at a corner on it, else p's; whether any
@@ -425,41 +469,58 @@ private:
     // wide in u is small in 3D, S's tangential part large, and a bound over its (u, v) box reaches far from it.
     // There the surface's distance itself, by inversion, at the same points (the face then counted as sampled).
     if (!nearPole(p, longest3)) return r;
-    if (!nearestDeviation(t, p)) return Refusal::deviationNearPole;
+    if (!nearestDeviation(t, p, deviationLimit(t, p))) return Refusal::deviationNearPole;
     sampledAny_ = true;
     return Refusal::none;
   }
 
-  /** The deviation within the deflection (Refusal::none), in closed form, bounded or sampled, as the surface allows. */
+  /**
+   * The deviation the triangle on the surface's points at its corners may have: the deflection, less where its
+   * corners as output (the boundary's own points, setBoundaryPoints) lie off the surface by g, so the output's facet,
+   * within the deviation plus g of the surface, is within the part's check of it (within_). Not where g is past
+   * within_ itself: a boundary that far off is the part's to judge (FaceMesh::offSurface), and no refinement mends it.
+   */
+  double deviationLimit(const Vec2 t[3], const Vec3 p[3]) const {
+    if (boundary_.empty()) return d_.linear;
+    double g = 0;
+    for (int i = 0; i < 3; i++) {
+      auto it = boundary_.find({bits(t[i].x), bits(t[i].y)});
+      if (it != boundary_.end()) g = std::fmax(g, norm(it->second - p[i]));
+    }
+    return g < within_ ? std::fmin(d_.linear, within_ - g) : d_.linear;
+  }
+
+  /** The deviation within its limit (Refusal::none), in closed form, bounded or sampled, as the surface allows. */
   Refusal deviationWithin(const Vec2 t[3], const Vec3 p[3]) const {
     Bounds b;
     double closedForm;
+    const double limit = deviationLimit(t, p);
     if (kind_ == Kind::sphere) {
       // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
-      return radius_ - pointTriangle(centre_, p) <= d_.linear ? Refusal::none : Refusal::deviationClosedForm;
+      return radius_ - pointTriangle(centre_, p) <= limit ? Refusal::none : Refusal::deviationClosedForm;
     }
     if (kind_ != Kind::none && distanceBound(p, closedForm))
-      return closedForm <= d_.linear ? Refusal::none : Refusal::deviationClosedForm;
+      return closedForm <= limit ? Refusal::none : Refusal::deviationClosedForm;
     if (bounded_) {
       // Sampled first, sparing the bound the many large triangles refinement refuses (what it measures, |S(x) - L(x)|
       // at the corners' barycentric (u, v), is at least the distance there, so its refusals err only to the strict
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
       // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
-      if (!sampledDeviation(t, p)) return Refusal::deviationSampled;
+      if (!sampledDeviation(t, p, limit)) return Refusal::deviationSampled;
       // The deviation bounded by the least of the sub-cells' (cellDeviation, cached: tried first, cheap), the
       // box's and its pieces' bounds.
       double cd;
-      if (cellDeviation(t, cd) && cd <= d_.linear) return Refusal::none;
+      if (cellDeviation(t, cd) && cd <= limit) return Refusal::none;
       if (!bounds(t, b, false)) {
         sampledAny_ = true;
-      } else if (b.deviation > d_.linear) {
-        if (!bounds(t, b, true, d_.linear)) sampledAny_ = true;
-        else if (b.deviation > d_.linear) return Refusal::deviationBounded;
+      } else if (b.deviation > limit) {
+        if (!bounds(t, b, true, limit)) sampledAny_ = true;
+        else if (b.deviation > limit) return Refusal::deviationBounded;
       }
       return Refusal::none;
     }
     sampledAny_ = true;
-    return sampledDeviation(t, p) ? Refusal::none : Refusal::deviationSampled;
+    return sampledDeviation(t, p, limit) ? Refusal::none : Refusal::deviationSampled;
   }
 
   /**
@@ -476,6 +537,10 @@ private:
    * as the pole's ring was sized for.)
    */
   Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
+    const Refusal r = cornerNormalsRefusal(t, p, fan);
+    return r != Refusal::none && !fan && foldSliver(t, p) ? Refusal::none : r;
+  }
+  Refusal cornerNormalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
     Vec3 n[3], g = facet(p);
     bool has[3];
     for (int i = 0; i < 3; i++) has[i] = cornerNormal(t, i, n[i]) == Status::ok;
@@ -504,7 +569,7 @@ private:
    * surface (an upper bound on its distance to it): from the point's barycentric (u, v), a few damped Gauss-Newton
    * steps towards its foot, the nearest point seen kept.
    */
-  bool nearestDeviation(const Vec2 t[3], const Vec3 p[3]) const {
+  bool nearestDeviation(const Vec2 t[3], const Vec3 p[3], double limit) const {
     // (sampledDeviation's points and the three between the centroid and the corners, with a tenth to spare: a
     // sample misses the deepest point, which the bounds would have found.)
     const double w[7][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5},
@@ -512,7 +577,7 @@ private:
     for (const auto& b : w) {
       Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
       Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
-      if (footDistance(flat, uv) > 0.9 * d_.linear) return false;
+      if (footDistance(flat, uv) > 0.9 * limit) return false;
     }
     return true;
   }
@@ -836,12 +901,12 @@ private:
   }
 
   /** The surface within the deflection of the flat triangle at its centroid and its edges' middles (sampled). */
-  bool sampledDeviation(const Vec2 t[3], const Vec3 p[3]) const {
+  bool sampledDeviation(const Vec2 t[3], const Vec3 p[3], double limit) const {
     const double w[4][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}};
     for (const auto& b : w) {
       Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
       Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
-      if (norm(at(uv) - flat) > d_.linear) return false;
+      if (norm(at(uv) - flat) > limit) return false;
     }
     return true;
   }
@@ -890,6 +955,25 @@ private:
   }
 
   /**
+   * Whether the triangle (its 3D corners p) is thinner than the refinement floor across, twice its area over its
+   * longest side, with a corner in a fold narrower than the tolerance (foldNormal): a sliver of the fold's own, its
+   * facet on the fold's sheet whichever way that faces, accepted rather than refused for its normals or turned as one
+   * below the floor is: splitting only makes more (LMP1 #172427's #1039663, a B-spline pleat, to the point cap). Not a
+   * needle elsewhere: refinement mends those.
+   */
+  bool foldSliver(const Vec2 t[3], const Vec3 p[3]) const {
+    const Vec3 g = cross(p[1] - p[0], p[2] - p[0]);
+    const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    if (!(longest > 0) || norm(g) / longest > floor_) return false;
+    for (int i = 0; i < 3; i++) {
+      Vec3 n;
+      bool in = false;
+      if (foldNormalAt(t[i].x, t[i].y, n, in) == Status::ok && in) return true;
+    }
+    return false;
+  }
+
+  /**
    * Turned as the part judges its output (part.cpp's checkFacing): the facet of q, the corners as output, against the
    * mean of the corners' normals, p the surface's points at the corners; not with a corner within the tolerance of a
    * pole or apex.
@@ -904,7 +988,7 @@ private:
       Vec3 n;
       if (cornerNormal(t, i, n) == Status::ok) sum = sum + n;
     }
-    return facetAgainst(g, sum);
+    return facetAgainst(g, sum) && !foldSliver(t, p);
   }
   /** The output's origin (setOutputOrigin), and corners as shipped from it. */
   double origin_[3] = {0, 0, 0};
@@ -1153,6 +1237,8 @@ private:
   /** The surface's poles' and apexes' points. */
   std::vector<Vec3> poles_;
   double tolerance_;
+  /** The part's deviation check's limit for this face (PartMesher's checkDeviation): max(d, the face's tolerance). */
+  double within_;
   /** The refinement floor (belowFloor). */
   double floor_;
   /** The surface's knot spans each way (spans()), empty where none is narrow or the domain isn't finite. */
@@ -1162,6 +1248,47 @@ private:
 };
 
 } // namespace
+
+Status foldNormal(const Surface& s, double u, double v, double tol, Vec3& n, bool* folded) {
+  if (folded) *folded = false;
+  const Status st = s.normal(u, v, n);
+  if (st != Status::ok || !(tol > 0)) return st;
+  SurfacePoint q;
+  if (s.eval(u, v, 1, q) != Status::ok) return st;
+  const SurfaceDomain dom = s.domain();
+  Vec3 sum{0, 0, 0};
+  bool any = false;
+  for (int d = 0; d < 2; d++) {
+    const double speed = norm(d ? q.dv : q.du), x = d ? v : u, period = d ? dom.vPeriod : dom.uPeriod;
+    const Range r = d ? dom.v : dom.u;
+    if (!(speed > 0)) continue;
+    // (The side `sign` of x about tol away in 3D: the step halved or doubled towards it, within a bounded domain;
+    // along a period never past a quarter of it, as a tube thinner than the tolerance would find its own far side.)
+    const double cap = period > 0 ? 0.25 * period : std::numeric_limits<double>::infinity();
+    auto side = [&](double sign, Vec3& out) {
+      double h = std::min(tol / speed, cap), y = x;
+      for (int it = 0; it < 8; it++) {
+        y = x + sign * h;
+        if (!(period > 0)) y = std::clamp(y, std::isfinite(r.lo) ? r.lo : y, std::isfinite(r.hi) ? r.hi : y);
+        if (y == x) return false;
+        SurfacePoint p;
+        if (s.eval(d ? u : y, d ? y : v, 0, p) != Status::ok) return false;
+        const double dist = norm(p.p - q.p);
+        if (dist > 2 * tol) h *= 0.5;
+        else if (dist < 0.5 * tol && y == x + sign * h && h < cap) h = std::min(2 * h, cap);
+        else break;
+      }
+      return s.normal(d ? u : y, d ? y : v, out) == Status::ok;
+    };
+    Vec3 na, nb;
+    if (!side(-1, na) || !side(1, nb)) continue;
+    if (dot(na, nb) > 0 && dot(n, na) < 0 && dot(n, nb) < 0) sum = sum + na + nb, any = true;
+  }
+  if (!any || !(norm(sum) > 0)) return st;
+  n = (1 / norm(sum)) * sum;
+  if (folded) *folded = true;
+  return st;
+}
 
 std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surface& s, Box2 uv, const Deflections& d,
   Status& status) {
@@ -1200,7 +1327,7 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
   const bool elementary = kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS;
   return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
-    second, Tolerances(m).part(), elementary);
+    second, Tolerances(m).part(), Tolerances(m).face(f), elementary);
 }
 
 } // namespace tesscadio

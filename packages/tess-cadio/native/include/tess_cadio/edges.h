@@ -79,8 +79,8 @@ struct EdgeOptions {
   std::function<bool(int, Vec3, Vec2, Vec2&, double&)> localFootForTests;
   /**
    * The model's analysis buffer (cad-brep's cad_analysis.h), if given: 8-byte aligned, of this model, kept alive
-   * while the EdgeMesh is. An edge or vertex whose tolerance healing grew past repair (toleranceError) fails each
-   * face with a loop through it, its edges not sampled. Not given, or not an analysis: nothing.
+   * while the EdgeMesh is. An edge or vertex whose tolerance healing grew past repair (toleranceError) is met as
+   * any other, its faces' records saying how far (FaceBoundary::offSurface). Not given, or not an analysis: nothing.
    */
   const uint8_t* analysis = nullptr;
   size_t analysisSize = 0;
@@ -151,6 +151,8 @@ struct CoedgeSamples {
  */
 struct ProjectionCounts {
   int withinMesh = 0, atEdgeTolerance = 0, byInversion = 0;
+  /** Of those placed, how many lay far off their surface (past offSurfaceLimit), on their feet's p-curve. */
+  int farOff = 0;
 };
 
 /**
@@ -228,6 +230,15 @@ struct FaceBoundary {
    * of their 3D distance, where the surface there is within the face's tolerance of its 3D point (which is kept).
    */
   int foldsRepaired = 0;
+  /**
+   * How far its edges lie off its surface, the worst by its multiple of `offSurfaceWithin`: a use's curve from the
+   * surface where it is placed (a given p-curve's points, a projection's feet), or the tolerance healing grew an edge
+   * or vertex to past repair (with an analysis), within max(the deflection, the tolerance healing started from);
+   * else within max(the deflection, the face's tolerance). The face is meshed however far (its triangles following
+   * the edge); its record says it. Its edge or vertex (rows), or -1.
+   */
+  double offSurface = 0, offSurfaceWithin = 0;
+  int32_t offSurfaceEdge = -1, offSurfaceVertex = -1;
   std::vector<std::vector<BoundaryPoint>> loops;
   /** Interior constraint chains: each a run of points to join pairwise (or a single point to keep). */
   std::vector<std::vector<BoundaryPoint>> interior;
@@ -238,12 +249,16 @@ struct FaceBoundary {
  * parameter, clamped to [0.1, 0.9] so no sample lands nearer than a tenth of the span to another. `exact`: a sample
  * the caller needs at that very parameter (where a crease inside a face meets its boundary), fraction in (0, 1)
  * unclamped and kept whatever the span's length; one within 1e-9 of the span of a sample is that sample.
+ * `crossing`: asked for by a face's boundary crossing itself in (u, v) (two spans' chords that cross, or one through
+ * a point), split down to a hundredth of the refinement floor rather than the floor: a strip narrower than the
+ * tolerance needs its sides' chords to sag under its width to stay apart.
  */
 struct SplitRequest {
   int32_t edge;
   int32_t span;
   double fraction = 0.5;
   bool exact = false;
+  bool crossing = false;
 };
 
 /**

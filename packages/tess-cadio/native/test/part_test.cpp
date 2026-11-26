@@ -3,6 +3,7 @@
 // shell's mesh closed and consistently oriented (each side of a triangle used by exactly one other, the other way),
 // normals unit and finite (a sphere's pole included) and on the side the triangles face, triangles within the
 // deflection of the surface, the faces' areas against their closed forms, the same mesh twice.
+#include <tess_cadio/criteria.h>
 #include <tess_cadio/edges.h>
 #include <tess_cadio/part.h>
 
@@ -476,6 +477,119 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   const Vec2 thin[3] = {{0, 0}, {3, 0}, {0, 0.5}};
   c->setBoundaryPoints({{thin[0], Vec3{0, 0, 0.25}}});
   CHECK(c->accept(thin));
+}
+
+TEST_CASE("a point crowds a fixed segment (crowds) within a tenth of the floor of it, along it and past its ends, "
+  "whatever the boundary's distance from its surface; a frozen one only where the needle turns as shipped; never a "
+  "fold's sliver") {
+  // (pcurveNear's plane at d 0.1: the floor 0.01, the band 0.001; the segment (0, 0) to (3, 0).)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+  REQUIRE(c);
+  const Vec2 a{0, 0}, b{3, 0};
+  CHECK(c->crowds(a, b, {1.5, 0.0009}, false));
+  CHECK(c->crowds(b, a, {1.5, -0.0009}, false));
+  CHECK(!c->crowds(a, b, {1.5, 0.0011}, false));
+  CHECK(c->crowds(a, b, {3.0009, 0.0005}, false));
+  CHECK(c->crowds(a, b, {-0.0009, 0}, false));
+  CHECK(!c->crowds(a, b, {3.0011, 0}, false));
+  CHECK(!c->crowds(a, b, {-0.0011, 0}, false));
+  // Frozen, the needle facing up in double and unrounded: not crowding.
+  CHECK(!c->crowds(a, b, {1.5, 0.0009}, true));
+  // The boundary 0.005 off its surface (a point's own 0.005 above the plane): the band still a tenth of the floor.
+  c->setBoundaryPoints({{a, Vec3{0, 0, 0.005}}});
+  CHECK(!c->crowds(a, b, {1.5, 0.0045}, false));
+  CHECK(c->crowds(a, b, {1.5, 0.0009}, false));
+  c->setBoundaryPoints({});
+  // Frozen, a needle turned as shipped (the corners of the setBoundaryPoints case's flip, float32 minus an origin 1
+  // below them): crowding; in double, not.
+  {
+    auto c2 = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(c2);
+    const Vec2 fa{0, 6e-8}, fb{3, 5.8e-8}, fq{1.5, 5.91e-8};
+    CHECK(!c2->crowds(fa, fb, fq, true));
+    const double origin[3] = {0, -1, 0};
+    c2->setOutputOrigin(origin);
+    CHECK(c2->crowds(fa, fb, fq, true));
+    CHECK(c2->crowds(fb, fa, fq, true));
+  }
+  // A fold's sliver (pleatStrip at a deflection of 1: the floor 0.2, the band 0.02): the segment 0.01 along y from
+  // the fold at (0.5, 0.5), across it, isn't crowded by the fold's point; 0.01 along y from it a point off the fold
+  // (v 0.25) is.
+  cadgeom::Model p = load("pleatStrip");
+  REQUIRE(p.ok());
+  auto ps = cadgeom::makeSurface(p, p.faceSurface(0), st);
+  auto pc = makeCriteria(p, 0, *ps, cadgeom::Box2{{0, 1}, {0, 1}}, Deflections{1, 15 * M_PI / 180}, st);
+  REQUIRE(pc);
+  const double e = 0.01 / 190;
+  CHECK(!pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.5}, false));
+  CHECK(pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.25}, false));
+}
+
+TEST_CASE("the deviation test counts a corner's own distance from the surface (setBoundaryPoints): a triangle within "
+  "d on the surface's points refused where its sag and that distance pass max(d, the face's tolerance); not where the "
+  "distance alone is past it") {
+  // A triangle across u whose bound on the surface's points is 0.8 d, a corner's own point g off the surface along
+  // its normal: refused exactly where g < within = max(d, tol) and the bound > min(d, within - g). On cylinderLong
+  // (r 2, bounded), torusOuterHalf, spheres' hemisphere (closed form, then by inversion near its pole),
+  // tubeGapFaceTolerance at d 1e-4 (its face's tolerance 1e-3 over the part's: within that, not d) and coneApexLoop
+  // away from its apex (closed form).
+  struct Case {
+    const char* name;
+    int face;
+    double d;
+    bool box;
+    cadgeom::Box2 uv;
+  };
+  for (const Case& k : {Case{"cylinderLong", 0, 0.1, true, {{-1, 1}, {0, 10}}},
+         Case{"torusOuterHalf", 0, 0.1, false, {}}, Case{"spheres", 1, 0.1, false, {}},
+         Case{"tubeGapFaceTolerance", 0, 1e-4, false, {}}, Case{"coneApexLoop", 0, 0.1, true, {{0, 6.28}, {0, 3}}}}) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(k.face), st);
+    REQUIRE(s);
+    const cadgeom::SurfaceDomain D = s->domain();
+    const cadgeom::Box2 box = k.box ? k.uv : cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}};
+    const double d = k.d, within = std::fmax(d, cadgeom::Tolerances(m).face(k.face));
+    const Vec2 c{0.5 * (box.x.lo + box.x.hi), 0.5 * (box.y.lo + box.y.hi)};
+    auto tri = [&](double a, Vec2 t[3]) { t[0] = {c.x - a, c.y}, t[1] = {c.x + a, c.y}, t[2] = {c.x, c.y + a}; };
+    auto fresh = [&] { return makeCriteria(m, k.face, *s, box, Deflections{d, 1.5}, st); };
+    auto c0 = fresh();
+    REQUIRE(c0);
+    // (The triangle's size by bisection to a bound of 0.8 d.)
+    double lo = 1e-6, hi = 0.25 * (box.x.hi - box.x.lo), bound = 0;
+    Vec2 t[3];
+    for (int i = 0; i < 80; i++) {
+      const double a = 0.5 * (lo + hi);
+      tri(a, t);
+      // (No bound, as over a B-spline's knots far apart may give none: too large.)
+      (c0->deviationBound(t, bound) && bound < 0.8 * d ? lo : hi) = a;
+    }
+    tri(lo, t);
+    REQUIRE(c0->deviationBound(t, bound));
+    if (!(bound > 0.7 * d && bound < 0.9 * d)) std::printf("  %s: bound %g\n", k.name, bound);
+    REQUIRE((bound > 0.7 * d && bound < 0.9 * d));
+    CHECK(c0->accept(t));
+    cadgeom::SurfacePoint sp;
+    REQUIRE(s->eval(t[0].x, t[0].y, 1, sp) == cadgeom::Status::ok);
+    Vec3 n = cadgeom::cross(sp.du, sp.dv);
+    n = (1 / cadgeom::norm(n)) * n;
+    for (double g : {d - bound + 0.05 * d, d - bound - 0.05 * d, within - 0.5 * bound, within + 0.5 * d}) {
+      auto c1 = fresh();
+      c1->setBoundaryPoints({{t[0], sp.p + g * n}});
+      const bool refused = g < within && bound > std::fmin(d, within - g);
+      if (c1->accept(t) == refused) std::printf("  %s: g %g bound %g within %g\n", k.name, g, bound, within);
+      CHECK_EQ(c1->accept(t), !refused);
+      // (Its bound on the surface's points unchanged: the part's check adds the distance itself.)
+      double b1;
+      REQUIRE(c1->deviationBound(t, b1));
+      CHECK_EQ(b1, bound);
+    }
+  }
 }
 
 TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
@@ -976,6 +1090,179 @@ TEST_CASE("B-spline faces with no loops meshed over their knot rectangles: open,
   }
 }
 
+TEST_CASE("a fold narrower than the tolerance: foldNormal its sides' normal there; the strip meshed, its normals "
+  "the sides'; a tight fillet not one") {
+  // pleatStrip: its section's normal reversed over v 0.45 to 0.55 (the surface running back 1.2e-3 there), its
+  // tolerance 0.2. At v 0.5 the normal is reversed against the surface's 0.2 away on both sides, which agree: the
+  // sides' mean, folded; at v 0.2 and 0.8 the surface's own.
+  cadgeom::Model m = load("pleatStrip");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  REQUIRE(s);
+  for (double v : {0.2, 0.5, 0.8}) {
+    Vec3 plain, n;
+    bool folded = true;
+    REQUIRE(s->normal(0.5, v, plain) == cadgeom::Status::ok);
+    REQUIRE(foldNormal(*s, 0.5, v, 0.2, n, &folded) == cadgeom::Status::ok);
+    CHECK_EQ(folded, v == 0.5);
+    if (v == 0.5) {
+      CHECK(cadgeom::dot(n, plain) < 0);
+      Vec3 a;
+      REQUIRE(s->normal(0.5, 0.2, a) == cadgeom::Status::ok);
+      CHECK(cadgeom::dot(n, a) > 0.99);
+    } else {
+      CHECK(cadgeom::norm(n - plain) == 0);
+    }
+  }
+  // Meshed at medium: no runaway, no face failed or turned past the limits, the strip's area (0.6 x 190 and the
+  // pleat's 3.5e-3 x 190 more: its section's length by the Bezier's arc), the vertices in the pleat its sides'.
+  PartOptions o = options(0.1, 15 * M_PI / 180);
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.triangles.size() / 3 < 1000);
+  CHECK(fm.foldedNormals > 0);
+  double area = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    area += 0.5 * cadgeom::norm(cadgeom::cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  CHECK(std::fabs(area - 190 * 0.6) < 0.01 * 190 * 0.6);
+  CHECK_EQ(sharedEdges(m, pm, "pleatStrip"), 0);
+  // thinTube: a half cylinder of radius 0.005 at a tolerance of 0.1, its sides at its ends facing apart: no fold.
+  cadgeom::Model c = load("thinTube");
+  REQUIRE(c.ok());
+  auto tube = cadgeom::makeSurface(c, c.faceSurface(0), st);
+  REQUIRE(tube);
+  Vec3 n;
+  bool folded = true;
+  REQUIRE(foldNormal(*tube, M_PI / 2, 0.5, 0.1, n, &folded) == cadgeom::Status::ok);
+  CHECK(!folded);
+}
+
+TEST_CASE("foldNormal on polyline sections: a fold only where the sides agree and both are against the point; its "
+  "sides found by a step that shrinks to the tolerance") {
+  cadgeom::Status st;
+  auto at = [&](const cadgeom::Surface& s, double v) {
+    Vec3 n;
+    REQUIRE(s.normal(0.5, v, n) == cadgeom::Status::ok);
+    return n;
+  };
+  auto verdict = [&](const cadgeom::Surface& s, Vec3& n) {
+    bool folded = false;
+    REQUIRE(foldNormal(s, 0.5, 0.5, 0.2, n, &folded) == cadgeom::Status::ok);
+    return folded;
+  };
+  // foldSidesApart: the short leg's normal against both legs beside it, which are 120 degrees apart.
+  cadgeom::Model apart = load("foldSidesApart");
+  REQUIRE(apart.ok());
+  auto a = cadgeom::makeSurface(apart, apart.faceSurface(0), st);
+  REQUIRE(a);
+  CHECK(cadgeom::dot(at(*a, 0.5), at(*a, 0.1)) < 0);
+  CHECK(cadgeom::dot(at(*a, 0.5), at(*a, 0.9)) < 0);
+  CHECK(cadgeom::dot(at(*a, 0.1), at(*a, 0.9)) < 0);
+  Vec3 n;
+  CHECK(!verdict(*a, n));
+  CHECK(cadgeom::norm(n - at(*a, 0.5)) == 0);
+  // foldOneSide: against the leg before it alone, the two legs agreeing.
+  cadgeom::Model one = load("foldOneSide");
+  REQUIRE(one.ok());
+  auto o = cadgeom::makeSurface(one, one.faceSurface(0), st);
+  REQUIRE(o);
+  CHECK(cadgeom::dot(at(*o, 0.5), at(*o, 0.1)) < 0);
+  CHECK(cadgeom::dot(at(*o, 0.5), at(*o, 0.9)) > 0);
+  CHECK(cadgeom::dot(at(*o, 0.1), at(*o, 0.9)) > 0);
+  CHECK(!verdict(*o, n));
+  // foldStepFar: the short leg (v 0.4 to 0.6) between legs forward (0.2 to 0.4, 0.6 to 0.8), those between legs
+  // back as the short one is; the first step lands past the domain's ends, on the long legs: shrunk, it finds the
+  // forward legs, a fold, its normal theirs.
+  cadgeom::Model far = load("foldStepFar");
+  REQUIRE(far.ok());
+  auto f = cadgeom::makeSurface(far, far.faceSurface(0), st);
+  REQUIRE(f);
+  CHECK(cadgeom::dot(at(*f, 0.5), at(*f, 0.1)) > 0.99);
+  CHECK(verdict(*f, n));
+  CHECK(cadgeom::dot(n, at(*f, 0.3)) > 0.99);
+}
+
+TEST_CASE("a fold's slivers accepted where thinner than the refinement floor across, not wider; LMP1 #1039663 "
+  "pleated at its edge meshed, few turned") {
+  // pleatStrip's criteria at a deflection of 1 (its floor 0.2, the uncertainty; the deviation bound within it): a
+  // triangle from the fold (0.5, 0.5) to v 0.05 and 0.95 (x 0.08 and 0.52) 2 along y, 0.43 across, refused for its
+  // normals; 0.05 along y, 0.05 across, accepted.
+  cadgeom::Model m = load("pleatStrip");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{0, 1}, {0, 1}}, Deflections{1, 15 * M_PI / 180}, st);
+  REQUIRE(c);
+  const Vec2 wide[3] = {{0.5, 0.5}, {0.5 + 2.0 / 190, 0.05}, {0.5 + 2.0 / 190, 0.95}};
+  const Vec2 thin[3] = {{0.5, 0.5}, {0.5 + 0.05 / 190, 0.05}, {0.5 + 0.05 / 190, 0.95}};
+  CHECK(c->refusal(wide) == Refusal::normalFacet);
+  CHECK(c->refusal(thin) == Refusal::none);
+  // pleatAtEdge at medium, judged as shipped (the origin its vertices' box's centre): meshed, its slivers in the
+  // fold kept rather than split (refined, without them accepted turned as shipped, it ships ten times the turned).
+  cadgeom::Model e = load("pleatAtEdge");
+  REQUIRE(e.ok());
+  PartOptions o = options(0.1, 15 * M_PI / 180);
+  o.minAngle = 10 * M_PI / 180;
+  Vec3 lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
+  for (int i = 0; i < e.vertices(); i++) {
+    const Vec3 p = e.vertexPoint(i);
+    lo = {std::fmin(lo.x, p.x), std::fmin(lo.y, p.y), std::fmin(lo.z, p.z)};
+    hi = {std::fmax(hi.x, p.x), std::fmax(hi.y, p.y), std::fmax(hi.z, p.z)};
+  }
+  o.outputOrigin[0] = 0.5 * (lo.x + hi.x), o.outputOrigin[1] = 0.5 * (lo.y + hi.y);
+  o.outputOrigin[2] = 0.5 * (lo.z + hi.z);
+  PartMesher pm(e, o);
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  pleatAtEdge: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(fm.defectTurned <= 4);
+  CHECK(fm.triangles.size() / 3 < 400);
+  CHECK(fm.foldedNormals > 0);
+}
+
+TEST_CASE("a pole's fan that folds fails its face (failFoldedFans), said so; off, meshed; a row reaching as far as "
+  "its ring gets no fan, one nearly as long keeps its fans") {
+  // seamCone at 0.05 with its first fan triangle turned for the test (turnFirstFanTriangleForTests): its ring segment
+  // used the same way as the mesher's triangle beside it, a fold, whatever consistentFans and apexCorners.
+  cadgeom::Model m = load("seamCone");
+  REQUIRE(m.ok());
+  for (bool rules : {true, false}) {
+    PartOptions o = options(0.05, 0.26);
+    o.consistentFans = o.apexCorners = rules;
+    CHECK(PartMesher(m, o).face(0).status == cadgeom::Status::ok);
+    o.turnFirstFanTriangleForTests = true;
+    PartMesher turned(m, o);
+    const FaceMesh& fm = turned.face(0);
+    CHECK(fm.status == cadgeom::Status::noConvergence);
+    CHECK(fm.cause.find("a pole's fan folds over itself: ") != std::string::npos);
+    CHECK(fm.triangles.empty());
+    o.failFoldedFans = false;
+    PartMesher kept(m, o);
+    CHECK(kept.face(0).status == cadgeom::Status::ok);
+    CHECK(!kept.face(0).triangles.empty());
+  }
+  // poleRowFan (VW #2452's #298974) at medium: no fan at its row-long pole, meshed, every edge of it used once
+  // each way or once at the boundary.
+  cadgeom::Model row = load("poleRowFan");
+  REQUIRE(row.ok());
+  PartMesher pm(row, options(0.1, 15 * M_PI / 180));
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  CHECK(!pm.face(0).triangles.empty());
+  CHECK_EQ(sharedEdges(row, pm, "poleRowFan"), 0);
+  // poleRowNear (LMP1 #172535's #1050721) at medium: its rings off its rows, fans kept, none folding (failFoldedFans
+  // would fail the face). (Its edges run along its rows, which its fans meet at their rings, not at the edges' samples:
+  // sharedEdges doesn't apply.)
+  cadgeom::Model near = load("poleRowNear");
+  REQUIRE(near.ok());
+  PartMesher nm(near, options(0.1, 15 * M_PI / 180));
+  if (nm.face(0).status != cadgeom::Status::ok) std::printf("  poleRowNear: %s\n", nm.face(0).cause.c_str());
+  CHECK(nm.face(0).status == cadgeom::Status::ok);
+  CHECK(!nm.face(0).triangles.empty());
+}
+
 TEST_CASE("cones with a seam from the apex used both ways: within the deflection, to area, the jump a whole turn") {
   // The cad-brep cone (no seam p-curves) and seamCone (given, at u = 2 pi up and 0 down), with a degenerate edge at
   // the apex and without: the loop's jump across the apex a whole period (the seam's two uses either side), not a cut
@@ -1138,6 +1425,45 @@ TEST_CASE("the same tube at 1e-3: its crossings, which splits don't mend, not as
   CHECK(fm.cause.rfind("its boundary in (u, v) through its own point", 0) == 0);
   CHECK_EQ(fm.splitsWanted, 0);
   CHECK_EQ(pm.rounds(), 3);
+}
+
+TEST_CASE("a strip narrower than its tolerance: the spans its crossings name split below the refinement floor, to a "
+  "hundredth of it, until its sides' chords stay apart; edges that truly cross split no finer") {
+  // narrowArcStrip: radii 1 and 1.001 at an uncertainty of 0.2 (the floor), d 0.1: the arcs' chords sag past 0.001
+  // until about 0.09 long, under the floor.
+  cadgeom::Model m = load("narrowArcStrip");
+  REQUIRE(m.ok());
+  PartMesher pm(m, options(0.1, 15 * M_PI / 180));
+  const FaceMesh& fm = pm.face(0);
+  if (fm.status != cadgeom::Status::ok) std::printf("  narrowArcStrip: %s\n", fm.cause.c_str());
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK(!fm.triangles.empty());
+  CHECK_EQ(sharedEdges(m, pm, "narrowArcStrip"), 0);
+  const double floor = refinementFloor(cadgeom::Tolerances(m).part(), 0.1);
+  REQUIRE(floor == 0.2);
+  double shortest = INFINITY;
+  for (int e : {0, 1, 3}) {
+    const auto& p = pm.edges().edge(e).points;
+    for (size_t k = 0; k + 1 < p.size(); k++) shortest = std::fmin(shortest, cadgeom::norm(p[k + 1] - p[k]));
+  }
+  CHECK(shortest < floor);
+  CHECK(shortest > 0.01 * floor / 2);
+  // pentagramLoop: five line edges crossing each other in (u, v), the pairs named the same each round (no growth to
+  // stop on): failed for its crossings, its spans split no finer than half a hundredth of the floor, the rounds
+  // ending short of their cap.
+  cadgeom::Model star = load("pentagramLoop");
+  REQUIRE(star.ok());
+  PartMesher ps(star, options(0.1, 15 * M_PI / 180));
+  CHECK(ps.face(0).status == cadgeom::Status::invalidModel);
+  CHECK(ps.face(0).cause.find("its boundary in (u, v) ") == 0);
+  CHECK(ps.rounds() < 48);
+  double finest = INFINITY;
+  for (int e = 0; e < 5; e++) {
+    const auto& p = ps.edges().edge(e).points;
+    for (size_t k = 0; k + 1 < p.size(); k++) finest = std::fmin(finest, cadgeom::norm(p[k + 1] - p[k]));
+  }
+  CHECK(finest > 0.01 * floor / 2);
+  CHECK(finest < floor);
 }
 
 TEST_CASE("a sphere's pole: its normal the limit, never NaN; the whole sphere (no loops) its natural extent") {
@@ -2369,6 +2695,40 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   }
 }
 
+TEST_CASE("sectorWall: a split inside another face's pole ring shrinks the ring, whatever the faces' kinds: the wall "
+  "within d") {
+  // The flat sector's ring is wide (its fans flat), K bending through it: the cylinder's triangles on K's span inside
+  // the ring sag off the cylinder. Its request shrinks the ring, the wall elementary or a B-spline (sectorWallSpline:
+  // a free-form face asking at a free-form pole), so the wall meshes with nothing refused, every triangle within d of
+  // the cylinder at its centroid and sides' middles (by the distance from its axis), the sector's on its plane.
+  for (const char* name : {"sectorWall", "sectorWallSpline"})
+    for (double d : {0.1, 0.01, 0.003, 0.001}) {
+      cadgeom::Model m = load(name);
+      REQUIRE(m.ok());
+      PartMesher pm(m, options(d, 0.26));
+      int far = 0;
+      for (int f = 0; f < 2; f++) {
+        const FaceMesh& fm = pm.face(f);
+        REQUIRE(fm.status == cadgeom::Status::ok);
+        CHECK(fm.rejected.empty());
+        CHECK_EQ(fm.defectDeviation, 0.0);
+        for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+          const int32_t* v = &fm.triangles[t];
+          Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+          for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]),
+                 0.5 * (p[2] + p[0])})
+            far += (f == 0 ? std::fabs(q.z) : std::fabs(std::hypot(q.x - 0.5, q.y + 0.5) - M_SQRT1_2)) > d * (1 + 1e-9);
+        }
+      }
+      if (far || pm.ringsShrunk() < 1)
+        std::printf("  %s at %g: %d points beyond d, %d rings shrunk, %zu and %zu refused\n", name, d, far,
+          pm.ringsShrunk(), pm.face(0).rejected.size(), pm.face(1).rejected.size());
+      CHECK_EQ(far, 0);
+      CHECK(pm.ringsShrunk() >= 1);
+      CHECK_EQ(sharedEdges(m, pm, name), 0);
+    }
+}
+
 TEST_CASE("bentApex's ring in pieces from end to end of its chain, not its run's: within d, its refinement unblocked") {
   // The boundary meets the apex's row over v 0.6 to 0.4, its curves crossing the ring near v 0.95 and 0.05: pieces
   // over the run alone would leave the ring a chord across most of v, which refinement asks to split and can't.
@@ -2694,14 +3054,16 @@ TEST_CASE("an edge off its surface, its feet nearly affine (Iron.step #47's kind
 
 TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit for bit as asking the criteria again") {
   // Parts whose faces are meshed again in split rounds (edges 4 times coarser than the faces want, a band's hole, a
-  // cusp), and some meshed once.
+  // cusp), some meshed once, and some whose points crowd their boundary (SizeField::crowds: a tube thinner than its
+  // tolerance, a fold at a corner).
   struct Case {
     const char* name;
     double d, angle, scale;
   };
   const Case cases[] = {{"seamCylinder", 0.01, 0.26, 4}, {"band", 0.01, 0.26, 4}, {"spheres", 0.01, 0.26, 4},
     {"twisted", 0.01, 0.26, 4}, {"bandHoleAtVertex", 0.01, 0.26, 1}, {"cuspPocket", 0.3, 0.12, 1},
-    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}};
+    {"cube", 0.01, 0.26, 1}, {"luneQuarter", 0.01, 0.26, 1}, {"thinTube", 0.1, 0.26, 1}, {"thinTube", 0.01, 0.26, 1},
+    {"cornerFoldTight", 0.1, 0.26, 1}, {"cornerFoldTight", 0.01, 0.26, 1}};
   for (const Case& c : cases) {
     cadgeom::Model m = load(c.name);
     PartOptions o = options(c.d, c.angle), fresh = o;
@@ -3058,25 +3420,51 @@ TEST_CASE("countAngles: each face's triangles under minAngle, as counted on the 
     onFrozenAll);
 }
 
-TEST_CASE("a use whose curve the projection finds far off its face's surface fails, said so, without inverting its "
-  "samples (edgeFarOff's arc 50 mm out of its plane); respace's uses placed again said with their faces") {
-  {
-    cadgeom::Model m = load("edgeFarOff");
+TEST_CASE("an edge far off its face's surface: meshed where its feet allow, the distance a deviation defect past the "
+  "limits (keepDefects), failed without; feet folding back on themselves, beyond repair; respace's uses said") {
+  // edgeBulge: a 10 mm square on z = 0 whose top side is an arc over it 0.5 high at its middle (past 100 x the
+  // tolerance and 10 x d at 0.01, far off by the projection's rule), with no p-curve or the line under it: placed on
+  // its feet, the side; its face's triangles follow it up to 0.5 off the plane, 50 x max(d, tol).
+  for (const char* name : {"edgeBulge", "edgeBulgePcurve"}) {
+    cadgeom::Model m = load(name);
     REQUIRE(m.ok());
     PartMesher pm(m, options(0.01, 0.26));
     const FaceMesh& fm = pm.face(0);
-    CHECK(fm.status == cadgeom::Status::invalidModel);
-    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(std::fabs(fm.offSurface - 0.5) < 1e-6);
+    CHECK_EQ(fm.offSurfaceWithin, 0.01);
+    CHECK_EQ(fm.offSurfaceEdge, 0);
+    CHECK(std::fabs(fm.defectDeviation - 50) < 1e-4);
+    CHECK(fm.defectPastLimits);
+    double top = 0;
+    for (const Vec3& p : fm.points) top = std::fmax(top, p.z);
+    CHECK(top > 0.45);
+    CHECK(top <= 0.5 + 1e-9);
+    // (Without a p-curve, its use placed on the projection's feet, not by inversion sample by sample; the given one
+    // misses the arc's points by more than 100 x the tolerance, so it only seeds inversion. The arc's samples as the
+    // edge's own sampling made them: a far-off edge isn't respaced or split.)
+    if (std::strcmp(name, "edgeBulge") == 0) CHECK(pm.edges().coedge(2).fromPcurve);
+    EdgeOptions eo;
+    eo.deflection = 0.01, eo.angle = 0.26;
+    EdgeMesh first(m, eo);
+    CHECK_EQ(pm.edges().edge(0).points.size(), first.edge(0).points.size());
+    PartOptions strict = options(0.01, 0.26);
+    strict.keepDefects = false;
+    PartMesher sm(m, strict);
+    CHECK(sm.face(0).status == cadgeom::Status::invalidModel);
+    CHECK_EQ(sm.face(0).cause, std::string("an edge (#0) 0.5 mm off its surface, 50 x max(d, tol)"));
+    CHECK(sm.face(0).triangles.empty());
   }
-  {
-    // The same arc with a given p-curve (the line under it in the plane): placed by inversion, its samples' distance
-    // from the plane 50 mm; failed as far off, not meshed along an arc that far from its face.
-    cadgeom::Model m = load("edgeFarOffPcurve");
+  // edgeFarOff: the arc 50 up instead, its feet running out past the square's corners along the side and back: a
+  // loop with no area, no mesh at all (its distance recorded all the same).
+  for (const char* name : {"edgeFarOff", "edgeFarOffPcurve"}) {
+    cadgeom::Model m = load(name);
     REQUIRE(m.ok());
     PartMesher pm(m, options(0.01, 0.26));
     const FaceMesh& fm = pm.face(0);
     CHECK(fm.status == cadgeom::Status::invalidModel);
-    CHECK_EQ(fm.cause, std::string("a use of an edge whose curve is far off its face's surface"));
+    CHECK(fm.cause.rfind("its boundary in (u, v) crossing itself", 0) == 0);
+    CHECK(std::fabs(fm.offSurface - 50) < 1e-6);
   }
   {
     // Edges coarser than the faces want: respace splits them, each use placed again reported with its face.
@@ -3092,6 +3480,36 @@ TEST_CASE("a use whose curve the projection finds far off its face's surface fai
     PartMesher pm(m, o);
     CHECK(named > 0);
   }
+}
+
+TEST_CASE("an edge healing grew past repair: its face meshed, the grown tolerance its distance, judged by the one "
+  "healing started from, not the face's grown one; its samples as first made") {
+  // edgeBulgeGrown: edgeBulge with the arc's and the face's tolerances 0.6 (covering its 0.5); bulgeEdgePast has
+  // healing grow the arc there from 1e-5, past repair: 0.6 over max(0.01, 1e-5), 60 x. Without the analysis, the
+  // arc within the face's 0.6: no defect.
+  const tessfixtures::Analysis* a = tessfixtures::analysis("bulgeEdgePast");
+  REQUIRE(a);
+  cadgeom::Model m = load(a->model);
+  REQUIRE(m.ok());
+  PartOptions o = options(0.01, 0.26);
+  PartMesher plain(m, o);
+  REQUIRE(plain.face(0).status == cadgeom::Status::ok);
+  CHECK_EQ(plain.face(0).defectDeviation, 0.0);
+  CHECK(!plain.face(0).defectPastLimits);
+  o.analysis = a->data, o.analysisSize = a->size;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  CHECK_EQ(fm.offSurface, 0.6);
+  CHECK_EQ(fm.offSurfaceWithin, 0.01);
+  CHECK_EQ(fm.offSurfaceEdge, 0);
+  CHECK(std::fabs(fm.defectDeviation - 60) < 1e-9);
+  CHECK(fm.defectPastLimits);
+  EdgeOptions eo;
+  eo.deflection = 0.01, eo.angle = 0.26;
+  eo.analysis = a->data, eo.analysisSize = a->size;
+  EdgeMesh first(m, eo);
+  CHECK_EQ(pm.edges().edge(0).points.size(), first.edge(0).points.size());
 }
 
 TEST_CASE("the same part twice: the same points, normals and triangles, bit for bit") {
@@ -3583,3 +4001,4 @@ TEST_CASE("a sphere face bounded by one plain circle is the side its loop's dire
     CHECK(std::fabs(area - capArea) <= 0.01 * capArea);
   }
 }
+

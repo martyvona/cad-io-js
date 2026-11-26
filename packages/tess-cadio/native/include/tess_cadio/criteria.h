@@ -86,9 +86,10 @@ public:
    * The boundary's own 3D points by their (u, v) (an edge's curve points, which its faces share and the mesh outputs):
    * a triangle is also refused as turned over when its facet with these at its corners where it has them, as the
    * output has it, faces against the mean of its corners' normals (the part's own check of its output). The other
-   * tests, the deviation and the normals' angles, stay judged on the surface's
-   * points, so a boundary off its surface within the face's tolerance isn't refused for being where the model put it.
-   * None by default.
+   * tests, the deviation and the normals' angles, stay judged on the surface's points, so a boundary off its surface
+   * within the face's tolerance isn't refused for being where the model put it; but the deviation's limit is the
+   * deflection less what the sag and a corner's distance from the surface together would put past the part's
+   * deviation check (max(d, the face's tolerance)), where that distance is under it. None by default.
    */
   virtual void setBoundaryPoints(const std::vector<std::pair<cadgeom::Vec2, cadgeom::Vec3>>& points) { (void)points; }
   /**
@@ -127,10 +128,34 @@ public:
    * only where this doesn't settle it.
    */
   virtual bool deviationBound(const cadgeom::Vec2 tri[3], double& out, bool pieces = true) const = 0;
+  /**
+   * The surface's normal at uv at the tolerance's scale (foldNormal, at the criteria's tolerance): in a fold narrower
+   * than it, the fold's sides' normal; `folded` says so. The criteria accept a fold's sliver by it (thinner than the
+   * refinement floor, a corner in a fold) where its normals would refuse it; PartMesher ships these at the vertices a
+   * facet is against.
+   */
+  virtual cadgeom::Status scaleNormal(cadgeom::Vec2 uv, cadgeom::Vec3& n, bool& folded) const {
+    (void)uv, (void)n;
+    folded = false;
+    return cadgeom::Status::unsupported;
+  }
   // metric(p): the first fundamental form over h^2, h the 3D size the deflections allow there.
   // accept(tri): the surface within `linear` of the triangle at sampled points (its centroid, its edges' middles),
   // and the surface's normals at its corners within `angular` of one another and of the triangle's own normal.
 };
+
+/**
+ * The surface's normal at (u, v) at the tolerance's scale: where it is reversed (past 90 degrees) against the
+ * surface's on both sides about `tol` away in 3D along u or along v, those two agreeing with each other, the point is
+ * in a fold narrower than the tolerance (LMP1 #172427's #1039663, a B-spline pleat running back 3.2e-3 mm, its normal
+ * reversed over a strip of it) and the normal is the mean of those sides' instead, `folded` true. Each side found from
+ * a step of tol / |S_u| (or |S_v|), halved or doubled up to 8 times towards tol in 3D, never past a quarter of a
+ * period; where the domain is bounded, a side past its edge is the edge's point, nearer (a pleat at a face's edge has
+ * it), and a point on the edge has no side that way, the direction not counting. A tight fillet's two sides face
+ * apart, so it isn't one; nor is a crease, whose sides face apart too, nor a tube thinner than the tolerance.
+ */
+cadgeom::Status foldNormal(const cadgeom::Surface& s, double u, double v, double tol, cadgeom::Vec3& n,
+  bool* folded = nullptr);
 
 /**
  * Face f's criteria, on its surface over `uv` (the box of its boundary in (u, v), for the bounds); null with

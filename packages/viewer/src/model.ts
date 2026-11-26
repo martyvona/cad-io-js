@@ -2,14 +2,20 @@
 // (scene-graph.ts), whatever its format (docs/viewer.md). Kinds:
 //
 //   assembly, part: the placements (the graph says which groups are which: component instances and placed parts);
-//   below a part, when the tree shows detail (built when first asked for): its faces (those with ids), one node for
-//     all its B-rep edges, its curves and its points.
+//   below a part, when the tree shows detail (built when first asked for), up to three groups, each only where it has
+//     something: `faces` (a face node each, those with ids), `edges` (an edge node each of its B-rep edges, then a
+//     curve node each of its free curves; or one for the edges found from its triangles, a mesh's) and `vertices`
+//     (a vertex node each of its B-rep vertices, once the page holds its model, then a point node each of its
+//     isolated points). Edges, curves, vertices and points are items of their placement's line and point objects
+//     (items.ts).
 //
 // Paths name nodes stably, for links, the automation interface (automation.ts) and recordings: each node's
-// segment is its name (`/`, `:` and `%` escaped as in URLs), or below a part `face#<source id>`, `edges`, `curves`
-// or `points`, followed by `:k` for the k-th sibling with that segment (k > 1); the
-// path joins the segments from the top node down with `/` (`as1/l-bracket-assembly:2/nut`). A path finds its node
-// whether or not the tree shows detail.
+// segment is its name (`/`, `:` and `%` escaped as in URLs), or below a part `faces`, `edges` or `vertices`, and
+// below those `face#<source id>`, `edge#<id>`, `curve#<id>`, `vertex#<id>`, `point#<id>` (the kind alone where
+// there's no id; `found` for found edges), followed by `:k` for the k-th sibling with that segment (k > 1); the
+// path joins the segments from the top node down with `/` (`as1/l-bracket-assembly:2/nut/faces/face#78`). A path
+// finds its node whether or not the tree shows detail. Older paths are read too (LEGACY): a face's straight below its
+// part (`nut/face#78`), and the one-node `curves` and `points`, read as the edges and vertices groups.
 //
 // Appearance (hiding and transparency one mechanism): a node may have an AppearanceOverride, whose slots (hidden,
 // alpha) hold for it and for every node below it that doesn't set the same slot itself; the file's hidden placements
@@ -17,12 +23,41 @@
 // cover them (a node whose children are all given stands for them) and set the slot there, leaving the overrides below
 // as they are (first cleared below); the tree's Override Appearance... sets one node's exactly. A placement draws as
 // its overrides resolve: its group and line objects' `visible`, and its faces' materials through the scene graph
-// (Looks), per placement. Detail nodes' overrides are kept on their part by segment, so they outlast the detail nodes
-// (made again when a mesh arrives) and can be set before the mesh is there.
+// (Looks), per placement; its line and point objects' items hidden by drawing the objects without them (items.ts).
+// Detail nodes' overrides are kept on their part by their path below it (`faces/face#12`), so they outlast the
+// detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
+import type { GeometryKind } from './geometry-info.ts';
+import { hideItems, itemsOf } from './items.ts';
 
-export type Kind = 'assembly' | 'part' | 'face' | 'edges' | 'curves' | 'points';
+export type Kind = 'assembly' | 'part' | 'faces' | 'edges' | 'vertices' | 'face' | 'edge' | 'curve' | 'vertex' |
+  'point';
+
+/** A part's detail groups, in order. */
+export const GROUPS = ['faces', 'edges', 'vertices'] as const;
+export type Group = typeof GROUPS[number];
+
+/** A placement's line and point objects (scene-graph.ts's children of its mesh): whose items each is, in order. */
+const ITEM_OBJECTS: Record<string, { group: Group; kind: Kind }> = {
+  edges: { group: 'edges', kind: 'edge' }, curves: { group: 'edges', kind: 'curve' },
+  vertices: { group: 'vertices', kind: 'vertex' }, points: { group: 'vertices', kind: 'point' },
+};
+
+/** Whether a kind is drawn as lines or dots (no opacity of its own: the tree's menu). */
+export const isLineKind = (k: Kind): boolean => k === 'edges' || k === 'vertices' || k === 'edge' || k === 'curve' ||
+  k === 'vertex' || k === 'point';
+
+/** A path below a part that names detail (normalized: legacyDetail), by its form alone. */
+const DETAIL_PATH = /^(faces|edges|vertices)(\/(face|edge|curve|vertex|point)(#\d+)?(:\d+)?|\/found(:\d+)?)?$/;
+
+/** An older path below a part as it's named now (the file's comment); unchanged if it's not an older one. */
+export function legacyDetail(rel: string): string {
+  if (/^face#\d+(:\d+)?$/.test(rel)) return `faces/${rel}`;
+  if (rel === 'curves') return 'edges';
+  if (rel === 'points') return 'vertices';
+  return rel;
+}
 
 export interface ViewNode {
   id: number;
@@ -34,6 +69,8 @@ export interface ViewNode {
   object?: THREE.Object3D;
   /** Faces: the part (scene index) and the face's source id. */
   face?: { part: number; source: number };
+  /** Edges, curves, vertices and points: their placement's line or point object, the item's place in its list. */
+  item?: { object: THREE.Object3D; k: number; source: number | null };
   /**
    * A face that failed to mesh (cad-scene's faceFailures, by its part's measures where it has them): `failed` for
    * one drawn as failed (no triangles, a mesh much larger than the face, or no area to judge it by: the kind is in
@@ -42,8 +79,10 @@ export interface ViewNode {
   failure?: 'failed' | 'partly';
   /** Its own override (assemblies and parts; detail nodes' are their part's `detailOverrides`). */
   override?: AppearanceOverride;
-  /** A part's detail nodes' overrides, by their path segment (`face#12`, `edges`). */
+  /** A part's detail nodes' overrides, by their path below it (`faces/face#12`, `edges`). */
   detailOverrides?: Map<string, AppearanceOverride>;
+  /** Edges and vertices groups: their placement's line or point objects (a pick of one finds the group). */
+  members?: THREE.Object3D[];
   /** Undefined until first asked for (a part's detail). */
   children?: number[];
   /**
@@ -82,6 +121,8 @@ export interface PlacementLook {
 /** What the scene graph does with a placement's look: its faces' materials (scene-graph.ts). */
 export interface Looks {
   setLook(group: THREE.Object3D, look: PlacementLook): void;
+  /** A face's surface or an edge's or curve's curve, by kind, where the part's B-rep says (geometry-info.ts). */
+  geometryKind?(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined;
 }
 
 /**
@@ -99,7 +140,6 @@ export interface TriangleEdgesLook { whole?: boolean; faces?: ReadonlyMap<number
 
 /** The slots a change or a state sets: hiding, opacity (`transparent` with its `alpha`), triangle edges. */
 export type Slot = 'hidden' | 'opacity' | 'triangleEdges';
-const LINES = ['edges', 'curves', 'points'];
 /** An override's fields of a slot. */
 const FIELDS: Record<Slot, (keyof AppearanceOverride)[]> = { hidden: ['hidden'], opacity: ['transparent', 'alpha'],
   triangleEdges: ['triangleEdges'] };
@@ -117,6 +157,49 @@ const opacityOf = (o: AppearanceOverride | undefined): number | undefined | null
 /** A name as a path segment: `%`, `/` and `:` escaped as in URLs. */
 export function escapeSegment(name: string): string {
   return name.replace(/[%/:]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+}
+
+/** A detail node as a part's objects give it: its path below the part, kind and name, and its face or item. */
+interface DetailEntry {
+  rel: string;
+  kind: Kind;
+  name: string;
+  face?: number;
+  item?: { object: THREE.Object3D; k: number; source: number | null };
+}
+
+/**
+ * A part's detail as its placement's objects have it now (its mesh's faces, its line and point objects' items), by
+ * group, in order, each entry's segment made unique among its siblings with `:k`; the groups with none left out. The
+ * one source both the nodes (detailOf) and the drawing (applyPart) work from, so their paths agree.
+ */
+function detailEntries(o: THREE.Object3D): { group: Group; members: THREE.Object3D[]; entries: DetailEntry[] }[] {
+  const out = GROUPS.map((group) => ({ group, members: [] as THREE.Object3D[], entries: [] as DetailEntry[],
+    seen: new Map<string, number>() }));
+  const push = (g: typeof out[number], base: string, e: Omit<DetailEntry, 'rel'>) => {
+    const k = (g.seen.get(base) ?? 0) + 1;
+    g.seen.set(base, k);
+    g.entries.push({ rel: `${g.group}/${k > 1 ? `${base}:${k}` : base}`, ...e });
+  };
+  for (const m of o.children) {
+    for (const source of (m.userData.faces as number[] | undefined) ?? []) {
+      push(out[0]!, `face#${source}`, { kind: 'face', name: `face #${source}`, face: source });
+    }
+  }
+  for (const [name, { group, kind }] of Object.entries(ITEM_OBJECTS)) {
+    const g = out[GROUPS.indexOf(group)]!;
+    for (const m of o.children) for (const c of m.children) {
+      if (c.name !== name) continue;
+      g.members.push(c);
+      itemsOf(c).forEach((item, k) => {
+        const found = c.userData.found === true;
+        const base = found ? 'found' : item.source === null ? kind : `${kind}#${item.source}`;
+        push(g, base, { kind, name: found ? 'edges found from the triangles' : item.source === null ? kind
+          : `${kind} #${item.source}`, item: { object: c, k, source: item.source } });
+      });
+    }
+  }
+  return out.filter((g) => g.entries.length).map(({ group, members, entries }) => ({ group, members, entries }));
 }
 
 export class NodeModel {
@@ -153,44 +236,46 @@ export class NodeModel {
     return id;
   }
 
-  /** A part's detail nodes. */
+  /** A part's detail nodes: its groups (each with its nodes as children). */
   private detailOf(id: number): number[] {
-    const p = this.nodes[id]!;
-    const o = p.object!;
-    const out: number[] = [];
-    // The ids of the detail it had (invalidate), by segment's base, for nodes with the same base: used again in order.
-    const stale = this.stale.get(id) ?? [];
+    const o = this.nodes[id]!.object!;
+    // The ids of the detail it had (invalidate), by their paths below it: used again for the same paths.
+    const free = new Map<string, number>();
+    for (const [k, rel] of this.stale.get(id) ?? []) free.set(rel, k);
     this.stale.delete(id);
-    const base = (n: Omit<ViewNode, 'id'>) => (n.face ? `face#${n.face.source}` : n.kind);
-    const free = new Map<string, number[]>();
-    for (const k of stale) {
-      const n = this.nodes[k]!;
-      free.set(base(n), [...free.get(base(n)) ?? [], k]);
-    }
-    const add = (n: Omit<ViewNode, 'id'>) => {
-      const k = free.get(base(n))?.shift();
-      if (k === undefined) return this.add(n);
-      this.nodes[k] = { id: k, ...n };
-      if (n.object) this.byObject.set(n.object, k);
+    const add = (n: Omit<ViewNode, 'id'>, rel: string) => {
+      let k = free.get(rel);
+      if (k === undefined) k = this.add(n);
+      else {
+        free.delete(rel);
+        this.nodes[k] = { id: k, ...n };
+      }
+      for (const m of n.members ?? []) this.byObject.set(m, k);
+      this.segments.set(k, rel.slice(rel.lastIndexOf('/') + 1));
       return k;
     };
-    // The placement's mesh object, with its faces in userData and its lines as children.
+    const partIndex = o.userData.part as number;
+    const failures = new Map<number, 'failed' | 'partly'>();
     for (const m of o.children) {
-      const faces = (m.userData.faces as number[] | undefined) ?? [];
-      const failed = new Set((m.userData.failedFaces as number[] | undefined) ?? []);
-      const partly = new Set((m.userData.partlyFailedFaces as number[] | undefined) ?? []);
-      const partIndex = o.userData.part as number;
-      for (const source of faces) out.push(add({ kind: 'face', name: `face #${source}`, parent: id,
-        face: { part: partIndex, source }, ...(failed.has(source) ? { failure: 'failed' as const }
-          : partly.has(source) ? { failure: 'partly' as const } : {}) }));
-      for (const c of m.children) if (LINES.includes(c.name)) out.push(add(
-        { kind: c.name as Kind, name: c.name, parent: id, object: c }));
+      for (const f of (m.userData.partlyFailedFaces as number[] | undefined) ?? []) failures.set(f, 'partly');
+      for (const f of (m.userData.failedFaces as number[] | undefined) ?? []) failures.set(f, 'failed');
+    }
+    const out: number[] = [];
+    for (const { group, members, entries } of detailEntries(o)) {
+      const g = add({ kind: group, name: group, parent: id, ...(members.length ? { members } : {}) }, group);
+      this.nodes[g]!.children = entries.map((e) => {
+        const failure = e.face === undefined ? undefined : failures.get(e.face);
+        return add({ kind: e.kind, name: e.name, parent: g, ...(e.face === undefined ? {}
+          : { face: { part: partIndex, source: e.face } }), ...(e.item ? { item: e.item } : {}),
+          ...(failure ? { failure } : {}) }, e.rel);
+      });
+      out.push(g);
     }
     // (Those with no counterpart now stay dead.)
     return out;
   }
 
-  /** Whether parts show their faces, edges, curves and points. */
+  /** Whether parts show their faces, edges and vertices. */
   setDetail(on: boolean): void {
     this.detail = on;
   }
@@ -207,7 +292,7 @@ export class NodeModel {
     return n.children;
   }
 
-  /** Whether a part has detail to show (its mesh may not have arrived yet). */
+  /** Whether a node has children to show (a part's detail: its mesh may not have arrived yet). */
   hasChildren(id: number): boolean {
     const n = this.nodes[id]!;
     if (n.kind !== 'part') return (n.children?.length ?? 0) > 0;
@@ -216,21 +301,51 @@ export class NodeModel {
     return n.object!.children.length > 0;
   }
 
+  /** A face's, edge's or curve's geometry by kind (its icon), where its part's B-rep says; none for other nodes. */
+  geometryKind(id: number): GeometryKind | undefined {
+    const n = this.nodes[id];
+    if (!n || n.dead || (n.kind !== 'face' && n.kind !== 'edge' && n.kind !== 'curve')) return undefined;
+    const source = n.face?.source ?? n.item?.source;
+    if (source === undefined || source === null) return undefined;
+    const part = this.nodes[this.partOf(id)]!.object!.userData.part as number;
+    return this.looks?.geometryKind?.(part, n.kind, source);
+  }
+
+  /** The part a node is or is detail of (itself for assemblies). */
+  partOf(id: number): number {
+    let n = this.nodes[id]!;
+    while (n.kind !== 'part' && n.kind !== 'assembly' && n.parent >= 0) n = this.nodes[n.parent]!;
+    return n.id;
+  }
+
+  /** A detail node's path below its part (`faces/face#12`). */
+  private relPath(id: number): string {
+    const out: string[] = [];
+    for (let n = this.nodes[id]!; n.kind !== 'part' && n.kind !== 'assembly'; n = this.nodes[n.parent]!) {
+      this.segmentsOf(this.siblingsOf(n.id));
+      out.push(this.segments.get(n.id)!);
+    }
+    return out.reverse().join('/');
+  }
+
   /**
-   * A part's detail is stale (its mesh arrived): built again when next asked for, its look applied again. The new
-   * detail nodes take the old ones' ids by segment (the same face, the same lines), so a selection or a row of the
-   * tree holding one still means it; the old ones left over are dead.
+   * A part's detail is stale (its mesh or its model arrived): built again when next asked for, its look applied
+   * again. The new detail nodes take the old ones' ids by path (the same face, edge or vertex), so a selection or a
+   * row of the tree holding one still means it; the old ones left over are dead.
    */
   invalidate(object: THREE.Object3D): void {
     const id = this.byObject.get(object);
     if (id === undefined || this.nodes[id]!.kind !== 'part') return;
-    const old = this.nodes[id]!.children;
-    if (old) {
+    const groups = this.nodes[id]!.children;
+    if (groups) {
+      const old = groups.flatMap((g) => [g, ...this.nodes[g]!.children ?? []]);
+      const stale = this.stale.get(id) ?? new Map<number, string>();
+      for (const k of old) stale.set(k, this.relPath(k));
+      this.stale.set(id, stale);
       // (Dead until made again: found by nothing meanwhile.)
-      this.stale.set(id, [...this.stale.get(id) ?? [], ...old]);
       for (const k of old) {
         const n = this.nodes[k]!;
-        if (n.object) this.byObject.delete(n.object);
+        for (const m of n.members ?? []) this.byObject.delete(m);
         this.nodes[k] = { id: k, kind: n.kind, name: n.name, parent: n.parent, ...(n.face ? { face: n.face } : {}),
           dead: true };
         this.segments.delete(k);
@@ -240,12 +355,12 @@ export class NodeModel {
     this.applyPart(id);
   }
 
-  /** A part's detail nodes from before its mesh changed, by part: their ids to use again (detailOf). */
-  private readonly stale = new Map<number, number[]>();
+  /** A part's detail nodes from before its mesh changed, by part: their ids and paths below it (detailOf). */
+  private readonly stale = new Map<number, Map<number, string>>();
 
   private readonly segments = new Map<number, string>();
 
-  /** A part's detail nodes, built whether or not the tree shows them (for paths). */
+  /** A node's children, a part's detail built whether or not the tree shows it (for paths). */
   private detailNodes(id: number): readonly number[] {
     const n = this.nodes[id]!;
     if (n.kind !== 'part') return n.children ?? [];
@@ -259,8 +374,8 @@ export class NodeModel {
     const seen = new Map<string, number>();
     for (const id of siblings) {
       const n = this.nodes[id]!;
-      // STEP's edges, curves and points nodes are named so already.
-      const base = n.kind === 'face' ? `face#${n.face!.source}` : escapeSegment(n.name);
+      // (Detail nodes' are set as they're made: detailOf.)
+      const base = escapeSegment(n.name);
       const k = (seen.get(base) ?? 0) + 1;
       seen.set(base, k);
       this.segments.set(id, k > 1 ? `${base}:${k}` : base);
@@ -282,13 +397,21 @@ export class NodeModel {
     return out.reverse().join('/');
   }
 
-  /** The node a path names, if any (building parts' detail when the path goes below one). */
+  /**
+   * The node a path names, if any (building parts' detail when the path goes below one; older paths' detail as
+   * legacyDetail names it now).
+   */
   find(path: string): number | undefined {
+    const segs = path.split('/');
     let siblings: readonly number[] = this.roots;
     let found: number | undefined;
-    for (const seg of path.split('/')) {
+    for (let i = 0; i < segs.length; i++) {
       this.segmentsOf(siblings);
-      found = siblings.find((id) => this.segments.get(id) === seg);
+      if (found !== undefined && this.nodes[found]!.kind === 'part') {
+        const now = legacyDetail(segs.slice(i).join('/'));
+        if (now !== segs.slice(i).join('/')) segs.splice(i, segs.length - i, ...now.split('/'));
+      }
+      found = siblings.find((id) => this.segments.get(id) === segs[i]);
       if (found === undefined) return undefined;
       siblings = this.detailNodes(found);
     }
@@ -312,6 +435,8 @@ export class NodeModel {
     const n = this.nodes[id];
     if (!n) return undefined;
     if (n.face) return n.failure;
+    // (A part's faces as the part.)
+    if (n.kind === 'faces') return this.failure(n.parent);
     if (n.kind !== 'part' || n.object?.userData.cad !== 'part') return undefined;
     for (const m of n.object.children) {
       const failed = (m.userData.failedFaces as number[] | undefined)?.length ?? 0;
@@ -345,12 +470,7 @@ export class NodeModel {
     const n = this.nodes[id];
     if (!n) return undefined;
     if (n.kind === 'assembly' || n.kind === 'part') return n.override;
-    return this.nodes[n.parent]!.detailOverrides?.get(this.segmentOf(id));
-  }
-
-  private segmentOf(id: number): string {
-    this.segmentsOf(this.siblingsOf(id));
-    return this.segments.get(id)!;
+    return this.nodes[this.partOf(id)]!.detailOverrides?.get(this.relPath(id));
   }
 
   /** What the node draws with: each slot its own, else its nearest ancestor's that sets it, else the file's. */
@@ -395,9 +515,9 @@ export class NodeModel {
       else n.override = kept;
       return;
     }
-    const part = this.nodes[n.parent]!, seg = this.segmentOf(id);
-    if (empty) part.detailOverrides?.delete(seg);
-    else (part.detailOverrides ??= new Map()).set(seg, kept);
+    const part = this.nodes[this.partOf(id)]!, rel = this.relPath(id);
+    if (empty) part.detailOverrides?.delete(rel);
+    else (part.detailOverrides ??= new Map()).set(rel, kept);
   }
 
   /** A slot cleared from every override (show all, a state's). */
@@ -478,7 +598,7 @@ export class NodeModel {
     const n = this.nodes[id]!;
     if (n.kind === 'part') into.add(id);
     else if (n.kind === 'assembly') for (const c of n.children ?? []) this.partsUnder(c, into);
-    else into.add(n.parent);
+    else into.add(this.partOf(id));
   }
 
   /** Shows everything: every hidden slot cleared, the file's hidden placements' included. */
@@ -487,7 +607,7 @@ export class NodeModel {
     this.applyAll();
   }
 
-  /** Every override, by path, in node order (a part's detail after it, by segment). */
+  /** Every override, by path, in node order (a part's detail after it, by its path below it). */
   overrides(): PathOverride[] {
     const out: PathOverride[] = [];
     for (const n of this.nodes) {
@@ -502,8 +622,8 @@ export class NodeModel {
 
   /**
    * Exactly these overrides of these slots (a state's: the others cleared), each set as it is. A path below a part
-   * names its detail by segment, so it can be set before the part's mesh (and so its detail nodes) arrives. Returns
-   * the paths that name nothing.
+   * names its detail by its form (DETAIL_PATH, older ones as legacyDetail reads them), so it can be set before the
+   * part's mesh or model (and so its detail nodes) arrives. Returns the paths that name nothing.
    */
   setOverrides(list: readonly PathOverride[],
     slots: readonly Slot[] = ['hidden', 'opacity', 'triangleEdges']): string[] {
@@ -518,13 +638,18 @@ export class NodeModel {
         this.put(id, { ...this.ownOverride(id), ...wanted });
         continue;
       }
-      const cut = path.lastIndexOf('/'), seg = path.slice(cut + 1);
-      const part = cut > 0 ? this.find(path.slice(0, cut)) : undefined;
-      if (part !== undefined && this.nodes[part]!.kind === 'part' && (/^face#\d+$/.test(seg) || LINES.includes(seg))) {
+      // (The part: the path's longest beginning that names one.)
+      const segs = path.split('/');
+      let part: number | undefined, rel = '';
+      for (let i = segs.length - 1; i > 0 && part === undefined; i--) {
+        const p = this.find(segs.slice(0, i).join('/'));
+        if (p !== undefined && this.nodes[p]!.kind === 'part') [part, rel] = [p, legacyDetail(segs.slice(i).join('/'))];
+      }
+      if (part !== undefined && DETAIL_PATH.test(rel)) {
         const map = (this.nodes[part]!.detailOverrides ??= new Map());
-        const merged = { ...map.get(seg), ...wanted };
+        const merged = { ...map.get(rel), ...wanted };
         if (merged.transparent !== true) delete merged.alpha;
-        map.set(seg, merged);
+        map.set(rel, merged);
       } else missing.push(path);
     }
     this.applyAll();
@@ -536,34 +661,62 @@ export class NodeModel {
   }
 
   /**
-   * A placement drawn as its overrides resolve: its faces' looks to the scene graph, its edges', curves' and points'
-   * objects shown or hidden, its group hidden only when nothing below it is shown.
+   * A part's group's look, whether or not its node is made: its own override's slots, else the part's (what its
+   * nodes inherit).
+   */
+  groupLook(part: number, g: Group): Look {
+    const p = this.look(part), o = this.nodes[part]!.detailOverrides?.get(g);
+    const own = opacityOf(o), alpha = own === null ? p.alpha : own, tri = o?.triangleEdges ?? p.triangleEdges;
+    return { hidden: o?.hidden ?? p.hidden, ...(alpha === undefined ? {} : { alpha }),
+      ...(tri === undefined ? {} : { triangleEdges: tri }) };
+  }
+
+  /** A part's faces' own overrides, by source id, whether or not their nodes are made. */
+  faceOverrides(part: number): Map<number, AppearanceOverride> {
+    const out = new Map<number, AppearanceOverride>();
+    for (const [rel, o] of this.nodes[part]!.detailOverrides ?? []) {
+      const m = /^faces\/face#(\d+)$/.exec(rel);
+      if (m) out.set(Number(m[1]), o);
+    }
+    return out;
+  }
+
+  /**
+   * A placement drawn as its overrides resolve, its groups' between its own and their nodes': its faces' looks to
+   * the scene graph, its line and point objects drawn without their hidden items (hidden whole when every one is),
+   * its group hidden only when nothing below it is shown.
    */
   private applyPart(id: number): void {
     const n = this.nodes[id]!, group = n.object!;
-    const look = this.look(id);
+    const over = (rel: string) => n.detailOverrides?.get(rel);
     const alpha = (a: number | undefined) => (a === undefined ? {} : { alpha: a });
-    let shown = !look.hidden;
+    const fl = this.groupLook(id, 'faces');
+    let shown = !fl.hidden;
     const faces = new Map<number, { hidden: boolean; alpha?: number }>();
     const edges = new Map<number, boolean>();
-    for (const [seg, o] of n.detailOverrides ?? []) {
-      const m = /^face#(\d+)$/.exec(seg);
-      if (!m) continue;
-      if (o.triangleEdges !== undefined) edges.set(Number(m[1]), o.triangleEdges);
+    for (const [source, o] of this.faceOverrides(id)) {
+      if (o.triangleEdges !== undefined) edges.set(source, o.triangleEdges);
       if (o.hidden === undefined && o.transparent === undefined) continue;
-      const hidden = o.hidden ?? look.hidden;
+      const hidden = o.hidden ?? fl.hidden;
       const own = opacityOf(o);
-      faces.set(Number(m[1]), { hidden, ...alpha(own === null ? look.alpha : own) });
+      faces.set(source, { hidden, ...alpha(own === null ? fl.alpha : own) });
       shown ||= !hidden;
     }
-    const tri: TriangleEdgesLook = { ...(look.triangleEdges === undefined ? {} : { whole: look.triangleEdges }),
+    const tri: TriangleEdgesLook = { ...(fl.triangleEdges === undefined ? {} : { whole: fl.triangleEdges }),
       ...(edges.size ? { faces: edges } : {}) };
     group.userData.triangleEdges = tri;
-    for (const m of group.children) for (const c of m.children) if (LINES.includes(c.name)) {
-      c.visible = !(n.detailOverrides?.get(c.name)?.hidden ?? look.hidden);
-      shown ||= c.visible;
+    for (const { group: g, members, entries } of detailEntries(group)) {
+      if (g === 'faces') continue;
+      const hidden = this.groupLook(id, g).hidden;
+      const out = new Map<THREE.Object3D, Set<number>>(members.map((m) => [m, new Set()]));
+      for (const e of entries) if (over(e.rel)?.hidden ?? hidden) out.get(e.item!.object)!.add(e.item!.k);
+      for (const [m, set] of out) {
+        m.visible = set.size < itemsOf(m).length;
+        hideItems(m as THREE.Object3D & { geometry: THREE.BufferGeometry }, set);
+        shown ||= m.visible;
+      }
     }
     group.visible = shown;
-    this.looks?.setLook(group, { hidden: look.hidden, ...alpha(look.alpha), ...(faces.size ? { faces } : {}) });
+    this.looks?.setLook(group, { hidden: fl.hidden, ...alpha(fl.alpha), ...(faces.size ? { faces } : {}) });
   }
 }

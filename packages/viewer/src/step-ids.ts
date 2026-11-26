@@ -1,16 +1,21 @@
 // STEP instance ids in the viewer: the ids of the selected nodes in the details panel, Select by ID (Selection), and
 // the problems dialog's Copy IDs (problems.ts), whose list Select by ID reads back. A node's ids: an assembly's
 // occurrence's and its component's (scene-graph.ts's `userData.sources`: NAUOs, product definitions), a part's (its
-// shape representation), a face's (its own, where its part is from STEP); edges, curves and points nodes have none.
+// shape representation), a face's, an edge's, a curve's, a vertex's or a point's (its own, where its part is from
+// STEP); the groups (faces, edges, vertices) none.
 // A part's B-rep model holds the ids of everything in it (modelIds), where the page holds the model.
 
 import type { BrepData } from 'cad-brep';
+import { itemsOf } from './items.ts';
 import type { NodeModel } from './model.ts';
 
 /** A node's STEP ids (none for models from other formats). */
 export function nodeStepIds(model: NodeModel, id: number): number[] {
   const n = model.nodes[id]!;
-  if (n.face) return model.nodes[n.parent]!.object!.userData.stepFaces ? [n.face.source] : [];
+  const own = n.face?.source ?? n.item?.source;
+  if (own !== undefined) {
+    return own !== null && model.nodes[model.partOf(id)]!.object!.userData.stepFaces ? [own] : [];
+  }
   if (n.kind !== 'assembly' && n.kind !== 'part') return [];
   return (n.object?.userData.sources as number[] | undefined) ?? [];
 }
@@ -73,13 +78,17 @@ export function parseIds(text: string): { ids: number[]; bad: string[] } {
   return { ids: [...new Set(ids)], bad };
 }
 
-/** The part nodes whose meshes have faces with any of the ids (whose face nodes the tree's detail would make). */
+/**
+ * The part nodes whose meshes have faces, or whose line and point objects have items (edges, curves, vertices,
+ * points: items.ts), with any of the ids (whose nodes the tree's detail would make).
+ */
 export function partsWithFaces(model: NodeModel, ids: ReadonlySet<number>): number[] {
   return model.nodes.filter((n) => {
     if (n.kind !== 'part' || !n.object?.userData.stepFaces) return false;
     let hit = false;
     n.object.traverse((o) => {
-      if (!hit) hit = ((o.userData.faces as number[] | undefined) ?? []).some((f) => ids.has(f));
+      if (!hit) hit = ((o.userData.faces as number[] | undefined) ?? []).some((f) => ids.has(f)) ||
+        itemsOf(o).some((i) => i.source !== null && ids.has(i.source));
     });
     return hit;
   }).map((n) => n.id);

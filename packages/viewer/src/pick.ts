@@ -1,19 +1,20 @@
-// Picking in the 3D view (docs/viewer.md): a ray from the camera through the pointer, brute force over every
-// object (three-mesh-bvh is a backlog item). What isn't drawn isn't picked: hidden objects (or with a hidden ancestor),
-// parts' own drawings hidden by their layer (the raycaster's layers), hidden faces (their geometry group's material),
-// and what the section planes cut away (`clipped`). Lines and points are hit within a few pixels. The face under the
-// point wins, except over its own part's edges, curves and points near it (no farther, give or take those pixels), so
-// they can be picked on it; another part's lines never beat it, however close (an earlier version let them, so on dense
-// models a click picked whatever part had an edge within 4 pixels). Lines and points of parts with no faces
-// (wireframes) win when not behind the face, as nothing else would pick them; with no face under the point, the nearest
-// line or point.
+// Rays in the 3D view (docs/viewer.md). Picking itself is by ids drawn off screen (pick-ids.ts); here, what a pick
+// of an id comes to (pickOfTarget: its point, where the pointer's ray meets it), and everything drawn along a ray,
+// brute force over every object (hitsAlong: where a zoom gesture turns about; three-mesh-bvh is a backlog item). What
+// isn't drawn isn't hit: hidden objects (or with a hidden ancestor), parts' own drawings hidden by their layer (the
+// raycaster's layers), hidden faces (their geometry group's material), and what the section planes cut away
+// (`clipped`). Lines and points are hit within a few pixels.
 
 import * as THREE from 'three';
+import { rangeOf } from './items.ts';
+import type { IdTarget } from './pick-ids.ts';
 
 export interface Pick {
   object: THREE.Object3D;
   /** The triangle, for meshes. */
   faceIndex?: number;
+  /** A line's or point object's item (items.ts) picked: its place in the object's items. */
+  item?: number;
   point: THREE.Vector3;
   distance: number;
   /** On a section's cap (the plane across this axis), not a face: the part cut. */
@@ -32,18 +33,6 @@ const raycaster = new THREE.Raycaster();
 function shown(o: THREE.Object3D): boolean {
   for (let p: THREE.Object3D | null = o; p; p = p.parent) if (!p.visible) return false;
   return true;
-}
-
-const isMesh = (o: THREE.Object3D | null | undefined) => !!(o as THREE.Mesh | undefined)?.isMesh;
-
-/** A line or point drawn with a mesh: its child (the part's edges, curves, points; scene-graph.ts). */
-function ownLine(line: THREE.Object3D, mesh: THREE.Object3D): boolean {
-  return line.parent === mesh;
-}
-
-/** A line or point of a part with no faces: neither its parent nor its siblings are meshes. */
-function faceless(line: THREE.Object3D): boolean {
-  return !isMesh(line.parent) && !line.parent?.children.some(isMesh);
 }
 
 function drawnFace(hit: THREE.Intersection): boolean {
@@ -100,20 +89,83 @@ function hitsNear(o: THREE.Line | THREE.Points, ray: THREE.Ray, reach: number, n
 }
 
 /**
- * What's under a point of the viewport (`ndc`, -1 to 1) among `root`'s descendants. `pixel` is a pixel's size in
- * world units (mm) at the camera's zoom.
+ * The ray through a point of the view (normalized device coordinates), set on the module's raycaster, with its range.
+ * three.js starts an orthographic camera's ray at its position and hits nothing behind it, but our near plane is
+ * often negative (clipTo: zoom selected puts the camera just beyond the selection), so what's drawn between the near
+ * plane and the camera wasn't hit (the user's recording): the ray starts at the near plane.
  */
-export function pick(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
-  clipped?: (p: THREE.Vector3) => boolean, extra?: ExtraHits): Pick | undefined {
-  const { hits: kept } = hitsAlong(camera, root, ndc, pixel, clipped, extra);
-  const face = kept.find((h) => isMesh(h.object));
-  const line = face ? kept.find((h) => !isMesh(h.object) && h.distance <= face.distance + 2 * PICK_PIXELS * pixel &&
-    (ownLine(h.object, face.object) || faceless(h.object))) : kept[0];
-  const h = line ?? face;
-  if (!h) return undefined;
-  const cap = (h as { cap?: Pick['cap'] }).cap;
-  return { object: h.object, ...(h.faceIndex !== undefined && h.faceIndex !== null ? { faceIndex: h.faceIndex } : {}),
-    point: h.point, distance: h.distance, ...(cap ? { cap } : {}) };
+export function viewRay(camera: THREE.Camera, ndc: THREE.Vector2): THREE.Ray {
+  raycaster.setFromCamera(ndc, camera);
+  const ortho = camera as THREE.OrthographicCamera;
+  if (ortho.isOrthographicCamera) {
+    raycaster.ray.origin.addScaledVector(raycaster.ray.direction, ortho.near);
+    raycaster.near = 0;
+    raycaster.far = ortho.far - ortho.near;
+  } else {
+    raycaster.near = 0;
+    raycaster.far = Infinity;
+  }
+  return raycaster.ray;
+}
+
+const vc = new THREE.Vector3();
+
+/**
+ * The pick an id stands for (pick-ids.ts), its point where `ray` (the pixel's: viewRay) meets it: a face's triangles
+ * (both sides; the first triangle hit its faceIndex, else the face's first), or, missing them by a pixel's rounding,
+ * the face's vertex nearest the ray; an item's segments' or points' nearest the ray; a failed face's outline's. Not a
+ * cap: the caller has the planes.
+ */
+export function pickOfTarget(t: IdTarget, ray: THREE.Ray): Pick | undefined {
+  const o = t.object as THREE.Mesh | THREE.LineSegments | THREE.Points;
+  o.updateWorldMatrix(true, false);
+  const pos = o.geometry.getAttribute('position');
+  const index = o.geometry.index;
+  if (!pos) return undefined;
+  const at = (i: number, v: THREE.Vector3) => v.fromBufferAttribute(pos, index ? index.getX(i) : i)
+    .applyMatrix4(o.matrixWorld);
+  const n = index ? index.count : pos.count;
+  let best: { point: THREE.Vector3; d: number; i: number } | undefined;
+  // (The point on what's picked nearest the ray.)
+  const near = (point: THREE.Vector3, i: number) => {
+    const d = ray.distanceSqToPoint(point);
+    if (!best || d < best.d) best = { point: point.clone(), d, i };
+  };
+  if (t.cap) return undefined;
+  if ((o as THREE.Mesh).isMesh) {
+    const ranges = (o.userData.faceRanges ?? []) as { start: number; count: number }[];
+    const r = t.face !== undefined ? ranges[t.face] : undefined;
+    const [start, end] = r ? [r.start, r.start + r.count] : [0, n];
+    let hit: { point: THREE.Vector3; i: number } | undefined;
+    const p = new THREE.Vector3();
+    for (let i = start; i + 2 < end; i += 3) {
+      if (!ray.intersectTriangle(at(i, va), at(i + 1, vb), at(i + 2, vc), false, p)) continue;
+      if (!hit || ray.origin.distanceToSquared(p) < ray.origin.distanceToSquared(hit.point)) hit = { point: p.clone(),
+        i };
+    }
+    if (!hit) {
+      for (let i = start; i < end; i++) near(at(i, va), i);
+      if (best) hit = { point: best.point, i: start };
+    }
+    if (!hit) return undefined;
+    return { object: o, faceIndex: Math.floor(hit.i / 3), point: hit.point,
+      distance: ray.origin.distanceTo(hit.point) };
+  }
+  const r = t.item !== undefined ? rangeOf(o, t.item) : { start: 0, count: n };
+  if (!r) return undefined;
+  if ((o as THREE.Points).isPoints) {
+    for (let i = r.start; i < r.start + r.count; i++) near(at(i, va), i);
+  } else {
+    for (let i = r.start; i + 1 < r.start + r.count; i += 2) {
+      const onRay = new THREE.Vector3(), onSegment = new THREE.Vector3();
+      ray.distanceSqToSegment(at(i, va), at(i + 1, vb), onRay, onSegment);
+      near(onSegment, i);
+    }
+  }
+  const found = best as { point: THREE.Vector3; d: number; i: number } | undefined;
+  if (!found) return undefined;
+  return { object: o, ...(t.item !== undefined ? { item: t.item } : {}), point: found.point,
+    distance: ray.origin.distanceTo(found.point) };
 }
 
 /**
@@ -124,19 +176,7 @@ export function pick(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vect
  */
 export function hitsAlong(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE.Vector2, pixel: number,
   clipped?: (p: THREE.Vector3) => boolean, extra?: ExtraHits): { hits: THREE.Intersection[]; ray: THREE.Ray } {
-  raycaster.setFromCamera(ndc, camera);
-  // three.js starts an orthographic camera's ray at its position and hits nothing behind it, but our near plane is
-  // often negative (clipTo: zoom selected puts the camera just beyond the selection), so what's drawn between the near
-  // plane and the camera wasn't hit (the user's recording): the ray starts at the near plane.
-  const ortho = camera as THREE.OrthographicCamera;
-  if (ortho.isOrthographicCamera) {
-    raycaster.ray.origin.addScaledVector(raycaster.ray.direction, ortho.near);
-    raycaster.near = 0;
-    raycaster.far = ortho.far - ortho.near;
-  } else {
-    raycaster.near = 0;
-    raycaster.far = Infinity;
-  }
+  viewRay(camera, ndc);
   // What the camera draws (edges are on a layer of their own, shown or not).
   raycaster.layers.mask = camera.layers.mask;
   const hits: THREE.Intersection[] = [];

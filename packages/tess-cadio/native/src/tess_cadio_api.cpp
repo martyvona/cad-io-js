@@ -84,7 +84,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 10; }
+int tc_api_version() { return 11; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -201,7 +201,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     holesOnly;
   std::vector<uint32_t> ringBlocked, ringBlockedRounds, capped, dropped, droppedCount;
   // (Each face kept with a defect, PartOptions::keepDefects: [id, turned, deviation over max(d, tol), capped 0/1, past
-  // the limits 0/1].)
+  // the limits 0/1, its edges off its surface past max(d, tol): 1 an edge, 2 a vertex, else 0, its id, the distance
+  // in mm].)
   std::string kept = "[";
   std::vector<uint32_t> folded;
   std::vector<uint32_t> refusedBy(kRefusalKinds, 0), inserted(kInsertionKinds, 0), thin;
@@ -282,9 +283,14 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
       if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
       if (fm.splitsDropped) dropped.push_back(faceId[f]), droppedCount.push_back(fm.splitsDropped);
       if (fm.defectTurned || fm.defectDeviation > 0 || fm.defectCapped) {
-        char row[96];
-        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d,%d]", kept.size() > 1 ? "," : "", faceId[f], fm.defectTurned,
-          fm.defectDeviation, fm.defectCapped ? 1 : 0, fm.defectPastLimits ? 1 : 0);
+        char row[160];
+        const bool off = fm.offSurfaceWithin > 0 && fm.offSurface > fm.offSurfaceWithin;
+        const int offKind = !off ? 0 : fm.offSurfaceEdge >= 0 ? 1 : fm.offSurfaceVertex >= 0 ? 2 : 0;
+        const uint32_t offId = offKind == 1 ? m.u32(CBR_EDGE_ID)[fm.offSurfaceEdge]
+          : offKind == 2 ? m.u32(CBR_VERTEX_ID)[fm.offSurfaceVertex] : 0;
+        std::snprintf(row, sizeof row, "%s[%u,%d,%.4g,%d,%d,%d,%u,%.4g]", kept.size() > 1 ? "," : "", faceId[f],
+          fm.defectTurned, fm.defectDeviation, fm.defectCapped ? 1 : 0, fm.defectPastLimits ? 1 : 0, offKind, offId,
+          offKind ? fm.offSurface : 0.0);
         kept += row;
       }
       if (fm.sampled) sampled.push_back(faceId[f]);
@@ -483,7 +489,8 @@ const uint32_t* tc_point_ids() { return result.pointIds.data(); }
  * FaceMesh::splitsDropped; none expected), "capped" (the faces failed for refinement stopped at the
  * point cap: FaceMesh::capped), "kept" (the faces kept with a defect, PartOptions::keepDefects: [face id, triangles
  * turned, measured deviation over max(d, tol) where past the limit else 0, 1 if at its point cap, 1 if past the
- * keep limits] each), "poles"
+ * keep limits, 1 if an edge or 2 if a vertex lies off its surface past max(d, tol) else 0, that edge's or vertex's
+ * id, its distance in mm: FaceMesh::offSurface] each), "poles"
  * (with tc_set_list_poles, every face's singularities as its closed surface has them, 5 numbers each [face id,
  * cad-geom's Singularity::kind, x, y, z], absolute), "expected" (with
  * tc_set_count_expected, each face's [face id, triangles its size metric expects: FaceMesh::expectedTriangles,

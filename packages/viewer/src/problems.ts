@@ -50,16 +50,19 @@ function holds(sorted: Uint32Array, v: number): boolean {
  * face's cause): an assembly's own (its occurrence's and component's STEP ids) and those of everything below it; a
  * part's own (its placement's, product's and shape representation's) and those of everything in its B-rep model (its
  * faces', edges', vertices', curves', ... ids: `idsOf`, by part index, sorted: step-ids.ts's modelIds, where the page
- * holds the model) or its mesh's faces; a face's own, and its part's that name it (`#id`: failed faces); an edges,
- * curves or points node none. A top node's include the file's own too: those no node covers (no STEP source, or one
- * outside every part and assembly: a unit, a style, a reference beyond the file).
+ * holds the model) or its mesh's faces; a face's, edge's, curve's, vertex's or point's own, and its part's that name
+ * it (`#id`: failed faces); the faces, edges and vertices groups none. A top node's include the file's own too: those
+ * no node covers (no STEP source, or one outside every part and assembly: a unit, a style, a reference beyond the
+ * file).
  */
 export function itemDiagnostics(model: NodeModel, id: number, diagnostics: readonly Diagnostic[],
   idsOf: (part: number) => Uint32Array | undefined): Diagnostic[] {
   const n = model.nodes[id]!;
   const step = (d: Diagnostic) => d.source?.format === 'step' ? d.source.id : undefined;
-  if (n.face) {
-    const face = n.face.source, own = new Set(nodeStepIds(model, n.parent));
+  const item = n.face?.source ?? n.item?.source;
+  if (item !== undefined) {
+    if (item === null) return [];
+    const face = item, own = new Set(nodeStepIds(model, model.partOf(id)));
     if (!nodeStepIds(model, id).length) return [];
     const named = new RegExp(`#${face}(?!\\d)`);
     return diagnostics.filter((d) => {

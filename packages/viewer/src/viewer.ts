@@ -20,7 +20,9 @@ import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { NodeModel, type Looks } from './model.ts';
-import { hitsAlong, pick, type Pick } from './pick.ts';
+import { hitsAlong, PICK_PIXELS, pickOfTarget, viewRay, type Pick } from './pick.ts';
+import { choose, IdPass, type IdTarget } from './pick-ids.ts';
+import { Highlights, type Highlight } from './outline.ts';
 import { Composer } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
@@ -28,8 +30,9 @@ import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
 import { DEPTH_BIAS_DEFLECTIONS, DEPTH_BIAS_PIXELS, depthBias } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
-import { DEFAULT_RENDER, EDGES, type RenderSettings } from './style.ts';
+import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
+import { dotPixels, setDotSize, vertexDiameter, type DiscMaterial } from './vertex-points.ts';
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
@@ -128,8 +131,7 @@ const drawable = (o: THREE.Object3D): o is THREE.Mesh | THREE.Line | THREE.Point
 /** The world box of what's drawn: visible objects whose ancestors are visible too. */
 /**
  * An import's phase in the status line: `reading`, `reading its structure`, `making parts, 40 %`, `assembling`,
- * `healing 3 of 12 parts`, with where a part's healing is where told (`healing 3 of 12 parts: part 4 of 12:
- * orientShells: faces, 120 of 800 measured`).
+ * `healed 3 of 12 parts` (the parts already healed).
  */
 export function importPhase(p: ImportProgress): string {
   switch (p.phase) {
@@ -138,7 +140,7 @@ export function importPhase(p: ImportProgress): string {
     case 'parts': return `making parts${p.total ? `, ${Math.floor(100 * (p.done ?? 0) / p.total)} %` : ''}`;
     case 'assembly': return 'assembling';
     case 'healing':
-      return `healing${p.total ? ` ${p.done ?? 0} of ${p.total} parts` : ''}${p.detail ? `: ${p.detail}` : ''}`;
+      return p.total ? `healed ${p.done ?? 0} of ${p.total} parts` : 'healing';
   }
 }
 
@@ -239,6 +241,24 @@ export class Viewer {
   /** Every triangle's edges, when the rendering settings say so. */
   readonly triangleEdges = new TriangleEdges();
   readonly fatEdges = new FatEdges(EDGES);
+  /** Picking's ids (pick-ids.ts), drawn off screen when wanted: for a pick, the pointer's hover, a silhouette. */
+  private readonly idPass = new IdPass();
+  /**
+   * Whether the id pass holds what the last frame drew (its camera `idCamera`; anything else changed since asks for a
+   * frame: redraw).
+   */
+  private idFresh = false;
+  private readonly idCamera = new THREE.Matrix4();
+  /** The highlight (outline.ts): what the pointer is over, at the pick level (ui.ts sets it, from onHover). */
+  readonly highlights = new Highlights();
+  /** Where the mouse is over the view, no button down (client pixels); undefined elsewhere. */
+  private hoverAt?: { x: number; y: number };
+  /** What the pointer was last found over (a key: hoverKey), so onHover is told of changes only. */
+  private hovered = '';
+  private hoverQueued = false;
+  private drawing = false;
+  /** What the pointer is over changed (undefined: nothing, or it left the view). */
+  onHover?: (hit: Pick | undefined) => void;
   /** The file's axes (gnomon.ts), drawn over the view where `gnomonBox` is while a model is shown and `showGnomon`. */
   readonly gnomon = new Gnomon();
   showGnomon = true;
@@ -309,7 +329,8 @@ export class Viewer {
     this.headlight.position.set(1, 1, 2);
     this.camera.add(this.headlight, this.headlight.target);
     this.scene.add(this.camera, this.display);
-    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group);
+    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group, this.highlights.group);
+    this.composer.setFinal(this.highlights.pass);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
 
@@ -424,6 +445,14 @@ export class Viewer {
       if (e.buttons) return;
       canvas.style.cursor = this.gnomonTarget(e.clientX, e.clientY) ? 'pointer' : '';
     });
+    // What a mouse (or pen) is over, while no button is down: nothing while dragging, nothing for touch.
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch' || e.buttons) return this.leaveHover();
+      this.hoverAt = { x: e.clientX, y: e.clientY };
+      this.hoverSoon();
+    });
+    canvas.addEventListener('pointerdown', () => this.leaveHover());
+    canvas.addEventListener('pointerleave', () => this.leaveHover());
     // Where each zoom gesture begins (zoomAt): a run of wheel (or touchpad) events, a middle-button drag, two fingers
     // down (their midpoint).
     canvas.addEventListener('wheel', (e) => {
@@ -610,13 +639,24 @@ export class Viewer {
 
   /** `gnomon`: the axes too, if shown (not in pictures of the model alone). */
   private draw(gnomon = true): boolean {
+    this.drawing = true;
+    try {
+      return this.drawNow(gnomon);
+    } finally {
+      this.drawing = false;
+    }
+  }
+
+  private drawNow(gnomon: boolean): boolean {
     this.changed = false;
+    this.idFresh = false;
     if (this.transparencyStale) {
       this.transparencyStale = false;
       let any = false;
       this.display.traverse((o) => {
         const m = (o as THREE.Mesh).material;
-        if (!any && m) any = (Array.isArray(m) ? m : [m]).some((x) => x.transparent && x.visible);
+        // (Not the vertices' dots: vertex-points.ts.)
+        if (!any && m) any = (Array.isArray(m) ? m : [m]).some((x) => x.transparent && x.visible && !x.userData.dots);
       });
       this.composer.setTransparent(any);
     }
@@ -644,6 +684,19 @@ export class Viewer {
     this.triangleEdges.update(this.root ? this.display : undefined, this.render.triangleEdges,
       this.triangleEdgesOverridden);
     this.fatEdges.update(this.root ? this.display : undefined, fat, this.render.edgeWidth);
+    const ratio = this.renderer.getPixelRatio();
+    setDotSize(vertexDiameter(this.render.edgeStyle, this.render.edgeWidth, ratio), ratio);
+    // The vertices' dots (a selected one's highlight is on the default layer: shown whatever this is).
+    if (this.render.vertices) this.camera.layers.enable(VERTICES);
+    else this.camera.layers.disable(VERTICES);
+    // The ids, when the pointer's over the view or a silhouette wants their depth; then what the pointer's over.
+    const buffer = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.idPass.setSize(buffer.x, buffer.y);
+    this.highlights.setSize(buffer.x, buffer.y, ratio, (fat ? this.render.edgeWidth : 1) + 2);
+    if (this.root && (this.hoverAt || this.highlights.outlined)) this.renderIds();
+    if (this.hoverAt && this.idFresh) this.resolveHover();
+    this.highlights.update(this.renderer, this.camera, this.idFresh ? this.idPass.target : undefined,
+      this.idFresh ? this.idPass.ids.idsOf(this.highlights.outlinePieces) : [], (m) => this.pointPixels(m));
     // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
     // picking.
     if (fat) this.camera.layers.disable(EDGES);
@@ -779,8 +832,100 @@ export class Viewer {
     this.redraw();
   }
 
+  /** Something drawn changed: a frame soon, and the ids drawn again before a pick. */
   redraw(): void {
+    this.idFresh = false;
     this.frames.request();
+  }
+
+  /** A points material's dots' size in device pixels, as drawn (vertices' dots, or a file's points). */
+  private pointPixels(m: THREE.Material): number {
+    if (m.userData.dots) return dotPixels(m as DiscMaterial);
+    return ((m as THREE.PointsMaterial).size ?? 1) * this.renderer.getPixelRatio();
+  }
+
+  /** Draws the ids of what the camera shows now (pick-ids.ts). */
+  private renderIds(): void {
+    this.idPass.render(this.renderer, this.scene, this.camera, this.camera.layers.mask, this.root ? this.display
+      : undefined, [this.fatEdges.group, this.triangleEdges.group, this.highlights.group], (m) => this.pointPixels(m));
+    this.idCamera.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this.idFresh = true;
+  }
+
+  /** Whether the id pass holds the view as the camera has it now. */
+  private idsCurrent(): boolean {
+    if (!this.idFresh) return false;
+    this.camera.updateMatrixWorld();
+    const now = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    return now.equals(this.idCamera);
+  }
+
+  /**
+   * What's drawn at a point of the page (client pixels), by the id pass (drawn if it doesn't hold the view as it is):
+   * the ids within reach of it, chosen (pick-ids.ts's choose).
+   */
+  private targetAt(clientX: number, clientY: number): IdTarget | undefined {
+    const c = this.renderer.domElement.getBoundingClientRect();
+    if (!c.width || !c.height) return undefined;
+    const k = this.idPass.target.width / c.width;
+    const x = Math.floor((clientX - c.left) * k), y = Math.floor((c.bottom - clientY) * k);
+    const reach = PICK_PIXELS * k, r = Math.ceil(reach);
+    if (x < 0 || y < 0 || x >= this.idPass.target.width || y >= this.idPass.target.height) return undefined;
+    const read = (t: THREE.WebGLRenderTarget) => this.idPass.readWindow(this.renderer, t, x - r, y - r, 2 * r + 1,
+      2 * r + 1);
+    const ids = this.idPass.ids;
+    const id = choose(read(this.idPass.target), read(this.idPass.lines), reach, (i) => ids.resolve(i));
+    return id ? ids.resolve(id) : undefined;
+  }
+
+  /** A target's pick at a point of the page: where the ray there meets it (on a cap: the cap's plane). */
+  private pickOf(t: IdTarget, clientX: number, clientY: number): Pick {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
+    const ray = viewRay(this.camera, ndc).clone();
+    if (t.cap) {
+      const hits = this.sections.capHits(ray).sort((a, b) => a.distance - b.distance);
+      const h = hits.find((x) => x.object === t.placement) ?? hits[0];
+      if (h) return { object: t.placement, point: h.point, distance: h.distance, cap: h.cap };
+    }
+    return pickOfTarget(t, ray) ?? { object: t.object, point: ray.origin.clone(), distance: 0 };
+  }
+
+  /** The pointer moved over the view: what it's over is found at the next animation frame. */
+  private hoverSoon(): void {
+    if (this.hoverQueued) return;
+    this.hoverQueued = true;
+    requestAnimationFrame(() => {
+      this.hoverQueued = false;
+      if (!this.hoverAt) return;
+      // (A frame to draw them, if the ids are another view's: the frame finds it.)
+      if (this.idsCurrent()) this.resolveHover();
+      else this.redraw();
+    });
+  }
+
+  /** What the pointer's over now, from the id pass; onHover told if it changed. */
+  private resolveHover(): void {
+    const at = this.hoverAt;
+    const t = at && !this.interacting && !this.gnomonTarget(at.x, at.y) ? this.targetAt(at.x, at.y) : undefined;
+    const key = t ? `${t.object.id}:${t.face ?? ''}:${t.item ?? ''}:${t.cap ? 'cap' : ''}` : '';
+    if (key === this.hovered) return;
+    this.hovered = key;
+    this.onHover?.(t && at ? this.pickOf(t, at.x, at.y) : undefined);
+  }
+
+  /** The pointer's gone from the view (or pressed): nothing is under it. */
+  private leaveHover(): void {
+    this.hoverAt = undefined;
+    if (!this.hovered) return;
+    this.hovered = '';
+    this.onHover?.(undefined);
+  }
+
+  /** Highlights these (outline.ts), in place of the last; none: nothing. */
+  setHighlight(h: Highlight | undefined): void {
+    this.highlights.set(h ?? { outline: [], marks: [] });
+    if (!this.drawing) this.redraw();
   }
 
   /**
@@ -802,6 +947,8 @@ export class Viewer {
 
   private show(root: THREE.Object3D, model: ModelInfo, looks: Looks | undefined, keep: boolean): void {
     this.clear();
+    this.setHighlight(undefined);
+    this.hovered = '';
     this.root = root;
     this.nodes = new NodeModel(root, looks);
     this.triangleEdgesOverridden = false;
@@ -954,7 +1101,7 @@ export class Viewer {
       this.exports.set(id, (m) => {
         this.beat(id);
         end();
-        for (const [part, b] of m.models) graph?.holdModel(part, b);
+        for (const [part, b] of m.models) if (graph?.holdModel(part, b).length) this.modelChanged(graph, part);
         if (m.meshes.length || !meshes.length) this.takeBack(meshes, m.meshes);
         else {
           // (Answered without the meshes: an error the worker didn't catch. They're lost with it.)
@@ -1018,6 +1165,14 @@ export class Viewer {
     });
   }
 
+  /** A part's vertices' dots changed (its model handed over after its mesh): its detail is stale. */
+  private modelChanged(graph: SceneGraph, part: number): void {
+    if (graph !== this.graph) return;
+    for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+    this.onMeshes?.();
+    this.redraw();
+  }
+
   /** The model worker, started when first needed and kept for later files. */
   private modelWorker(): Worker {
     if (!this.worker) {
@@ -1030,7 +1185,7 @@ export class Viewer {
         if (m.type === 'mesh') {
           const graph = this.modelsTo.get(m.load);
           const held: PartModel = { model: m.model, ...(m.analysis ? { analysis: m.analysis } : {}) };
-          if (graph) graph.holdModel(m.part, held);
+          if (graph?.holdModel(m.part, held).length) this.modelChanged(graph, m.part);
           else this.modelsEarly.set(m.load, [...this.modelsEarly.get(m.load) ?? [], [m.part, held]]);
         }
         this.loadListeners.get(m.load)?.(m);
@@ -1355,16 +1510,20 @@ export class Viewer {
     return (this.camera.top - this.camera.bottom) / this.camera.zoom / Math.max(1, this.container.clientHeight);
   }
 
-  /** What's drawn under a point of the page (client coordinates). */
+  /**
+   * What's drawn under a point of the page (client coordinates), by the ids drawn off screen (pick-ids.ts): drawn
+   * again unless they hold the view as it is.
+   */
   pickAt(clientX: number, clientY: number): Pick | undefined {
-    const r = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
+    if (!this.root) return undefined;
     this.display.updateWorldMatrix(true, true);
     // The projection and near plane as the next frame will have them (the camera may have moved since the last),
     // where rays start.
     this.shift();
     clipTo(this.camera, this.bounds);
-    return pick(this.camera, this.display, ndc, this.pixelSize(), this.clipped, (r) => this.sections.capHits(r));
+    if (!this.idsCurrent()) this.renderIds();
+    const t = this.targetAt(clientX, clientY);
+    return t && this.pickOf(t, clientX, clientY);
   }
 
   /** Fits a sphere (in the world) in the viewport, from the current direction; zoom all if it's empty. */

@@ -10,7 +10,7 @@
 //   - cad-oracle: faces whose area it trusts as imported and healed;
 //   - healing's diagnostics: by severity and by message (numbers and ids folded), the parts with a tolerance error;
 //   - the files with the most faces lost or gained per backend, and with the largest change in triangles;
-//   - the faces lost by the mesher's cause healed, and faces failed past repair, where the mesher says (tess-cadio);
+//   - the faces lost by the mesher's cause healed, where the mesher says (tess-cadio);
 //   - shells: how many orientShells turned (the healed analysis's shell rows) and faces it turned (its face rows:
 //     senses flipped to their loops', faces turned whole to agree with their shells), and per backend the shells whose mesh
 //     (joined, as tessellateScene does) faces into the material by orientResult's mesh rule (wrongShells), as imported
@@ -57,12 +57,11 @@ const fresh = () => ({
   slowest: [] as { ms: number; file: string }[], capped: 0,
   mesh: Object.fromEntries(backends.map((b) => [b as string, { before: side(), after: side(), gained: 0, lost: 0,
     partsGained: 0, partsLost: 0, gainedEx: [] as string[], lostEx: [] as string[], lostBy: {} as Tally,
-    pastRepair: { before: 0, after: 0 }, inside: { before: 0, after: 0, ms: 0, ex: [] as string[] } }])) as
+    inside: { before: 0, after: 0, ms: 0, ex: [] as string[] } }])) as
     Record<Backend, {
     before: ReturnType<typeof side>; after: ReturnType<typeof side>; gained: number; lost: number;
     partsGained: number; partsLost: number; gainedEx: string[]; lostEx: string[]; lostBy: Tally;
-    pastRepair: { before: number; after: number }; inside: { before: number; after: number; ms: number;
-      ex: string[] } }>,
+    inside: { before: number; after: number; ms: number; ex: string[] } }>,
   /** Shells orientShells turned, with examples. */
   shellsTurned: 0, shellsTurnedEx: [] as string[], facesFlipped: 0, facesTurnedWhole: 0, facesEx: [] as string[],
   trusted: { before: 0, after: 0 },
@@ -99,8 +98,6 @@ function causes(r: TessellationResult | Error): Map<number, string> {
   return out;
 }
 const BY_CAUSE = 'faces failed to mesh, by cause: ';
-/** tess-cadio's cause for a face through an edge or vertex whose healed tolerance is past repair (toleranceError). */
-const PAST_REPAIR = 'past repair';
 
 /** Each source face's triangle count in a result. */
 function facesMeshed(r: TessellationResult): Map<number, number> {
@@ -178,7 +175,7 @@ export const check: FileCheck<undefined, Result> = {
       }
       ctx.progress(where);
       // The healed model with its analysis, as tessellateScene sends it to a backend that reads one (tess-cadio: its
-      // healed p-curves placed as projected, faces past repair failed).
+      // healed p-curves placed as projected, edges and vertices grown past repair judged at their starting tolerances).
       const req = (d: typeof db): TessellationRequest => ({ format: 'cad-brep', data: new Uint8Array(d.buffer),
         origin: pb.origin, linearDeflection: LIN, angularDeflection: ANG, measures: true, edges: true,
         ...d === da && pa.brep?.analysis ? { analysis: new Uint8Array(pa.brep.analysis.buffer) } : {} });
@@ -233,7 +230,7 @@ export const check: FileCheck<undefined, Result> = {
           M.gained++;
           M.gainedEx.push(`${where} face #${id}${cbOf(id)}`);
         }
-        const ca = causes(ra), cb = causes(rb);
+        const ca = causes(ra);
         for (const id of mb.keys()) if (!ma.has(id)) {
           M.lost++;
           const why = ra instanceof Error ? `the part: ${fold(ra.message)}` : partFailedAfter ? 'the part failed'
@@ -252,8 +249,6 @@ export const check: FileCheck<undefined, Result> = {
             M.inside.ex.push(`${where} shell #${x.id} (row ${x.shell}, mesh volume ${x.volume.toPrecision(6)})`);
           }
         }
-        for (const c of cb.values()) if (c.includes(PAST_REPAIR)) M.pastRepair.before++;
-        for (const c of ca.values()) if (c.includes(PAST_REPAIR)) M.pastRepair.after++;
       }
       using ob = new Oracle(module, db.buffer);
       // (The healed model with its analysis: its p-curves' deviations, healing's, which the oracle's bound takes.)
@@ -286,7 +281,6 @@ function merge(all: Result, r: Result) {
       const x = A.lostBy[k] ??= { n: 0, ex: [] };
       x.n += t.n, x.ex.push(...t.ex.slice(0, 2 - x.ex.length));
     }
-    A.pastRepair.before += B.pastRepair.before, A.pastRepair.after += B.pastRepair.after;
     A.inside.before += B.inside.before, A.inside.after += B.inside.after, A.inside.ms += B.inside.ms;
     A.inside.ex.push(...B.inside.ex.slice(0, INSIDE_EXAMPLES - A.inside.ex.length));
   }
@@ -342,10 +336,6 @@ if (import.meta.main) {
     console.log(`  shells meshed facing into the material (the mesh rule, joined): as imported ${M.inside.before}, `
       + `healed ${M.inside.after} (against the corrected model); the rule's time ${s(M.inside.ms)}`);
     for (const x of M.inside.ex) console.log(`    healed: ${x}`);
-    if (M.pastRepair.before || M.pastRepair.after) {
-      console.log(`  faces failed past repair (a tolerance healing grew past its error limit): as imported `
-        + `${M.pastRepair.before}, healed ${M.pastRepair.after}`);
-    }
     const files = Object.entries(all.perFile[b] ?? {});
     console.log('  the files losing the most faces (lost, gained, triangles as imported -> healed):');
     for (const [f, x] of files.filter(([, x]) => x.lost).sort((p, q) => q[1].lost - p[1].lost).slice(0, 12)) {

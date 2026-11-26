@@ -355,6 +355,26 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
     }
     ring.radius = r;
     ring.wanted = ring.reach = ringReach(s, ring, r);
+    // A row that isn't one point and by itself reaches as far from the pole as the ring (a B-spline's row collapsed
+    // only to within the tolerance: VW #2452's #298974, 0.11 long at a reach of 0.11): the ring found lies on the row
+    // (ringRadius halving to nothing), so it can't separate the row from the mesher's region (the fan's triangles and
+    // the mesher's on one side of its segments, folding). No fan: the row has the length a side needs, meshed as one,
+    // the case outside. A row nearly as long whose ring stands off it keeps its fan (LMP1 #172535's #1050721, 0.195
+    // at a reach of 0.1954, its ring 1.1e-3 off in u).
+    double lo = kInf, hi = -kInf;
+    for (auto [a, b] : ring.runs) lo = std::min(lo, a), hi = std::max(hi, b);
+    double extent = 0;
+    for (int k = 0; k <= 32 && lo <= hi; k++) {
+      SurfacePoint q;
+      const double x = lo + (hi - lo) * k / 32;
+      if ((S.isoU ? s.eval(S.at, x, 0, q) : s.eval(x, S.at, 0, q)) == Status::ok)
+        extent = std::max(extent, norm(q.p - S.point));
+    }
+    ring.extent = extent;
+    if (!(ring.reach > ringReach(s, ring, 0))) {
+      ring.kase = PoleRing::Case::outside;
+      ring.radius = ring.reach = ring.wanted = 0;
+    }
     out.push_back(ring);
   }
   return out;

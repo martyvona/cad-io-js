@@ -1235,6 +1235,62 @@ TEST_CASE("frozen segments (ones the caller can't split) don't refuse a point, a
   }
 }
 
+TEST_CASE("a point the field says crowds a fixed segment (SizeField::crowds) is refused: the segment wanted split, "
+  "frozen or not, told which") {
+  // A unit square, its bottom in 20 segments of 0.05; accept() refuses a triangle on the bottom of area over 0.0009
+  // (its apex over 0.036 up): refinement puts points under 0.045. A field crowding every bottom segment within 0.045
+  // of it: no point there, more triangles on the bottom refused, more of it wanted split; frozen, none wanted, still
+  // no point there, and crowds told it was frozen. Asked only of points near the segment in (u, v), within its
+  // length of it (a point across a fold or a seam can be near it in 3D, no needle).
+  struct Flat : SizeField {
+    Metric2 metric(Vec2) const override { return {1e-4, 0, 1e-4}; }
+    bool accept(const Vec2* t) const override {
+      const int low = (t[0].y == 0) + (t[1].y == 0) + (t[2].y == 0);
+      return low < 2 || std::fabs(area(t[0], t[1], t[2])) <= 0.0009;
+    }
+  };
+  struct Crowding : Flat {
+    mutable int asked = 0, askedFrozen = 0, askedFar = 0;
+    bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override {
+      if (a.y != 0 || b.y != 0) return false;
+      asked++, askedFrozen += frozen, askedFar += q.y > std::fabs(b.x - a.x);
+      return q.y < 0.045;
+    }
+  };
+  const int n = 20;
+  Domain2 d;
+  std::vector<Vec2> pts;
+  for (int i = 0; i < n; i++) pts.push_back({double(i) / n, 0});
+  pts.insert(pts.end(), {{1, 0}, {1, 1}, {0, 1}});
+  addLoop(d, pts);
+  auto lowest = [&](const Mesh2& m) {
+    double y = INFINITY;
+    for (size_t i = d.points.size(); i < m.points.size(); i++) y = std::fmin(y, m.points[i].y);
+    return y;
+  };
+  auto bottomWanted = [&](const Mesh2& m) {
+    int k = 0;
+    for (const SplitWanted& w : m.splitWanted) k += w.segment < n;
+    return k;
+  };
+  Mesh2 base = mesh2(d, Flat());
+  CHECK_EQ(validate(d, base, "uncrowded", false), 0);
+  CHECK(lowest(base) < 0.045);
+  for (bool freeze : {false, true}) {
+    d.frozen.assign(freeze ? n : 0, 1);
+    Crowding f;
+    Mesh2 m = mesh2(d, f);
+    CHECK_EQ(validate(d, m, freeze ? "crowded, frozen" : "crowded", false), 0);
+    CHECK(lowest(m) >= 0.045);
+    CHECK(m.rejected.size() > base.rejected.size());
+    if (freeze) CHECK_EQ(bottomWanted(m), 0);
+    else CHECK(bottomWanted(m) > bottomWanted(base));
+    CHECK(f.asked > 0);
+    CHECK_EQ(f.askedFrozen, freeze ? f.asked : 0);
+    CHECK_EQ(f.askedFar, 0);
+  }
+}
+
 TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
   // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
   // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.
