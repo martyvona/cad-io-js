@@ -1348,6 +1348,69 @@ TEST_CASE("no point inserted where a vertex already ships (SizeField::shippedAt)
   CHECK(!second);
 }
 
+TEST_CASE("no point inserted where another face's vertex ships (Domain2::shippedNear): a triangle so kept from "
+  "mending stays refused, marked so (Mesh2::rejectedWeld), and asks no split") {
+  // (A unit square sampled at 0.05 whose points ship rounded to a grid of 0.05, its triangles refused past an area of
+  // 2e-4, broken at their centroid where refused. Another face's vertices said to ship at every interior cell: no
+  // point can go in. At the cells left of x = 0.5 only: none goes in there, refinement runs on to the right.)
+  struct Coarse : Uniform {
+    Coarse() : Uniform(0.02) {}
+    bool shippedAt(Vec2 p, float out[3]) const override {
+      out[0] = static_cast<float>(std::round(p.x / 0.05)), out[1] = static_cast<float>(std::round(p.y / 0.05));
+      out[2] = 0;
+      return true;
+    }
+    bool accept(const Vec2* t) const override { return std::fabs(area(t[0], t[1], t[2])) <= 2e-4; }
+    bool worstPoint(const Vec2 t[3], Vec2& at) const override {
+      at = {(t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3};
+      return true;
+    }
+  };
+  Domain2 d;
+  std::vector<Vec2> pts;
+  for (int i = 0; i < 20; i++) pts.push_back({i / 20.0, 0});
+  for (int i = 0; i < 20; i++) pts.push_back({1, i / 20.0});
+  for (int i = 0; i < 20; i++) pts.push_back({1 - i / 20.0, 1});
+  for (int i = 0; i < 20; i++) pts.push_back({0, 1 - i / 20.0});
+  addLoop(d, pts);
+  const Mesh2 plain = mesh2(d, Coarse());
+  CHECK(plain.points.size() > d.points.size());
+  CHECK_EQ(plain.rejectedWeld.size(), plain.rejected.size());
+  for (uint8_t w : plain.rejectedWeld) CHECK_EQ(w, 0);
+  Domain2 all = d;
+  for (int i = 1; i < 20; i++)
+    for (int j = 1; j < 20; j++) all.shippedNear.push_back({static_cast<float>(i), static_cast<float>(j), 0});
+  const Mesh2 none = mesh2(all, Coarse());
+  CHECK_EQ(validate(all, none, "none placed", false), 0);
+  CHECK_EQ(none.points.size(), d.points.size());
+  CHECK(!none.rejected.empty());
+  CHECK_EQ(none.rejectedWeld.size(), none.rejected.size());
+  // (But the square's four corner triangles: their every point ships at the corner's own boundary point, the face's own
+  // coincidence, so they ask their segments split as before, the ones at the corners alone.)
+  int marked = 0, corners = 0;
+  auto corner = [](int32_t v) { return v == 0 || v == 20 || v == 40 || v == 60; };
+  for (size_t i = 0; i < none.rejected.size(); i++) {
+    const int32_t* v = &none.triangles[3 * none.rejected[i]];
+    marked += none.rejectedWeld[i] != 0;
+    corners += !none.rejectedWeld[i] && (corner(v[0]) || corner(v[1]) || corner(v[2]));
+  }
+  CHECK_EQ(marked + 4, static_cast<int>(none.rejected.size()));
+  CHECK_EQ(corners, 4);
+  for (const SplitWanted& w : none.splitWanted) CHECK(corner(w.a) || corner(w.b));
+  Domain2 left = d;
+  for (int i = 1; i < 10; i++)
+    for (int j = 1; j < 20; j++) left.shippedNear.push_back({static_cast<float>(i), static_cast<float>(j), 0});
+  const Mesh2 half = mesh2(left, Coarse());
+  CHECK_EQ(validate(left, half, "half placed", false), 0);
+  int inLeft = 0, inRight = 0;
+  for (size_t i = d.points.size(); i < half.points.size(); i++) {
+    const long x = std::lround(half.points[i].x / 0.05);
+    (x >= 1 && x < 10 ? inLeft : inRight)++;
+  }
+  CHECK_EQ(inLeft, 0);
+  CHECK(inRight > 0);
+}
+
 TEST_CASE("points inserted counted by what queued their triangle: size, thinness, the criteria's refusal kind") {
   // Every point the mesher adds counted once. A uniform size, every triangle accepted: by size and thinness only.
   // Refuse(0.2): the criteria too, at the field's own refusal kind (3 here), none at another.

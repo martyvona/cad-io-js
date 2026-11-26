@@ -1848,6 +1848,50 @@ struct PartMesher::Impl {
     meshOnce(f);
   }
 
+  /** Per model edge, the faces whose loops use it (shippedBeside's neighbours). */
+  std::vector<std::vector<int>> facesOfEdge;
+  /**
+   * Into `out`, as shipped (float32 minus PartOptions::outputOrigin where it's known, as the criteria's shippedAt):
+   * the corners of each neighbour's current triangles with a corner exactly on one of face f's boundary points, the
+   * neighbours (faces sharing a model edge with f) in order. A point of f's beside an edge can weld in the output only
+   * with a neighbour's within a float32 step of it, and those stand beside the same edge: the ring of triangles on its
+   * samples (a capped face's column of points refined towards the edge, conical-surface #77's beside cone #78).
+   */
+  void shippedBeside(int f, const std::vector<BoundaryPoint>& bp, std::vector<std::array<float, 3>>& out) const {
+    out.clear();
+    std::vector<int> near;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int k = 0; k < m.loopCount(l); k++)
+        for (int g : facesOfEdge[m.coedgeEdge(m.loopFirst(l) + k)])
+          if (g != f) near.push_back(g);
+    }
+    std::sort(near.begin(), near.end());
+    near.erase(std::unique(near.begin(), near.end()), near.end());
+    if (near.empty()) return;
+    std::set<std::tuple<double, double, double>> on;
+    for (const BoundaryPoint& p : bp) on.insert({p.point.x, p.point.y, p.point.z});
+    const double* O = o.outputOrigin;
+    const bool origin = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    for (int g : near) {
+      const FaceMesh& G = faces[g];
+      for (size_t t = 0; t + 2 < G.triangles.size(); t += 3) {
+        bool beside = false;
+        for (int k = 0; k < 3 && !beside; k++) {
+          const Vec3& q = G.points[G.triangles[t + k]];
+          beside = on.count({q.x, q.y, q.z}) > 0;
+        }
+        if (!beside) continue;
+        for (int k = 0; k < 3; k++) {
+          const Vec3& q = G.points[G.triangles[t + k]];
+          out.push_back({static_cast<float>(q.x - (origin ? O[0] : 0)), static_cast<float>(q.y - (origin ? O[1] : 0)),
+            static_cast<float>(q.z - (origin ? O[2] : 0))});
+        }
+      }
+    }
+  }
+
   void meshOnce(int f) {
     at.row = f;
     if (o.progress) o.progress(at);
@@ -1955,6 +1999,7 @@ struct PartMesher::Impl {
     std::vector<const BoundaryPoint*> pts;
     for (const BoundaryPoint& p : bp) d.points.push_back(p.uv), pts.push_back(&p);
     addCuts(f, pts);
+    shippedBeside(f, bp, d.shippedNear);
     // The segments the edges won't split (an edge's span whose chord is within the refinement floor, or an end
     // span too short to take a point past the edge's near-end drop, as EdgeMesh::split has them): frozen, so the
     // mesher inserts past them rather than asking.
@@ -2093,9 +2138,13 @@ struct PartMesher::Impl {
     };
     Mesh2 mesh = mesh2In(d);
     // (Meshing from the seeds failed, or left a triangle its criteria refuse, which a kept point can stand in the way
-    // of without the triangle asking a split: from the boundary alone, as the first time.)
+    // of without the triangle asking a split: from the boundary alone, as the first time. Not where each refused one
+    // was kept from mending only by a neighbour's vertex shipping where its point would, Mesh2::rejectedWeld: meshed
+    // again, the face would ask other splits beside it, round after round.)
+    const bool onlyWelds = mesh.rejectedWeld.size() == mesh.rejected.size() &&
+      std::all_of(mesh.rejectedWeld.begin(), mesh.rejectedWeld.end(), [](uint8_t w) { return w != 0; });
     if (!d.seeds.empty() && ((mesh.status != Status::ok && mesh.status != Status::noConvergence) ||
-      !mesh.rejected.empty())) {
+      (!mesh.rejected.empty() && !onlyWelds))) {
       d.seeds.clear();
       mesh = mesh2In(d);
     }
@@ -2428,6 +2477,16 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.criteriaWhy.assign(nf, "");
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
+  I.facesOfEdge.assign(m.edges(), {});
+  for (int g = 0; g < nf; g++)
+    for (int i = 0; i < m.faceLoopCount(g); i++) {
+      const int l = m.faceFirstLoop(g) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int k = 0; k < m.loopCount(l); k++) {
+        std::vector<int>& fs = I.facesOfEdge[m.coedgeEdge(m.loopFirst(l) + k)];
+        if (fs.empty() || fs.back() != g) fs.push_back(g);
+      }
+    }
   I.wanted.resize(nf);
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
