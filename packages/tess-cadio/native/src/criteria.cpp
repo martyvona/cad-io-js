@@ -123,11 +123,12 @@ public:
   /** The kinds whose deviation has a closed form: their frame (origin, axis), and radius and a second parameter. */
   enum class Kind { none, sphere, cone, torus };
   Local(const Surface& s, Box2 uv, const Deflections& d, double extent, bool bounded, Kind kind, Vec3 centre,
-    Vec3 axis, double radius, double second, double tolerance, bool elementary)
+    Vec3 axis, double radius, double second, double tolerance, double faceTolerance, bool elementary)
     : s_(s), box_(uv), d_(d), hmax_(extent), hmin_(1e-7 * extent), bounded_(bounded), elementary_(elementary),
       kind_(kind),
       centre_(centre), axis_(axis), radius_(radius), second_(second),
-      floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance) {
+      floor_(refinementFloor(tolerance, d.linear)), tolerance_(tolerance),
+      within_(std::fmax(d.linear, faceTolerance)) {
     std::vector<Singularity> sing;
     s.singularities(sing);
     for (const Singularity& g : sing)
@@ -468,41 +469,58 @@ private:
     // wide in u is small in 3D, S's tangential part large, and a bound over its (u, v) box reaches far from it.
     // There the surface's distance itself, by inversion, at the same points (the face then counted as sampled).
     if (!nearPole(p, longest3)) return r;
-    if (!nearestDeviation(t, p)) return Refusal::deviationNearPole;
+    if (!nearestDeviation(t, p, deviationLimit(t, p))) return Refusal::deviationNearPole;
     sampledAny_ = true;
     return Refusal::none;
   }
 
-  /** The deviation within the deflection (Refusal::none), in closed form, bounded or sampled, as the surface allows. */
+  /**
+   * The deviation the triangle on the surface's points at its corners may have: the deflection, less where its
+   * corners as output (the boundary's own points, setBoundaryPoints) lie off the surface by g, so the output's facet,
+   * within the deviation plus g of the surface, is within the part's check of it (within_). Not where g is past
+   * within_ itself: a boundary that far off is the part's to judge (FaceMesh::offSurface), and no refinement mends it.
+   */
+  double deviationLimit(const Vec2 t[3], const Vec3 p[3]) const {
+    if (boundary_.empty()) return d_.linear;
+    double g = 0;
+    for (int i = 0; i < 3; i++) {
+      auto it = boundary_.find({bits(t[i].x), bits(t[i].y)});
+      if (it != boundary_.end()) g = std::fmax(g, norm(it->second - p[i]));
+    }
+    return g < within_ ? std::fmin(d_.linear, within_ - g) : d_.linear;
+  }
+
+  /** The deviation within its limit (Refusal::none), in closed form, bounded or sampled, as the surface allows. */
   Refusal deviationWithin(const Vec2 t[3], const Vec3 p[3]) const {
     Bounds b;
     double closedForm;
+    const double limit = deviationLimit(t, p);
     if (kind_ == Kind::sphere) {
       // (Every point of the flat triangle is inside the ball: its distance to the sphere is R - |x - c|.)
-      return radius_ - pointTriangle(centre_, p) <= d_.linear ? Refusal::none : Refusal::deviationClosedForm;
+      return radius_ - pointTriangle(centre_, p) <= limit ? Refusal::none : Refusal::deviationClosedForm;
     }
     if (kind_ != Kind::none && distanceBound(p, closedForm))
-      return closedForm <= d_.linear ? Refusal::none : Refusal::deviationClosedForm;
+      return closedForm <= limit ? Refusal::none : Refusal::deviationClosedForm;
     if (bounded_) {
       // Sampled first, sparing the bound the many large triangles refinement refuses (what it measures, |S(x) - L(x)|
       // at the corners' barycentric (u, v), is at least the distance there, so its refusals err only to the strict
       // side, where S''s tangential part is large); then bounded, over the whole box, and only where that isn't
       // enough over its pieces (stripBounds); where the surface gives no bound, the sample stands (and is noted).
-      if (!sampledDeviation(t, p)) return Refusal::deviationSampled;
+      if (!sampledDeviation(t, p, limit)) return Refusal::deviationSampled;
       // The deviation bounded by the least of the sub-cells' (cellDeviation, cached: tried first, cheap), the
       // box's and its pieces' bounds.
       double cd;
-      if (cellDeviation(t, cd) && cd <= d_.linear) return Refusal::none;
+      if (cellDeviation(t, cd) && cd <= limit) return Refusal::none;
       if (!bounds(t, b, false)) {
         sampledAny_ = true;
-      } else if (b.deviation > d_.linear) {
-        if (!bounds(t, b, true, d_.linear)) sampledAny_ = true;
-        else if (b.deviation > d_.linear) return Refusal::deviationBounded;
+      } else if (b.deviation > limit) {
+        if (!bounds(t, b, true, limit)) sampledAny_ = true;
+        else if (b.deviation > limit) return Refusal::deviationBounded;
       }
       return Refusal::none;
     }
     sampledAny_ = true;
-    return sampledDeviation(t, p) ? Refusal::none : Refusal::deviationSampled;
+    return sampledDeviation(t, p, limit) ? Refusal::none : Refusal::deviationSampled;
   }
 
   /**
@@ -551,7 +569,7 @@ private:
    * surface (an upper bound on its distance to it): from the point's barycentric (u, v), a few damped Gauss-Newton
    * steps towards its foot, the nearest point seen kept.
    */
-  bool nearestDeviation(const Vec2 t[3], const Vec3 p[3]) const {
+  bool nearestDeviation(const Vec2 t[3], const Vec3 p[3], double limit) const {
     // (sampledDeviation's points and the three between the centroid and the corners, with a tenth to spare: a
     // sample misses the deepest point, which the bounds would have found.)
     const double w[7][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5},
@@ -559,7 +577,7 @@ private:
     for (const auto& b : w) {
       Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
       Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
-      if (footDistance(flat, uv) > 0.9 * d_.linear) return false;
+      if (footDistance(flat, uv) > 0.9 * limit) return false;
     }
     return true;
   }
@@ -883,12 +901,12 @@ private:
   }
 
   /** The surface within the deflection of the flat triangle at its centroid and its edges' middles (sampled). */
-  bool sampledDeviation(const Vec2 t[3], const Vec3 p[3]) const {
+  bool sampledDeviation(const Vec2 t[3], const Vec3 p[3], double limit) const {
     const double w[4][3] = {{1. / 3, 1. / 3, 1. / 3}, {0.5, 0.5, 0}, {0, 0.5, 0.5}, {0.5, 0, 0.5}};
     for (const auto& b : w) {
       Vec2 uv{b[0] * t[0].x + b[1] * t[1].x + b[2] * t[2].x, b[0] * t[0].y + b[1] * t[1].y + b[2] * t[2].y};
       Vec3 flat = b[0] * p[0] + b[1] * p[1] + b[2] * p[2];
-      if (norm(at(uv) - flat) > d_.linear) return false;
+      if (norm(at(uv) - flat) > limit) return false;
     }
     return true;
   }
@@ -1219,6 +1237,8 @@ private:
   /** The surface's poles' and apexes' points. */
   std::vector<Vec3> poles_;
   double tolerance_;
+  /** The part's deviation check's limit for this face (PartMesher's checkDeviation): max(d, the face's tolerance). */
+  double within_;
   /** The refinement floor (belowFloor). */
   double floor_;
   /** The surface's knot spans each way (spans()), empty where none is narrow or the domain isn't finite. */
@@ -1307,7 +1327,7 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
   const bool elementary = kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS;
   return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
-    second, Tolerances(m).part(), elementary);
+    second, Tolerances(m).part(), Tolerances(m).face(f), elementary);
 }
 
 } // namespace tesscadio

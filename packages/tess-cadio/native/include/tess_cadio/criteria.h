@@ -86,9 +86,10 @@ public:
    * The boundary's own 3D points by their (u, v) (an edge's curve points, which its faces share and the mesh outputs):
    * a triangle is also refused as turned over when its facet with these at its corners where it has them, as the
    * output has it, faces against the mean of its corners' normals (the part's own check of its output). The other
-   * tests, the deviation and the normals' angles, stay judged on the surface's
-   * points, so a boundary off its surface within the face's tolerance isn't refused for being where the model put it.
-   * None by default.
+   * tests, the deviation and the normals' angles, stay judged on the surface's points, so a boundary off its surface
+   * within the face's tolerance isn't refused for being where the model put it; but the deviation's limit is the
+   * deflection less what the sag and a corner's distance from the surface together would put past the part's
+   * deviation check (max(d, the face's tolerance)), where that distance is under it. None by default.
    */
   virtual void setBoundaryPoints(const std::vector<std::pair<cadgeom::Vec2, cadgeom::Vec3>>& points) { (void)points; }
   /**
