@@ -1326,7 +1326,8 @@ await check('view context menu', async () => {
 });
 // The tree's arrow keys move its focus through the structure: up and down to the previous and next sibling, past
 // the first to the parent, past the last to the next sibling of the parent; right to the first child, unfolding it;
-// left to the parent; with the focus cleared, nowhere. As1's tree, by name.
+// left to the parent; with the focus cleared, nowhere. Space and shift-space click and shift-click the focused row.
+// As1's tree, by name.
 await check('tree arrow keys', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
@@ -1360,8 +1361,31 @@ await check('tree arrow keys', async () => {
     p.setFocus(undefined);
     await frame();
     seq.push(['ArrowRight', await key('ArrowRight')]);
-    return { seq, selected: ui.selected().length };
-  })()`) as { after: { seq: [string, string][]; selected: number } };
+    const selected = ui.selected().length;
+    // Space and shift-space click and shift-click the focused row (selecting and deselecting as clicks do); with the
+    // focus cleared, nothing.
+    const press = async (shift) => {
+      const t = focused() ?? document.querySelector('#tree .tree-row');
+      const ev = (type, k, code) => t.dispatchEvent(new KeyboardEvent(type, { key: k, code, shiftKey: shift,
+        bubbles: true, cancelable: true }));
+      if (shift) ev('keydown', 'Shift', 'ShiftLeft');
+      const allowed = ev('keydown', ' ', 'Space');
+      ev('keyup', ' ', 'Space');
+      if (shift) ev('keyup', 'Shift', 'ShiftLeft');
+      await frame();
+      return ui.selected().map((i) => m.pathOf(i).replace('as1/', '')).join() + (allowed ? ' (default)' : '');
+    };
+    const space = [await press(false)];
+    p.setFocus(m.find('as1/rod-assembly_1'));
+    await frame();
+    space.push(await press(false));
+    await key('ArrowDown');
+    await key('ArrowDown');
+    space.push(await press(true), await press(false));
+    await key('ArrowUp');
+    space.push(await press(true));
+    return { seq, selected, space };
+  })()`) as { after: { seq: [string, string][]; selected: number; space: string[] } };
   const got = r.after.seq.map(([k, v]) => `${k}: ${v}`);
   const lb2 = 'as1/l-bracket-assembly_2';
   const want = ['start: as1/rod-assembly_1', 'ArrowDown: as1/l-bracket-assembly_1', `ArrowDown: ${lb2}`,
@@ -1373,6 +1397,9 @@ await check('tree arrow keys', async () => {
   const diff = want.map((w, i) => (w === got[i] ? '' : `step ${i}: ${got[i]}, not ${w}`)).filter(Boolean);
   expect(!diff.length && got.length === want.length, `the moves: ${diff.join('; ')} (${got.join(' | ')})`);
   expect(r.after.selected === 0, `the selection unchanged: ${r.after.selected}`);
+  const space = ['', 'rod-assembly_1', 'rod-assembly_1,l-bracket-assembly_1,l-bracket-assembly_2',
+    'rod-assembly_1,l-bracket-assembly_1', 'rod-assembly_1'];
+  expect(r.after.space.join(' | ') === space.join(' | '), `space and shift-space: ${r.after.space.join(' | ')}`);
   return undefined;
 });
 // Dialogs dragged by their title: Override Appearance... moved by a mouse drag of its title, as far as the drag, a
@@ -1692,7 +1719,8 @@ await check('tree', async () => {
     p.expandAll();
     await frame();
     const all = spacerRows(), nodes = m.nodes.length;
-    const click = (row, ctrlKey = false) => row.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
+    const click = (row, ctrlKey = false, shiftKey = false) => row.dispatchEvent(new MouseEvent('click',
+      { bubbles: true, ctrlKey, shiftKey }));
     const display = getComputedStyle(rows()[0]).display;
     const label = rows()[0].getAttribute('aria-label');
     // (A part's row brought into view first: the first part's detail, every edge and vertex a row, fills the panel.)
@@ -1716,6 +1744,36 @@ await check('tree', async () => {
     // placement).
     ui.showAll();
     await frame();
+    // Shift-click: from the row last clicked; with nothing selected (cleared from elsewhere), that row alone.
+    click(await rowOf(partIds[2]), false, true);
+    await frame();
+    const range = [...p.selected()];
+    p.select([], false);
+    await frame();
+    click(await rowOf(partIds[2]), false, true);
+    await frame();
+    const fromNone = [...p.selected()];
+    click(await rowOf(partIds[3]), false, true);
+    await frame();
+    const fromThat = [...p.selected()];
+    // Clicks on selected rows: a plain click takes the row out, a shift-click the rows from it to the row last
+    // clicked; the 3D view's selection the same, told once a click.
+    click(await rowOf(partIds[1]));
+    await frame();
+    click(await rowOf(partIds[3]), false, true);
+    await frame();
+    const all3 = [...p.selected()];
+    let told = 0;
+    const onSelect = p.onSelect;
+    p.onSelect = (ids) => { told++; onSelect(ids); };
+    click(await rowOf(partIds[2]));
+    await frame();
+    const lessOne = [...p.selected()];
+    click(await rowOf(partIds[3]), false, true);
+    await frame();
+    const lessSpan = [...p.selected()], inView = [...ui.selected()];
+    p.onSelect = onSelect;
+    const shift = { range, fromNone, fromThat, parts: partIds.slice(1, 4), all3, lessOne, lessSpan, inView, told };
     const face = rows().find((r) => m.nodes[+r.dataset.id].kind === 'face');
     const faceNode = m.nodes[+face.dataset.id];
     click(face);
@@ -1744,8 +1802,10 @@ await check('tree', async () => {
       o.geometry.groups.filter((g) => !o.material[g.materialIndex].visible).length; });
     return { initial, all, nodes, selected: selected.length, hiddenObjects, greyed, same: same.length, sameHidden,
       invisibleGroups, invisibleAfter, greyAfter: rows().filter((r) => r.classList.contains('hidden')).length,
-      display, label, afterClicks, picked, collapsed };
-  })()`) as { after?: { initial: string[]; all: number; nodes: number; selected: number; hiddenObjects: number;
+      display, label, afterClicks, picked, collapsed, shift };
+  })()`) as { after?: { shift: { range: number[];
+    fromNone: number[]; fromThat: number[]; parts: number[];
+    all3: number[]; lessOne: number[]; lessSpan: number[]; inView: number[]; told: number }; initial: string[]; all: number; nodes: number; selected: number; hiddenObjects: number;
     greyed: number; same: number; sameHidden: number; invisibleGroups: number; invisibleAfter: number;
     greyAfter: number; display: string; label: string; afterClicks: number; picked: boolean; collapsed: number } };
   const a = r.after!;
@@ -1758,6 +1818,18 @@ await check('tree', async () => {
   // Clicks select; they don't expand or collapse.
   expect(a.afterClicks === a.all, `rows after clicks: ${j}`);
   expect(a.picked && a.collapsed === 1, `selecting from elsewhere, collapsing: ${j}`);
+  // (Rows between parts are their detail: a range from part 1 to part 2 is more than the two.)
+  const sh = a.shift, [p1, p2, p3] = sh.parts;
+  expect(sh.range.length > 2 && sh.range.includes(p1!) && sh.range.includes(p2!) && !sh.range.includes(p3!),
+    `shift-click, a range from the row last clicked: ${JSON.stringify(sh)}`);
+  expect(sh.fromNone.join() === String(p2), `shift-click with nothing selected, the row alone: ${JSON.stringify(sh)}`);
+  expect(sh.fromThat.length > 2 && sh.fromThat.includes(p2!) && sh.fromThat.includes(p3!) &&
+    !sh.fromThat.includes(p1!), `shift-click after it, from that row: ${JSON.stringify(sh)}`);
+  const upTo2 = sh.all3.slice(0, sh.all3.indexOf(p2!));
+  expect(sh.all3[0] === p1 && sh.all3.at(-1) === p3 && sh.lessOne.join() === sh.all3.filter((i) => i !== p2).join(),
+    `a click on a selected row: ${JSON.stringify(sh)}`);
+  expect(upTo2.length > 1 && sh.lessSpan.join() === upTo2.join() && sh.inView.join() === upTo2.join() &&
+    sh.told === 2, `a shift-click on a selected row: ${JSON.stringify(sh)}`);
   expect(a.selected === 2 && a.hiddenObjects === 2, `selection and hiding: ${j}`);
   // Each hidden part greys itself and its detail rows (its faces and edges).
   expect(a.greyed > 2, `greyed rows: ${j}`);
@@ -1808,6 +1880,10 @@ await check('picking', async () => {
     click(spots[1].x, spots[1].y, true);
     await frame();
     const two = [...ui.selected()];
+    // A plain click on what's selected takes it out.
+    click(spots[0].x, spots[0].y);
+    await frame();
+    const removed = [...ui.selected()];
     click(rect.left + 2, rect.top + 2);
     await frame();
     const none = [...ui.selected()];
@@ -1848,8 +1924,8 @@ await check('picking', async () => {
       x.emissive.getHex() !== 0)).length;
     return { spots: spots.map((s) => s.id), first, tinted, rowSelected, detailsText, two, none, centred, detailKind,
       placements: placements.length, lit, unlit, toggled, parent, parentExpected: [m.nodes[spots[1].id].parent],
-      dragged };
-  })()`) as { after?: { spots: number[]; first: number[]; tinted: boolean; rowSelected: boolean;
+      dragged, removed };
+  })()`) as { after?: { removed: number[]; spots: number[]; first: number[]; tinted: boolean; rowSelected: boolean;
     detailsText: string; two: number[]; none: number[]; centred: boolean; detailKind: string; placements: number;
     lit: number; unlit: number; toggled: number[]; parent: number[]; parentExpected: number[]; dragged: number[] } };
   const a = r.after!;
@@ -1859,6 +1935,7 @@ await check('picking', async () => {
   expect(/Placement \d+ of \d+|The only placement/.test(a.detailsText) && /Triangles: /.test(a.detailsText),
     `details: ${j}`);
   expect(a.two.join() === a.spots.join() && a.none.length === 0, `ctrl-click, empty space: ${j}`);
+  expect(a.removed.join() === String(a.spots[1]), `a click on what's selected: ${j}`);
   expect(a.toggled.join() === String(a.spots[1]) && a.parent.join() === a.parentExpected.join(),
     `multi-select, select parent: ${j}`);
   expect(a.centred, `zoom selected: ${j}`);

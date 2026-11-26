@@ -1016,7 +1016,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     hooks.onEvent?.({ type: 'pick', clientX: keys.clientX, clientY: keys.clientY, add, ...(id !== undefined ? { id }
       : {}), ...(hit ? { point: hit.point.toArray() } : {}) });
     if (id === undefined) return add ? undefined : select([], 'pick');
-    select(!add ? [id] : selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id], 'pick');
+    // (Something selected, clicked again, comes out of the selection, adding or not.)
+    select(selected.includes(id) ? selected.filter((s) => s !== id) : add ? [...selected, id] : [id], 'pick');
   };
   // Once a frame while meshes arrive; `refreshed` settles after (for cadViewer.idle).
   let refresh = false;
