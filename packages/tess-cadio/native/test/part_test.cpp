@@ -529,6 +529,69 @@ TEST_CASE("a point crowds a fixed segment (crowds) within a tenth of the floor o
   CHECK(pc->crowds({0.5 + e, 0.05}, {0.5 + e, 0.95}, {0.5, 0.25}, false));
 }
 
+TEST_CASE("the deviation test counts a corner's own distance from the surface (setBoundaryPoints): a triangle within "
+  "d on the surface's points refused where its sag and that distance pass max(d, the face's tolerance); not where the "
+  "distance alone is past it") {
+  // A triangle across u whose bound on the surface's points is 0.8 d, a corner's own point g off the surface along
+  // its normal: refused exactly where g < within = max(d, tol) and the bound > min(d, within - g). On cylinderLong
+  // (r 2, bounded), torusOuterHalf, spheres' hemisphere (closed form, then by inversion near its pole),
+  // tubeGapFaceTolerance at d 1e-4 (its face's tolerance 1e-3 over the part's: within that, not d) and coneApexLoop
+  // away from its apex (closed form).
+  struct Case {
+    const char* name;
+    int face;
+    double d;
+    bool box;
+    cadgeom::Box2 uv;
+  };
+  for (const Case& k : {Case{"cylinderLong", 0, 0.1, true, {{-1, 1}, {0, 10}}},
+         Case{"torusOuterHalf", 0, 0.1, false, {}}, Case{"spheres", 1, 0.1, false, {}},
+         Case{"tubeGapFaceTolerance", 0, 1e-4, false, {}}, Case{"coneApexLoop", 0, 0.1, true, {{0, 6.28}, {0, 3}}}}) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    auto s = cadgeom::makeSurface(m, m.faceSurface(k.face), st);
+    REQUIRE(s);
+    const cadgeom::SurfaceDomain D = s->domain();
+    const cadgeom::Box2 box = k.box ? k.uv : cadgeom::Box2{{D.u.lo, D.u.hi}, {D.v.lo, D.v.hi}};
+    const double d = k.d, within = std::fmax(d, cadgeom::Tolerances(m).face(k.face));
+    const Vec2 c{0.5 * (box.x.lo + box.x.hi), 0.5 * (box.y.lo + box.y.hi)};
+    auto tri = [&](double a, Vec2 t[3]) { t[0] = {c.x - a, c.y}, t[1] = {c.x + a, c.y}, t[2] = {c.x, c.y + a}; };
+    auto fresh = [&] { return makeCriteria(m, k.face, *s, box, Deflections{d, 1.5}, st); };
+    auto c0 = fresh();
+    REQUIRE(c0);
+    // (The triangle's size by bisection to a bound of 0.8 d.)
+    double lo = 1e-6, hi = 0.25 * (box.x.hi - box.x.lo), bound = 0;
+    Vec2 t[3];
+    for (int i = 0; i < 80; i++) {
+      const double a = 0.5 * (lo + hi);
+      tri(a, t);
+      // (No bound, as over a B-spline's knots far apart may give none: too large.)
+      (c0->deviationBound(t, bound) && bound < 0.8 * d ? lo : hi) = a;
+    }
+    tri(lo, t);
+    REQUIRE(c0->deviationBound(t, bound));
+    if (!(bound > 0.7 * d && bound < 0.9 * d)) std::printf("  %s: bound %g\n", k.name, bound);
+    REQUIRE((bound > 0.7 * d && bound < 0.9 * d));
+    CHECK(c0->accept(t));
+    cadgeom::SurfacePoint sp;
+    REQUIRE(s->eval(t[0].x, t[0].y, 1, sp) == cadgeom::Status::ok);
+    Vec3 n = cadgeom::cross(sp.du, sp.dv);
+    n = (1 / cadgeom::norm(n)) * n;
+    for (double g : {d - bound + 0.05 * d, d - bound - 0.05 * d, within - 0.5 * bound, within + 0.5 * d}) {
+      auto c1 = fresh();
+      c1->setBoundaryPoints({{t[0], sp.p + g * n}});
+      const bool refused = g < within && bound > std::fmin(d, within - g);
+      if (c1->accept(t) == refused) std::printf("  %s: g %g bound %g within %g\n", k.name, g, bound, within);
+      CHECK_EQ(c1->accept(t), !refused);
+      // (Its bound on the surface's points unchanged: the part's check adds the distance itself.)
+      double b1;
+      REQUIRE(c1->deviationBound(t, b1));
+      CHECK_EQ(b1, bound);
+    }
+  }
+}
+
 TEST_CASE("the criteria's turn on the boundary's own points (setBoundaryPoints) is the part's (checkFacing): the facet "
   "against the mean of its corners' normals, not against any one of them") {
   // (cylinderLong, r = 2: corners at u = -0.1, 0.1 and 0, their normals 0.2 apart; own points whose facet's normal is
