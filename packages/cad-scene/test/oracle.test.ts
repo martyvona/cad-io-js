@@ -207,6 +207,64 @@ test('the oracle on a thin cone to its apex, the apex vertex a little off the ax
   assert.ok(got.ok && Math.abs(got.area - want) < 1e-6 * want, JSON.stringify({ got, want }));
 });
 
+test('the oracle on a cone: an edge off it taken to its nearest points, not to the cone at its height', async () => {
+  // A band of the cone of radius 2 at z = 0 and semi-angle b (70 degrees: shallow) up to z = H, its top circle moved d
+  // off along the cone's normal (radius r + d cos b at height H - d sin b): its nearest points are the cone's circle at
+  // H, so the area is the band's, pi (2 + r) H / cos b (the same height's is short by about d tan b times the circle's
+  // length: 0.2 at d = 1e-2). The seam's line from the bottom vertex to the top one.
+  const { modelFaceArea } = await import('../src/index.ts');
+  const b = 70 * Math.PI / 180, H = 1, r = 2 + H * Math.tan(b), want = Math.PI * (2 + r) * H / Math.cos(b);
+  for (const d of [0, 1e-3, 1e-2]) {
+    const B = new BrepBuilder({ uncertainty: 1e-6 });
+    const axis = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+    const zt = H - d * Math.sin(b), rt = r + d * Math.cos(b), len = Math.hypot(rt - 2, zt);
+    const v0 = B.addVertex({ point: [2, 0, 0] }), v1 = B.addVertex({ point: [rt, 0, zt] });
+    const eb = B.addEdge({ curve: B.addCurve({ kind: 'circle', position: axis, radius: 2 }), start: v0, end: v0,
+      sameSense: true, id: 1 });
+    const et = B.addEdge({ curve: B.addCurve({ kind: 'circle', position: { ...axis, origin: [0, 0, zt] }, radius: rt }),
+      start: v1, end: v1, sameSense: true, id: 2 });
+    const es = B.addEdge({ curve: B.addCurve({ kind: 'line', point: [2, 0, 0], direction: [(rt - 2) / len, 0, zt / len],
+      magnitude: 1 }), start: v0, end: v1, sameSense: true, range: [0, len], id: 3 });
+    const cone = B.addSurface({ kind: 'cone', radius: 2, semiAngle: b, position: axis });
+    const face = B.addFace({ surface: cone, sameSense: true, id: 9, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: eb, orientation: 'forward' }, { edge: es, orientation: 'forward' },
+        { edge: et, orientation: 'reversed' }, { edge: es, orientation: 'reversed' }] }] });
+    const shell = B.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    B.addItem({ kind: 'body', ref: B.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const m = B.finish(), got = modelFaceArea(m, 0);
+    assert.ok('area' in got && Math.abs(got.area - want) <= 1e-6 * want,
+      `d ${d}: ${JSON.stringify(got)} against ${want}`);
+  }
+});
+
+test('the oracle on a cone beyond its apex (the other nappe), past a semi-angle of 45 degrees too', async () => {
+  // The sector between the apex and the circle at v = vb < -r / tan a (rho = r + vb tan a < 0, its points at angle
+  // u + pi), over beta: area beta rho^2 / (2 sin a). Past 45 degrees a point on this nappe has its foot on the near
+  // nappe's generator on that generator's own side of the apex.
+  const { modelFaceArea } = await import('../src/index.ts');
+  for (const [r, a, beta, vb] of [[1, Math.PI / 6, 1, -4], [1, 1.2, 1, -2], [2, Math.PI / 3, 2, -3]] as const) {
+    const B = new BrepBuilder();
+    const position = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
+    const s = B.addSurface({ kind: 'cone', radius: r, semiAngle: a, position });
+    const apex = [0, 0, -r / Math.tan(a)], rho = r + vb * Math.tan(a);
+    const rim = (u: number) => [rho * Math.cos(u), rho * Math.sin(u), vb];
+    const A = B.addVertex({ point: apex }), P0 = B.addVertex({ point: rim(0) }), Pb = B.addVertex({ point: rim(beta) });
+    const generator = (to: number[], end: number, id: number) => B.addEdge({ curve: B.addCurve({ kind: 'line',
+      point: apex, direction: to.map((x, i) => x - apex[i]!), magnitude: 1 }), start: A, end, sameSense: true, id });
+    const g0 = generator(rim(0), P0, 1), gb = generator(rim(beta), Pb, 2);
+    const arc = B.addEdge({ curve: B.addCurve({ kind: 'circle', position: { ...position, origin: [0, 0, vb] },
+      radius: -rho }), start: P0, end: Pb, sameSense: true, range: [Math.PI, Math.PI + beta], id: 3 });
+    const face = B.addFace({ surface: s, sameSense: true, id: 9, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+      coedges: [{ edge: arc, orientation: 'forward' }, { edge: gb, orientation: 'reversed' },
+        { edge: g0, orientation: 'forward' }] }] });
+    const shell = B.addShell({ kind: 'open', faces: [{ face, sense: true }] });
+    B.addItem({ kind: 'body', ref: B.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+    const m = B.finish(), got = modelFaceArea(m, 0), want = beta * rho * rho / (2 * Math.sin(a));
+    assert.ok('area' in got && Math.abs(got.area - want) <= 1e-6 * want, `${r} ${a} ${vb}: ${JSON.stringify(got)} `
+      + `against ${want}`);
+  }
+});
+
 test('the oracle on a sphere: a face over a hemisphere flagged (its loops bound its complement alike); a loose face '
   + 'flagged', async () => {
   const { modelFaceArea } = await import('../src/index.ts');

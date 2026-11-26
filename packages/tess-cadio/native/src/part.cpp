@@ -73,6 +73,7 @@ public:
   int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
   bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
   bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override { return field_.crowds(a, b, q, frozen); }
+  bool shippedAt(Vec2 p, float out[3]) const override { return field_.shippedAt(p, out); }
 
 private:
   /**
@@ -280,6 +281,7 @@ struct PartMesher::Impl {
     e.projectMissingPcurves = o.projectMissingPcurves;
     e.deflection = o.d.linear;
     e.angle = o.d.angular;
+    if (o.d.maxEdge > 0) e.maxSpacing = o.d.maxEdge;
     e.analysis = o.analysis, e.analysisSize = o.analysisSize;
     return e;
   }
@@ -497,7 +499,7 @@ struct PartMesher::Impl {
         fan.smooth = R.smooth;
         const bool farA = std::fabs(da) > 1.5 * r, farB = std::fabs(db) > 1.5 * r;
         const double lo = farA ? q0 : freeOf(a.uv, S.isoU), hi = farB ? q1 : freeOf(b.uv, S.isoU);
-        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular);
+        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular, o.d.maxEdge);
         std::vector<double> qs;
         double piece = (hi - lo) / pieces;
         if (farA) qs.push_back(q0);
@@ -2270,7 +2272,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       FaceBoundary fb = I.em->face(f);
       if (fb.status != Status::ok) continue;
       I.rings[f] = facePoles(m, f, *I.surfaces[f], fb, *I.em, *I.criteria[f], tols.face(f), I.o.d.linear,
-        I.o.d.angular);
+        I.o.d.angular, I.o.d.maxEdge);
     }
     shareRings(sp, I.rings, tols.part());
     std::vector<RingCut> cuts;

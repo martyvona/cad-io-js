@@ -66,7 +66,7 @@ double ringRadius(const Surface& s, const PoleRing& ring, double reach) {
 }
 
 int ringPieces(const Surface& s, const PoleRing& ring, std::pair<double, double> run, double r, double deflection,
-  double angle) {
+  double angle, double maxEdge) {
   auto [q0, q1] = run;
   // The tangent's turn along the ring, as its chords between 64 points turn.
   constexpr int kN = 64;
@@ -78,12 +78,14 @@ int ringPieces(const Surface& s, const PoleRing& ring, std::pair<double, double>
     if (norm(a) > 0 && norm(b) > 0) turn += std::atan2(norm(cross(a, b)), dot(a, b));
   }
   int m = std::max(1, angle > 0 ? static_cast<int>(std::ceil(turn / angle)) : 1);
-  // Then doubled until each piece's chord is within the deflection of the ring at its middle and quarters.
+  // Then doubled until each piece's chord is within the deflection of the ring at its middle and quarters (and no
+  // longer than maxEdge).
   auto within = [&](int pieces) {
     for (int j = 0; j < pieces; j++) {
       double qa = q0 + (q1 - q0) * j / pieces, qb = q0 + (q1 - q0) * (j + 1) / pieces;
       Vec3 a = ringPoint(s, ring, r, qa), b = ringPoint(s, ring, r, qb), d = b - a;
       double l2 = dot(d, d);
+      if (maxEdge > 0 && l2 > maxEdge * maxEdge) return false;
       for (double f : {0.25, 0.5, 0.75}) {
         Vec3 x = ringPoint(s, ring, r, qa + f * (qb - qa));
         double w = l2 > 0 ? std::clamp(dot(x - a, d) / l2, 0.0, 1.0) : 0;
@@ -97,7 +99,7 @@ int ringPieces(const Surface& s, const PoleRing& ring, std::pair<double, double>
 }
 
 std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const FaceBoundary& fb, const EdgeMesh& em,
-  const SurfaceCriteria& criteria, double tol, double deflection, double angle) {
+  const SurfaceCriteria& criteria, double tol, double deflection, double angle, double maxEdge) {
   std::vector<PoleRing> out;
   std::vector<Singularity> sing;
   s.singularities(sing);
@@ -324,7 +326,7 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
     // the row), judged by the criteria: their normals only at a smooth pole.
     auto passes = [&](double r) {
       for (auto run : ring.runs) {
-        const int pieces = ringPieces(s, ring, run, r, deflection, angle);
+        const int pieces = ringPieces(s, ring, run, r, deflection, angle, maxEdge);
         auto [q0, q1] = run;
         for (int j = 0; j < pieces; j++) {
           const double qa = q0 + (q1 - q0) * j / pieces, qb = q0 + (q1 - q0) * (j + 1) / pieces;
@@ -339,7 +341,7 @@ std::vector<PoleRing> facePoles(const Model& m, int f, const Surface& s, const F
     // The floor: the deflection, but half the clearance where that's less (a ring at d would come nearer the
     // boundary than half its clearance, or cross it).
     ring.floor = std::min(deflection, ring.clearance);
-    const double want = std::min(ring.clearance, ring.straight);
+    const double want = std::min({ring.clearance, ring.straight, maxEdge > 0 ? maxEdge : kInf});
     double r;
     if (!(want > ring.floor)) {
       r = ringRadius(s, ring, ring.floor), ring.floored = true;

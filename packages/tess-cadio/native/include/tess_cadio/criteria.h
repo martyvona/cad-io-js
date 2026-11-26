@@ -25,6 +25,12 @@ struct Deflections {
    * again at a capped stretch (PartOptions::retryStretch) has its criteria made with it.
    */
   double stretchCap = 0;
+  /**
+   * The longest a shipped triangle's edge may be, in model units (mm); 0: no limit. The size metric's principal sizes
+   * are at most maxEdge / sqrt 2, since the mesher accepts an edge up to sqrt 2 in its metric; edges are sampled no
+   * farther apart than maxEdge (EdgeOptions::maxSpacing). Callers give it as a fraction of partSize (part_size.h).
+   */
+  double maxEdge = 0;
 };
 
 /**
