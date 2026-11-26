@@ -82,9 +82,9 @@ export function overrideText(o: AppearanceOverride): string {
  */
 function iconHtml(model: NodeModel, id: number): string {
   const failure = model.failure(id);
-  const g = failure ? undefined : model.geometryKind(id);
-  const icon = g && GEOMETRY_ICONS[g];
-  return `<span class="tree-icon${failure ? ' broken' : ''}"${icon ? ` title="${g!.replace('curve:', '')}"` : ''}>${
+  const g = failure ? undefined : model.geometry(id);
+  const icon = g && GEOMETRY_ICONS[g.kind];
+  return `<span class="tree-icon${failure ? ' broken' : ''}"${icon ? ` title="${g!.name}"` : ''}>${
     failure ? BROKEN_ICON : icon ?? ICONS[model.nodes[id]!.kind]}</span>`;
 }
 

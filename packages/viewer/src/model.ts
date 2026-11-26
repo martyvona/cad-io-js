@@ -28,7 +28,7 @@
 // detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
-import { GEOMETRY_NAMES, type GeometryKind } from './geometry-info.ts';
+import type { Geometry, GeometryKind } from './geometry-info.ts';
 import { hideItems, itemsOf } from './items.ts';
 
 export type Kind = 'assembly' | 'part' | 'faces' | 'edges' | 'vertices' | 'face' | 'edge' | 'curve' | 'vertex' |
@@ -121,8 +121,8 @@ export interface PlacementLook {
 /** What the scene graph does with a placement's look: its faces' materials (scene-graph.ts). */
 export interface Looks {
   setLook(group: THREE.Object3D, look: PlacementLook): void;
-  /** A face's surface or an edge's or curve's curve, by kind, where the part's B-rep says (geometry-info.ts). */
-  geometryKind?(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined;
+  /** A face's surface or an edge's or curve's curve, kind and name, where the part's B-rep says (geometry-info.ts). */
+  geometry?(part: number, kind: 'face' | 'edge' | 'curve', id: number): Geometry | undefined;
 }
 
 /**
@@ -266,8 +266,8 @@ export class NodeModel {
       if (source === undefined || source === null || (e.kind !== 'face' && e.kind !== 'edge' && e.kind !== 'curve')) {
         return e.name;
       }
-      const g = this.looks?.geometryKind?.(partIndex, e.kind, source);
-      return g ? `${GEOMETRY_NAMES[g]} #${source}` : e.name;
+      const g = this.looks?.geometry?.(partIndex, e.kind, source);
+      return g ? `${g.name} #${source}` : e.name;
     };
     const out: number[] = [];
     for (const { group, members, entries } of detailEntries(o)) {
@@ -312,12 +312,17 @@ export class NodeModel {
 
   /** A face's, edge's or curve's geometry by kind (its icon), where its part's B-rep says; none for other nodes. */
   geometryKind(id: number): GeometryKind | undefined {
+    return this.geometry(id)?.kind;
+  }
+
+  /** A face's, edge's or curve's geometry, its kind and name (its icon and tooltip); as geometryKind. */
+  geometry(id: number): Geometry | undefined {
     const n = this.nodes[id];
     if (!n || n.dead || (n.kind !== 'face' && n.kind !== 'edge' && n.kind !== 'curve')) return undefined;
     const source = n.face?.source ?? n.item?.source;
     if (source === undefined || source === null) return undefined;
     const part = this.nodes[this.partOf(id)]!.object!.userData.part as number;
-    return this.looks?.geometryKind?.(part, n.kind, source);
+    return this.looks?.geometry?.(part, n.kind, source);
   }
 
   /** The part a node is or is detail of (itself for assemblies). */

@@ -25,7 +25,7 @@ import { faceFailures, instances, partInstances, placedName, stretchWords, type 
 import type { Looks, PlacementLook } from './model.ts';
 import type { PartModel } from './part-model.ts';
 import type { DetailSources } from './details.ts';
-import { geometryKind, type GeometryKind } from './geometry-info.ts';
+import { geometryOf, type Geometry } from './geometry-info.ts';
 import { setItems, type Item } from './items.ts';
 import { faceIndexAttribute, PICK_INDEX } from './pick-ids.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
@@ -175,22 +175,22 @@ export class SceneGraph implements Looks {
   }
 
   /**
-   * A face's surface or an edge's or curve's curve, by kind (the tree's icons), from the part's model; kept once
-   * found, so it stays while the model is lent; none while it's never been held.
+   * A face's surface or an edge's or curve's curve, its kind and name (the tree's icons and names), from the part's
+   * model; kept once found, so it stays while the model is lent; none while it's never been held.
    */
-  geometryKind(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined {
+  geometry(part: number, kind: 'face' | 'edge' | 'curve', id: number): Geometry | undefined {
     const key = `${kind}#${id}`;
     const kinds = this.kinds.get(part);
     if (kinds?.has(key)) return kinds.get(key) ?? undefined;
     const model = this.modelOf(part);
     if (!model) return undefined;
-    const k = geometryKind(model, kind, id);
-    (kinds ?? this.kinds.set(part, new Map()).get(part)!).set(key, k ?? null);
-    return k;
+    const g = geometryOf(model, kind, id);
+    (kinds ?? this.kinds.set(part, new Map()).get(part)!).set(key, g ?? null);
+    return g;
   }
 
-  /** geometryKind's answers by part (null: none), until the part's model changes. */
-  private readonly kinds = new Map<number, Map<string, GeometryKind | null>>();
+  /** geometry's answers by part (null: none), until the part's model changes. */
+  private readonly kinds = new Map<number, Map<string, Geometry | null>>();
 
   /** What Details reads of a part (details.ts): its model and analysis where held, its mesh, its measures. */
   readonly sources: DetailSources = {

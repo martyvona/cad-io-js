@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BrepBuilder, writeAnalysis, type BrepData } from 'cad-brep';
 import type { Mesh } from 'cad-scene';
-import { geometryKind, geometryText, meshVolume, oracleVolume, rowOf, vertexPoint } from '../src/geometry-info.ts';
+import { geometryKind, geometryOf, geometryText, meshVolume, oracleVolume, rowOf, vertexPoint } from '../src/geometry-info.ts';
 
 const XY = { origin: [1, 2, 3], axis: [0, 0, 1], xDir: [1, 0, 0] };
 
@@ -54,6 +54,54 @@ test('geometry: kinds for icons (a trimmed or offset one by its basis), rows by 
     ['curve:circle', 'curve:circle', 'curve:line', 'curve:bspline', 'curve:ellipse', undefined]);
   assert.equal(geometryKind(d, 'face', 99), undefined);
   assert.equal(rowOf(d, 'vertex', 41), 0);
+});
+
+test('geometry: names with their wrappers, outermost first, a word repeated once; deeper than 16, the wrapper', () => {
+  const b = new BrepBuilder();
+  const face = (id: number, surface: number) => b.addFace({ id, surface, sameSense: true, loops: [] });
+  const cyl = b.addSurface({ kind: 'cylinder', position: XY, radius: 3 });
+  const trimmed = (basis: number) => b.addSurface({ kind: 'rectangularTrimmed', basis, u1: 0, u2: 1, v1: 0, v2: 1,
+    uSense: true, vSense: true });
+  const offset = (basis: number) => b.addSurface({ kind: 'offset', basis, distance: 1, selfIntersect: false });
+  face(1, cyl);
+  face(2, trimmed(cyl));
+  face(3, offset(trimmed(cyl)));
+  face(4, trimmed(offset(cyl)));
+  face(5, trimmed(trimmed(offset(offset(cyl)))));
+  let deep = cyl;
+  for (let i = 0; i < 16; i++) deep = trimmed(deep);
+  face(6, deep);
+  face(7, b.addSurface({ kind: 'curveSwept', curve: b.addCurve({ kind: 'circle', position: XY, radius: 1 }),
+    directrix: b.addCurve({ kind: 'line', point: [0, 0, 0], direction: [0, 0, 1], magnitude: 1 }),
+    referenceSurface: cyl }));
+  const bsp = b.addSurface({ kind: 'bspline', uDegree: 1, vDegree: 1, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [2, 2], vMultiplicities: [2, 2], poles: [[[0, 0, 0], [0, 1, 0]], [[1, 0, 0], [1, 1, 0]]],
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  face(8, offset(bsp));
+  const circle = b.addCurve({ kind: 'circle', position: XY, radius: 7 });
+  const tc = (basis: number) => b.addCurve({ kind: 'trimmed', basis, trim1: { parameter: 0 },
+    trim2: { parameter: 1 }, sense: true, preference: 'parameter' });
+  const oc = (basis: number) => b.addCurve({ kind: 'offset', basis, distance: 1, selfIntersect: false,
+    refDirection: [0, 0, 1] });
+  const edge = (id: number, curve: number) => b.addEdge({ id, curve, sameSense: true });
+  edge(11, circle);
+  edge(12, tc(circle));
+  edge(13, oc(tc(circle)));
+  edge(14, tc(tc(circle)));
+  let deepC = circle;
+  for (let i = 0; i < 16; i++) deepC = oc(deepC);
+  edge(15, deepC);
+  const d = b.finish();
+  const named = (kind: 'face' | 'edge', ids: number[]) => ids.map((id) => {
+    const g = geometryOf(d, kind, id);
+    return g && `${g.kind}: ${g.name}`;
+  });
+  assert.deepEqual(named('face', [1, 2, 3, 4, 5, 6, 7, 8]), ['cylinder: cylinder', 'cylinder: trimmed cylinder',
+    'cylinder: offset trimmed cylinder', 'cylinder: trimmed offset cylinder', 'cylinder: trimmed offset cylinder',
+    'rectangularTrimmed: trimmed surface', 'curveSwept: swept surface', 'bspline: offset B-spline surface']);
+  assert.deepEqual(named('edge', [11, 12, 13, 14, 15]), ['curve:circle: circle', 'curve:circle: trimmed circle',
+    'curve:circle: offset trimmed circle', 'curve:circle: trimmed circle', 'curve:offset: offset curve']);
+  assert.equal(geometryOf(d, 'face', 99), undefined);
 });
 
 test("geometry: Details' words, parameters in millimetres and degrees, B-splines summarized", () => {

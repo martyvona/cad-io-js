@@ -29,24 +29,36 @@ export function rowOf(d: BrepData, table: Table, id: number): number | undefined
   return rows.get(id);
 }
 
-/** A curve row's kind for its icon: a trimmed or offset curve's basis's, as far down as it goes. */
-function curveKind(d: BrepData, row: number): Curve['kind'] {
+/** A wrapper's word in a name (`trimmed cylinder`), outermost first. */
+type Wrapper = 'trimmed' | 'offset';
+
+/**
+ * A curve row's kind for its icon: a trimmed or offset curve's basis's, as far down as it goes; and the wrappers on
+ * the way (16 deep; past that, the last wrapper's own kind, no wrappers: `trimmed curve`).
+ */
+function curveKind(d: BrepData, row: number): { kind: Curve['kind']; wrappers: Wrapper[] } {
+  const wrappers: Wrapper[] = [];
   for (let r = row, k = 0; k < 16; k++) {
     const c = decode.curve(d, r);
-    if (c.kind !== 'trimmed' && c.kind !== 'offset') return c.kind;
+    if (c.kind !== 'trimmed' && c.kind !== 'offset') return { kind: c.kind, wrappers };
+    wrappers.push(c.kind);
     r = c.basis;
   }
-  return 'trimmed';
+  return { kind: wrappers.at(-1)!, wrappers: [] };
 }
 
-/** A surface row's kind for its icon: a trimmed or offset surface's basis's. */
-function surfaceKind(d: BrepData, row: number): Surface['kind'] {
+/** A surface row's kind for its icon and its wrappers, as curveKind's. */
+function surfaceKind(d: BrepData, row: number): { kind: Surface['kind']; wrappers: Wrapper[] } {
+  const wrappers: Wrapper[] = [];
+  let last: Surface['kind'] = 'rectangularTrimmed';
   for (let r = row, k = 0; k < 16; k++) {
     const s = decode.surface(d, r);
-    if (s.kind !== 'rectangularTrimmed' && s.kind !== 'offset') return s.kind;
+    if (s.kind !== 'rectangularTrimmed' && s.kind !== 'offset') return { kind: s.kind, wrappers };
+    wrappers.push(s.kind === 'offset' ? 'offset' : 'trimmed');
+    last = s.kind;
     r = s.basis;
   }
-  return 'rectangularTrimmed';
+  return { kind: last, wrappers: [] };
 }
 
 /** A kind as the tree names its nodes (`cylinder #12`, `circle #40`). */
@@ -59,14 +71,36 @@ export const GEOMETRY_NAMES: Readonly<Record<GeometryKind, string>> = {
   'curve:trimmed': 'trimmed curve', 'curve:offset': 'offset curve',
 };
 
-/** The kind an item's icon shows: a face's surface, an edge's or free curve's curve; none unknown (no 3D curve). */
-export function geometryKind(d: BrepData, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined {
+/** A face's, edge's or curve's geometry as the tree shows it: the kind its icon shows, and its name. */
+export interface Geometry {
+  kind: GeometryKind;
+  /** The kind's name after its wrappers' words, outermost first, a word repeated next to itself once: `offset
+   * trimmed cylinder`. */
+  name: string;
+}
+
+/**
+ * An item's geometry: a face's surface, an edge's or free curve's curve, a trimmed or offset one by its basis's kind
+ * (named with the wrappers); none unknown (no 3D curve).
+ */
+export function geometryOf(d: BrepData, kind: 'face' | 'edge' | 'curve', id: number): Geometry | undefined {
+  let found: { kind: GeometryKind; wrappers: Wrapper[] } | undefined;
   if (kind === 'face') {
     const f = rowOf(d, 'face', id);
-    return f === undefined ? undefined : surfaceKind(d, d.face.surface[f]!);
+    found = f === undefined ? undefined : surfaceKind(d, d.face.surface[f]!);
+  } else {
+    const c = kind === 'edge' ? edgeCurve(d, id) : itemCurve(d, id);
+    const k = c === undefined ? undefined : curveKind(d, c);
+    found = k && { kind: `curve:${k.kind}`, wrappers: k.wrappers };
   }
-  const c = kind === 'edge' ? edgeCurve(d, id) : itemCurve(d, id);
-  return c === undefined ? undefined : `curve:${curveKind(d, c)}`;
+  if (!found) return undefined;
+  const words = found.wrappers.filter((w, i, all) => w !== all[i - 1]);
+  return { kind: found.kind, name: [...words, GEOMETRY_NAMES[found.kind]].join(' ') };
+}
+
+/** The kind an item's icon shows (geometryOf's). */
+export function geometryKind(d: BrepData, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined {
+  return geometryOf(d, kind, id)?.kind;
 }
 
 /** An edge's 3D curve row (none: no edge of that id, or trims in parameter space only). */
