@@ -111,6 +111,8 @@ interface CadioExports {
   _tc_set_max_points: Fn;
   _tc_set_cap: Fn;
   _tc_set_min_angle: Fn;
+  _tc_set_max_edge: Fn;
+  _tc_part_size: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -226,6 +228,11 @@ export interface CadioInitOptions {
    * deflection asks for. A request's minAngle (TessellationRequest) takes its place for that request.
    */
   minAngle?: number;
+  /**
+   * The longest a triangle's edge may be, as a fraction of each part's size (criteria.h's Deflections::maxEdge,
+   * part_size.h's partSize: its box's diagonal, faces' surfaces included); 0 or absent: no limit.
+   */
+  maxEdge?: number;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -260,6 +267,7 @@ export class CadioTessellator implements Tessellator {
   private maxPoints = 0;
   private cap: [number, number, number] = [0, 0, 0];
   private minAngle = -1;
+  private maxEdge = 0;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: true, readsAnalysis: true,
@@ -284,6 +292,7 @@ export class CadioTessellator implements Tessellator {
     this.maxPoints = opts.maxPointsPerFace ?? 0;
     this.cap = [opts.capFloor ?? 0, opts.capMultiple ?? 0, opts.capCeiling ?? 0];
     this.minAngle = opts.minAngle ?? -1;
+    this.maxEdge = opts.maxEdge ?? 0;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -350,6 +359,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_cap(...this.cap);
     // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)
     m._tc_set_min_angle(req.minAngle ?? this.minAngle);
+    m._tc_set_max_edge(this.maxEdge);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
@@ -541,6 +551,24 @@ export class CadioTessellator implements Tessellator {
         + `${against.slice(0, 10).join(', ')}${against.length > 10 ? ', ...' : ''}` });
     }
     return result;
+  }
+
+  /**
+   * The part's size as tess-cadio estimates it from the model (part_size.h's partSize, about its box's diagonal): the
+   * length init's maxEdge is a fraction of, to judge any backend's mesh of the part by the same limit.
+   */
+  partSize(data: Uint8Array): number {
+    const m = this.m;
+    if (!m) throw new Error('CadioTessellator: call init() first');
+    const ptr = m._malloc(data.length) >>> 0;
+    m.HEAPU8.set(data, ptr);
+    try {
+      const size = m._tc_part_size(ptr, data.length);
+      if (size < 0) throw new Error('CadioTessellator.partSize: not a cad-brep model');
+      return size;
+    } finally {
+      m._free(ptr);
+    }
   }
 
   memoryBytes(): number {

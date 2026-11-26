@@ -120,8 +120,17 @@ export function elementarySurf(kind: OracleSurface, F: { o: V3; x: V3; y: V3; z:
       return { kind: 'cone', modulus: 0, periodicV: false,
         // (The apex where within SAME_POINT of the axis relative to the cone's extent from its origin to its apex: a
         // thin cone's radius at v = 0 is no scale for its points, which miss the apex by its length's last digits.)
-        uv: (p) => { const q = local(p);
-          return [Math.hypot(q[0], q[1]) < SAME_POINT * (1 + Math.abs(r) + Math.abs(r / t)) ? NaN : angle(q), q[2]]; },
+        // v is the nearest point's, not the point's height: off the surface, the point at its height is up to
+        // 1 / cos(a) times the distance away, moving the area by up to tan(a) times it, which no bound counts. The
+        // foot on each of the half-plane's two generators (rho = r + v t, and -(r + v t) beyond the apex), each held
+        // to its own side of the apex, the nearer taken (one foot's side alone fails past 45 degrees). cad-oracle's
+        // closed.h takes the same.
+        uv: (p) => { const q = local(p), h = Math.hypot(q[0], q[1]), c2 = 1 / (1 + t * t), apex = -r / t;
+          let v1 = ((h - r) * t + q[2]) * c2, v2 = (q[2] - (h + r) * t) * c2;
+          if (r + v1 * t < 0) v1 = apex;
+          if (r + v2 * t > 0) v2 = apex;
+          const d1 = Math.hypot(h - (r + v1 * t), q[2] - v1), d2 = Math.hypot(h + (r + v2 * t), q[2] - v2);
+          return [h < SAME_POINT * (1 + Math.abs(r) + Math.abs(r / t)) ? NaN : angle(q), d1 <= d2 ? v1 : v2]; },
         // Both nappes (rho either sign): the nearer of the two generators in the point's half-plane, z from the apex.
         off: (p) => { const q = local(p), h = Math.hypot(q[0], q[1]), z = q[2] + r / t, c = Math.cos(a);
           return Math.min(Math.abs(h * c - z * s), Math.abs(h * c + z * s)); },

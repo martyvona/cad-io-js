@@ -335,9 +335,25 @@ private:
       return false;
     Range ru{std::min({t[0].x, t[1].x, t[2].x}), std::max({t[0].x, t[1].x, t[2].x})};
     Range rv{std::min({t[0].y, t[1].y, t[2].y}), std::max({t[0].y, t[1].y, t[2].y})};
-    Box3 b;
-    if (s_.bound(ru, rv, b) != Status::ok) return false;
-    return std::hypot(b.x.width(), b.y.width(), b.z.width()) <= floor_;
+    // (Cut at the surface's breaks, each piece bounded and the boxes joined: across a B-spline's knot its bound is
+    // the poles' hull over the spans there, as long as the surface along the other parameter's span, LMP1 #172665's
+    // #1055631 a tiny triangle across a u knot bounded 1,790 mm and refined for its thinness without end.)
+    std::vector<double> us, vs;
+    s_.breaks(ru, rv, us, vs);
+    if (us.size() < 2 || vs.size() < 2 || (us.size() - 1) * (vs.size() - 1) > kMaxPieces) return false;
+    Box3 all;
+    bool any = false;
+    for (size_t i = 0; i + 1 < us.size(); i++)
+      for (size_t j = 0; j + 1 < vs.size(); j++) {
+        Box3 b;
+        if (s_.bound({us[i], us[i + 1]}, {vs[j], vs[j + 1]}, b) != Status::ok) return false;
+        if (!any) all = b, any = true;
+        else
+          all = {{std::fmin(all.x.lo, b.x.lo), std::fmax(all.x.hi, b.x.hi)},
+            {std::fmin(all.y.lo, b.y.lo), std::fmax(all.y.hi, b.y.hi)},
+            {std::fmin(all.z.lo, b.z.lo), std::fmax(all.z.hi, b.z.hi)}};
+      }
+    return any && std::hypot(all.x.width(), all.y.width(), all.z.width()) <= floor_;
   }
 
   /** The triangle's corners on the surface, as at() gives them; whether all three evaluated. */
@@ -997,6 +1013,18 @@ private:
     shipped_ = std::isfinite(o[0]) && std::isfinite(o[1]) && std::isfinite(o[2]);
     for (int k = 0; k < 3; k++) origin_[k] = o[k];
   }
+  /** As shipped: float32 minus the output's origin where it's known (setOutputOrigin), float32 else. */
+  bool shippedAt(Vec2 uv, float out[3]) const override {
+    // (A boundary point ships as its own point, setBoundaryPoints.)
+    Vec3 x;
+    auto it = boundary_.empty() ? boundary_.end() : boundary_.find({bits(uv.x), bits(uv.y)});
+    if (it != boundary_.end()) x = it->second;
+    else if (!corner(uv, x)) return false;
+    const double o[3] = {shipped_ ? origin_[0] : 0, shipped_ ? origin_[1] : 0, shipped_ ? origin_[2] : 0};
+    out[0] = static_cast<float>(x.x - o[0]), out[1] = static_cast<float>(x.y - o[1]);
+    out[2] = static_cast<float>(x.z - o[2]);
+    return true;
+  }
   /** The facet's normal (unnormalized) of corners p, as shipped where the output's origin is known. */
   Vec3 facet(const Vec3 p[3]) const {
     if (!shipped_) return cross(p[1] - p[0], p[2] - p[0]);
@@ -1084,6 +1112,11 @@ private:
     if (d_.stretchCap > 0) {
       if (h1 > d_.stretchCap * h2) h1 = d_.stretchCap * h2;
       else if (h2 > d_.stretchCap * h1) h2 = d_.stretchCap * h1;
+    }
+    // (Deflections::maxEdge: over sqrt 2, the longest edge the mesher accepts in its metric.)
+    if (d_.maxEdge > 0) {
+      const double cap = d_.maxEdge / std::sqrt(2.0);
+      h1 = std::min(h1, cap), h2 = std::min(h2, cap);
     }
     double s1 = length2({E, F, G}, x1.x, x1.y);
     if (!(s1 > 0) || r <= 1e-12 * (std::fabs(H) + 1e-300) || !std::isfinite(s1)) {

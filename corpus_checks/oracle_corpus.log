@@ -1,6 +1,6 @@
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 4.9; speed 5694 on 1 thread, 68233 on 18
-host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 4.9; speed 5653 on 1 thread, 69408 on 18
-517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 568.9 s, today's 60.8 s
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 19.9; speed 4334 on 1 thread, 42050 on 18
+host: Apple M5 Max, 18 cores (6 performance, 12 efficiency), 18 threads, 64 GiB; Darwin 27.2.0 arm64; Node 26.13.1; lowpowermode 0, on AC; load 19.9; speed 4672 on 1 thread, 40716 on 18
+517 files (0 over the size limit), 3258 parts, 86142 faces; the oracle 650.0 s, today's 74.3 s
 
 Coverage (every face of every part), by surface kind:
    26851  plane       trusted
@@ -359,8 +359,8 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #581: 288.46015346433626 vs 288.4601534515578
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #862: 376.991160158875 vs 376.99116014116936
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #908: 376.991160158875 vs 376.9911601411697
-   53999  both trust, areas agree
-    8444  today's trusts, ours doesn't (ok)
+   54106  both trust, areas agree
+    8442  today's trusts, ours doesn't (ok)
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #655
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #701
             gkv311-opencascade-dataset/step/trj2_io1-ct-203.stp #1242 face #723
@@ -381,7 +381,7 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/trj4_s1-ac-214.stp #1795 face #1588
             gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #4775
             gkv311-opencascade-dataset/step/trj10_b2-oc-214.stp #10 face #7908
-     263  both trust, areas DISAGREE within the tolerance strip, OCCT nearer ours
+     186  both trust, areas DISAGREE within the tolerance strip, OCCT nearer ours
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #627: 3.4081233291986623 vs 3.4081240601069545 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.4081233292036464)
             gkv311-opencascade-dataset/step/trj7_k1-ct-214.stp #1926 face #803: 3.408123329198663 vs 3.4081240601069536 (+/- 7.3e-7, vertex gap 5.0e-12, OCCT 3.408123329198663)
             gkv311-opencascade-dataset/step/trj8_k1-pe-203.stp #2173 face #1794: 3.408123329169893 vs 3.408124060078108 (+/- 7.3e-7, vertex gap 2.3e-13, OCCT 3.408123329169891)
@@ -395,13 +395,6 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11604
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11694
             gkv311-opencascade-dataset/step/bug24383_224013.stp #11 face #11784
-      36  both trust, areas DISAGREE within the tolerance strip, OCCT nearer today's
-            gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300: 140.30076690213005 vs 140.30071332396915 (+/- 1.2e-10, vertex gap 2.1e-9, OCCT 140.2176748516884)
-            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #375337 face #468490: 26800.253636576534 vs 26800.253868961136 (+/- 0.000073, vertex gap 9.5e-13, OCCT 26800.254001750887)
-            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36830: 842.488506353466 vs 842.4885101056202 (+/- 0.0000027, vertex gap 1.6e-11, OCCT 842.5647187522707)
-            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #4521: 0.6380108378161606 vs 0.6380123288329074 (+/- 2.7e-13, vertex gap 2.2e-13, OCCT 0.6380118318234647)
-            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #12576: 0.6380108378189266 vs 0.6380123288329166 (+/- 1.5e-13, vertex gap 1.8e-13, OCCT 0.6380118318234645)
-            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #21877: 0.6380108378164733 vs 0.638012328832902 (+/- 4.7e-14, vertex gap 1.4e-13, OCCT 0.6380118318234722)
       21  today's trusts, ours doesn't (an edge's vertices against its curve's sense)
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #394
             gkv311-opencascade-dataset/step/OCC8229.stp #5 face #644
@@ -417,12 +410,19 @@ Against today's area oracle (area-oracle.ts):
             gkv311-opencascade-dataset/step/pr1sy.stp #293 face #206
             gkv311-opencascade-dataset/step/trj6_pm4-ec-203.stp #1499 face #1489
        7  both trust, areas DISAGREE, OCCT nearer ours
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14375 face #19809: 132.27913567648315 vs 132.27921135517167 (+/- 4.1e-10, vertex gap 4.4e-9, OCCT 132.27913566963326)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11555 face #18681: 198.81683433371288 vs 198.8173616456818 (+/- 2.1e-12, vertex gap 4.1e-10, OCCT 198.81683433377643)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11305 face #18581: 147.15360462148513 vs 147.15370833814734 (+/- 2.3e-10, vertex gap 4.7e-10, OCCT 147.15360283461376)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10975 face #18449: 118.6042995510376 vs 118.60406796962529 (+/- 4.8e-12, vertex gap 9.0e-10, OCCT 118.60429955126091)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10930 face #18431: 132.27913525617637 vs 132.27921093447762 (+/- 6.0e-10, vertex gap 4.1e-10, OCCT 132.2791352476885)
-            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10775 face #18369: 147.15360462126046 vs 147.15370833787145 (+/- 1.4e-10, vertex gap 4.7e-10, OCCT 147.15360283479038)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #14375 face #19809: 132.27913567648315 vs 132.27921135534658 (+/- 5.7e-11, vertex gap 4.4e-9, OCCT 132.27913566963326)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11555 face #18681: 198.81683433371288 vs 198.81736164631536 (+/- 1.5e-11, vertex gap 4.1e-10, OCCT 198.81683433377643)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #11305 face #18581: 147.15360462148513 vs 147.15370833865174 (+/- 1.4e-10, vertex gap 4.7e-10, OCCT 147.15360283461376)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10975 face #18449: 118.6042995510376 vs 118.6040679866516 (+/- 2.7e-11, vertex gap 9.0e-10, OCCT 118.60429955126091)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10930 face #18431: 132.27913525617637 vs 132.2792109348029 (+/- 4.1e-10, vertex gap 4.1e-10, OCCT 132.2791352476885)
+            gkv311-opencascade-dataset/step/bug26451_Test_STEP.stp #10775 face #18369: 147.15360462126046 vs 147.15370833854988 (+/- 6.1e-12, vertex gap 4.7e-10, OCCT 147.15360283479038)
+       6  both trust, areas DISAGREE within the tolerance strip, OCCT nearer today's
+            gkv311-opencascade-dataset/step/bug30014.stp #41105 face #107300: 140.30076690213005 vs 140.30071332396915 (+/- 1.2e-10, vertex gap 2.1e-9, OCCT 140.2176748516884)
+            gkv311-opencascade-dataset/step/bug29979_firetherm_12.step #375337 face #468490: 26800.253636576534 vs 26800.253868961136 (+/- 0.000073, vertex gap 9.5e-13, OCCT 26800.254001750887)
+            gkv311-opencascade-dataset/step/OCC8228.stp #10 face #36830: 842.488506353466 vs 842.4885101056202 (+/- 0.0000027, vertex gap 1.6e-11, OCCT 842.5647187522707)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #4521: 0.6380108378161606 vs 0.63801232882623 (+/- 7.7e-15, vertex gap 2.2e-13, OCCT 0.6380118318234647)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #12576: 0.6380108378189266 vs 0.6380123288261524 (+/- 1.4e-13, vertex gap 1.8e-13, OCCT 0.6380118318234645)
+            gkv311-opencascade-dataset/step/bug23202_Leuchte.stp #29007 face #21877: 0.6380108378164733 vs 0.6380123288261705 (+/- 1.5e-13, vertex gap 1.4e-13, OCCT 0.6380118318234722)
        6  today's trusts, ours doesn't (noConvergence)
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1481
             gkv311-opencascade-dataset/step/trj3_s1-md-214.stp #1406 face #1533
@@ -750,4 +750,4 @@ Free-form faces against OCCT's and SMLib's measures, past 1e-4 by OCCT's mesh:
        1  trusted: no referee (neither measured it)
             gkv311-opencascade-dataset/step/trj3_s1-al-214.stp #6704 face #1295
   trusted, the nearer measure's relative difference: <= 1e-12: 724, <= 1e-9: 125, <= 1e-6: 1630, <= 1e-4: 87, <= 1e-2: 0, <= 1e-1: 0, <= inf: 0
-  the free-form faces' oracle time 504.7 s, the slowest 88684 ms (gkv311-opencascade-dataset/step/bug26889_export.step #33 face #1854); SMLib failed on 2 parts
+  the free-form faces' oracle time 575.8 s, the slowest 93525 ms (gkv311-opencascade-dataset/step/bug26889_export.step #33 face #1854); SMLib failed on 2 parts

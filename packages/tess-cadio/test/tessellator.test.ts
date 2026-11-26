@@ -475,6 +475,34 @@ test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by defau
   assert.equal(await own(0), none);
 });
 
+test('init({maxEdge}): no triangle edge longer than that fraction of the part\'s size (partSize); none by default',
+  { skip },
+  async () => {
+  // (longPlate: 100 by 4, its size the diagonal.)
+  const data = new Uint8Array(TESS_MODELS.longPlate().finish().buffer), size = Math.hypot(100, 4);
+  const longest = async (maxEdge?: number) => {
+    const t = new CadioTessellator();
+    await t.init(maxEdge === undefined ? {} : { maxEdge });
+    const r = await t.tessellate({ format: 'cad-brep', data, linearDeflection: 0.1, angularDeflection: 0.26 });
+    assert.equal(r.faces.filter((f) => f.count === 0).length, 0);
+    let l = 0;
+    const p = r.positions, ix = r.indices;
+    for (let k = 0; k < ix.length; k += 3)
+      for (let j = 0; j < 3; j++) {
+        const a = 3 * ix[k + j]!, b = 3 * ix[k + (j + 1) % 3]!;
+        l = Math.max(l, Math.hypot(p[a]! - p[b]!, p[a + 1]! - p[b + 1]!, p[a + 2]! - p[b + 2]!));
+      }
+    return l;
+  };
+  const t = new CadioTessellator();
+  await t.init();
+  assert.ok(Math.abs(t.partSize(data) - size) <= 1e-9 * size, String(t.partSize(data)));
+  assert.throws(() => t.partSize(new Uint8Array(16)), /not a cad-brep model/);
+  const limit = 0.03 * size, capped = await longest(0.03);
+  assert.ok(capped <= limit * (1 + 1e-6) && capped > 0.5 * limit, `${capped} against ${limit}`);
+  for (const off of [undefined, 0]) assert.ok(await longest(off) > 4 * limit);
+});
+
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +
   'not at 0.05', { skip }, async () => {
   // (At 0.35 rad: at the 10-degree default bentApex at 0.05 asks a ring segment split once too.)

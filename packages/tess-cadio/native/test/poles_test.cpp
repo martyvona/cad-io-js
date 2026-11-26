@@ -65,7 +65,7 @@ struct Setup {
     em = std::make_unique<EdgeMesh>(m, eo, spacing);
     for (int f = 0; f < nf; f++)
       if (surfaces[f] && criteria[f])
-        rings[f] = facePoles(m, f, *surfaces[f], em->face(f), *em, *criteria[f], tols.face(f), d, angle);
+        rings[f] = facePoles(m, f, *surfaces[f], em->face(f), *em, *criteria[f], tols.face(f), d, angle, 0);
   }
   static cadgeom::Model load(const char* name) {
     if (const tessfixtures::Model* t = tessfixtures::model(name)) return cadgeom::Model(t->data, t->size);
@@ -81,7 +81,7 @@ struct Setup {
   /** Whether every fan triangle of face f's ring at offset r passes the criteria, checked here. */
   bool fansPass(int f, const PoleRing& ring, double r) const {
     for (auto run : ring.runs) {
-      const int pieces = ringPieces(*surfaces[f], ring, run, r, d, angle);
+      const int pieces = ringPieces(*surfaces[f], ring, run, r, d, angle, 0);
       for (int j = 0; j < pieces; j++) {
         const double qa = run.first + (run.second - run.first) * j / pieces;
         const double qb = run.first + (run.second - run.first) * (j + 1) / pieces;
@@ -220,7 +220,7 @@ TEST_CASE("a ring's pieces: each chord within the deflection of the ring, each t
   for (double angle : {0.0, 0.05}) {
     const auto run = c.runs[0];
     for (double d : {0.1, 1e-3}) {
-      const int pieces = ringPieces(*cap.surfaces[0], c, run, c.radius, d, angle);
+      const int pieces = ringPieces(*cap.surfaces[0], c, run, c.radius, d, angle, 0);
       double worst = 0, turn = 0;
       for (int j = 0; j < pieces; j++) {
         auto q = [&](double f) { return run.first + (run.second - run.first) * (j + f) / pieces; };
