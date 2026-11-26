@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cube } from '../../cad-brep/test/models.ts';
+import { BrepBuilder } from 'cad-brep';
 import { quads } from './meshes.ts';
 import { FallbackTessellator, oracleMeasures, tessellateScene, type Scene, type TessellationRequest,
   type TessellationResult, type Tessellator } from '../src/index.ts';
@@ -105,9 +106,44 @@ test('fallback: curves and points the primary left out taken from the fallback, 
   const r = await t.tessellate(request());
   assert.equal(f.calls(), 1);
   assert.deepEqual(missingWires(model, r), { curves: [], points: [] });
-  assert.equal(r.diagnostics[0]!.severity, 'warning');
-  assert.equal(r.diagnostics[0]!.message, '1 wireframe curve (#901) and 1 point (#902) meshed by the fallback backend '
-    + '(f), which a\'s result left out');
+  assert.deepEqual(r.diagnostics.map((d) => [d.severity, d.message]), [
+    ['warning', 'wireframe curve #901 meshed by the fallback backend (f), which a\'s result left out'],
+    ['warning', 'point #902 meshed by the fallback backend (f), which a\'s result left out']]);
+  // A model of wires alone, all of them the fallback's: one warning, for the part.
+  const w = new BrepBuilder({ uncertainty: 1e-6 });
+  w.addItem({ kind: 'curve', ref: w.addCurve({ kind: 'line', point: [2, 0, 0], direction: [0, 0, 1], magnitude: 1 }),
+    id: 901 });
+  w.addItem({ kind: 'point', point: [3, 0, 0], id: 902 });
+  const wires = w.finish(), bare = (): TessellationResult => ({ origin: [0, 0, 0], positions: new Float32Array(),
+    indices: new Uint32Array(), faces: [], diagnostics: [] });
+  const wireResult = (): TessellationResult => ({ ...result([901], [902]), positions: new Float32Array(),
+    indices: new Uint32Array(), faces: [], measures: [], oracle: [] });
+  const wr = await new FallbackTessellator(fake('a', bare), fake('f', wireResult))
+    .tessellate({ ...request(), data: new Uint8Array(wires.buffer) });
+  assert.deepEqual(missingWires(wires, wr), { curves: [], points: [] });
+  assert.deepEqual(wr.diagnostics.map((d) => [d.severity, d.message]), [['warning', 'meshed by the fallback '
+    + 'backend (f), 1 wireframe curve (#901) and 1 point (#902) left out of a\'s result']]);
+  // The primary with one of them: the other said alone.
+  const one = await new FallbackTessellator(fake('a', () => ({ ...wireResult(), ...result([901]), positions:
+    new Float32Array(), indices: new Uint32Array(), faces: [], measures: [], oracle: [], points: undefined,
+    pointIds: undefined })), fake('f', wireResult))
+    .tessellate({ ...request(), data: new Uint8Array(wires.buffer) });
+  assert.deepEqual(one.diagnostics.map((d) => d.message), ['point #902 meshed by the fallback backend (f), which '
+    + 'a\'s result left out']);
+  const curveOnly = await new FallbackTessellator(fake('a', () => ({ ...wireResult(), curves: undefined,
+    curvePositions: undefined })), fake('f', wireResult))
+    .tessellate({ ...request(), data: new Uint8Array(wires.buffer) });
+  assert.deepEqual(curveOnly.diagnostics.map((d) => d.message), ['wireframe curve #901 meshed by the fallback backend '
+    + '(f), which a\'s result left out']);
+  // A model of nothing: nothing said.
+  const empty = new BrepBuilder({ uncertainty: 1e-6 }).finish();
+  const nothing = await new FallbackTessellator(fake('a', bare), fake('f', bare))
+    .tessellate({ ...request(), data: new Uint8Array(empty.buffer) });
+  assert.deepEqual(nothing.diagnostics, []);
+  // The primary with both: nothing said.
+  const neither = await new FallbackTessellator(fake('a', wireResult), fake('f', wireResult))
+    .tessellate({ ...request(), data: new Uint8Array(wires.buffer) });
+  assert.deepEqual(neither.diagnostics, []);
   // The primary failing a face: the fallback's result for the faces reused for the wires, not asked again.
   const a2 = fake('a', () => ({ ...result(), faces: result().faces.map((x) => x.entityId === 23 ? { ...x, count: 0 }
     : x) })), f2 = fake('f', () => result([901], [902]));

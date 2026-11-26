@@ -257,9 +257,21 @@ test('per face: a face the primary leaves out is the fallback\'s alone, the rest
   await t.init();
   const r = await t.tessellate(request());
   assert.equal(r.backend, 'a 1, with 1 face by b 1');
-  assert.deepEqual(r.diagnostics, [{ severity: 'warning', message: '1 face meshed by the fallback backend (b), since '
-    + 'a\'s mesh had problems: 1 face without triangles: #23' }, { severity: 'info', message: 'a meshed' }]);
+  assert.deepEqual(r.diagnostics, [{ severity: 'warning', message: 'face #23 meshed by the fallback backend (b), '
+    + 'since a\'s mesh had problems: 1 face without triangles' }, { severity: 'info', message: 'a meshed' }]);
   assert.ok(judgeResult(r, model, 0.01).ok);
+  // Two faces: a warning each, naming it.
+  const two = await new FallbackTessellator(fake('a', () => withoutFace(withoutFace(sound(), 23), 25)),
+    fake('b', sound)).tessellate(request());
+  assert.equal(two.backend, 'a 1, with 2 faces by b 1');
+  assert.deepEqual(two.diagnostics.filter((d) => d.severity === 'warning').map((d) => d.message), [23, 25].map((x) =>
+    `face #${x} meshed by the fallback backend (b), since a's mesh had problems: 2 faces without triangles`));
+  // Every face the fallback's (the model has no curves or points): one warning, for the part.
+  let none = sound();
+  for (const x of [21, 22, 23, 24, 25, 26]) none = withoutFace(none, x);
+  const all = await new FallbackTessellator(fake('a', () => none), fake('b', sound)).tessellate(request());
+  assert.deepEqual(all.diagnostics.filter((d) => d.severity === 'warning').map((d) => d.message),
+    ['meshed by the fallback backend (b), since a\'s mesh had problems: 6 faces without triangles']);
   // Face 23's triangles the fallback's (its vertices after the primary's), the others the primary's.
   const n = sound().positions.length / 3;
   for (const f of r.faces) {
@@ -404,14 +416,14 @@ test('per face: a face the primary kept past its limits the fallback\'s where ma
     const none = (await run(sound)).r;
     assert.equal(none.backend, 'a 1, with 1 face by b 1');
     assert.match(none.diagnostics[0]!.message,
-      /: #23 \(their deviation not judged, no deviation judge set: by area alone\)$/);
+      /^face #23 meshed by .* \(their deviation not judged, no deviation judge set: by area alone\)$/);
     assert.equal(none.defects, undefined);
     // The judge puts the fallback's face within d: taken, nothing more said.
     const seen: number[] = [];
     setDeviationJudge({ name: 'test', worst: (_m, _r, face) => { seen.push(face); return 0.5 * D; } });
     const near = (await run(sound)).r;
     assert.equal(near.backend, 'a 1, with 1 face by b 1');
-    assert.match(near.diagnostics[0]!.message, /: #23$/);
+    assert.match(near.diagnostics[0]!.message, /^face #23 meshed by the fallback backend \(b\), since .*limits$/);
     assert.deepEqual(seen, [23]);
     // Past d: the primary's kept, its defect said in `defects`; not the fallback's whole mesh either (a tie).
     setDeviationJudge({ name: 'test', worst: () => 2 * D });
@@ -423,7 +435,7 @@ test('per face: a face the primary kept past its limits the fallback\'s where ma
     setDeviationJudge({ name: 'test', worst: (_m, _r, face) => { seen.push(face); return 2 * D; } });
     const trusted = (await run(sound, true, false)).r;
     assert.equal(trusted.backend, 'a 1, with 1 face by b 1');
-    assert.match(trusted.diagnostics[0]!.message, /: #23$/);
+    assert.match(trusted.diagnostics[0]!.message, /^face #23 meshed by the fallback backend \(b\), since .*limits$/);
     assert.deepEqual(seen, []);
     // Within d but not matched: the fallback's face 23 lifted 0.05 off its plane whole (its area the same), so no
     // join closes its edges: put back; the fallback's whole mesh, open there, worse than a manifold defect.
@@ -442,7 +454,7 @@ test('per face: a face the primary kept past its limits the fallback\'s where ma
     await both.init();
     const mix = await both.tessellate(request());
     assert.equal(mix.backend, 'a 1, with 1 face by b 1');
-    assert.match(mix.diagnostics[0]!.message, /: #22$/);
+    assert.match(mix.diagnostics[0]!.message, /^face #22 meshed by the fallback backend/);
     assert.deepEqual(mix.defects?.map((x) => x.entityId), [23]);
     // Kept within its limits: the primary's alone, the fallback not asked.
     const within = await run(sound, false);
