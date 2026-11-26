@@ -285,6 +285,14 @@ struct PartMesher::Impl {
   }
 
   /**
+   * The longest edge a pole's ring and fans are held to (facePoles' and ringPieces' maxEdge): maxEdge less the
+   * refinement floor (at most half of it), since EdgeMesh::cutRings may take a crossing to an edge's sample within
+   * the floor of it, past the ring, and the edge's span from the pole and the fan's end chords run to that sample.
+   * 0 (off) where maxEdge is.
+   */
+  double poleMaxEdge() const { return o.d.maxEdge > 0 ? o.d.maxEdge - std::min(floor, 0.5 * o.d.maxEdge) : 0; }
+
+  /**
    * The span of one of face f's edges that boundary points a and b bound (adjacent samples, found by their points: a
    * one-span edge between two vertices has neither end labelled with it, a junction's point carrying the edge before
    * it), and whether a to b runs up its samples; false if none (a pole line's segment).
@@ -497,7 +505,7 @@ struct PartMesher::Impl {
         fan.smooth = R.smooth;
         const bool farA = std::fabs(da) > 1.5 * r, farB = std::fabs(db) > 1.5 * r;
         const double lo = farA ? q0 : freeOf(a.uv, S.isoU), hi = farB ? q1 : freeOf(b.uv, S.isoU);
-        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular, o.d.maxEdge);
+        const int pieces = ringPieces(s, R, {lo, hi}, r, o.d.linear, o.d.angular, poleMaxEdge());
         std::vector<double> qs;
         double piece = (hi - lo) / pieces;
         if (farA) qs.push_back(q0);
@@ -2270,7 +2278,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       FaceBoundary fb = I.em->face(f);
       if (fb.status != Status::ok) continue;
       I.rings[f] = facePoles(m, f, *I.surfaces[f], fb, *I.em, *I.criteria[f], tols.face(f), I.o.d.linear,
-        I.o.d.angular, I.o.d.maxEdge);
+        I.o.d.angular, I.poleMaxEdge());
     }
     shareRings(sp, I.rings, tols.part());
     std::vector<RingCut> cuts;

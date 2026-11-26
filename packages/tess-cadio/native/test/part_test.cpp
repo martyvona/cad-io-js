@@ -4025,3 +4025,47 @@ TEST_CASE("maxEdge: a pole's fan no longer than it, its spokes (the ring's reach
       CHECK(l > 0.5 * limit);
     }
 }
+
+TEST_CASE("maxEdge: a pole's edges held to it where a ring's crossing is taken to an edge's sample past the ring") {
+  // A sphere's cap and a whole sphere, each with an edge through its pole: over a sweep of limits from the deflection
+  // (below it the ring's floor rules) some ring crosses an edge just short of one of its samples, which cutRings
+  // takes for the crossing (within the refinement floor), past the ring; the edge's span from the pole and the fans'
+  // triangles there still within the limit.
+  for (const char* name : {"cap", "wholeSphereVertex"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    cadgeom::Status st;
+    const std::unique_ptr<cadgeom::Surface> s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+    REQUIRE(s);
+    std::vector<cadgeom::Singularity> sing;
+    s->singularities(sing);
+    auto pole = [&](Vec3 x) {
+      for (const cadgeom::Singularity& g : sing)
+        if (g.kind != cadgeom::Singularity::normalVanishes && norm(x - g.point) < 1e-9) return true;
+      return false;
+    };
+    int past = 0, meshed = 0;
+    for (double limit = 0.1001; limit <= 0.6; limit *= 1.01) {
+      PartOptions o = options(0.1, 0.26);
+      o.d.maxEdge = limit;
+      PartMesher pm(m, o);
+      const FaceMesh& fm = pm.face(0);
+      if (fm.status != cadgeom::Status::ok) continue;
+      meshed++;
+      double l = 0;
+      for (size_t i = 0; i + 2 < fm.triangles.size(); i += 3) {
+        bool at = false;
+        for (int k = 0; k < 3; k++) at = at || pole(fm.points[fm.triangles[i + k]]);
+        if (at)
+          for (int k = 0; k < 3; k++)
+            l = std::max(l, norm(fm.points[fm.triangles[i + (k + 1) % 3]] - fm.points[fm.triangles[i + k]]));
+      }
+      if (!(l <= limit * (1 + 1e-9))) {
+        past++;
+        std::printf("  %s at a limit of %.6g: an edge at the pole %.6g\n", name, limit, l);
+      }
+    }
+    CHECK(meshed == 180);
+    CHECK(past == 0);
+  }
+}
