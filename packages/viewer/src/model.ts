@@ -208,6 +208,10 @@ export class NodeModel {
   private readonly byObject = new Map<THREE.Object3D, number>();
   private readonly looks?: Looks;
   private detail = false;
+  /** The scene's parts still to be meshed, and a count of their changes (set by the viewer: Viewer.pending). */
+  loadingParts?: () => { parts: ReadonlySet<number>; version: number };
+  /** The nodes `loading` says are, for one version of the parts. */
+  private loadingNodes?: { version: number; ids: Set<number> };
 
   constructor(root: THREE.Object3D, looks?: Looks) {
     this.looks = looks;
@@ -440,6 +444,26 @@ export class NodeModel {
       if (id !== undefined) return id;
     }
     return undefined;
+  }
+
+  /**
+   * Whether a node is still loading: a part whose mesh is still to come (a load's or Mesh again's), or a node holding
+   * one (its assemblies). A part's faces, edges and vertices aren't: a backend meshes the part whole.
+   */
+  loading(id: number): boolean {
+    const l = this.loadingParts?.();
+    if (!l?.parts.size) return false;
+    if (this.loadingNodes?.version !== l.version) {
+      const ids = new Set<number>();
+      for (const n of this.nodes) {
+        if (n.kind !== 'part' || n.object?.userData.cad !== 'part' || !l.parts.has(n.object.userData.part as number)) {
+          continue;
+        }
+        for (let k = n.id; k >= 0 && !ids.has(k); k = this.nodes[k]!.parent) ids.add(k);
+      }
+      this.loadingNodes = { version: l.version, ids };
+    }
+    return this.loadingNodes.ids.has(id);
   }
 
   /**

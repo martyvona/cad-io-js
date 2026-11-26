@@ -426,6 +426,68 @@ for (const extra of process.env.EXTRA?.split(',') ?? []) {
     return undefined;
   });
 }
+// The tree's spinners: while the bicycle loads (without the cache), and while it's meshed again, a part's row has
+// one (its `loading` class, its tooltip saying still meshing) exactly while its part is still to be meshed (judged
+// apart from the viewer's own record: its mesh not yet in the scene graph, or for Mesh again not yet replaced), and
+// an assembly's while it holds such a part (compared once the rows have caught up: two frames with no part done);
+// none once it's done.
+await check('tree spinners', async () => {
+  const r = await page('?check', `(async () => {
+    const v = globalThis.viewer;
+    v.settings.cache = false;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const watch = async (run, again) => {
+      const out = { compared: 0, busy: 0, wrong: [], titled: 0 };
+      let done = false;
+      // (Each part's mesh as Mesh again starts: replaced once it's meshed again.)
+      const before = again ? new Map([...v.graph.meshed].map(([i, m]) => [i, m.mesh])) : undefined;
+      const waiting = (i) => before ? v.graph?.meshed.get(i)?.mesh === before.get(i) : !v.graph?.meshed.has(i);
+      const p = run().then(() => { done = true; });
+      while (!done) {
+        const at = v.pendingVersion;
+        await frame();
+        await frame();
+        const panel = ui.panel();
+        if (done || !panel || v.pendingVersion !== at) continue;
+        panel.expandAll?.();
+        const m = panel.model;
+        out.compared++;
+        if ([...m.nodes].some((x) => x.kind === 'part' && x.object?.userData.cad === 'part'
+          && waiting(x.object.userData.part))) out.busy++;
+        for (const row of document.querySelectorAll('.tree-row')) {
+          if (row.style.display === 'none' || row.dataset.id === undefined) continue;
+          const n = m.nodes[+row.dataset.id];
+          let want = false;
+          const isPart = (x) => x.kind === 'part' && x.object?.userData.cad === 'part';
+          const holds = (k) => { const x = m.nodes[k]; return isPart(x) ? waiting(x.object.userData.part)
+            : (x.children ?? []).some(holds); };
+          if (n.kind === 'part' || n.kind === 'assembly') want = holds(n.id);
+          const has = row.classList.contains('loading');
+          if (has !== want) out.wrong.push([n.kind, n.name, has, want]);
+          if (has && row.title.endsWith('(still meshing)')) out.titled++;
+        }
+      }
+      await p;
+      await cadViewer.idle();
+      await frame();
+      out.after = document.querySelectorAll('.tree-row.loading').length;
+      return out;
+    };
+    const load = await watch(() => ui.openUrl('/content/bicycle.stp'));
+    const again = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh again');
+    const remesh = await watch(() => again.getValue().call(again.object), true);
+    return { load, remesh };
+  })()`) as { after: Record<string, { compared: number; busy: number; wrong: unknown[]; titled: number;
+    after: number }> };
+  const j = JSON.stringify(r.after);
+  for (const k of ['load', 'remesh']) {
+    const a = r.after[k]!;
+    expect(a.busy >= 3 && a.wrong.length === 0 && a.titled > 0, `${k}: spinners on the parts still to mesh and `
+      + `what holds them, only: ${j}`);
+    expect(a.after === 0, `${k}: none once done: ${j}`);
+  }
+  return undefined;
+});
 // Replacing a model while it's meshing: the bicycle's meshing is cancelled once it has begun (its load ends at
 // once: the workers are stopped), the GLB shown alone, and STEP meshes again after (a new pool), from the cache (the
 // assembly was meshed above); and with truck, then SMLib, when that's the backend chosen.

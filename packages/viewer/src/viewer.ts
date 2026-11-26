@@ -228,6 +228,12 @@ export class Viewer {
   /** Counts loads, so a superseded one's late results are dropped. */
   private generation = 0;
   private meshing = false;
+  /**
+   * The scene's parts (by index) a load or Mesh again is still to mesh, and a count of its changes (the tree's
+   * spinners: NodeModel.loading); none once it ends.
+   */
+  private readonly pending = new Set<number>();
+  private pendingVersion = 0;
   /** The load whose scene is shown whole (every part added): what Mesh again meshes in place. */
   private shown = 0;
   /** Whether a model is loading or being meshed (Export waits for it). */
@@ -995,6 +1001,7 @@ export class Viewer {
     this.hovered = '';
     this.root = root;
     this.nodes = new NodeModel(root, looks);
+    this.nodes.loadingParts = () => ({ parts: this.pending, version: this.pendingVersion });
     this.triangleEdgesOverridden = false;
     this.display.add(root);
     this.model = model;
@@ -1310,6 +1317,8 @@ export class Viewer {
             stretched: describeStretched(scene),
             parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
+          // (Not told: the tree is new, drawn after, and nothing meshed has changed.)
+          this.setPending(brep, false);
           this.show(graph.root, model, graph, keep);
           this.graph = graph;
           this.display.updateWorldMatrix(true, false);
@@ -1356,6 +1365,7 @@ export class Viewer {
             added(ev.part, mesh);
           }
           if (!drawn) model!.parts!.failed++;
+          this.partDone(ev.part);
           progress();
         } else if (ev.type === 'edges') {
           // Edges found for a level from the file (model-load.ts), after it was shown.
@@ -1371,7 +1381,10 @@ export class Viewer {
         this.redraw();
       }
     } finally {
-      if (gen === this.generation) this.meshing = false;
+      if (gen === this.generation) {
+        this.meshing = false;
+        this.setPending([]);
+      }
     }
     if (gen !== this.generation || !model) return;
     this.updateBounds();
@@ -1415,6 +1428,7 @@ export class Viewer {
     const wanted = wantedOf(this.settings);
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
+    this.setPending(brep);
     model.diagnostics = [...graph.scene.diagnostics];
     delete model.meshing;
     this.moved = true;
@@ -1459,6 +1473,7 @@ export class Viewer {
               this.partChanged(graph, ev.part);
             }
           }
+          this.partDone(ev.part);
           status();
         } else if (ev.type === 'done') {
           ended = ev;
@@ -1468,12 +1483,31 @@ export class Viewer {
         this.redraw();
       }
     } finally {
-      if (gen === this.generation) this.meshing = false;
+      if (gen === this.generation) {
+        this.meshing = false;
+        this.setPending([]);
+      }
     }
     if (gen !== this.generation) return true;
     this.updateBounds();
     this.fit.end(ended?.bounds);
     return true;
+  }
+
+  /** The parts still to mesh are these (the tree told, by onMeshes, unless not `tell`). */
+  private setPending(parts: readonly number[], tell = true): void {
+    if (!parts.length && !this.pending.size) return;
+    this.pending.clear();
+    for (const p of parts) this.pending.add(p);
+    this.pendingVersion++;
+    if (tell) this.onMeshes?.();
+  }
+
+  /** A part's mesh came (or its failure), and has been handled. */
+  private partDone(part: number): void {
+    if (!this.pending.delete(part)) return;
+    this.pendingVersion++;
+    this.onMeshes?.();
   }
 
   /** A part's new mesh grows the clipping sphere and, unless it's the file's, the model's (centres kept). */

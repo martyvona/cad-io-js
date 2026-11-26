@@ -494,3 +494,39 @@ test("vertices: a part's B-rep vertices once the page holds its model, a node ea
   assert.deepEqual(graph.holdModel(0, held()), []);
   assert.equal(meshes[0]!.children.find((c) => c.name === 'vertices'), dots);
 });
+
+test('loading: a part still to be meshed (every placement of it) and what holds it; none once done, its detail never',
+  () => {
+  const { graph, model } = stepModel();
+  const [asm] = model.roots;
+  const [left, sub] = model.children(asm!);
+  const [plateNode, wireNode] = model.children(left!);
+  const index = (id: number) => model.nodes[id]!.object!.userData.part as number;
+  assert.equal(model.loading(asm!), false, 'no parts given: none');
+  const parts = new Set([index(plateNode!)]);
+  let version = 1;
+  model.loadingParts = () => ({ parts, version });
+  const all = model.nodes.filter((n) => model.loading(n.id)).map((n) => n.id);
+  // Every placement of the plate, and their assemblies up to the root; the wire not.
+  const plates = model.nodes.filter((n) => n.kind === 'part' && index(n.id) === index(plateNode!)).map((n) => n.id);
+  const expected = new Set<number>();
+  for (const p of plates) for (let k = p; k >= 0; k = model.nodes[k]!.parent) expected.add(k);
+  assert.deepEqual(new Set(all), expected);
+  assert.ok(plates.length > 1 && all.includes(asm!) && all.includes(left!) && !all.includes(wireNode!));
+  // A change seen by its version; the same version kept as it was; none left, none.
+  parts.clear();
+  parts.add(index(wireNode!));
+  assert.equal(model.loading(wireNode!), false);
+  version++;
+  assert.deepEqual([model.loading(wireNode!), model.loading(plateNode!)], [true, false]);
+  parts.clear();
+  assert.equal(model.loading(asm!), false);
+  // The part's detail, once it has a mesh: not loading, the part is.
+  graph.addMesh(index(plateNode!), plate());
+  model.setDetail(true);
+  parts.add(index(plateNode!));
+  version++;
+  const faces = model.children(plateNode!).flatMap((g) => [g, ...model.children(g)]);
+  assert.ok(faces.length > 0 && faces.every((f) => !model.loading(f)) && model.loading(plateNode!));
+  void sub;
+});

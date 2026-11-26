@@ -140,9 +140,12 @@ export class TreePanel {
         const row = content.parentElement!;
         row.classList.toggle('hidden', model.hiddenInTree(n.id));
         row.classList.toggle('failed', failure !== undefined);
+        // Still to be meshed, or holding a part that is: a spinner after the name (index.html).
+        const loading = model.loading(n.id);
+        row.classList.toggle('loading', loading);
         row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
           : failure === 'partly' ? ' (some faces failed to mesh)' : ''}${own ? ` (appearance overridden: ${
-          overrideText(own)})` : ''}`;
+          overrideText(own)})` : ''}${loading ? ' (still meshing)' : ''}`;
       },
       onSelectionChange: (ids) => {
         this.selection = ids.map(num);

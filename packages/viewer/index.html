@@ -145,6 +145,13 @@
     }
     @keyframes status-spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { #status.busy::before { animation-duration: 3s; } }
+    /* A tree row still meshing, or holding a part that is (tree-panel.ts): the same spinner, after the name. */
+    .tree-row.loading .tree-name::after {
+      content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 6px; vertical-align: -1px;
+      border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; opacity: 0.7;
+      animation: status-spin 0.8s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) { .tree-row.loading .tree-name::after { animation-duration: 3s; } }
     .tree-scroller:focus { outline: none; }
     .tree-row { cursor: default; user-select: none; -webkit-user-select: none; }
     .tree-row.selected { background: var(--row-selected); }
