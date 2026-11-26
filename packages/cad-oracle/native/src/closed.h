@@ -135,10 +135,11 @@ struct Elementary {
   }
 };
 
-/** An edge of a loop as it's run: its curve from ta to tb. */
+/** An edge of a loop as it's run: its curve from ta to tb, for the coedge `coedge` (a sphere's cut into several). */
 struct Run {
   const Curve* curve;
   double ta, tb;
+  int coedge = -1;
 };
 
 /** A face on an elementary surface, as the engine takes it: its surface and its edge loops as runs. */
@@ -175,11 +176,18 @@ struct ClosedTotals {
   uint32_t flags = 0;
   /** The largest distance of a loop's point from the surface, over the loops' size. */
   double offSurface = 0;
+  /** Per run, in the loops' order: its coedge and the largest distance of its sampled points from the surface. */
+  std::vector<std::pair<int, double>> runOff;
   /**
    * A torus's loop winds its u: each loop's v is unwrapped by itself, so such a loop may sit a turn of v off the
    * others, which moves the result by whole multiples of the whole torus's integral (callers reduce modulo it).
    */
   bool windsU = false;
+  /**
+   * A torus's loops, in order: the whole turns of v each winds, and u at its start (where its v is unwrapped from):
+   * a loop winding v takes the seam's term (seamTerm).
+   */
+  std::vector<double> loopWindV, loopStartU;
 };
 
 ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, double relTol);

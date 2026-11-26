@@ -43,6 +43,8 @@ constexpr int kGrid = 16;
  * kMaxPieces at most. */
 constexpr int kSplit = 2;
 constexpr size_t kMaxPieces = 64;
+/** How near a fixed segment a mesher point crowds it (SizeField::crowds), as a share of the refinement floor. */
+constexpr double kCrowdFloor = 0.1;
 
 Metric2 scaled(Metric2 m, double s) { return {m.a * s, m.b * s, m.c * s}; }
 double length2(Metric2 m, double x, double y) { return m.a * x * x + 2 * m.b * x * y + m.c * y * y; }
@@ -396,6 +398,31 @@ private:
   void setBoundaryPoints(const std::vector<std::pair<Vec2, Vec3>>& points) override {
     boundary_.clear();
     for (const auto& [uv, p] : points) boundary_[{bits(uv.x), bits(uv.y)}] = p;
+  }
+  /**
+   * Within kCrowdFloor x the floor of the segment's chord between its ends on the surface, along it from that far
+   * before a to that far past b; beside a frozen segment only where the needle of the three turns as shipped
+   * (turnedAsOutput), beside another never where it is a fold's sliver (foldSliver). (The whole floor, or a band as
+   * wide as the boundary's distance from its surface, refuses by the thousand thin triangles the criteria judge, and
+   * their segments split, refinement then runs on: trj6_pm4 #43110's faces to the round cap, a fold along an edge
+   * off its surface twice its triangles. A frozen segment's crowding points all refused leave a reversed triangle
+   * there unmended.)
+   */
+  bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override {
+    Vec3 A, B, Q;
+    if (!corner(a, A) || !corner(b, B) || !corner(q, Q)) return false;
+    const double band = kCrowdFloor * floor_;
+    const Vec3 e = B - A;
+    const double L = norm(e);
+    const double t = L > 0 ? dot(Q - A, e) / L : 0;
+    if (!(t >= -band && t <= L + band && norm(Q - A - (L > 0 ? t / L : 0) * e) <= band)) return false;
+    Vec2 tri[3] = {a, b, q};
+    if (cross(b - a, q - a) < 0) std::swap(tri[0], tri[1]);
+    Vec3 p[3], o[3];
+    if (!corners(tri, p)) return false;
+    if (!frozen) return !foldSliver(tri, p);
+    output(tri, p, o);
+    return turnedAsOutput(tri, p, o);
   }
   /**
    * A triangle's corners as the output has them: the boundary's own point at a corner on it, else p's; whether any

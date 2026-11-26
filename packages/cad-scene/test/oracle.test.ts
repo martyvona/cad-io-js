@@ -4,7 +4,7 @@ import { BrepBuilder } from 'cad-brep';
 import { box, cube } from '../../cad-brep/test/models.ts';
 import { quads } from './meshes.ts';
 import { areaMessage } from '../src/tessellate.ts';
-import { FallbackTessellator, ORACLE_DISAGREE, oracleAreas, oracleMeasures, tessellateScene, type Scene,
+import { FallbackTessellator, ORACLE_DISAGREE, ORACLE_REPLACE, oracleAreas, oracleMeasures, tessellateScene, type Scene,
   type TessellateOptions, type TessellationResult, type Tessellator } from '../src/index.ts';
 
 const model = cube().finish();
@@ -66,6 +66,27 @@ test('measures: the oracle\'s where the backend\'s are off by more than ORACLE_D
   assert.equal(kept.part.measures!.faces.get(22)!.area, 3);
   assert.equal(kept.part.measures!.by, 'fake 1');
   assert.deepEqual(kept.diagnostics.map((d) => d.message), [areaMessage([22])]);
+});
+
+test('measures: a sound backend measure gives way only to an oracle area whose error is within ORACLE_REPLACE of it',
+  async () => {
+  // Each face 1 by the oracle, the backend's 1.5 % over it: face 22's oracle area 0.5 % uncertain (judged, at
+  // cad-oracle's JUDGE_RELATIVE, but as far off as the backend's could be): the backend's kept; 23's 1e-4 and 25's at
+  // ORACLE_REPLACE itself: replaced; 24 unsound, its oracle area 0.5 % uncertain: the oracle's all the same.
+  assert.equal(ORACLE_REPLACE, 1e-3);
+  const error: Record<number, number> = { 22: 5e-3, 23: 1e-4, 24: 5e-3, 25: ORACLE_REPLACE, 26: 0 };
+  const oracle = FACES.map((entityId) => ({ entityId, area: 1, perimeter: 4, error: error[entityId] ?? 0 }));
+  const off = 1 + 1.5 * ORACLE_DISAGREE;
+  const { part, diagnostics } = await run(fake({ 22: off, 23: off, 24: [off, false], 25: off }, { oracle }));
+  const m = part.measures!;
+  assert.deepEqual([22, 23, 24, 25, 26].map((id) => m.faces.get(id)!.area), [off, 1, 1, 1, 1]);
+  assert.deepEqual(m.faces.get(22)!.oracle, { area: 1, error: 5e-3 });
+  assert.equal(m.by, 'fake 1, the area oracle\'s for 3 faces');
+  assert.equal(diagnostics.length, 1);
+  // Without an error estimate (an oracle trusting at its own level): replaced.
+  const bare = oracle.map(({ error: _, ...o }) => o);
+  const b = await run(fake({ 22: off }, { oracle: bare }));
+  assert.equal(b.part.measures!.faces.get(22)!.area, 1);
 });
 
 test('measures: a backend that measures nothing gets the oracle\'s, without a warning', async () => {

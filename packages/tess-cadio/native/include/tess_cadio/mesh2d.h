@@ -60,6 +60,17 @@ public:
     (void)tri, (void)at;
     return false;
   }
+  /**
+   * Whether a point at q would make a needle with the fixed segment from a to b: within a small band of it in 3D (a
+   * share of criteria.h's refinement floor), a needle the criteria accept below the floor and whose facet turns. Refinement
+   * treats such a q as encroaching the segment. `frozen`: the segment can't be split (Domain2::frozen), so the
+   * caller says yes only where the needle would turn as shipped, since refusing q there leaves the triangle as it
+   * is. None by default. A field wrapping another must pass it on.
+   */
+  virtual bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const {
+    (void)a, (void)b, (void)q, (void)frozen;
+    return false;
+  }
 };
 
 /**

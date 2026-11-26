@@ -2,6 +2,7 @@
 // curves and surfaces made once per row, and each edge's parameters. Not part of the contract (oracle.h).
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -32,6 +33,11 @@ struct Oracle::Impl {
   std::vector<bool> loose;
   /** Per coedge, its p-curve's deviation where healing made it (the analysis's), else NaN (measured when asked). */
   std::vector<double> healedDeviation;
+  /**
+   * Per coedge, the largest distance of its edge's curve from the face's surface among the samples a closed form took
+   * of it (NaN until one did): Oracle::Impl::boundary's deviation for closed forms.
+   */
+  std::vector<double> closedOff;
 
   /** The curve at a row, made once; null where it can't be (status in curveStatus). */
   const Curve* curve(int row);
@@ -106,5 +112,34 @@ private:
 
 /** Status codes the face API returns beyond result.h's Status, as one phrase (FaceMeasure::why). */
 const char* faceStatusWhy(int32_t code);
+
+/** Why a face whose loop winds a period the method has no term for is unsupported (FaceMeasure::why). */
+inline constexpr const char* kWindsWhy = "a loop winds a period the method has no term for";
+
+/** seamTerm's result: the area, in [0, whole), and the whole surfaces taken off to get it. */
+struct SeamResult {
+  double value = 0, turns = 0;
+};
+
+/**
+ * The area of a face on a surface closed in v (H(u, v + Pv) = H(u, v) - J(u), J the integral of F over a period of v,
+ * Phi(u) J's integral from a fixed u, `whole` the surface's area: Phi over a period of u), from `sum`: over its loops,
+ * each lifted (continuous in (u, v), so ending whole periods from where it starts), oint H du plus its seam term
+ * w Phi(u0), w the whole periods of v it winds and u0 its start's u. Why: cut the surface along a row of v; the face's
+ * area is its loops' oint H du with H taken from the cut's copy of the period (the lift's H plus k J, k the copies the
+ * loop crossed) plus the cut's stretches inside the face, J's integral along them (the face's top and bottom edges,
+ * cut open: H differs by J across). By parts, the k J du terms come to each loop's k Phi between its ends less Phi at
+ * its crossings, the stretches to Phi at their ends, which are the same crossings, known modulo Pu (so modulo
+ * `whole`); what's left, k Phi between the loop's ends, is w Phi(u0) modulo `whole` too. So `sum` is the area modulo
+ * the whole surface's, which a face's area lies within. Its sense decides which side the face is: against its sense,
+ * the complement comes out, unflagged (both sides of loops winding a period are faces).
+ */
+inline SeamResult seamTerm(double sum, double whole) {
+  SeamResult r;
+  r.turns = std::floor(sum / whole);
+  r.value = sum - r.turns * whole;
+  if (r.value >= whole) r.value -= whole, r.turns++;
+  return r;
+}
 
 } // namespace cadoracle

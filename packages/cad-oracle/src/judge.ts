@@ -6,10 +6,12 @@ import { analysisRowCount, openAnalysis, sha256WordsJs } from 'cad-brep';
 import { type FaceMeasure, flagsOf, METHOD, type OracleModule, Oracle, STATUS, trusted } from './index.ts';
 
 /**
- * The relative error a face's area must be within to judge a mesh by it: faceFailures' tolerances are percents, so
- * 1e-3 judges more faces than the corpus checks' 1e-6 without judging any wrongly.
+ * The relative error (the boundary's bound included) a face's area must be within to judge a mesh by it: a third of
+ * faceFailures' smallest tolerance (MISSING_FRACTION, 3 % short), so a mesh judged short is short of every area the
+ * bound allows by at least 2 %. Judging's own level, not the oracle's verdicts' (oracle_corpus's 1e-6), nor healing's
+ * (shells.ts's FACE_RELATIVE).
  */
-export const JUDGE_RELATIVE = 1e-3;
+export const JUDGE_RELATIVE = 1e-2;
 /**
  * The quadrature's relative tolerance for judging (OracleOptions.relTol): about a quarter less time than the default
  * 1e-10 over the corpus and the user's models, the areas within 2e-6 of its on every face both trust (2e-4 is the
@@ -28,7 +30,7 @@ export const JUDGE_PROJECT = false;
  * cache keyed on the version misses when they change: bumped (the number) whenever the module's areas or which faces
  * it trusts change for some model.
  */
-export const AREA_ORACLE_ID = `cad-oracle 2 (${JUDGE_RELATIVE}, relTol ${JUDGE_REL_TOL}${JUDGE_PROJECT ? ''
+export const AREA_ORACLE_ID = `cad-oracle 3 (${JUDGE_RELATIVE}, relTol ${JUDGE_REL_TOL}${JUDGE_PROJECT ? ''
   : ', no projections'})`;
 
 /** A face's area and perimeter (the model's units) and the area's error estimate, as cad-scene's FaceArea. */

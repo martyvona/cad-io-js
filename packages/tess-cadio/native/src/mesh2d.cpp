@@ -283,6 +283,13 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       bool clear;
       size_t cavity;
     };
+    // Whether q is near the segment from U to V in (u, v) at all, as a needle beside it is: within its own length of
+    // its line, along it to half that past either end (SizeField::crowds, dear, asked only then).
+    auto nearSegment = [](Vec2 U, Vec2 V, Vec2 q) {
+      const Vec2 e = sub(V, U), w = sub(q, U);
+      const double ee = e.x * e.x + e.y * e.y, t = w.x * e.x + w.y * e.y, c = w.x * e.y - w.y * e.x;
+      return t >= -0.5 * ee && t <= 1.5 * ee && c * c <= ee * ee;
+    };
     auto acceptable = [&](Vec2 q, int32_t& at, bool record) -> Verdict {
       at = T.locate(q, it.t);
       const cdt::Tri& W = T.tris()[at];
@@ -295,10 +302,14 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       const size_t cavity = T.cavityConstraints(q, at, hits, mapAt(q));
       bool clear = true;
       for (auto [u, v] : hits) {
-        if (!frozen.empty() && frozen.count(pairKey(u, v))) continue;
+        if (!clear && !record) break;  // (refused, nothing recorded: the rest can't change the verdict)
+        const bool fixed = !frozen.empty() && frozen.count(pairKey(u, v));
         Vec2 U = T.points()[u], V = T.points()[v];
         Metric2 Ms = average(metricAt(u), metricAt(v), M);
-        if (mdot(Ms, sub(q, U), sub(q, V)) <= 0) {
+        // (A point crowding the segment in 3D, SizeField::crowds, refuses where the segment is frozen too: the
+        // triangle stays as it is, judged as refused, rather than a needle beside the segment.)
+        if ((!fixed && mdot(Ms, sub(q, U), sub(q, V)) <= 0) ||
+          (nearSegment(U, V, q) && field.crowds(U, V, q, fixed))) {
           clear = false;
           if (record) encroached.push_back(pairKey(u, v));
         }

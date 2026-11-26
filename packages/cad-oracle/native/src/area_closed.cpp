@@ -4,6 +4,7 @@
 // -r (R v + r sin v)).
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <utility>
 
@@ -93,8 +94,8 @@ ClosedFace closedFace(Oracle::Impl& I, int f) {
       std::vector<double> cuts;
       if (E.kind == CBR_SURFACE_SPHERE) axisCrossings(*c, E, ta, tb, cuts);
       double from = ta;
-      for (double t : cuts) runs.push_back({c, from, t}), from = t;
-      runs.push_back({c, from, tb});
+      for (double t : cuts) runs.push_back({c, from, t, k}), from = t;
+      runs.push_back({c, from, tb, k});
     }
     if (!runs.empty()) out.loops.push_back(std::move(runs));
   }
@@ -208,6 +209,7 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
         return raw + kTwoPi * std::round((ref - raw) / kTwoPi);
       };
       // H du at t, all components: the first component's rule computes them, the others' mostly look them up.
+      double runOff = 0;
       Memo memo(K);
       auto hdu = [&](double t, double* o) {
         CurvePoint q;
@@ -215,7 +217,8 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
         const Vec3 lq = E.local(q.p);
         double u, v, du, dv;
         E.uv(lq, E.dir(q.d1), u, v, du, dv);
-        offMax = std::fmax(offMax, E.off(lq)), grow(q.p);
+        const double off = E.off(lq);
+        offMax = std::fmax(offMax, off), runOff = std::fmax(runOff, off), grow(q.p);
         A.H(u, unwrapped(t, v), south, o);
         for (int c = 0; c < K; c++) o[c] *= du;
       };
@@ -225,6 +228,7 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
           add(c, integrateSplit(integrand, br[k], br[k + 1], absTol[c], relTol));
         }
       }
+      T.runOff.push_back({r.coedge, runOff});
       // The ends: u and v there, u at a pole the limit along the run (its tangent there, the way the loop runs).
       auto end = [&](double t, double sign, double& u, double& v) {
         CurvePoint q;
@@ -266,6 +270,7 @@ ClosedTotals closedIntegral(const ClosedFace& face, const Antiderivative& A, dou
       }
     }
     if (torus && std::fabs(windV) > M_PI) T.flags |= flagWinds;
+    if (torus) T.loopWindV.push_back(std::round(windV / kTwoPi)), T.loopStartU.push_back(n ? uA[0] : 0);
     if (torus && std::fabs(windU) > M_PI) T.windsU = true;
   }
   T.offSurface = offMax / std::fmax(norm(hi - lo), 1e-300);
@@ -324,9 +329,28 @@ FaceMeasure Oracle::Impl::closedForm(int f) {
     A.floor = {size * size};
   }
   const ClosedTotals T = closedIntegral(face, A, options.relTol);
-  double area = model.faceSameSense(f) ? T.value[0] : -T.value[0];
+  const double sense = model.faceSameSense(f) ? 1 : -1;
+  double area = sense * T.value[0], seamError = 0;
   m.flags |= T.flags;
-  if (E.kind == CBR_SURFACE_SPHERE) {
+  if (T.flags & flagWinds) {
+    // A torus loop round its minor circle: the seam's term (seamTerm), J = 2 pi a b (H(v + 2 pi) = H(v) - J), where
+    // the loops' windings cancel (else the face's region isn't bounded by them as a torus's are).
+    double net = 0, term = 0, reach = 0;
+    for (size_t l = 0; l < T.loopWindV.size(); l++) {
+      const double u = T.loopStartU[l] - kTwoPi * std::floor(T.loopStartU[l] / kTwoPi);
+      net += T.loopWindV[l], term += T.loopWindV[l] * u, reach += std::fabs(T.loopWindV[l]) * kTwoPi;
+    }
+    if (E.kind != CBR_SURFACE_TORUS || net != 0) {
+      m.area = {NAN, INFINITY, Status::unsupported};
+      m.why = kWindsWhy;
+      return m;
+    }
+    const double J = kTwoPi * E.a * E.b;
+    const SeamResult r = seamTerm(area + sense * J * term, whole);
+    area = r.value;
+    // (J and u in double precision: their rounding, a few ulps of each term.)
+    seamError = 8 * DBL_EPSILON * J * (reach + std::fabs(r.turns) * kTwoPi);
+  } else if (E.kind == CBR_SURFACE_SPHERE) {
     area = std::fmod(std::fmod(area, whole) + whole, whole);
     if (area > whole / 2 * (1 + 1e-9)) m.flags |= flagSphereSide;
   } else if (T.windsU) {
@@ -338,7 +362,8 @@ FaceMeasure Oracle::Impl::closedForm(int f) {
     area = -area;
   }
   m.offSurface = T.offSurface;
-  m.area = {area, T.error[0], T.status};
+  for (const auto& [c, off] : T.runOff) closedOff[c] = std::fmax(std::isfinite(closedOff[c]) ? closedOff[c] : 0, off);
+  m.area = {area, T.error[0] + seamError, T.status};
   return m;
 }
 

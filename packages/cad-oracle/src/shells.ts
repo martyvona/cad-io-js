@@ -10,7 +10,10 @@ import type { ShellSide } from './shell-side.ts';
 
 /** cad-brep's layout.ts kinds this reads (cad-oracle doesn't depend on cad-brep at runtime). */
 const SOLID = 1, CLOSED = 1, VERTEX_LOOP = 2;
-/** A face's area must be within this of its value for the shell's volume to be known (judge.ts's JUDGE_RELATIVE). */
+/**
+ * A face's area must be within this of its value for the shell's volume to be known: healing's own level, tighter than
+ * judging's (judge.ts's JUDGE_RELATIVE), as a volume's sign decides which way a shell is turned.
+ */
 const FACE_RELATIVE = 1e-3;
 /** The volume's sign is known where |V| exceeds this many times its error estimate. */
 const SIGN_MARGIN = 4;

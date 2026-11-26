@@ -44,10 +44,13 @@ enum Flag : uint32_t {
   /** A face in no shell (a face item): nothing fixes which side of the surface its loops bound. */
   flagLoose = 1u << 2,
   /**
-   * A loop winds a period the method has no term for: a torus loop round its minor circle (the face then spans a
-   * seam no loop runs along), a loop winding a revolution's angle with no pole on the face's side, a loop round a
-   * revolution's closed profile. The area and every integral are then unsupported (with the reason), not a value:
-   * the term left out is no part of any error.
+   * A loop winds a period: a torus loop round its minor circle, a loop round a revolution's closed profile (a band
+   * round a tube), a loop winding a revolution's angle with no pole on the face's side, a free-form face's loop
+   * winding its outer direction with no pole. Where the surface is closed in the direction wound and the loops'
+   * windings cancel (a torus, a revolution of a closed profile with no pole), the area takes the seam's term and is a
+   * value, known modulo the whole surface's (a face against its sense gives its complement, which nothing flags);
+   * elsewhere, and every other integral, it's unsupported (with the reason), not a value: the term left out is no part
+   * of any error.
    */
   flagWinds = 1u << 3,
   /** No edge loops: area 0 reported (a face bounded by nothing: a whole sphere, an unbounded plane). */
@@ -103,9 +106,9 @@ struct FaceMeasure {
    * p-curve's deviation is measured in its own parameter along the use (a p-curve needn't share its edge's parameter):
    * each S(p(s)) against its nearest point on the curve within the edge's range, the feet going one way and the use's
    * ends against the edge's (where the use runs over the edge's own range, |S(p(t)) - C(t)| at the same t, which bounds
-   * that); a healed one's the analysis's; a projected one's the projection's error; none where the area is integrated
-   * along the edges' 3D curves (closed forms), whose vertex gaps still count. An edge without a 3D curve counts nothing
-   * (its p-curve is the boundary). NaN where a deviation or gap couldn't be had (a projection not made, a use's feet
+   * that); a healed one's the analysis's; a projected one's the projection's error; where the area is integrated along
+   * the edges' 3D curves (closed forms), the largest distance of the curve's sampled points from the surface. An edge
+   * without a 3D curve counts nothing (its p-curve is the boundary). NaN where a deviation or gap couldn't be had (a projection not made, a use's feet
    * going back along its curve). Included in area.error (the error reported with the area: the quadrature's plus this)
    * where it's known; where it's NaN, area.error is the quadrature's alone and trusted() refuses the face.
    */
@@ -115,14 +118,14 @@ struct FaceMeasure {
 };
 
 /**
- * A measure to rely on: computed (status ok), no flags but projectedBoundary and edgesPlaced, its boundary's error
- * known, and its error (the boundary's included) within `relative` of its value. The type says only that much: an
- * untrusted measure is still a value or not, which false doesn't tell; what users see is the value and its error, the
- * flags no estimate covers (sphereSide, loose, orientation, noLoops) said beside them (a face flagged winds has no
- * value).
+ * A measure to rely on: computed (status ok), no flags but projectedBoundary, edgesPlaced and winds (computed, its
+ * seam's term taken), its boundary's error known, and its error (the boundary's included) within `relative` of its
+ * value. The type says only that much: an untrusted measure is still a value or not, which false doesn't tell; what
+ * users see is the value and its error, the flags no estimate covers (sphereSide, loose, orientation, noLoops) said
+ * beside them.
  */
 inline bool trusted(const FaceMeasure& m, double relative = 1e-6) {
-  return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced)) == 0 &&
+  return m.area.status == Status::ok && (m.flags & ~(flagProjectedBoundary | flagEdgesPlaced | flagWinds)) == 0 &&
     std::isfinite(m.boundary) && m.area.error <= relative * m.area.value;
 }
 
