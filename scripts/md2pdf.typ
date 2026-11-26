@@ -4,6 +4,7 @@
 // numbered sections. The PDF-only and Markdown-only parts are cmarker's comments:
 //   <!--raw-typst ...-->  Typst code, run only here (the title page's #outline() and #pagebreak());
 //   <!--typst-begin-exclude--> ... <!--typst-end-exclude-->  left out here (the Markdown's short contents list).
+// Images from an `icons/` directory are drawn inline, a line high (below).
 // Input: `md`, the document's path from the repository root, starting with '/'.
 
 #import "@preview/cmarker:0.1.10"
@@ -45,5 +46,10 @@
   wide(block(fill: luma(245), inset: 6pt, radius: 2pt, width: 100%, it))
 }
 
-#cmarker.render(read(md), math: mitex, h1-level: 0,
-  scope: (image: (path, ..args) => image(if path.starts-with("/") { path } else { dir + path }, ..args)))
+// Images from an `icons/` directory are glyphs in the text (docs/brep-reference.md's geometry icons), a line high on
+// the baseline; others blocks, as cmarker places them.
+#let picture(path, ..args) = {
+  let file = if path.starts-with("/") { path } else { dir + path }
+  if path.contains("icons/") { box(baseline: 15%, image(file, height: 1.1em, ..args)) } else { image(file, ..args) }
+}
+#cmarker.render(read(md), math: mitex, h1-level: 0, scope: (image: picture))
