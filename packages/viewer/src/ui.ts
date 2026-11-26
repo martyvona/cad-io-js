@@ -135,6 +135,10 @@ export interface Ui {
   linkDeviceDefaults(): boolean;
   /** The view's address, for "Link to this view..." (set by the automation layer). */
   link?: () => string;
+  /** Called with each model's source as an open (not Mesh again) reads it (set by the automation layer). */
+  onSource?: (src: Source) => void;
+  /** About's Reload (set by the automation layer; else a plain reload). */
+  reload?: () => void;
   /** The controls (for the recorder, recorder.ts, and replay). */
   readonly gui: GUI;
   /** What happens, as it happens (for the recorder). */
@@ -382,7 +386,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
       ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched,
     problems: () => void showProblems(m.name, m.diagnostics ?? []) } : undefined,
-    updates, () => void loadDemo());
+    updates, () => void loadDemo(), () => ui.reload ? ui.reload() : location.reload());
   };
   const loadDemo = async () => {
     const p = await askDemo();
@@ -467,7 +471,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const t = performance.now();
       let gen = viewer.nextLoad();
       last = src;
-      if (!keep) restore = undefined;
+      if (!keep) {
+        restore = undefined;
+        ui.onSource?.(src);
+      }
       // Mesh again: the model worker's scene meshed again in place where it can, else the file loaded again.
       let inPlace = false;
       // (Why Mesh again loaded the file again instead, said once it's done.)

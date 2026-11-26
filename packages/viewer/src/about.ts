@@ -13,15 +13,14 @@ export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
 
 /**
  * Shows it, with the model open (rows of a table, its metadata behind a details link: file-details.ts, and its
- * errors and warnings behind another: `problems`, problems.ts's dialog), if any,
- * and with `updates` Check for updates (only when pressed:
- * update-check.ts), saying whether the server has another version (`updates`' state, shared with the controls'
- * badge) with Reload; and with `demo` Load demo model..., which closes it and then calls `demo`. Resolves when it's
- * closed.
+ * errors and warnings behind another: `problems`, problems.ts's dialog), if any, and with `updates` Check for updates
+ * (only when pressed: update-check.ts), saying whether the server has another version (`updates`' state, shared with
+ * the controls' badge) with Reload (`reload`, by default a plain reload); and with `demo` Load demo model..., which
+ * closes it and then calls `demo`. Resolves when it's closed.
  */
 export async function showAbout(model?: { rows: [string, string][]; properties: Properties;
   stretched?: string; problems: () => void }, updates?: UpdateCheck,
-  demo?: () => void): Promise<void> {
+  demo?: () => void, reload: () => void = () => location.reload()): Promise<void> {
   let r: DialogResult | undefined;
   const update = document.createElement('p');
   update.className = 'update';
@@ -43,8 +42,8 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
     text.textContent = checking ? 'Checking...' : failed ? said : t ?? said;
     text.classList.toggle('available', !checking && !failed && !!t);
     text.classList.toggle('failed', !checking && failed);
-    reload.hidden = checking || !t;
-    reload.disabled = !updates?.state.ready;
+    reloadButton.hidden = checking || !t;
+    reloadButton.disabled = !updates?.state.ready;
   };
   const check = button('Check for updates', () => {
     checking = check.disabled = true;
@@ -57,9 +56,9 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
       show();
     });
   });
-  const reload = button('Reload', () => location.reload());
+  const reloadButton = button('Reload', reload);
   // The button first and the result beside it (index.html), so the button never moves as the result changes.
-  update.append(check, text, reload);
+  update.append(check, text, reloadButton);
   show();
   // (Another version found ends Checking... before its check resolves, which waits for the worker to download it; a
   // change, by this check or the badge's, replaces an error said.)

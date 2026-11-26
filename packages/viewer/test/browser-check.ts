@@ -6860,6 +6860,73 @@ await check('automation', async () => {
     sa.render.ao, sa.hidden, sa.selected, sa.tree]), `linked state: ${JSON.stringify([b, sa])}`);
   return undefined;
 });
+// The address follows the model opened (automation.ts): at start the address's own model, its view and options left as
+// they are; a local file opened (as1.glb's bytes as local.glb): no model=, the view gone, the page's options kept,
+// and after About's Reload (ui.reload) no model, the status saying to open local.glb again, the name not kept for
+// another reload; a URL's model opened: model= its path in the content root; after Reload that model, with the view
+// it had (a part hidden, the camera); a URL's model after a local file: the local file's name dropped.
+await check('address follows the model', async () => {
+  type Seen = { search: string; hash: string; model?: string; status: string; kept: string | null;
+    hidden?: string[]; camera?: number[] };
+  const seen = `({ search: location.search, hash: location.hash, model: viewer.model?.name,
+    status: document.getElementById('status').textContent, kept: sessionStorage.getItem('cad-viewer.localFile'),
+    hidden: cadViewer.state().hidden, camera: cadViewer.state().camera.position })`;
+  const r = await page('?model=as1.stp&check#ao=0', `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const start = ${seen};
+    const bytes = await (await fetch('/content/as1.glb')).arrayBuffer();
+    await ui.openFiles([new File([bytes], 'local.glb')]);
+    await cadViewer.idle();
+    const local = ${seen};
+    setTimeout(() => ui.reload(), 0);
+    return { start, local };
+  })()`, { asIs: true, then: async (sessionId) => {
+    const evaluate = async (expression: string) => {
+      const e = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sessionId) as
+        { result: { value: unknown }; exceptionDetails?: { exception?: { description?: string }; text: string } };
+      if (e.exceptionDetails) throw new Error(e.exceptionDetails.exception?.description ?? e.exceptionDetails.text);
+      return e.result.value;
+    };
+    // (The page reloading: its new document's cadViewer awaited.)
+    const reloaded = async () => {
+      await new Promise((res) => setTimeout(res, 1500));
+      for (let t = 0; t < 100 && !await evaluate('!!globalThis.cadViewer && !!document.body.dataset.report'); t++) {
+        await new Promise((res) => setTimeout(res, 100));
+      }
+      return evaluate(`cadViewer.ready.then(() => cadViewer.idle()).then(() => ${seen})`) as Promise<Seen>;
+    };
+    const afterLocal = await reloaded();
+    const url = await evaluate(`(async () => {
+      viewer.flightMs = 0;
+      sessionStorage.setItem('cad-viewer.localFile', 'local.glb');
+      await ui.openUrl('/content/as1.stp');
+      await cadViewer.idle();
+      const parts = cadViewer.nodes().filter((n) => n.kind === 'part').map((n) => n.path);
+      cadViewer.hide([parts[1]]);
+      cadViewer.view('top');
+      const s = ${seen};
+      setTimeout(() => ui.reload(), 0);
+      return s;
+    })()`) as Seen;
+    return { afterLocal, url, afterUrl: await reloaded() };
+  } }) as { after: { start: Seen; local: Seen }; then: { afterLocal: Seen; url: Seen; afterUrl: Seen } };
+  const { start, local } = r.after, { afterLocal, url, afterUrl } = r.then;
+  const j = JSON.stringify({ ...r.after, ...r.then });
+  expect(start.search === '?model=as1.stp&check' && start.hash === '#ao=0' && start.model === 'as1.stp',
+    `at start, the address as it was: ${j}`);
+  expect(local.search === '?check' && local.hash === '' && local.model === 'local.glb' && local.kept === 'local.glb',
+    `a local file: no model=, the view gone, its name kept: ${j}`);
+  expect(afterLocal.search === '?check' && afterLocal.model === undefined && afterLocal.kept === null
+    && afterLocal.status.includes('local.glb was open from this computer'), `reloaded: no model, said: ${j}`);
+  expect(url.search === '?model=as1.stp&check' && url.hash === '' && url.kept === null && url.model === 'as1.stp',
+    `a URL's model: model=, the local file's name dropped: ${j}`);
+  expect(afterUrl.model === 'as1.stp' && afterUrl.search.includes('model=as1.stp') && afterUrl.search.includes('check')
+    && JSON.stringify(afterUrl.hidden) === JSON.stringify(url.hidden) && url.hidden!.length === 1
+    && Math.abs(url.camera![2]! - start.camera![2]!) > 1
+    && afterUrl.camera!.every((v, k) => Math.abs(v - url.camera![k]!) < 1e-4), `reloaded: the model, its view: ${j}`);
+  return undefined;
+});
 // ?model= reads its value as Load URL... reads what's typed (sources.ts): a relative path within the content root
 // (content/ beside the page), a path on the server or a URL; refused paths (leaving the root, empty, with empty or
 // `.` segments) said in the status line; ?url= the same, for older links, and model winning when both are given. Copy
@@ -7801,6 +7868,13 @@ await check('update badge', async () => {
       for (let t = 0; t < 50 && check.disabled; t++) await wait(100);
       const found = { downloading, text: line(), badge: badge.title,
         reload: !reload.hidden && !reload.disabled };
+      // Reload is the automation layer's (the address following the model: 'address follows the model').
+      let reloads = 0;
+      const own = ui.reload;
+      ui.reload = () => { reloads++; };
+      reload.click();
+      ui.reload = own;
+      found.reloads = reloads;
       d.querySelector('.buttons button').click();
       return { away: ${JSON.stringify(away)}, behind: ${JSON.stringify(behind)}, shown, about, downSeen, same, down,
         hang, lost, found, at: [...at] };
@@ -7813,7 +7887,7 @@ await check('update badge', async () => {
     badge: boolean; fetched: number }; down: { text: string; badge: boolean };
     hang: { text: string; failed: boolean }; lost: { text: string; badge: boolean; reload: boolean;
     state: { latest?: string; ready: boolean } }; found: { downloading: { text: string; reload: boolean };
-    text: string; badge: string; reload: boolean }; at: string[] }; missing?: string };
+    text: string; badge: string; reload: boolean; reloads: number }; at: string[] }; missing?: string };
   const a = r.after, t = r.then;
   const j = JSON.stringify({ after: a, then: t, missing: r.missing });
   expect(!!a && !!t, `no result: ${j}`);
@@ -7841,8 +7915,8 @@ await check('update badge', async () => {
     t!.lost.state.latest === undefined, `checked, the download failed: ${j}`);
   expect(/9\.9\.9-b .*downloading/.test(t!.found.downloading.text) && !t!.found.downloading.reload,
     `checking, another downloading: ${j}`);
-  expect(t!.found.text.includes('9.9.9-b') && t!.found.badge.includes('9.9.9-b') && t!.found.reload,
-    `checked, another: ${j}`);
+  expect(t!.found.text.includes('9.9.9-b') && t!.found.badge.includes('9.9.9-b') && t!.found.reload
+    && t!.found.reloads === 1, `checked, another (Reload the automation layer's): ${j}`);
   return undefined;
 });
 
