@@ -30,6 +30,7 @@ import { isError } from './fix/growth.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
 import { MIN_FIT, type Tight, tightFaces } from './fix/tight.ts';
 import { type CoincidentResult, mergeCoincident } from './fix/coincident.ts';
+import { type TrimResult, trimOvershoots } from './fix/overshoot.ts';
 import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
   './fix/shells.ts';
 import { fixesMask, fixesOn, HEAL_VERSION, type HealOptions, PCURVE_FIT_TOLERANCE } from './options.ts';
@@ -119,6 +120,17 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       curves = mergedRecord(curves, healed, merge);
       healed = merge.model;
     }
+  }
+  // Edges overshooting each other's crossing near their vertex trimmed there, on the merged rows (no rows change).
+  let trim: TrimResult | undefined;
+  if (fixes.has('trimOvershoot')) {
+    progress('trimOvershoot');
+    trim = trimOvershoots(geom, healed, curves.ranges);
+    if (trim?.trimmed.length) {
+      overshootSaid(trim, diagnostics);
+      curves = trimmedRecord(curves, trim);
+      healed = trim.model;
+    } else trim = undefined;
   }
   // Shells facing into their material turned, last: the curves' fixes made on the faces as the source oriented them.
   let shells: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] } | undefined;
@@ -241,10 +253,10 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   progress('judging measures');
   const judged = await judgingMeasures(healed, progress);
   progress('the healed model and its analysis');
-  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!merge || !!shells?.perm
+  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!merge || !!trim || !!shells?.perm
     || !!shells?.flipped.length || !!shells?.turnedFaces.length;
   const out = await analysisOf(healed, givenRows(given, merge), curves, { fixes: fixesMask(fixes), fit, sourceCurves,
-    strayPoles: kept + moved }, judged, shells, merge ? given : undefined);
+    strayPoles: kept + moved }, judged, shells, merge || trim ? given : undefined);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
 }
@@ -471,6 +483,29 @@ function mergedRecord(r: CurvesRecord, before: BrepData, merge: CoincidentResult
   }
   const traces = r.traces.flatMap((t) => (byFrom.get(t.coedge) ?? []).map((c) => ({ ...t, coedge: c })));
   return { pcurveFrom, deviation, edgeRangeFrom, ranges, traces };
+}
+
+/** The curves' record once trimOvershoot trimmed edges: their ranges healing's, the uses it left bare without p-curves'
+ * records. */
+function trimmedRecord(r: CurvesRecord, trim: TrimResult): CurvesRecord {
+  const edgeRangeFrom = r.edgeRangeFrom.slice(), ranges = r.ranges.slice();
+  for (const e of trim.edges) edgeRangeFrom[e] = PROVENANCE.healed, ranges[2 * e] = ranges[2 * e + 1] = NaN;
+  const pcurveFrom = r.pcurveFrom.slice(), deviation = r.deviation.slice(), bare = new Set(trim.dropped);
+  for (const c of bare) pcurveFrom[c] = 0, deviation[c] = NaN;
+  return { pcurveFrom, deviation, edgeRangeFrom, ranges, traces: r.traces.filter((t) => !bare.has(t.coedge)) };
+}
+
+/** trimOvershoot's diagnostic: a warning with the trims' count, the largest move and the tolerances it left. */
+function overshootSaid(r: TrimResult, diagnostics: Diagnostic[]): void {
+  const n = r.trimmed.length, most = Math.max(...r.trimmed.map((t) => t.moved));
+  const ex = r.trimmed.slice(0, 5).map((t) => `face #${t.face}'s #${t.edges[0]} and #${t.edges[1]} at #${t.vertex} `
+    + `(moved ${t.moved.toPrecision(3)} mm, tails ${t.tails[0].toPrecision(2)} and ${t.tails[1].toPrecision(2)}, `
+    + `tolerance ${t.tolBefore.toPrecision(3)} -> ${t.tolAfter.toPrecision(3)})`);
+  const dropped = r.dropped.length ? `; ${r.dropped.length} trimmed uses' p-curves dropped (not at their edge's `
+    + 'parameter and not trimmable)' : '';
+  diagnostics.push({ severity: 'warning', message: `trimOvershoot: ${n} ${n === 1 ? 'pair' : 'pairs'} of consecutive `
+    + `edges crossing near their vertex trimmed at the crossing, the vertex moved there, up to ${most.toPrecision(3)} `
+    + `mm (${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${dropped}` });
 }
 
 /** coincidentEdges' diagnostic: a warning with the merges' count, the longest stretch and largest growth, the faces
