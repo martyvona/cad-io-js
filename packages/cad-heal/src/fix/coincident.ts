@@ -325,7 +325,7 @@ class Topo {
 }
 
 /** A pair to merge: coedge a runs into vertex v, b out of it, in one loop of face f. */
-interface Pair {
+export interface Pair {
   f: number;
   /** The loop's row. */
   l: number;
@@ -348,10 +348,10 @@ interface Stretch {
 }
 
 /** An edge's curve parameters at its start and end as the face API takes them (or undefined). */
-type Params = (e: number) => [number, number] | undefined;
+export type Params = (e: number) => [number, number] | undefined;
 
 /** An edge's parameters at its vertex v's end and at its far end. */
-function fromVertex(params: Params, d: BrepData, e: number, v: number): [number, number] | undefined {
+export function fromVertex(params: Params, d: BrepData, e: number, v: number): [number, number] | undefined {
   const r = params(e);
   return !r ? undefined : d.edge.start[e] === v ? r : [r[1], r[0]];
 }
@@ -474,7 +474,7 @@ const piecesOf = new WeakMap<Geometry, Map<number, ReturnType<Geometry['facePiec
  * nearer the edge's start first. Undefined where the face API doesn't say (a use two pieces, across a closed p-curve's
  * ends).
  */
-function pcurveRange(g: Geometry, d: BrepData, params: Params, c: number): [number, number] | undefined {
+export function pcurveRange(g: Geometry, d: BrepData, params: Params, c: number): [number, number] | undefined {
   const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!;
   if (Number.isFinite(r0) && Number.isFinite(r1)) return [r0, r1];
   const f = faceOfCoedge(d, c);
@@ -502,13 +502,20 @@ function pcurveRange(g: Geometry, d: BrepData, params: Params, c: number): [numb
  * from it in a stretch of millimetres). */
 const CROSS_UNIFORM = 128, CROSS_GEOMETRIC = 30;
 
+/** lastCrossing's samples of a curve's parameters from t0 (the vertex's end) to t1. */
+export function crossTs(t0: number, t1: number): number[] {
+  const xs = Array.from({ length: CROSS_UNIFORM + 1 }, (_, i) => i / CROSS_UNIFORM);
+  for (let k = 1; k <= CROSS_GEOMETRIC; k++) xs.push(2 ** -k / CROSS_UNIFORM);
+  return [...new Set(xs)].sort((x, y) => x - y).map((x) => t0 + (t1 - t0) * x);
+}
+
 /**
  * Where the two uses last cross each other in the face's (u, v) within the stretch (from v to tA along A, to tB along
  * B), as B's parameter (the crossing farthest from v): their (u, v) as the face API takes them (p-curves, else
  * projections), sampled, unwrapped across the face's periods, a proper crossing of their polylines anywhere but at
  * their shared start. Undefined where they don't.
  */
-function lastCrossing(g: Geometry, params: Params, d: BrepData, p: Pair, A: [number, number],
+export function lastCrossing(g: Geometry, params: Params, d: BrepData, p: Pair, A: [number, number],
   B: [number, number], tA: number, tB: number): number | undefined {
   // A use whose p-curve doesn't run at its edge's parameter is taken as the face API's projection of its curve (its
   // (u, v) at the edge's parameters); the rest by the face API's own (their p-curves, else projections).
@@ -516,11 +523,6 @@ function lastCrossing(g: Geometry, params: Params, d: BrepData, p: Pair, A: [num
     if (d.coedge.pcurve[c]! < 0) return true;
     const r = params(d.coedge.edge[c]!)!, [a, b] = r, span = Math.abs(r[1] - r[0]), q = pcurveRange(g, d, params, c);
     return !!q && Math.abs(q[0] - a) <= 1e-9 * span && Math.abs(q[1] - b) <= 1e-9 * span;
-  };
-  const ts = (t0: number, t1: number) => {
-    const xs = Array.from({ length: CROSS_UNIFORM + 1 }, (_, i) => i / CROSS_UNIFORM);
-    for (let k = 1; k <= CROSS_GEOMETRIC; k++) xs.push(2 ** -k / CROSS_UNIFORM);
-    return [...new Set(xs)].sort((x, y) => x - y).map((x) => t0 + (t1 - t0) * x);
   };
   const info = g.faceInfo(p.f), pu = info.uPeriod, pv = info.vPeriod;
   const uv = (c: number, t: number[]) => {
@@ -546,7 +548,7 @@ function lastCrossing(g: Geometry, params: Params, d: BrepData, p: Pair, A: [num
     }
     return out;
   };
-  const tsB = ts(B[0], tB), a = uv(p.a, ts(A[0], tA)), b = uv(p.b, tsB);
+  const tsB = crossTs(B[0], tB), a = uv(p.a, crossTs(A[0], tA)), b = uv(p.b, tsB);
   if (!a || !b) return undefined;
   // B's start onto A's: the same point, not a period away.
   const du = pu > 0 ? pu * Math.round((b[0]![0] - a[0]![0]) / pu) : 0;
@@ -813,7 +815,7 @@ function offFaces(g: Geometry, d: BrepData, ca: number, [a0, a1]: [number, numbe
 }
 
 /** The face whose loops hold coedge c (-1: none). */
-function faceOfCoedge(d: BrepData, c: number): number {
+export function faceOfCoedge(d: BrepData, c: number): number {
   for (let f = 0; f < rowCount(d, 'face'); f++) {
     for (let l = d.face.firstLoop[f]!; l < d.face.firstLoop[f]! + d.face.loopCount[f]!; l++) {
       if (d.loop.kind[l] === LOOP_KIND.edge && c >= d.loop.first[l]! && c < d.loop.first[l]! + d.loop.count[l]!) {

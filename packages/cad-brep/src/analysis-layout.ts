@@ -118,9 +118,10 @@ export const ANALYSIS_TABLES = {
   healing: [['fixes', 'u32', 1], ['pcurveFitTolerance', 'f64', 1], ['version', 'u32', 1], ['sourceCurves', 'u32', 1],
     ['strayPoles', 'u32', 1]],
   /**
-   * Where healing changed the model's topology (cad-heal's coincidentEdges: edges split and merged, faces removed),
-   * the source model's buffer, a byte a row (empty otherwise): the per-entity tables' given values are then of the
-   * healed rows, which the source's don't match, and healing again starts from this model instead.
+   * Where healing changed the model's topology (cad-heal's coincidentEdges: edges split and merged, faces removed)
+   * or moved a vertex (trimOvershoot), the source model's buffer, a byte a row (empty otherwise): the per-entity
+   * tables' given values are then of the healed rows, which the source's don't match, and healing again starts from
+   * this model instead.
    */
   source: [['model', 'u8', 1]],
 } as const satisfies Record<string, readonly (readonly [string, ColumnType, number])[]>;

@@ -22,11 +22,13 @@
  * point classification once built), last, on the healed model. `coincidentEdges` runs after the curves' fixes and
  * before orientShells: two consecutive edges of a loop leaving their vertex together and within their tolerance of
  * each other merged up to where they truly part, a face left with no area removed (fix/coincident.ts; healing's one
- * change of topology). (The order is also the healing row's bit order: a fix added goes last.)
+ * change of topology). `trimOvershoot` runs after coincidentEdges: two consecutive edges of a loop in trouble whose
+ * curves cross within the part's uncertainty near their vertex and run on past it trimmed at the crossing, the
+ * vertex moved there (fix/overshoot.ts). (The order is also the healing row's bit order: a fix added goes last.)
  */
 export const HEAL_FIXES = ['strayPole', 'pcurveMissingOnPlane', 'pcurveMissingOnElementary', 'pcurveMissingOnFreeForm',
   'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance', 'vertexTolerance', 'orientShells', 'pcurveTight',
-  'coincidentEdges'] as const;
+  'coincidentEdges', 'trimOvershoot'] as const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
 /**
@@ -85,7 +87,7 @@ export const PCURVE_FIT_TOLERANCE = 0.0025;
  * The version of what healing makes: bumped when the same model and options heal to other bytes, so a model healed by
  * another version is healed again from its source's values rather than taken as healed (the analysis's healing row).
  */
-export const HEAL_VERSION = 5;
+export const HEAL_VERSION = 6;
 
 /** The fixes as the analysis's healing row holds them: a bit per fix, in HEAL_FIXES order. */
 export function fixesMask(fixes: Iterable<HealFix>): number {
