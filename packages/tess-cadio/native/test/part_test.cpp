@@ -2813,6 +2813,136 @@ TEST_CASE("bsplineApex's ring fixed by the pole-ring rule, the mesher outside it
   }
 }
 
+TEST_CASE("apexSector: a cone face reaching its apex and crossing u's seam, meshed in (u, v) or its development "
+  "(whichever its metric is nearer isotropic in): its boundary "
+  "the edges' samples bit for bit, every triangle within d of the cone, nothing refused, in few rounds") {
+  // (apexSector(2.5): seamCone's cone between the rulings at u = -2.5 and 2.5, from its apex to its base circle. Its
+  // distance from the cone at a point: |rho - (z + 1)| / sqrt 2, rho the distance from the axis, z above -1.)
+  cadgeom::Model m = load("apexSector");
+  REQUIRE(m.ok());
+  for (double d : {0.1, 0.01, 0.001}) {
+    PartMesher pm(m, options(d, 0.26));
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    CHECK(fm.rejected.empty());
+    CHECK_EQ(fm.defectDeviation, 0.0);
+    CHECK(pm.rounds() <= 2);
+    int far = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3) {
+      const int32_t* v = &fm.triangles[t];
+      Vec3 p[3] = {fm.points[v[0]], fm.points[v[1]], fm.points[v[2]]};
+      for (Vec3 q : {(1.0 / 3) * (p[0] + p[1] + p[2]), 0.5 * (p[0] + p[1]), 0.5 * (p[1] + p[2]),
+             0.5 * (p[2] + p[0])})
+        far += std::fabs(std::hypot(q.x, q.y) - (q.z + 1)) * M_SQRT1_2 > d * (1 + 1e-9);
+    }
+    // (Each edge's samples among the mesh's points, bit for bit.)
+    int missing = 0;
+    for (int e = 0; e < m.edges(); e++)
+      for (const Vec3& q : pm.edges().edge(e).points) {
+        bool in = false;
+        for (const Vec3& p : fm.points) in = in || (p.x == q.x && p.y == q.y && p.z == q.z);
+        missing += !in;
+      }
+    if (far || missing || !fm.rejected.empty() || pm.rounds() > 2)
+      std::printf("  apexSector at %g: %d points beyond d, %d samples missing, %zu refused, %d rounds\n", d, far,
+        missing, fm.rejected.size(), pm.rounds());
+    CHECK_EQ(far, 0);
+    CHECK_EQ(missing, 0);
+  }
+}
+
+TEST_CASE("the developed plane taken only where the face's metric is nearer isotropic there (PartOptions::develop): "
+  "a cone to its apex, sized across by the angle, meshed as in (u, v) bit for bit; a vast half cylinder developed") {
+  // (apexSector at d 0.1 and 15 degrees: across, the angle's size, about half |R|, is under the sag's sqrt(8 d |R|)
+  // everywhere (|R| up to 1): a constant share of u, so (u, v) is the metric's uniform frame and its plane's stretch
+  // grows as 1 / rho towards the apex. cylinderVast, radius 8000: across the sag's 80 mm, a hundredth of u, along
+  // the same either way, so its plane divides the stretch by its radius.)
+  auto mesh = [](const char* name, bool develop) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.1, 0.26);
+    o.develop = develop;
+    PartMesher pm(m, o);
+    std::vector<double> out;
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& fm = pm.face(f);
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      for (int32_t v : fm.triangles) out.push_back(v);
+      for (const Vec3& p : fm.points) out.insert(out.end(), {p.x, p.y, p.z});
+    }
+    return out;
+  };
+  CHECK(mesh("apexSector", true) == mesh("apexSector", false));
+  CHECK(mesh("cylinderVast", true) != mesh("cylinderVast", false));
+}
+
+TEST_CASE("shippedAt through the developed plane (PartOptions::develop): cylinderVast shipped far from the origin, "
+  "no two of a face's vertices at one position as the output rounds them") {
+  // (cylinderVast developed, shipped from an origin 1e10 away, where float32 is 1024 apart: the developed field asks
+  // its positions at (u, v), mapped back from the plane. Its edges' samples weld among themselves there, as given; no
+  // point of the mesher's ships where another vertex does.)
+  cadgeom::Model m = load("cylinderVast");
+  REQUIRE(m.ok());
+  PartOptions o = options(0.1, 0.26);
+  o.outputOrigin[0] = 1e10, o.outputOrigin[1] = o.outputOrigin[2] = 0;
+  PartMesher pm(m, o);
+  for (int f = 0; f < m.faces(); f++) {
+    const FaceMesh& fm = pm.face(f);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    std::set<std::tuple<double, double, double>> samples;
+    for (int e = 0; e < m.edges(); e++)
+      for (const Vec3& q : pm.edges().edge(e).points) samples.insert({q.x, q.y, q.z});
+    std::set<std::tuple<float, float, float>> at;
+    auto shipped = [](const Vec3& p) {
+      return std::tuple<float, float, float>{static_cast<float>(p.x - 1e10), static_cast<float>(p.y),
+        static_cast<float>(p.z)};
+    };
+    for (const Vec3& p : fm.points)
+      if (samples.count({p.x, p.y, p.z})) at.insert(shipped(p));
+    int welded = 0;
+    for (const Vec3& p : fm.points)
+      if (!samples.count({p.x, p.y, p.z})) welded += !at.insert(shipped(p)).second;
+    if (welded) std::printf("  cylinderVast far: face %d, %d vertices welded\n", f, welded);
+    CHECK_EQ(welded, 0);
+  }
+}
+
+TEST_CASE("crowds through the developed plane (PartOptions::develop): thinTube's mesher points kept out of the band "
+  "about its boundary's segments as in (u, v)") {
+  // (thinTube at d 0.1: a half cylinder of radius 0.005, its plane developed; the band a tenth of the floor, 0.001.
+  // No point the mesher placed is within it of any edge's segment in 3D, developed or not.)
+  cadgeom::Model m = load("thinTube");
+  REQUIRE(m.ok());
+  for (bool dev : {false, true}) {
+    PartOptions o = options(0.1, 0.26);
+    o.develop = dev;
+    PartMesher pm(m, o);
+    const FaceMesh& fm = pm.face(0);
+    REQUIRE(fm.status == cadgeom::Status::ok);
+    std::vector<std::pair<Vec3, Vec3>> segs;
+    std::set<std::tuple<double, double, double>> boundary;
+    for (int e = 0; e < m.edges(); e++) {
+      const std::vector<Vec3>& P = pm.edges().edge(e).points;
+      for (size_t j = 0; j + 1 < P.size(); j++) segs.push_back({P[j], P[j + 1]});
+      for (const Vec3& q : P) boundary.insert({q.x, q.y, q.z});
+    }
+    double nearest = INFINITY;
+    int mesher = 0;
+    for (const Vec3& q : fm.points) {
+      if (boundary.count({q.x, q.y, q.z})) continue;
+      mesher++;
+      for (auto [a, b] : segs) {
+        const Vec3 ab = b - a;
+        const double t = std::clamp(dot(q - a, ab) / dot(ab, ab), 0.0, 1.0);
+        nearest = std::min(nearest, norm(q - (a + t * ab)));
+      }
+    }
+    if (!(nearest > 0.001)) std::printf("  thinTube develop %d: a mesher point %g from a segment\n", int(dev), nearest);
+    CHECK(mesher > 0);
+    CHECK(nearest > 0.001);
+  }
+}
+
 TEST_CASE("sectorWall: a split inside another face's pole ring shrinks the ring, whatever the faces' kinds: the wall "
   "within d") {
   // The flat sector's ring is wide (its fans flat), K bending through it: the cylinder's triangles on K's span inside
@@ -4050,6 +4180,40 @@ TEST_CASE("retryStretch (the default): a lantern, its mesh far over its patch, m
   CHECK(std::fabs(area(fm) / exact - 1) < 0.01);
   CHECK(fm.patchRatio <= 1.1);
   CHECK_EQ(fm.cap, plain.face(0).cap);
+}
+
+TEST_CASE("retryStretch: a lantern the capped stretch doesn't mend, meshed with its triangles over their patches "
+  "refused too: its area the exact's, its ratio under the limit") {
+  // lanternBand5 (lanternBand round a major radius of 5) at d 0.1 with the stretch cap at 1e9, which retries it as
+  // it was (so not kept): still a lantern, its tilted facets thinner than the floor, which the criteria pass. Meshed
+  // again with each triangle past 1.1 x its patch refused, refinement splits their long edges: ok, not capped,
+  // nothing refused, within 1% of the exact area, its ratio under 1.1. With its point cap low, that meshing ends
+  // capped, refusing some: not kept, the face meshed as before (a tenth of the triangles).
+  cadgeom::Model m = load("lanternBand5");
+  REQUIRE(m.ok());
+  const double exact = 2 * M_PI * 0.1 * (1.6 * 5 + 0.2 * std::sin(0.8));
+  PartOptions o = options(0.1, 0.26);
+  o.retryStretch = 1e9;
+  PartMesher pm(m, o);
+  const FaceMesh& fm = pm.face(0);
+  REQUIRE(fm.status == cadgeom::Status::ok);
+  double area = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    area += 0.5 * norm(cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  if (!(std::fabs(area / exact - 1) < 0.01) || !(fm.patchRatio <= 1.1))
+    std::printf("  lanternBand on its lantern field: area %g of %g, patch ratio %g\n", area, exact, fm.patchRatio);
+  CHECK(!fm.retried);
+  CHECK(std::fabs(area / exact - 1) < 0.01);
+  CHECK(fm.patchRatio <= 1.1);
+  CHECK(!fm.capped);
+  CHECK(fm.rejected.empty());
+  CHECK_EQ(fm.defectDeviation, 0.0);
+  o.capFloor = 20000, o.capMultiple = 1;
+  PartMesher low(m, o);
+  REQUIRE(low.face(0).status == cadgeom::Status::ok);
+  CHECK(!low.face(0).capped);
+  CHECK(low.face(0).triangles.size() < fm.triangles.size() / 4);
 }
 
 TEST_CASE("a collapsed row of poles a fitting's noise apart is a pole to the size metric's grid: the face expects as "

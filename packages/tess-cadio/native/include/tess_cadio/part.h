@@ -112,7 +112,11 @@ struct PartOptions {
    * (u, v) area times |S_u x S_v| at each centroid past 1 + retryRatio: a lantern, long triangles across a thin,
    * curved band) and it isn't a sliver narrower than its boundary's offset from the surface, or where its meshing
    * failed (not its boundary); after the first meshings and again after the split rounds, which then run on; kept
-   * where the better mesh (ok, and under its patch ratio before), else meshed as before.
+   * where the better mesh (ok, and under its patch ratio before), else meshed as before. A face far over its patch
+   * still is meshed once more with every triangle over its own patch by as much refused too (thinner than the
+   * refinement floor, the criteria pass it), so refinement splits their long edges (the boundary's in the rounds);
+   * kept, and the face so in the rounds after, where ok and under its patch ratio before or asking splits, else
+   * meshed as before (and so from any such meshing that ends at its point cap).
    * 0: never.
    */
   double retryStretch = 16, retryRatio = 0.1;
@@ -212,6 +216,16 @@ struct PartOptions {
    * change. Faces at their point cap that failCapped fails aren't tried.
    */
   bool collapseTurned = true;
+  /**
+   * Each face's domain meshed in a plane it develops to (develop.h): a cone's exact development, an isometry onto a
+   * plane sector, its apex in the face or not; any other face's under x = sqrt(E) u + F / sqrt(E) v,
+   * y = sqrt(G - F^2 / E) v, the mean E, F, G over a 9 x 9 grid of the domain's box. So the triangulation's own
+   * in-circle tests, which refinement doesn't revisit, run in (about) 3D lengths: in (u, v), on a large cylinder's
+   * narrow strip they kept chords across hundreds of boundary samples, each refused and asking splits round after
+   * round. The criteria see (u, v) as before, the domain's own points exactly. Not a face other than a cone with a
+   * pole's ring, whose first fundamental form vanishes towards the pole: one affine map is far off near it.
+   */
+  bool develop = true;
 };
 
 /** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */

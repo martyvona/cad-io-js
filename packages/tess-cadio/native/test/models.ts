@@ -1428,6 +1428,29 @@ function seamCone(degenerate: boolean, turned = false): BrepBuilder {
 export const seamConeTurned = (): BrepBuilder => seamCone(false, true);
 
 /**
+ * seamCone's cone (radius 1 at z = 0, semi-angle 45 degrees, its apex (0, 0, -1) at v = -1) between the rulings at
+ * u = -`half` and `half`, from the apex up to its base circle: a face that reaches the apex and crosses u's seam. Area
+ * half sqrt 2 (its sector of the development, radius sqrt 2, angle 2 half sin 45 degrees).
+ */
+export function apexSector(half = 0.6): BrepBuilder {
+  const b = new BrepBuilder();
+  const at = (u: number) => [Math.cos(u), Math.sin(u), 0];
+  const va = b.addVertex({ point: [0, 0, -1] }), vm = b.addVertex({ point: at(-half) }),
+    vp = b.addVertex({ point: at(half) });
+  const ruling = (u: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: [0, 0, -1],
+    direction: [Math.cos(u) * Math.SQRT1_2, Math.sin(u) * Math.SQRT1_2, Math.SQRT1_2], magnitude: 1 }), start: va,
+    end, sameSense: true, range: [0, Math.SQRT2] });
+  const rm = ruling(-half, vm), rp = ruling(half, vp);
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: 1 }), start: vm, end: vp,
+    sameSense: true, range: [2 * Math.PI - half, 2 * Math.PI + half] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'cone', position: AXIS, radius: 1, semiAngle: Math.PI / 4 }),
+    sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: rp, orientation: 'forward' }, { edge: arc, orientation: 'reversed' },
+      { edge: rm, orientation: 'reversed' }] }] }));
+  return b;
+}
+
+/**
  * seamCone's side bounded by its base circle and, in a loop of its own, an edge with no curve whose vertices are both
  * the apex (bug26451's drill points: the source's degenerate edge, not flagged so). Area pi sqrt 2. Turned: its sense
  * false, its loops as they are (a face turned in the source).
@@ -2128,11 +2151,11 @@ export function torusOuterHalf(): BrepBuilder {
  * apart, their chords sagging about as far as the tube's radius, and triangles laid along the band stand across the
  * tube (LMP1 #172690's #1056598). Its area 2 pi 0.1 (1.6 x 29 + 0.2 sin 0.8). With `off`, both circles that far
  * outside the tube (radius rho + off), within their edges' and vertices' tolerance (2 off): a sliver, its boundary
- * farther from its surface than the band is wide.
+ * farther from its surface than the band is wide. With `R`, that major radius instead.
  */
-export function lanternBand(off = 0): BrepBuilder {
+export function lanternBand(off = 0, R = 29): BrepBuilder {
   const b = new BrepBuilder();
-  const R = 29, r = 0.1, v = 0.8, rho = R + r * Math.cos(v) + off, z = r * Math.sin(v);
+  const r = 0.1, v = 0.8, rho = R + r * Math.cos(v) + off, z = r * Math.sin(v);
   const tolerance = off > 0 ? 2 * off : undefined;
   const circle = (h: number) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, h] }, radius: rho });
   const v0 = b.addVertex({ point: [rho, 0, -z], tolerance }), v1 = b.addVertex({ point: [rho, 0, z], tolerance });
@@ -3022,6 +3045,7 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge, poleRowFan, poleRowShort, poleRowNear,
   sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true), narrowArcStrip: () => narrowArcStrip(),
   pentagramLoop, mergedCornerStrip: () => mergedCornerStrip(),
+  lanternBand5: () => lanternBand(0, 5), apexSector: () => apexSector(2.5),
   mergedCornerStripTop: () => mergedCornerStrip(1.5, true),
   offCornerApart: () => offCornerSquare([0.5, 0], [0.3, 0.3]),
   offCornerNear: () => offCornerSquare([0.1, 0.1], [0.1, 0.1]),

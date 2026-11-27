@@ -103,6 +103,7 @@ interface CadioExports {
   _tc_set_list_poles: Fn;
   _tc_set_count_expected: Fn;
   _tc_set_fail_capped: Fn;
+  _tc_set_develop: Fn;
   _tc_set_fail_turned_over: Fn;
   _tc_set_keep_defects: Fn;
   _tc_set_fail_folded_fans: Fn;
@@ -192,6 +193,12 @@ export interface CadioInitOptions {
   failCapped?: boolean;
   failTurnedOver?: boolean;
   /**
+   * Mesh each face's first triangulation in the plane its domain develops to (part.h's PartOptions::develop: a
+   * cone's exact development, another face's mean first fundamental form); default true. False meshes in (u, v), for
+   * comparing the two, and tests.
+   */
+  develop?: boolean;
+  /**
    * Keep a face whose defect is small rather than fail it (part.h's PartOptions::keepDefects: a few triangles turned,
    * a little past its deflection, at its point cap), the defect said in a warning (KEPT_HEAD); default true.
    */
@@ -257,6 +264,7 @@ export class CadioTessellator implements Tessellator {
   private listPoles = false;
   private countExpected = false;
   private failCapped = true;
+  private develop = true;
   private failTurnedOver = true;
   private keepDefects = true;
   private failFoldedFans = true;
@@ -281,6 +289,7 @@ export class CadioTessellator implements Tessellator {
     this.listPoles = opts.listPoles ?? false;
     this.countExpected = opts.countExpected ?? false;
     this.failCapped = opts.failCapped ?? true;
+    this.develop = opts.develop ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.keepDefects = opts.keepDefects ?? true;
     this.failFoldedFans = opts.failFoldedFans ?? true;
@@ -554,6 +563,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_list_poles(this.listPoles ? 1 : 0);
     m._tc_set_count_expected(this.countExpected ? 1 : 0);
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
+    m._tc_set_develop(this.develop ? 1 : 0);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_keep_defects(this.keepDefects ? 1 : 0);
     m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);

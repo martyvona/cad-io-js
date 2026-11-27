@@ -242,9 +242,23 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     std::array<uint32_t, 3> k;
     if (std::isfinite(q.x) && shippedKey(q, k)) shipped.insert(k);
   }
+  // Other faces' vertices beside the shared edges (Domain2::shippedNear), apart: a triangle whose point would weld
+  // with one stays as it is, asking no split (its edge split, the neighbour meshed again, and again: conical-surface's
+  // cone #78 beside its capped cylinder #77, 3 -> 26 rounds).
+  std::unordered_set<std::array<uint32_t, 3>, ShippedHash> beside;
+  std::set<std::array<int32_t, 3>> weldFinal;
+  for (const auto& f : domain.shippedNear) {
+    std::array<uint32_t, 3> k;
+    for (int i = 0; i < 3; i++) std::memcpy(&k[i], &f[i], 4), k[i] = f[i] == 0 ? 0 : k[i];
+    beside.insert(k);
+  }
+  auto coincidesBeside = [&](Vec2 q) {
+    std::array<uint32_t, 3> k;
+    return !beside.empty() && shippedKey(q, k) && beside.count(k) > 0;
+  };
   auto coincides = [&](Vec2 q) {
     std::array<uint32_t, 3> k;
-    return !shipped.empty() && shippedKey(q, k) && shipped.count(k) > 0;
+    return (!shipped.empty() && shippedKey(q, k) && shipped.count(k) > 0) || coincidesBeside(q);
   };
   auto ship = [&](Vec2 q) {
     std::array<uint32_t, 3> k;
@@ -371,11 +385,12 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     // Too near a vertex of where it lands (a tenth of the triangle's shortest edge, or of a unit in the metric if
     // that's shorter): no improvement, the triangle final. Relative, since angles and the caller's criteria ask for
     // triangles below the metric's size (they end by meeting them, by the fixed boundary's limits, or by maxPoints).
-    bool nearVertex = false;
+    bool nearVertex = false, weldBeside = false;
     if (placed) {
       double floor = 0.1 * std::min(1.0, l[s]);
       for (int32_t w : T.tris()[at].v)
         if (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor) placed = false, nearVertex = true;
+      if (placed && coincidesBeside(c)) placed = false, nearVertex = true, weldBeside = true;
       if (placed && coincides(c)) placed = false, nearVertex = true;
     }
     // A triangle only a much shorter segment stands in the way of (each one it encroached shorter in the metric than
@@ -398,6 +413,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         bool near = false;
         double floor = 0.1 * std::min(1.0, l[s]);
         for (int32_t w : T.tris()[at].v) near = near || (w >= 0 && mlen(M, sub(c, T.points()[w])) < floor);
+        if (!near && coincidesBeside(c)) weldBeside = true;
         near = near || coincides(c);
         if (near) placed = false;
         else D.brokenInside++;
@@ -416,6 +432,7 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         const double area = 0.5 * std::fabs(cross(sub(p[1], p[0]), sub(p[2], p[0]))) * std::sqrt(M.a * M.c - M.b * M.b);
         double floor = 0.1 * std::min(1.0, 2 * area / std::max({l[0], l[1], l[2]}));
         for (int32_t v : T.tris()[atW].v) near = near || (v >= 0 && mlen(M, sub(w, T.points()[v])) < floor);
+        if (!near && coincidesBeside(w)) weldBeside = true;
         near = near || coincides(w);
         if (!near) c = w, at = atW, placed = true, f = 1, D.brokenWorst++;
       }
@@ -475,6 +492,16 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
       // triangle asks for nothing while refused (arm's half cylinder beside its corners).
       bool noneSplittable = true;
       for (uint64_t k : encroached) noneSplittable = noneSplittable && frozen.count(k);
+      if (weldBeside) {
+        // (Final, refused, asking no split, a segment its first candidate encroached included: the point that would
+        // mend it beside the edge welds with the neighbour's, and the edge split there brings the same again beside
+        // its new samples, round after round.)
+        std::array<int32_t, 3> v{T.tris()[it.t].v[0], T.tris()[it.t].v[1], T.tris()[it.t].v[2]};
+        std::sort(v.begin(), v.end());
+        weldFinal.insert(v);
+        finals.insert({it.t, it.gen});
+        continue;
+      }
       if (noneSplittable) {
         int32_t at2;
         acceptable(g, at2, true);
@@ -558,7 +585,9 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
     corners(t, p);
     int32_t index = static_cast<int32_t>(out.triangles.size() / 3);
     out.triangles.insert(out.triangles.end(), {R.v[0], R.v[1], R.v[2]});
-    if (!field.accept(p)) out.rejected.push_back(index);
+    std::array<int32_t, 3> sv{R.v[0], R.v[1], R.v[2]};
+    std::sort(sv.begin(), sv.end());
+    if (!field.accept(p)) out.rejected.push_back(index), out.rejectedWeld.push_back(weldFinal.count(sv) > 0);
     if (!detail) continue;
     const Quality q = quality(average(metricAt(R.v[0]), metricAt(R.v[1]), metricAt(R.v[2])), p);
     if (!(q.sine < minSine)) continue;

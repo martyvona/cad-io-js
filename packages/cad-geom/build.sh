@@ -117,6 +117,11 @@ native_lib() { library native c++ cc ar -O2 -DNDEBUG; }
 
 # The module: the wasm library and the C API's exports (each `cg_<name>(` defined at a line's start in it).
 wasm_module() {
+  # The sources' hash, taken before compiling and recorded beside the module once it is built, for
+  # scripts/check-dist.ts (npm test refuses a module older than its sources).
+  local inputs
+  inputs=$(node ../../scripts/check-dist.ts --hash cad_geom.wasm)
+  rm -f dist/cad_geom.wasm.inputs
   wasm_lib > /dev/null
   local names
   names=$(grep -oE '^[a-z0-9_]+[ *]+cg_[a-z0-9_]+\(' native/src/cad_geom_api.cpp | grep -oE 'cg_[a-z0-9_]+' | sort -u |
@@ -128,6 +133,7 @@ wasm_module() {
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=1MB \
     -sEXPORTED_FUNCTIONS="[$names,\"_malloc\",\"_free\"]" \
     -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP32","HEAPF64"]')
+  echo "$inputs" > dist/cad_geom.wasm.inputs
   echo "$PWD/dist/cad_geom.mjs"
 }
 

@@ -58,6 +58,10 @@ library() { # <target> <compiler> <archiver> <flags...>
 }
 
 if [ "$MODE" = module ]; then
+  # The sources' hash, taken before compiling and recorded beside the module once it is built, for
+  # scripts/check-dist.ts (npm test refuses a module older than its sources).
+  inputs=$(node ../../scripts/check-dist.ts --hash cad_oracle.wasm)
+  rm -f dist/cad_oracle.wasm.inputs
   $G/build.sh > /dev/null
   names=$(grep -oE '^[a-z0-9_ ]*[ *]+co_[a-z0-9_]+\(' native/src/cad_oracle_api.cpp | grep -oE 'co_[a-z0-9_]+' |
     sort -u | sed 's/^/"_/; s/$/"/' | paste -sd, -)
@@ -72,6 +76,7 @@ if [ "$MODE" = module ]; then
       -sEXPORTED_FUNCTIONS="[$names,\"_malloc\",\"_free\"]" \
       -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP32","HEAPF64","UTF8ToString"]'
   )
+  echo "$inputs" > dist/cad_oracle.wasm.inputs
   echo "$PWD/dist/cad_oracle.mjs"
   exit
 fi

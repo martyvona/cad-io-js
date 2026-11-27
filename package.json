@@ -33,7 +33,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node --test --test-timeout=$(( ${TEST_TIMEOUT:-600} * 1000 )) 'packages/*/test/**/*.test.ts' 'test/*.test.ts'",
+    "test": "node scripts/check-dist.ts && node --test --test-timeout=$(( ${TEST_TIMEOUT:-600} * 1000 )) 'packages/*/test/**/*.test.ts' 'test/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "viewer": "node packages/viewer/bin/viewer.ts",
     "deploy-demo": "scripts/deploy-demo.sh",

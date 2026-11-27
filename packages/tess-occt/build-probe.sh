@@ -15,6 +15,10 @@ B=${B:-build/occt-Os}
 [ -d "$B/include/opencascade" ] || { echo "no OCCT build at $B: run build-occt.sh" >&2; exit 1; }
 LIBS=("$B"/lin32/clang/lib/lib*.a)
 mkdir -p dist build
+# The sources' hash, taken before compiling and recorded beside the module once it is built, for
+# scripts/check-dist.ts (npm test refuses a module older than its sources).
+INPUTS=$(node ../../scripts/check-dist.ts --hash occt_probe.wasm)
+rm -f dist/occt_probe.wasm.inputs
 EXPORTS='["_occt_probe_read","_occt_probe_faces","_occt_probe_num_faces","_occt_probe_edges",'\
 '"_occt_probe_num_edges","_occt_probe_diag","_occt_probe_eval","_occt_probe_free","_occt_probe_build",'\
 '"_occt_probe_classify","_occt_probe_classify_solid","_occt_probe_pcurve","_malloc",'\
@@ -29,3 +33,4 @@ em++ -Os -fwasm-exceptions build/occt_probe-probe.o build/occt_build-probe.o -Wl
   -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sSTACK_SIZE=4MB \
   -sEXPORTED_FUNCTIONS="$EXPORTS" -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF64","UTF8ToString"]'
 ls -la dist/occt_probe.wasm dist/occt_probe.mjs
+echo "$INPUTS" > dist/occt_probe.wasm.inputs

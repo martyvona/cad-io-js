@@ -13,8 +13,9 @@ import { failedCauses, keptDefects } from './cadio_causes.ts';
 // `needles`: also none of the faces' triangles past an aspect (its longest side over its altitude) of 1000.
 // `kept`: the faces may be kept with a defect instead (tess-cadio's keepDefects), within its limits (past them where
 // `pastLimits`) and with at most `turned` triangles turned, each face's mesh area within `area` (mm^2).
+// `develop`: tess-cadio's init option (PartOptions::develop), for a case that tests what meshing in (u, v) does.
 interface Case { file: string; part: number; faces: number[]; why: string; needles?: boolean;
-  kept?: { turned: number; area: [number, number]; pastLimits?: boolean } }
+  kept?: { turned: number; area: [number, number]; pastLimits?: boolean }; develop?: boolean }
 const root = path.join(import.meta.dirname, '..', 'test_corpus');
 const CASES: Case[] = [
   // A pole's ring inside an arc that, one span at the start (its two ends labelled with the edges before them), the
@@ -41,13 +42,20 @@ const CASES: Case[] = [
   // mesher couldn't break: a corner of the mesher's own collapsed onto a neighbour (collapseTurned's general case).
   { file: 'third_party/gkv311-opencascade-dataset/step/trj4_k1_top-pe-214.stp', part: 4779, faces: [1529, 1759],
     why: 'a turned needle\'s corner collapsed onto a neighbour' },
+  // (Meshed in (u, v), where the needles collapseTurned mends arise. #143 kept with 3 turned, past the limits: its
+  // neighbour #40's loop, merged by coincidentEdges, refines their shared edge #1124 more finely, and #143's ring
+  // segment is fixed, blocking its refinement.)
   { file: 'third_party/gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp', part: 22, faces: [139, 142],
-    why: 'a turned needle\'s corner collapsed onto a neighbour' },
-  // (#143 kept with 3 turned, past the limits: its neighbour #40's loop, merged by coincidentEdges, refines their
-  // shared edge #1124 more finely, and #143's ring segment is fixed, blocking its refinement.)
+    why: 'a turned needle\'s corner collapsed onto a neighbour', develop: false },
   { file: 'third_party/gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp', part: 22, faces: [143],
-    why: 'a turned needle\'s corner collapsed onto a neighbour',
+    why: 'a turned needle\'s corner collapsed onto a neighbour', develop: false,
     kept: { turned: 3, area: [2.9, 3.2], pastLimits: true } },
+  // (In the developed plane #139's needles are slivers beside the ring's crossing on an edge 0.0046 mm off the
+  // surface, asking only the ring's segments split, which its pole's faces never do: kept within the limits.)
+  { file: 'third_party/gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp', part: 22, faces: [139, 142],
+    why: 'slivers beside a pole ring\'s crossing, developed', kept: { turned: 2, area: [2.93, 3.02] } },
+  { file: 'third_party/gkv311-opencascade-dataset/step/bug27693_cornetta-step.stp', part: 22, faces: [143],
+    why: 'slivers beside a pole ring\'s crossing, developed', kept: { turned: 3, area: [2.9, 3.2], pastLimits: true } },
   { file: 'third_party/gkv311-opencascade-dataset/step/bug33398.step', part: 13688, faces: [76],
     why: 'a turned needle\'s corner collapsed onto a neighbour' },
   // Poles' fans folding once welded (PartOptions::failFoldedFans fails them), at an apex with a curve through it: a fan
@@ -119,8 +127,12 @@ function needles(r: TessellationResult, face: number): number {
   return n;
 }
 
-const t = new CadioTessellator();
-await t.init();
+const tessellators = new Map<boolean, CadioTessellator>();
+async function tessellator(develop: boolean): Promise<CadioTessellator> {
+  let t = tessellators.get(develop);
+  if (!t) tessellators.set(develop, t = new CadioTessellator()), await t.init({ develop });
+  return t;
+}
 let bad = 0;
 const byFile = new Map<string, Case[]>();
 for (const c of CASES) byFile.set(c.file, [...(byFile.get(c.file) ?? []), c]);
@@ -138,6 +150,7 @@ for (const [file, cases] of byFile) {
       bad++;
       continue;
     }
+    const t = await tessellator(c.develop ?? true);
     const r = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(part.brep!.model.buffer),
       origin: part.origin, ...MESH_PROFILES.medium });
     const failed = failedCauses(r), still = c.faces.filter((f) => failed.has(f)).map((f) => `#${f} ${failed.get(f)}`);

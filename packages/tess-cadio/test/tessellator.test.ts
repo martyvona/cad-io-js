@@ -363,6 +363,22 @@ test('a request\'s analysis read (info.readsAnalysis): an edge past repair met a
   assert.ok(healed.indices.length > 0 && healed.indices.length < plain.indices.length);
 });
 
+test('init({develop}): false meshes each face in (u, v), true (the default) in its developed plane where that is the '
+  + 'nearer isotropic frame', { skip }, async () => {
+  // (cylinderVast, radius 8000: u in radians, so its developed plane divides its metric's stretch by the radius.)
+  const data = new Uint8Array(TESS_MODELS.cylinderVast().finish().buffer);
+  const mesh = async (opts: { develop?: boolean }) => {
+    const t = new CadioTessellator();
+    await t.init(opts);
+    const r = await t.tessellate({ ...req('cube'), data, linearDeflection: 0.1, edges: false });
+    assert.equal(failedCauses(r).size, 0);
+    return [...r.positions].join(',') + '|' + [...r.indices].join(',');
+  };
+  const plain = await mesh({}), developed = await mesh({ develop: true }), uv = await mesh({ develop: false });
+  assert.equal(plain, developed);
+  assert.notEqual(uv, developed);
+});
+
 test('an edge off its face\'s surface past max(d, tol): the face kept, the edge and its distance said, past the '
   + 'limits; with keepDefects off, failed for it', { skip }, async () => {
   // (edgeBulge: a 10 mm square whose top side is an arc 0.5 over it, its use placed on its feet: 50 x 0.01.)
