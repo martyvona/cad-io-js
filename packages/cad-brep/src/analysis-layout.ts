@@ -7,7 +7,7 @@
 
 import type { ColumnType } from './layout.ts';
 
-export const ANALYSIS_MAGIC = 'CBA7';
+export const ANALYSIS_MAGIC = 'CBA8';
 
 /**
  * The tables in buffer order. A per-entity table (vertex, edge, coedge, face, surface, shell) is either empty (not
@@ -117,6 +117,12 @@ export const ANALYSIS_TABLES = {
    */
   healing: [['fixes', 'u32', 1], ['pcurveFitTolerance', 'f64', 1], ['version', 'u32', 1], ['sourceCurves', 'u32', 1],
     ['strayPoles', 'u32', 1]],
+  /**
+   * Where healing changed the model's topology (cad-heal's coincidentEdges: edges split and merged, faces removed),
+   * the source model's buffer, a byte a row (empty otherwise): the per-entity tables' given values are then of the
+   * healed rows, which the source's don't match, and healing again starts from this model instead.
+   */
+  source: [['model', 'u8', 1]],
 } as const satisfies Record<string, readonly (readonly [string, ColumnType, number])[]>;
 
 export type AnalysisTableName = keyof typeof ANALYSIS_TABLES;

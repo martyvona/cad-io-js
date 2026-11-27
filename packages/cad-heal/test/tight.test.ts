@@ -57,7 +57,9 @@ test('pcurveTight: a strip\'s face whose loose projections collapse it, its exac
   g.dispose();
   assert.deepEqual([...t.fit.keys()], [0]);
   assert.ok(t.fit.get(0)! < 0.0025, `tighter than the fit tolerance where needed: ${t.fit.get(0)}`);
-  const r = await healPart(d, {}, module);
+  // (coincidentEdges off: within their tolerance of 0.1 end to end, the two sides are one edge, the face a sliver it
+  // removes.)
+  const r = await healPart(d, { fixes: { coincidentEdges: false } }, module);
   const said = r.diagnostics.filter((x) => x.message.startsWith('pcurveTight'));
   assert.deepEqual(said.map((x) => x.severity), ['warning', 'warning'], JSON.stringify(r.diagnostics));
   assert.match(said[0]!.message, new RegExp(String.raw`^pcurveTight: 1 face whose bare uses' projections .* given `
@@ -77,7 +79,8 @@ test('pcurveTight: where the loose projections keep the loop (tolerance 1e-6), o
   const g = new Geometry(module, new Uint8Array(d.buffer));
   assert.equal(tightFaces(g, d, 0.0025).fit.size, 0);
   g.dispose();
-  const off = await healPart(strip([5, 0.0004 - 0.0006, 0.002]), { fixes: { pcurveTight: false } }, module);
+  const off = await healPart(strip([5, 0.0004 - 0.0006, 0.002]), { fixes: { pcurveTight: false,
+    coincidentEdges: false } }, module);
   assert.ok(!off.diagnostics.some((x) => x.message.startsWith('pcurveTight')));
   assert.ok(off.model.coedge.pcurve[1]! < 0, 'bare, as built');
 });
