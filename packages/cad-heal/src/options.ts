@@ -85,7 +85,7 @@ export const PCURVE_FIT_TOLERANCE = 0.0025;
  * The version of what healing makes: bumped when the same model and options heal to other bytes, so a model healed by
  * another version is healed again from its source's values rather than taken as healed (the analysis's healing row).
  */
-export const HEAL_VERSION = 4;
+export const HEAL_VERSION = 5;
 
 /** The fixes as the analysis's healing row holds them: a bit per fix, in HEAL_FIXES order. */
 export function fixesMask(fixes: Iterable<HealFix>): number {

@@ -154,12 +154,14 @@ class Topo {
    * Edge e split at its curve's parameter t (its parameters from start to end t0, t1) at vertex x: e becomes the
    * piece from its start to x, a new edge the piece from x to its end; every use of e is two uses, in the order it
    * runs. A use's p-curve is cut at the split: at t where it runs at the edge's parameter, else at `pcurveAt`'s
-   * parameter for it (the p-curve's nearest to the split point), else dropped. Returns the new edge's row and how many
-   * p-curves were dropped.
+   * parameter for it (the p-curve's nearest to the split point), else dropped; a use without a range takes
+   * `rangeOf`'s (the face API's), and its pieces get theirs. Returns the new edge's row and how many p-curves were
+   * dropped.
    */
   split(e: number, t0: number, t1: number, t: number, x: number,
-    pcurveAt: (c: number, loop: number, start: number) => PcurveSplit | undefined = () => undefined):
-    { hi: number; dropped: number } {
+    pcurveAt: (c: number, loop: number, start: number, range: [number, number]) => PcurveSplit | undefined =
+      () => undefined,
+    rangeOf: (c: number) => [number, number] | undefined = () => undefined): { hi: number; dropped: number } {
     const E0 = this.e[e]!, hi = this.e.length, s0 = E0.start;
     // (Both pieces keep the edge's source id: consumers that place a mesh's edges by id (open-edges.ts, picking) see
     // the source's edge in both, as its uses' coedges keep theirs.)
@@ -175,13 +177,15 @@ class Topo {
         // The p-curve's parameter at the split: t where it runs at the edge's parameter (its range, the p-curve's
         // parameters at the edge's start and end in that order whichever way the use runs, the edge's), else
         // pcurveAt's, strictly inside its range.
+        // A use without a range takes rangeOf's (the face API's).
         const span = Math.abs(t1 - t0) || 1;
         let [r0, r1] = C0.range;
+        if (C0.pcurve >= 0 && !(Number.isFinite(r0) && Number.isFinite(r1))) [r0, r1] = rangeOf(c) ?? [NaN, NaN];
         const same = C0.pcurve >= 0 && Math.abs(r0 - t0) <= 1e-9 * span && Math.abs(r1 - t1) <= 1e-9 * span;
         let at = same ? t : undefined;
-        if (C0.pcurve >= 0 && !same) {
+        if (C0.pcurve >= 0 && !same && Number.isFinite(r0) && Number.isFinite(r1)) {
           // (The edge's start: its end is x from here.)
-          const q = pcurveAt(c, li, s0);
+          const q = pcurveAt(c, li, s0, [r0, r1]);
           if (q !== undefined && (q.at - q.range[0]) * (q.range[1] - q.at) > 0) [r0, r1] = q.range, at = q.at;
         }
         if (C0.pcurve >= 0 && at === undefined) dropped++;
@@ -460,6 +464,40 @@ function measure(g: Geometry, params: Params, d: BrepData, p: Pair, tolOf: (e: n
   return { tA, tB, wholeA, wholeB, length, distance, tol, crossed: crossing !== undefined };
 }
 
+/** Each face's pieces as the face API takes them (facePieces), per model's Geometry. */
+const piecesOf = new WeakMap<Geometry, Map<number, ReturnType<Geometry['facePieces']>>>();
+
+/**
+ * Coedge c's p-curve parameters at its edge's start and end (rows of d, the use with a p-curve), as the face API takes
+ * them: its range where given, else its one piece's travel (the edge's parameters where the p-curve reaches the
+ * vertices there, else the p-curve's own: a p-curve parameterized otherwise than its curve), the end whose point lies
+ * nearer the edge's start first. Undefined where the face API doesn't say (a use two pieces, across a closed p-curve's
+ * ends).
+ */
+function pcurveRange(g: Geometry, d: BrepData, params: Params, c: number): [number, number] | undefined {
+  const r0 = d.coedge.range[2 * c]!, r1 = d.coedge.range[2 * c + 1]!;
+  if (Number.isFinite(r0) && Number.isFinite(r1)) return [r0, r1];
+  const f = faceOfCoedge(d, c);
+  if (f < 0) return undefined;
+  let byFace = piecesOf.get(g);
+  if (!byFace) piecesOf.set(g, byFace = new Map());
+  let pieces = byFace.get(f);
+  if (!pieces) byFace.set(f, pieces = g.facePieces(f));
+  if (pieces.status !== 'ok') return undefined;
+  const k = pieces.coedge.indexOf(c);
+  if (k < 0 || pieces.coedge.indexOf(c, k + 1) >= 0) return undefined;
+  const a = pieces.travel[2 * k]!, b = pieces.travel[2 * k + 1]!, e = d.coedge.edge[c]!, E = params(e);
+  if (E) {
+    const span = Math.abs(E[1] - E[0]), at = (x: number, y: number) => Math.abs(x - y) <= 1e-9 * span;
+    if (at(a, E[0]) && at(b, E[1]) || at(a, E[1]) && at(b, E[0])) return E;
+  }
+  const s = d.edge.start[e]!, uv = g.evalCurve(d.coedge.pcurve[c]!, [a, b], 0);
+  if (s < 0 || uv.status !== 'ok' || uv.statuses.some((x) => x !== 0)) return undefined;
+  const S = g.faceEval(f, [uv.values[0]!, uv.values[1]!, uv.values[3]!, uv.values[4]!], 0);
+  if (S.status !== 'ok' || S.statuses.some((x) => x !== 0)) return undefined;
+  return sub(S.values, 0, d.vertex.point, 3 * s) <= sub(S.values, 3, d.vertex.point, 3 * s) ? [a, b] : [b, a];
+}
+
 /** Uniform samples of a stretch from its vertex, and geometric ones toward the vertex (a crossing can be a micron
  * from it in a stretch of millimetres). */
 const CROSS_UNIFORM = 128, CROSS_GEOMETRIC = 30;
@@ -474,12 +512,10 @@ function lastCrossing(g: Geometry, params: Params, d: BrepData, p: Pair, A: [num
   B: [number, number], tA: number, tB: number): number | undefined {
   // A use whose p-curve doesn't run at its edge's parameter is taken as the face API's projection of its curve (its
   // (u, v) at the edge's parameters); the rest by the face API's own (their p-curves, else projections).
-  // (A coedge's range is in its edge's start-to-end order, whichever way it runs.)
   const atEdge = (c: number) => {
     if (d.coedge.pcurve[c]! < 0) return true;
-    const r = params(d.coedge.edge[c]!)!, [a, b] = r, span = Math.abs(r[1] - r[0]);
-    return Math.abs(d.coedge.range[2 * c]! - a) <= 1e-9 * span
-      && Math.abs(d.coedge.range[2 * c + 1]! - b) <= 1e-9 * span;
+    const r = params(d.coedge.edge[c]!)!, [a, b] = r, span = Math.abs(r[1] - r[0]), q = pcurveRange(g, d, params, c);
+    return !!q && Math.abs(q[0] - a) <= 1e-9 * span && Math.abs(q[1] - b) <= 1e-9 * span;
   };
   const ts = (t0: number, t1: number) => {
     const xs = Array.from({ length: CROSS_UNIFORM + 1 }, (_, i) => i / CROSS_UNIFORM);
@@ -606,7 +642,9 @@ function apply(g: Geometry, params: Params, d: BrepData, p: Pair, s: Stretch, pa
   const cut = (e: number, [tv, tfar]: [number, number], ts: number, whole: boolean) => {
     if (whole) return e;
     const startAtV = d.edge.start[e] === p.v, [t0, t1] = startAtV ? [tv, tfar] : [tfar, tv];
-    const r = t.split(e, t0, t1, ts, x, nearestOn(g, t, t.e[e]!.curve, ts, s.tol));
+    // (Uses of the given model's rows: what the face API says of their p-curves' parameters.)
+    const r = t.split(e, t0, t1, ts, x, nearestOn(g, t, t.e[e]!.curve, ts, s.tol),
+      (c) => t.c[c]!.from === c ? pcurveRange(g, d, params, c) : undefined);
     dropped += r.dropped;
     // split keeps e as the start's piece: the stretch is e where v is the start, else the new one.
     return startAtV ? e : r.hi;
@@ -663,7 +701,7 @@ function apply(g: Geometry, params: Params, d: BrepData, p: Pair, s: Stretch, pa
   return { t, merged, dropped, near: [[...t.v[x]!.point] as Vec, [...t.v[p.v]!.point] as Vec] };
 }
 
-/** A use's p-curve's parameter at a split, and its range as the use runs (its own where the use gave none). */
+/** A use's p-curve's parameter at a split, and its range (at its edge's start and end). */
 interface PcurveSplit {
   at: number;
   range: [number, number];
@@ -675,34 +713,24 @@ const NEAR_SAMPLES = 64;
 /**
  * For a use of an edge of curve `row` split at its parameter t: the parameter of the use's p-curve whose point on its
  * face's surface is nearest the curve's at t (sampled over the use's range, then refined by golden section), where
- * that's within tol of it; else undefined. A use without a range takes its p-curve's own, the end nearer the edge's
- * `start` vertex first (a coedge's range is in its edge's start-to-end order).
+ * that's within tol of it; else undefined. `range` is the use's p-curve's parameters at its edge's start and end.
  */
 function nearestOn(g: Geometry, topo: Topo, row: number, t: number, tol: number):
-  (c: number, loop: number, start: number) => PcurveSplit | undefined {
-  return (c, loop, start) => {
+  (c: number, loop: number, start: number, range: [number, number]) => PcurveSplit | undefined {
+  return (c, loop, _start, [r0, r1]) => {
     const f = topo.f.findIndex((F) => F.loops.includes(loop)), C0 = topo.c[c]!;
     const P = g.evalCurve(row, [t], 0);
     if (f < 0 || P.status !== 'ok' || P.statuses[0]) return undefined;
     const surface = topo.f[f]!.surface;
-    let [r0, r1] = C0.range;
-    const dist = (ss: number[], Q: ArrayLike<number> = P.values) => {
+    const dist = (ss: number[]) => {
       const uv = g.evalCurve(C0.pcurve, ss, 0);
       if (uv.status !== 'ok' || uv.statuses.some((v) => v !== 0)) return undefined;
       const pts: number[] = [];
       for (let i = 0; i < ss.length; i++) pts.push(uv.values[3 * i]!, uv.values[3 * i + 1]!);
       const S = g.evalSurface(surface, pts, 0);
       if (S.status !== 'ok' || S.statuses.some((v) => v !== 0)) return undefined;
-      return ss.map((_, i) => sub(S.values, 3 * i, Q, 0));
+      return ss.map((_, i) => sub(S.values, 3 * i, P.values, 0));
     };
-    // A use without a range: the p-curve's own, its end nearer the edge's start first.
-    if (!Number.isFinite(r0) || !Number.isFinite(r1)) {
-      const info = g.curveInfo(C0.pcurve);
-      if (info.status !== 'ok' || !Number.isFinite(info.lo) || !Number.isFinite(info.hi) || start < 0) return undefined;
-      const d = dist([info.lo, info.hi], topo.v[start]!.point);
-      if (!d) return undefined;
-      [r0, r1] = d[0]! <= d[1]! ? [info.lo, info.hi] : [info.hi, info.lo];
-    }
     const ss = Array.from({ length: NEAR_SAMPLES + 1 }, (_, i) => r0 + (r1 - r0) * i / NEAR_SAMPLES);
     const d0 = dist(ss);
     if (!d0) return undefined;

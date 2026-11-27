@@ -19,9 +19,10 @@ const quad = (p: number[][]) => ({ kind: 'bspline' as const, degree: 2, knots: [
  * Edges A, B, C ids 11, 12, 13, each of tolerance `tol`; uncertainty 1e-6. (B's slope at L, 2 k L, kept well under
  * 10: steeper, B and C would make a cusp at their corner too.) `disk`: a fourth face (id 4), a disk on z = 10 bounded
  * by a circle edge without vertices (a curve-bounded surface's boundary). `pcurve`: A's uses given p-curves (the
- * plane's (u, v) is (x, y)), B-spline lines at half its parameter, and no range (as sources give them).
+ * plane's (u, v) is (x, y)), B-spline lines at half its parameter, and no range (as sources give them); 'line': lines
+ * at its parameter, unbounded, and B's uses theirs at its parameter too, none with a range.
  */
-function cusp(k: number, tol: number, L = 10, disk = false, pcurve = false): BrepData {
+function cusp(k: number, tol: number, L = 10, disk = false, pcurve: boolean | 'line' = false): BrepData {
   const b = new BrepBuilder({ uncertainty: 1e-6 });
   const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
   const h = k * L * L, top = h + 5;
@@ -42,10 +43,12 @@ function cusp(k: number, tol: number, L = 10, disk = false, pcurve = false): Bre
     ({ face: b.addFace({ surface: plane, sameSense: true, id, loops: [{ kind: 'edge', bound: 'outer', coedges }] }),
       sense: true });
   // (A bounded p-curve: a line's has no ends to tell the use's start by.)
-  const pc = () => pcurve ? { pcurve: b.addCurve({ kind: 'bspline', degree: 1, knots: [0, L / 2],
+  const pc = () => pcurve === 'line' ? { pcurve: b.addCurve({ kind: 'line', point: [L, 0], direction: [-1, 0],
+    magnitude: 1 }) } : pcurve ? { pcurve: b.addCurve({ kind: 'bspline', degree: 1, knots: [0, L / 2],
     multiplicities: [2, 2], poles: [[L, 0], [0, 0]], closed: false, selfIntersect: false, form: 'unspecified' }) } : {};
-  const faces = [face(1, [{ ...fwd(A), ...pc() }, fwd(B), fwd(C)]), face(2, [{ ...rev(A), ...pc() }, ...ea.map(fwd)]),
-    face(3, [rev(B), ...eb.map(fwd)])];
+  const pcB = () => pcurve === 'line' ? { pcurve: b.addCurve({ ...quad([[0, 0], [L / 2, 0], [L, h]]) }) } : {};
+  const faces = [face(1, [{ ...fwd(A), ...pc() }, { ...fwd(B), ...pcB() }, fwd(C)]),
+    face(2, [{ ...rev(A), ...pc() }, ...ea.map(fwd)]), face(3, [{ ...rev(B), ...pcB() }, ...eb.map(fwd)])];
   if (disk) {
     const at = { origin: [0, 0, 10], axis: [0, 0, 1], xDir: [1, 0, 0] };
     const circle = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: at, radius: 1 }), sameSense: true,
@@ -177,6 +180,43 @@ test('coincidentEdges: a split use\'s p-curve at another parameter than its edge
       `range ${x.coedge.range.slice(2 * c, 2 * c + 2)}`);
     const p = g.evalCoedge(c, [x.coedge.range[2 * c]!], 0).values;
     assert.ok(Math.hypot(p[0]! - 10, p[1]!) < 1e-9, `the piece starts at (10, 0): ${p[0]}, ${p[1]}`);
+  }
+  g.dispose();
+});
+
+test('coincidentEdges: a split use\'s p-curve at its edge\'s parameter, without a range, unbounded: cut at the split',
+  () => {
+  const d = cusp(0.01, 0.01, 10, false, 'line');
+  assert.deepEqual(errors(d), []);
+  const r = mergeCoincident(module, d)!;
+  assert.ok(r);
+  assert.equal(r.pcurvesDropped, 0);
+  const x = r.model, a = [...x.edge.id].indexOf(11);
+  const uses = [...x.coedge.edge.keys()].filter((c) => x.coedge.edge[c] === a);
+  assert.equal(uses.length, 2);
+  const g = new Geometry(module, new Uint8Array(x.buffer));
+  // A's own piece, its parameter 0 to 9.684: the p-curve's too, at both ends on the piece's points.
+  // And B's far piece (its start the parting vertex, the new row's), from its uses in F and F_b.
+  const bFar = [...x.edge.id.keys()].find((e) => x.edge.id[e] === 12 && x.edge.start[e] === x.edge.end[a]);
+  assert.ok(bFar !== undefined);
+  const usesB = [...x.coedge.edge.keys()].filter((c) => x.coedge.edge[c] === bFar);
+  assert.equal(usesB.length, 2);
+  const P = g.evalCurve(x.edge.curve[a]!, [x.edge.range[2 * a]!, x.edge.range[2 * a + 1]!], 0).values;
+  const PB = g.evalCurve(x.edge.curve[bFar!]!, [x.edge.range[2 * bFar!]!, x.edge.range[2 * bFar! + 1]!], 0).values;
+  for (const c of usesB) {
+    assert.ok(x.coedge.pcurve[c]! >= 0, 'kept');
+    for (const k of [0, 1]) {
+      const q = g.evalCoedge(c, [x.coedge.range[2 * c + k]!], 0).values;
+      assert.ok(Math.hypot(q[0]! - PB[3 * k]!, q[1]! - PB[3 * k + 1]!) < 1e-9, `B's far piece's end ${k}`);
+    }
+  }
+  for (const c of uses) {
+    assert.ok(x.coedge.pcurve[c]! >= 0, 'kept');
+    const q = [0, 1].map((k) => g.evalCoedge(c, [x.coedge.range[2 * c + k]!], 0).values);
+    for (const k of [0, 1]) {
+      assert.ok(Math.hypot(q[k]![0]! - P[3 * k]!, q[k]![1]! - P[3 * k + 1]!) < 1e-9,
+        `end ${k}: (${q[k]![0]}, ${q[k]![1]}) against (${P[3 * k]}, ${P[3 * k + 1]})`);
+    }
   }
   g.dispose();
 });
