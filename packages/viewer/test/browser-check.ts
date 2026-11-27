@@ -5346,6 +5346,16 @@ await check('keyboard shortcuts', async () => {
     ui.select([]);
     for (let i = 0; i < 2; i++) { key('g'); out.g.push(edges()); }
     out.control = control('Triangle edges').getValue();
+    // e: picking faces, edges, curves and vertices, the tree's detail and Vertices on; again, parts, both off; from
+    // the assembly level, the detail level again.
+    const detail = () => [ui.selection.level, control('Faces, edges, curves, vertices').getValue(),
+      viewer.render.vertices, ui.tree().detail].join(' ');
+    out.e = [detail()];
+    for (let i = 0; i < 2; i++) { key('e'); out.e.push(detail()); }
+    ui.setPickLevel('assembly');
+    key('e');
+    out.e.push(detail());
+    key('e');
     // Left alone: a text field's, modified, shifted, repeated.
     const input = document.createElement('input');
     document.body.append(input);
@@ -5361,6 +5371,8 @@ await check('keyboard shortcuts', async () => {
     key('t');
     key('g');
     key('g');
+    key('e');
+    key('e');
     const rec = cadViewer.record(false);
     out.recorded = rec.events.filter((e) => e.type === 'control').map((e) => e.path + (e.value === undefined ? ''
       : '=' + e.value) + (e.shift ? ' shift' : ''));
@@ -5374,7 +5386,7 @@ await check('keyboard shortcuts', async () => {
     return out;
   })()`, { first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { f: [boolean, string[]];
     fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[]; shifted: boolean[];
-    shiftedCalls: string[];
+    shiftedCalls: string[]; e: string[];
     h: [boolean, boolean]; s: [boolean, boolean]; escape: [boolean, number]; tree: boolean[]; g: string[];
     control: string; ignored: boolean[];
     ignoredCalls: string[]; recorded: string[]; hints: [string, string, boolean, boolean, boolean][] } };
@@ -5391,14 +5403,19 @@ await check('keyboard shortcuts', async () => {
   expect(a.tree[0] !== a.tree[1] && a.tree[0] === a.tree[2], `t: the tree shown or not: ${j}`);
   expect(a.g.join() === 'off,selected,off,all,off' && a.control === 'off',
     `g: off to selected with a selection, to all without; back to off: ${j}`);
+  expect(a.e.join() === 'part false false false,detail true true true,part false false false,detail true true true',
+    `e: the detail level, the tree's detail and Vertices, or back to parts: ${j}`);
   expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
     `none in a text field, with a modifier, repeated, or unbound: ${j}`);
   expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Front 1,Back 2,Left 3,'
-    + 'Right 4,Top 5,Bottom 6,Iso X 7,Iso Y 8,Iso Z 9,Show the tree t,Select none Esc,Hide selected h,Show selected s,Triangle edges g'
+    + 'Right 4,Top 5,Bottom 6,Iso X 7,Iso Y 8,Iso Z 9,Show the tree t,Faces, edges, curves, vertices e,Pick e,'
+    + 'Select none Esc,Hide selected h,Show selected s,Vertices e,Triangle edges g'
     && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
   expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|View/Look Along an Axis/Front shift|'
     + 'Tree/Show the tree=false|Tree/Show the tree=true|'
-    + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off', `recorded as their controls: ${j}`);
+    + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off|Selection/Pick=detail|'
+    + 'Tree/Faces, edges, curves, vertices=true|Rendering/Vertices=true|Selection/Pick=part|'
+    + 'Tree/Faces, edges, curves, vertices=false|Rendering/Vertices=false', `recorded as their controls: ${j}`);
   return undefined;
 });
 // The keys' hints on a touch screen with no mouse or trackpad (an emulated phone): hidden, until a key is pressed

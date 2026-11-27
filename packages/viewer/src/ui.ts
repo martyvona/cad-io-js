@@ -840,7 +840,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
   edgeWidth.show(look.edgeStyle === 'fat');
   // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
-  rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
+  const verticesControl = rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
   // Mesh edge detection... (edge-dialog.ts): its values remembered in this browser, every load's detection too.
@@ -1487,7 +1487,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
   // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
-  selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
+  const pickControl = selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
     'Face, edge, curve, vertex': 'detail' }).name('Pick').onChange(hover);
   selFolder.add(selection, 'multi').name('Multi-select');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
@@ -1536,6 +1536,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   hint(openControl, 't');
   hint(triangleEdges, 'g');
   hint(noneControl, 'Esc');
+  for (const c of [pickControl, detailControl, verticesControl]) hint(c, 'e');
   // The hints show where there's a mouse or trackpad (index.html), and once a physical keyboard has been seen (a class
   // on the page, remembered in this browser): a tablet's keyboard alone isn't told to the page any other way.
   const keyboardSeen = () => document.documentElement.classList.add('cv-keyboard');
@@ -1558,6 +1559,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     else if (s.type === 'show') press(showControl);
     else if (s.type === 'tree') set(openControl!, !tree.open);
     else if (s.type === 'selectNone') press(noneControl);
+    else if (s.type === 'detail') {
+      // Faces, edges, curves and vertices picked, shown in the tree and drawn; or parts, and neither.
+      const on = selection.level !== 'detail';
+      set(pickControl, on ? 'detail' : 'part');
+      if (tree.detail !== on) set(detailControl!, on);
+      if (look.vertices !== on) set(verticesControl, on);
+    }
     else set(triangleEdges, nextTriangleEdges(look.triangleEdges, selected.length > 0));
   });
 

@@ -19,7 +19,12 @@ export type Shortcut =
   /** Triangle edges, the next of its values (nextTriangleEdges). */
   | { type: 'triangleEdges' }
   /** Select none (Escape). */
-  | { type: 'selectNone' };
+  | { type: 'selectNone' }
+  /**
+   * Pick faces, edges, curves and vertices, or back to parts if it already does: the tree's detail and Vertices
+   * following.
+   */
+  | { type: 'detail' };
 
 /** The views by their keys, 1 to 9, in Look Along an Axis's order. */
 export const VIEW_KEYS: readonly ViewName[] = AXIS_VIEWS.map((v) => v.view);
@@ -52,6 +57,7 @@ export function shortcutOf(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | '
   if (k === 's') return { type: 'show' };
   if (k === 't') return { type: 'tree' };
   if (k === 'g') return { type: 'triangleEdges' };
+  if (k === 'e') return { type: 'detail' };
   if (k === 'Escape') return { type: 'selectNone' };
   const n = /^[1-9]$/.test(k) ? Number(k) : 0;
   return n ? { type: 'view', view: VIEW_KEYS[n - 1]!, shift: false } : undefined;

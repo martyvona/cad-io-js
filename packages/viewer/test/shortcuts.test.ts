@@ -10,12 +10,13 @@ const press = (key: string, o: Partial<Parameters<typeof shortcutOf>[0]> = {}) =
 const inside = (...starts: string[]) => ({ closest: (sel: string) => (sel.split(',').some((s) =>
   starts.some((t) => s.trim().startsWith(t))) ? {} : null) }) as unknown as EventTarget;
 
-test('shortcutOf: f, h, s, t, g, Escape, and 1 to 9 the views in Look Along an Axis\'s order; other keys none', () => {
+test('shortcutOf: f, h, s, t, g, e, Escape, and 1 to 9 the views in Look Along an Axis\'s order; other keys none', () => {
   assert.deepEqual(press('f'), { type: 'zoom' });
   assert.deepEqual(press('h'), { type: 'hide' });
   assert.deepEqual(press('s'), { type: 'show' });
   assert.deepEqual(press('t'), { type: 'tree' });
   assert.deepEqual(press('g'), { type: 'triangleEdges' });
+  assert.deepEqual(press('e'), { type: 'detail' });
   assert.deepEqual(press('Escape'), { type: 'selectNone' });
   const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoX', 'isoY', 'isoZ'];
   assert.deepEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((k) => press(k)),
