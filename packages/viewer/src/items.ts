@@ -41,6 +41,17 @@ export function setItems(o: THREE.Object3D & { geometry: THREE.BufferGeometry },
   }
 }
 
+/**
+ * Disposes a geometry that borrows its attributes from another (its index alone its own: an item's, a selection's
+ * overlay, a mark): the attributes taken off first. three.js's dispose frees each attribute's GPU buffer, and the
+ * other geometry's drawings keep binding the freed one (each vertex array is set up once): a face highlighted and let
+ * go was drawn no more where the ids are drawn, so it could no longer be picked.
+ */
+export function disposeBorrowing(g: THREE.BufferGeometry): void {
+  for (const name of Object.keys(g.attributes)) g.deleteAttribute(name);
+  g.dispose();
+}
+
 /** An object's items, as made (none for an object without). */
 export function itemsOf(o: THREE.Object3D): readonly Item[] {
   return kept.get(o)?.items ?? [];
@@ -82,7 +93,7 @@ export function hideItems(o: THREE.Object3D & { geometry: THREE.BufferGeometry }
   if (!k) return;
   const key = [...hidden].sort((a, b) => a - b).join(',');
   if (key === k.key) return;
-  if (o.geometry !== k.full) o.geometry.dispose();
+  if (o.geometry !== k.full) disposeBorrowing(o.geometry);
   if (!hidden.size || hidden.size >= k.items.length) {
     o.geometry = k.full;
     kept.set(o, { ...k, now: hidden.size ? k.items.map((item) => ({ ...item, count: 0 })) : k.items, key });

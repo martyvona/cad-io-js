@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { boxesSphere, type Box } from 'cad-scene';
 import { biasTowardCamera, keepBias } from './depth-bias.ts';
-import { itemsOf, rangeOf } from './items.ts';
+import { disposeBorrowing, itemsOf, rangeOf } from './items.ts';
 import type { NodeModel } from './model.ts';
 
 export type PickLevel = 'assembly' | 'part' | 'detail';
@@ -400,7 +400,7 @@ export class Highlighter {
     this.which.clear();
     for (const o of this.overlays) {
       o.removeFromParent();
-      o.geometry.dispose();
+      disposeBorrowing(o.geometry);
     }
     const had = this.overlays.length > 0;
     this.overlays.length = 0;

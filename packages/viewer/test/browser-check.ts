@@ -1429,6 +1429,41 @@ await check('reveal', async () => {
     out.inner = m.ownOverride(inner) ?? null;
     ui.showAll();
     ui.select([]);
+    // Picking faces with one revealed (the rest of its part and everything else ghosts): each click on it selects it
+    // and the next takes it out, as often as asked (the highlight and triangle edges it had gone, its face still drawn
+    // for picking: geometries borrowing its attributes disposed without freeing them, items.ts's disposeBorrowing).
+    {
+      // (Through the controls, which the recording keeps.)
+      const set = (name, v) => { control(name).setValue(v); control(name)._callOnFinishChange(); };
+      set('Multi-select', false);
+      set('Pick', 'detail');
+      set('Faces, edges, curves, vertices', true);
+      // (The selection's triangle edges too, made again at each click from the face's own triangles.)
+      set('Triangle edges', 'selected');
+      const canvas2 = viewer.renderer.domElement, rect = canvas2.getBoundingClientRect();
+      let spot;
+      for (let i = 2; i < 18 && !spot; i++) for (let jj = 2; jj < 18 && !spot; jj++) {
+        const p = cadViewer.pickAt(i / 20, jj / 20);
+        if (p && !p.cap && /face#/.test(p.path)) spot = { x: rect.left + i / 20 * rect.width, y: rect.top + jj / 20 *
+          rect.height, id: m.find(p.path) };
+      }
+      ui.setOverride(spot.id, { reveal: true });
+      await cadViewer.idle();
+      const send = (type, o) => canvas2.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+        isPrimary: true, pointerType: 'mouse', clientX: spot.x, clientY: spot.y, ...o }));
+      out.faceClicks = [];
+      for (let k = 0; k < 4; k++) {
+        send('pointerdown', { button: 0, buttons: 1 });
+        send('pointerup', { button: 0, buttons: 0 });
+        await cadViewer.idle();
+        await frame();
+        out.faceClicks.push(ui.selected().includes(spot.id));
+      }
+      ui.setOverride(spot.id, {});
+      ui.select([]);
+      set('Pick', 'part');
+      set('Triangle edges', 'off');
+    }
     ui.setOverride(rod, { reveal: true });
     control('Reveal alpha').setValue(0.3);
     control('Reveal alpha')._callOnFinishChange();
@@ -1440,6 +1475,7 @@ await check('reveal', async () => {
   expect(a.alpha === 0.25, `Reveal alpha, 0.25 at first: ${j}`);
   expect(JSON.stringify(a.revealSelected) === '[true,true]' && a.rodAlone === null && a.inner === null,
     `Reveal selected: ${j}`);
+  expect(JSON.stringify(a.faceClicks) === '[true,false,true,false]', `a revealed face picked, again and again: ${j}`);
   expect(JSON.stringify(a.plain) === '["Hide","-Show","Reveal","Hide others"]' &&
     JSON.stringify(a.again) === '["Hide","-Show","-Reveal","Hide others"]' && a.revealed.revealing &&
     a.revealed.own?.reveal === true, `the menu's Reveal, greyed once revealed: ${j}`);

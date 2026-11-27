@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import type { TriangleEdgesLook } from './model.ts';
 import type { Piece } from './selection.ts';
+import { disposeBorrowing } from './items.ts';
 
 export type TriangleEdgesMode = 'off' | 'selected' | 'all';
 
@@ -71,7 +72,7 @@ export class TriangleEdges {
     this.builtFor = mode;
     for (const { wire, own } of this.pairs) {
       this.group.remove(wire);
-      own?.dispose();
+      if (own) disposeBorrowing(own);
     }
     this.pairs.length = 0;
     root.traverse((o) => {
