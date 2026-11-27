@@ -1799,6 +1799,7 @@ struct PartMesher::Impl {
     if (capKeep[f] > 0) out.cap = std::min(out.cap, capKeep[f]);  // (a retry keeps its first cap)
     mo.maxPoints = o.maxPointsPerFace >= 0 ? o.maxPointsPerFace : static_cast<int>(std::min(out.cap / 2, 1e9));
     mo.minAngle = o.minAngle;
+    mo.bisectLong = o.d.maxEdge > 0;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
     static_assert(sizeof(Mesh2Detail::inserted) / sizeof(int) == kInsertionKinds);
     Mesh2Detail detail;

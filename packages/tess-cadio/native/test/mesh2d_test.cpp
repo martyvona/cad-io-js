@@ -606,6 +606,105 @@ TEST_CASE("a strip narrower than its boundary's spacing: candidates outside it n
   CHECK_EQ(validate(d, m, "split strip"), 0);
 }
 
+TEST_CASE("a strip too narrow for any point to clear its sides: its long chords bisected, every edge within sqrt 2") {
+  // LMP1 #172371's #1036623 under a longest edge: a cylinder 1.5 mm wide across v, 163 mm along u (its radius about
+  // 3.3e5 mm), all 22 points on the boundary, its segments within the size; its (u, v) as the mesher has them (u less
+  // the first point's), its metric (constant there). Triangulated in (u, v), one end's 14 samples fan to the far
+  // corners, 15 chords 2.8 in the metric; every candidate encroaches a side, and the sides, within the size, aren't
+  // wanted split. With MeshOptions::bisectLong the chords bisected: one point, every edge within sqrt 2, nothing
+  // wanted; without, left as they are. Bisecting a fine square's long edges beside its boundary (4 / 3 of the size
+  // apart, within sqrt 2) leaves nothing refused there.
+  struct Strip : SizeField {
+    Metric2 metric(Vec2) const override { return {1.92e7, 0, 2.957e-4}; }
+    bool accept(const Vec2*) const override { return true; }
+  };
+  Domain2 d;
+  d.points = {
+    {0.000000e+00, 0.742499}, {8.663162e-07, 0.487393}, {1.541309e-06, 0.288625}, {1.829293e-06, 0.203822},
+    {2.088620e-06, 0.127457}, {2.546922e-06, -0.007501}, {2.866505e-06, -0.101609}, {3.167040e-06, -0.190109},
+    {3.458221e-06, -0.275854}, {3.748608e-06, -0.361365}, {4.046711e-06, -0.449148}, {4.361845e-06, -0.541947},
+    {4.705642e-06, -0.643186}, {5.093844e-06, -0.757501}, {1.638385e-04, -0.757501}, {3.225831e-04, -0.757501},
+    {4.813278e-04, -0.757501}, {6.400724e-04, -0.757501}, {6.400724e-04, 0.742499}, {4.800543e-04, 0.742499},
+    {3.200362e-04, 0.742499}, {1.600181e-04, 0.742499}};
+  d.loops.push_back({});
+  for (int32_t i = 0; i < static_cast<int32_t>(d.points.size()); i++) d.loops[0].push_back(i);
+  MeshOptions bisect;
+  bisect.bisectLong = true;
+  const Mesh2 off = mesh2(d, Strip());
+  CHECK_EQ(off.points.size(), d.points.size());
+  Mesh2 m = mesh2(d, Strip(), bisect);
+  REQUIRE(m.status == cadgeom::Status::ok);
+  CHECK_EQ(validate(d, m, "strip", false), 0);
+  CHECK(m.splitWanted.empty());
+  CHECK(m.points.size() > d.points.size());
+  double worst = 0;
+  for (size_t t = 0; t + 2 < m.triangles.size(); t += 3)
+    for (int k = 0; k < 3; k++) {
+      const Vec2 a = m.points[m.triangles[t + k]], b = m.points[m.triangles[t + (k + 1) % 3]];
+      worst = std::fmax(worst, std::sqrt(1.92e7 * (b.x - a.x) * (b.x - a.x) + 2.957e-4 * (b.y - a.y) * (b.y - a.y)));
+    }
+  CHECK(worst <= std::sqrt(2.0));
+  Domain2 sq = square(15);
+  Mesh2Detail detail;
+  const Mesh2 ms = mesh2Detailed(sq, Uniform(0.05), bisect, &detail);
+  CHECK_EQ(validate(sq, ms, "square, bisected"), 0);
+  CHECK(ms.splitWanted.empty());
+  CHECK(ms.rejected.empty());
+}
+
+TEST_CASE("bisecting long edges (MeshOptions::bisectLong) leaves segments to split alone: a coarse square's sides "
+  "wanted as before, a chord's too, frozen ends never bisected, the edges beside them shorter") {
+  MeshOptions bisect;
+  bisect.bisectLong = true;
+  // A unit square with only its corners at 0.1: every side past the size, wanted split at its middle, the points
+  // inside it; the same with bisection (its candidates encroach sides that will be split).
+  {
+    Domain2 d = square(1);
+    Mesh2 m = mesh2(d, Uniform(0.1), bisect);
+    CHECK_EQ(validate(d, m, "coarse square, bisected"), 0);
+    REQUIRE(m.splitWanted.size() == 4u);
+    for (int k = 0; k < 4; k++) CHECK_EQ(m.splitWanted[k].fraction, 0.5);
+  }
+  // A fine square with a chord across it given twice: the chord wanted, once; no point on it (bisecting beside it
+  // walks points onto it, flat triangles there).
+  {
+    Domain2 c = square(20);
+    c.segments = {5, 55, 55, 5};
+    Mesh2 m = mesh2(c, Uniform(0.05), bisect);
+    CHECK_EQ(validate(c, m, "chord twice, bisected"), 0);
+    REQUIRE(m.splitWanted.size() == 1u);
+    CHECK_EQ(m.splitWanted[0].segment, 80);
+    for (size_t i = c.points.size(); i < m.points.size(); i++) CHECK(m.points[i].x != 0.25);
+  }
+  // A strip 25 x 0.85 at a size of 0.3, its long sides in 100 segments (within the size), its ends frozen (past
+  // it): the ends kept whole, nothing wanted, and the longest edge off the ends shorter bisected than not (points
+  // crowd a frozen end, so a needle's long side along one stays: it is flatter than kFlatBisect).
+  {
+    const int n = 100;
+    Domain2 d;
+    std::vector<Vec2> pts;
+    for (int i = 0; i <= n; i++) pts.push_back({25.0 * i / n, 0});
+    for (int i = n; i >= 0; i--) pts.push_back({25.0 * i / n, 0.85});
+    addLoop(d, pts);
+    d.frozen.assign(2 * n + 2, 0);
+    d.frozen[n] = d.frozen[2 * n + 1] = 1;
+    double worst[2] = {0, 0};
+    for (bool on : {false, true}) {
+      Mesh2 m = mesh2(d, Uniform(0.3), on ? bisect : MeshOptions{});
+      CHECK_EQ(validate(d, m, on ? "frozen ends, bisected" : "frozen ends"), 0);
+      CHECK(m.splitWanted.empty());
+      for (size_t t = 0; t + 2 < m.triangles.size(); t += 3)
+        for (int k = 0; k < 3; k++) {
+          const int32_t a = m.triangles[t + k], b = m.triangles[t + (k + 1) % 3];
+          const int32_t lo = std::min(a, b), hi = std::max(a, b);
+          const bool end = (lo == n && hi == n + 1) || (lo == 0 && hi == 2 * n + 1);
+          if (!end) worst[on] = std::fmax(worst[on], Uniform::dist(m.points[a], m.points[b]));
+        }
+    }
+    CHECK(worst[1] < worst[0]);
+  }
+}
+
 TEST_CASE("an anisotropic metric: triangles stretched 100 to 1, edges about unit in it") {
   Domain2 d;
   std::vector<Vec2> pts;

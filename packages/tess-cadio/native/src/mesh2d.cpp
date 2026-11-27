@@ -17,7 +17,9 @@
 // centroid crosses first) is still in the mesh at the end and either the segment is longer than
 // sqrt 2 in the metric or accept() still refuses the triangle: a segment within the size isn't reported for the
 // angles or lengths of the triangles on it (splitting it wouldn't end that: the next one along would be wanted), so a
-// domain fine enough reports nothing. Quality near the boundary is so limited by the boundary's own spacing.
+// domain fine enough reports nothing. Quality near the boundary is so limited by the boundary's own spacing; with
+// MeshOptions::bisectLong a triangle the criteria accept with an edge past sqrt 2 beside segments within the size has
+// that edge bisected instead, so no edge stays longer than the size for want of a point clear of them.
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -54,6 +56,8 @@ constexpr double kLongSegment = 4;
  * another point is placed for it, so it can't loop.
  */
 constexpr int kRequeues = 3;
+/** A triangle no flatter than this (its height over its longest edge, in the metric) may have that edge bisected. */
+constexpr double kFlatBisect = 1e-3;
 
 using cdt::kBoundary;
 using cdt::kGhost;
@@ -415,6 +419,54 @@ Mesh2 mesh2Detailed(const Domain2& domain, const SizeField& field, const MeshOpt
         near = near || coincides(w);
         if (!near) c = w, at = atW, placed = true, f = 1, D.brokenWorst++;
       }
+    }
+    // (MeshOptions::bisectLong.) Still nothing for a triangle the criteria accept whose longest edge is past sqrt 2
+    // (queued for its length or its thinness) and whose candidates encroach only segments that won't be split
+    // (within the size in their endpoints' metric, or frozen): that edge bisected where it's no segment, those
+    // segments' encroachment not asked (else the triangle stays: a cylinder's chords across a strip too narrow for
+    // any point to clear its sides). Each such point halves an edge past sqrt 2, so it ends. Not where the middle
+    // encroaches a segment longer than the size (its split, asked as for any refusal, ends it; bisecting beside it
+    // walks points onto it, edge by edge along it), nor where it crowds a segment (SizeField::crowds), nor on a
+    // triangle flatter than kFlatBisect (its corners then a run of earlier middles along one line: the halves as flat,
+    // folding as shipped); kept from vertices as any candidate is. (On by default it turns more triangles on curved
+    // B-splines, the points it adds beside the boundary making slivers that turn as shipped: docs/own-tessellator.md.)
+    auto staysWhole = [&](int32_t u, int32_t v) {
+      if (!frozen.empty() && frozen.count(pairKey(u, v))) return true;
+      const Metric2 Mu = metricAt(u), Mv = metricAt(v);
+      const Metric2 Ms{0.5 * (Mu.a + Mv.a), 0.5 * (Mu.b + Mv.b), 0.5 * (Mu.c + Mv.c)};
+      return mlen(Ms, sub(T.points()[v], T.points()[u])) <= std::sqrt(2.0);
+    };
+    const int e = l[0] >= l[1] && l[0] >= l[2] ? 0 : l[1] >= l[2] ? 1 : 2;
+    bool wholeOnly = !encroached.empty();
+    for (uint64_t k : encroached)
+      wholeOnly = wholeOnly && staysWhole(static_cast<int32_t>(k >> 32), static_cast<int32_t>(k & 0xffffffffu));
+    const double height =
+      std::fabs(cross(sub(p[1], p[0]), sub(p[2], p[0]))) * std::sqrt(M.a * M.c - M.b * M.b) / l[e];
+    if (options.bisectLong && (!placed || f < 0.05) && it.cause <= 1 && l[e] > std::sqrt(2.0) && wholeOnly &&
+      R.c[e] == cdt::kFree &&
+      height >= kFlatBisect * l[e]) {
+      const Vec2 A = p[(e + 1) % 3], B = p[(e + 2) % 3], q{0.5 * (A.x + B.x), 0.5 * (A.y + B.y)};
+      const int32_t across = R.n[e];
+      bool near = coincides(q);
+      const double floor = 0.1 * std::min(1.0, l[s]);
+      for (int32_t t : {it.t, across})
+        if (t >= 0)
+          for (int32_t w : T.tris()[t].v) near = near || (w >= 0 && mlen(M, sub(q, T.points()[w])) < floor);
+      // (Rounded, the middle may lie just across the edge: located, as insertPoint needs the triangle holding it.)
+      const int32_t atQ = T.locate(q, it.t);
+      const cdt::Tri& W = T.tris()[atQ];
+      near = near || W.v[2] == kGhost || !W.inside;
+      if (!near) {
+        T.cavityConstraints(q, atQ, hits, mapAt(q));
+        for (auto [u, v] : hits) {
+          const Vec2 U = T.points()[u], V = T.points()[v];
+          const bool fixed = !frozen.empty() && frozen.count(pairKey(u, v));
+          const Metric2 Ms = average(metricAt(u), metricAt(v), M);
+          near = near || (!staysWhole(u, v) && mdot(Ms, sub(q, U), sub(q, V)) <= 0) ||
+            (nearSegment(U, V, q) && field.crowds(U, V, q, fixed));
+        }
+      }
+      if (!near) c = q, at = atQ, placed = true, f = 1;
     }
     if (!placed || f < 0.05) {
       D.refused++;
