@@ -701,7 +701,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   cubeControl.enable(axes.on);
   // How a view that fits moves (Viewer.lookAlong): zooming out to the whole model, orbiting, zooming in; or at once.
   const looking: { fit: boolean; motion: LookMotion } = { fit: true, motion: 'steps' };
-  const motionControl = view.add(looking, 'motion', { 'Zoom out, turn, zoom in': 'steps', 'All at once': 'together' })
+  const motionControl = view.add(looking, 'motion', { Sequential: 'steps', Simultaneous: 'together' })
     .name('Look and fit');
   const views = view.addFolder('Look Along an Axis');
   // Fit: each view fits the selection (else the model) as it turns; a shift-click (or shift with the key) the other

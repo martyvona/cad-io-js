@@ -5178,7 +5178,7 @@ await check('look along an axis and fit', async () => {
     f = await fly(() => press('Back', true));
     out.onShifted = { said: f.said, kept: far(f.end.target, before.target) < 1e-9 * before.height &&
       f.end.height === before.height };
-    // All at once: turning and zooming together, to the same end.
+    // Simultaneous: turning and zooming together, to the same end.
     ctl('Look and fit').setValue('together');
     ui.select([part.id]);
     viewer.setCamera({ ...cam(), height: cam().height / 20 });
@@ -5195,7 +5195,7 @@ await check('look along an axis and fit', async () => {
     await cadViewer.idle();
     // (As the user changes it: setValue isn't a finished change, which recordings keep.)
     const select = ctl('Look and fit').$select;
-    select.selectedIndex = [...select.options].findIndex((o) => o.textContent === 'All at once');
+    select.selectedIndex = [...select.options].findIndex((o) => o.textContent === 'Simultaneous');
     select.dispatchEvent(new Event('change'));
     press('Top');
     await cadViewer.idle();
@@ -5220,7 +5220,7 @@ await check('look along an axis and fit', async () => {
   const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-9);
   const s3 = 1 / Math.sqrt(3);
   expect(a.order.join() === 'Fit,Front,Back,Left,Right,Top,Bottom,Iso X,Iso Y,Iso Z' && a.fit === true &&
-    a.motion === 'steps' && a.motionIn === 'View' && a.options.join() === 'Zoom out, turn, zoom in,All at once',
+    a.motion === 'steps' && a.motionIn === 'View' && a.options.join() === 'Sequential,Simultaneous',
   `the controls: ${j}`);
   expect(a.steps.said === 'zoz' && a.steps.outKept && a.steps.outFrames > 1 && a.steps.fitted && a.steps.gnomonStill &&
     near(a.steps.dir, [0, -1, 0]), `three steps: out, orbit, in, ending as zoom selected: ${j}`);
