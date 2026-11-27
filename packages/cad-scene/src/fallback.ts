@@ -4,6 +4,7 @@
 
 import { type BrepData, openBrep } from 'cad-brep';
 import { type FaceArea, oracleAreas } from './area-oracle.ts';
+import { chordBulge, newBulgeCache } from './bulge.ts';
 import { deviationJudge } from './deviation.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
@@ -84,7 +85,8 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
  * The faces of the model a result meshes wrongly, by id: without triangles (any face, however small), meshed only in
  * part or over their area (faceFailures; unverified ones aren't counted, as nothing tells). A face's area is the
  * oracle's where it has one (`given`, else the result's `oracle`, else made from `model` here, which reads the
- * measures its `analysis` holds where they're of it), else the result's own measure.
+ * measures its `analysis` holds where they're of it), else the result's own measure. A face over its area is judged
+ * against its boundary chords' bulge where `model` lets it be measured (bulge.ts), else against d x P.
  */
 export function badFaces(r: TessellationResult, model: BrepData | undefined, deflection: number,
   given?: ReadonlyMap<number, FaceArea>, analysis?: Uint8Array): Map<number, 'failed' | 'partly' | 'excess'> {
@@ -100,9 +102,12 @@ export function badFaces(r: TessellationResult, model: BrepData | undefined, def
   const oracle = given ?? (r.oracle ? new Map(r.oracle.map((o) => [o.entityId, o]))
     : model && oracleAreas(model, analysis));
   for (const [id, o] of oracle ?? []) add(id, { area: o.area, perimeter: o.perimeter, valid: true });
-  const measures = faces.size ? { measures: { by: '', faces }, deflection } : undefined;
   const mesh = { origin: r.origin, positions: r.positions, indices: r.indices,
     faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })) };
+  const cache = model && newBulgeCache(model);
+  const excessSlack = cache ? (id: number) => chordBulge(model!, mesh, id, cache) : undefined;
+  const measures = faces.size ? { measures: { by: '', faces }, deflection, ...(excessSlack ? { excessSlack } : {}) }
+    : undefined;
   const out = new Map<number, 'failed' | 'partly' | 'excess'>();
   for (const [id, k] of faceFailures(mesh, { expected, ...(measures ? { measured: measures } : {}) })) {
     if (k !== 'unverified') out.set(id, k);

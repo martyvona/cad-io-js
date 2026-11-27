@@ -122,7 +122,9 @@ export type FaceFailure = 'failed' | 'partly' | 'excess' | 'unverified';
  * deflection the mesh was made with, P the face's perimeter, all in millimetres):
  *
  *   partly when  A - M > max(MISSING_FRACTION x A, BOUNDARY_SLACK x d x P)
- *   excess when  M - A > max(EXCESS_FRACTION x A, BOUNDARY_SLACK x d x P)
+ *   excess when  M - A > max(EXCESS_FRACTION x A, BOUNDARY_SLACK x d x P), or where the caller measures the
+ *                face's boundary chords' bulge B (faceFailures' `excessSlack`),
+ *                M - A > max(EXCESS_FRACTION x A, BULGE_FACTOR x B)
  *
  * The fractions are relative tolerances: how far short of (or over) the face's area its triangles may be. The other
  * term is an allowance in area for a legitimate mesh, which may lie up to d inside the true surface along the face's
@@ -130,11 +132,20 @@ export type FaceFailure = 'failed' | 'partly' | 'excess' | 'unverified';
  * meshed as one triangle), the fraction for large ones. Healthy faces sit far inside either: over the corpus the median
  * M / A is 0.9994 (p1 0.987, p99 1.021). A face under d x d has nothing to mesh at that deflection. The values were
  * chosen from a survey of the corpus checked against truck's meshes: 3 %, 10 % and 1 kept every flag truck confirmed
- * real, with 9 it showed false (docs/backends.md).
+ * real, with 9 it showed false (docs/backends.md). Over its area a mesh can't lose that strip, only gain where its
+ * boundary's chords cut past the boundary curve within the surface (each by the segment between chord and curve,
+ * bulge.ts): on a narrow face d x P exceeds its whole area (a fillet's band 0.16 mm wide, P 364 mm:
+ * 36 mm^2 against 28.6) and would hide any mesh, so where the bulge is measured it replaces d x P for excess.
  */
 export const MISSING_FRACTION = 0.03;
 export const EXCESS_FRACTION = 0.1;
 export const BOUNDARY_SLACK = 1;
+/**
+ * How many times its boundary chords' bulge a face's mesh may be over its area: sound meshes reach 1.0-1.2 times it
+ * (the estimate a percent low on arcs, a little tilt), the corpus's lanterns and folds from 1.4 up (a few folded faces
+ * fall below 1: not flagged).
+ */
+export const BULGE_FACTOR = 1.5;
 /** An area beyond any part's, in its units squared: a measure not to be trusted (OCCT has given 8e100). */
 export const MAX_PLAUSIBLE_AREA = 1e20;
 
@@ -143,9 +154,12 @@ export const MAX_PLAUSIBLE_AREA = 1e20;
  * `expected` the part's face list from the source, none at all: a backend may leave a face out). With `measured`
  * (the part's measures and the linear deflection the mesh was made with, in millimetres), each face is judged
  * by its measured area as FaceFailure and the tolerances above say, and a measured face the mesh lacks counts too.
+ * `excessSlack(source)`: the face's boundary chords' bulge in mm^2 (bulge.ts), asked only for a face over by more
+ * than EXCESS_FRACTION but within d x P; undefined keeps d x P.
  */
 export function faceFailures(mesh: Mesh, opts: { expected?: readonly number[];
-  measured?: { measures: Measures; deflection: number } } = {}): Map<number, FaceFailure> {
+  measured?: { measures: Measures; deflection: number; excessSlack?: (source: number) => number | undefined } } = {}):
+  Map<number, FaceFailure> {
   const p = mesh.positions, ix = mesh.indices;
   const triangleArea = (start: number, count: number) => {
     let a = 0;
@@ -189,7 +203,10 @@ export function faceFailures(mesh: Mesh, opts: { expected?: readonly number[];
     if (!e.triangles) { out.set(s, 'failed'); continue; }
     const slack = BOUNDARY_SLACK * d * perimeter;
     if (a - e.area > Math.max(MISSING_FRACTION * a, slack)) out.set(s, 'partly');
-    else if (e.area - a > Math.max(EXCESS_FRACTION * a, slack)) out.set(s, 'excess');
+    else if (e.area - a > EXCESS_FRACTION * a) {
+      const bulge = e.area - a > slack ? undefined : n === 1 ? m.excessSlack?.(s) : undefined;
+      if (e.area - a > (bulge === undefined ? slack : BULGE_FACTOR * bulge)) out.set(s, 'excess');
+    }
   }
   return out;
 }
