@@ -6073,8 +6073,10 @@ await check('model details', async () => {
     const about = await wait(() => document.querySelector('dialog.cv-dialog[open]'));
     const file = [...about.querySelectorAll('tr')].find((r) => r.cells[0].textContent === 'File')?.cells[1]
       .textContent;
-    const lead = [...about.querySelectorAll('p')].find((p) => p.querySelector('a[href="#"]'));
-    const l = lead.querySelector('a').getBoundingClientRect();
+    // (The model's line: its details link, not Client details.)
+    const link = [...about.querySelectorAll('a[href="#"]')].find((x) => x.textContent === 'details');
+    const lead = link.closest('p');
+    const l = link.getBoundingClientRect();
     window.details = { about, href: location.href };
     return { file, lead: lead.textContent, link: { x: (l.left + l.right) / 2, y: (l.top + l.bottom) / 2 } };
   })()`;
