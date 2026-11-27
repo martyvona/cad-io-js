@@ -43,7 +43,7 @@ import { edgeRunShown, edgeValuesShown, showEdgeDetection, type EdgeRun } from '
 import { detectionFrom, type EdgeDetection } from './edges.ts';
 import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
-import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
+import { fromKeyboard, nextTriangleEdges, shortcutOf } from './shortcuts.ts';
 import { askScreenshot } from './screenshot-dialog.ts';
 import { showLink } from './link-dialog.ts';
 import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
@@ -1552,7 +1552,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     document.createElement('span'), { className: 'cv-key', textContent: key }));
   hint(zoomAll, 'f');
   hint(zoomSelected, 'f');
-  VIEW_KEYS.forEach((v, i) => hint(viewControls.get(v), String(i + 1)));
+  for (const v of AXIS_VIEWS) hint(viewControls.get(v.view), v.key);
   hint(hideControl, 'h');
   hint(showControl, 's');
   hint(openControl, 't');

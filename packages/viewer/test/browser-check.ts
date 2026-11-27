@@ -5270,9 +5270,10 @@ await check('mesh edge detection recorded', async () => {
 // a view fits the selection, else the model, as it turns, ending where zoom selected (zoom all) from that direction
 // would; in steps, frame by frame, a zoom out alone (the view's centre and direction kept, the height growing), an
 // orbit alone (the height kept), a zoom in alone; all at once, frames turning and zooming together. Fit off: the turn
-// alone; a shift-click the other way round from Fit. Iso X, Y and Z put that axis up; a Y-up file's Iso Y is the
-// world's iso, its gnomon's origin asking for it. Recorded (Fit and Look and fit in the states, shift-clicks marked)
-// and replayed with nothing diverging; an older recording's Iso (no Fit then) replayed as Iso Z, turning alone.
+// alone; a shift-click the other way round from Fit. The four isos look down on the top from above its corners, Z up;
+// a Y-up file's the same (the world's), its gnomon's origin asking for the first. Recorded (Fit and Look and fit in
+// the states, shift-clicks marked) and replayed with nothing diverging; an older recording's Iso and Iso Z (no Fit
+// then) replayed as Iso (top, front, right), turning alone.
 await check('look along an axis and fit', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
     await cadViewer.ready;
@@ -5372,8 +5373,9 @@ await check('look along an axis and fit', async () => {
     f = await fly(() => press('Bottom'));
     out.together = { said: f.said, fitted: same(f.end, zoomed(true)), dir: dirOf(f.end) };
     ctl('Look and fit').setValue('steps');
-    // The iso views: that axis up (as1's are the world's), at once.
-    out.isos = ['Iso X', 'Iso Y', 'Iso Z'].map((v) => { press(v); return { up: upOf(cam()), dir: dirOf(cam()) }; });
+    // The iso views, at once.
+    out.isos = ['Iso (top, front, right)', 'Iso (top, right, back)', 'Iso (top, back, left)', 'Iso (top, left, front)']
+      .map((v) => { press(v); return { up: upOf(cam()), dir: dirOf(cam()) }; });
     // Recorded: a fit, a shifted press, Look and fit changed, another fit; then an older kind's Iso (Fit off).
     viewer.setView('iso', { instant: true });
     viewer.setCamera({ ...cam(), height: cam().height / 5 });
@@ -5389,14 +5391,14 @@ await check('look along an axis and fit', async () => {
     // (Last, so the end's camera says whether it was replayed shifted, from a camera a fit would change: a call,
     // which recordings keep.)
     cadViewer.apply({ camera: { ...cam(), height: cam().height * 3 } });
-    press('Iso Y', true);
+    press('Iso (top, right, back)', true);
     await cadViewer.idle();
     out.rec = cadViewer.record(false);
     ctl('Look and fit').setValue('steps');
     ctl('Fit').setValue(false);
     viewer.setView('front', { instant: true });
     cadViewer.record(true);
-    press('Iso Z');
+    press('Iso (top, front, right)');
     await cadViewer.idle();
     out.old = cadViewer.record(false);
     ctl('Fit').setValue(true);
@@ -5406,7 +5408,8 @@ await check('look along an axis and fit', async () => {
   const a = r.after as Record<string, any>, j = JSON.stringify({ ...a, rec: undefined, old: undefined });
   const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-9);
   const s3 = 1 / Math.sqrt(3);
-  expect(a.order.join() === 'Fit,Front,Back,Left,Right,Top,Bottom,Iso X,Iso Y,Iso Z' && a.fit === true &&
+  expect(a.order.join() === 'Fit,Front,Back,Left,Right,Top,Bottom,Iso (top, front, right),Iso (top, right, back),' +
+    'Iso (top, back, left),Iso (top, left, front)' && a.fit === true &&
     a.motion === 'steps' && a.motionIn === 'View' && a.options.join() === 'Sequential,Simultaneous',
   `the controls: ${j}`);
   expect(a.steps.said === 'zoz' && a.steps.outKept && a.steps.outFrames > 1 && a.steps.fitted && a.steps.gnomonStill &&
@@ -5417,58 +5420,63 @@ await check('look along an axis and fit', async () => {
   expect(a.onShifted.said === 'o' && a.onShifted.kept, `Fit on, shifted: the turn alone: ${j}`);
   expect(a.together.said.includes('b') && a.together.fitted && near(a.together.dir, [0, 0, -1]),
     `all at once: turning and zooming together, the same end: ${j}`);
-  // (Up as drawn: the axis less its part along the view, (2, -1, -1) / sqrt 6 for X seen from (1, 1, 1).)
+  // (Up as drawn: Z less its part along the view, (-x, -y, 2) / sqrt 6 seen from (x, y, 1).)
   const s6 = 1 / Math.sqrt(6);
-  expect(near(a.isos[0].up, [2 * s6, -s6, -s6]) && near(a.isos[1].up, [-s6, 2 * s6, -s6]) &&
-    near(a.isos[2].up, [-s6, s6, 2 * s6]) && near(a.isos[0].dir, [s3, s3, s3]) && near(a.isos[1].dir, [s3, s3, s3]) &&
-    near(a.isos[2].dir, [s3, -s3, s3]), `Iso X, Y, Z: that axis up: ${j}`);
+  expect([[1, -1], [1, 1], [-1, 1], [-1, -1]].every(([x, y], i) => near(a.isos[i].dir, [x! * s3, y! * s3, s3]) &&
+    near(a.isos[i].up, [-x! * s6, -y! * s6, 2 * s6])), `the isos: from above the top's corners, Z up: ${j}`);
   const controls = a.rec.events.filter((e: Record<string, unknown>) => e.type === 'control').map((e:
     Record<string, unknown>) => `${e.path}${e.value === undefined ? '' : '=' + e.value}${e.shift ? ' shift' : ''}`);
   const states = a.rec.events.filter((e: Record<string, unknown>) => e.type === 'state').map((e:
     Record<string, any>) => e.state.views);
   expect(controls.join('|') === 'View/Look Along an Axis/Front|View/Look and fit=together|' +
-    'View/Look Along an Axis/Top|View/Look Along an Axis/Iso Y shift' && JSON.stringify(states) ===
+    'View/Look Along an Axis/Top|View/Look Along an Axis/Iso (top, right, back) shift' && JSON.stringify(states) ===
     '[{"fit":true,"motion":"steps"},{"fit":true,"motion":"together"}]',
   `recorded: ${JSON.stringify({ controls, states })}`);
-  // An older recording: its Iso, no Fit or Look and fit in its states.
-  const old = structuredClone(a.old);
-  for (const e of old.events) {
-    if (e.type === 'control') e.path = 'View/Look Along an Axis/Iso';
-    if (e.type === 'state') delete (e.state as Record<string, unknown>).views;
-  }
+  // Older recordings: their Iso, and Iso Z, no Fit or Look and fit in their states.
+  const older = (button: string) => {
+    const old = structuredClone(a.old);
+    for (const e of old.events) {
+      if (e.type === 'control') e.path = `View/Look Along an Axis/${button}`;
+      if (e.type === 'state') delete (e.state as Record<string, unknown>).views;
+    }
+    return old;
+  };
+  const old = older('Iso'), oldZ = older('Iso Z');
   const replayed = await page('?check', `(async () => {
     await cadViewer.ready;
     const report = await cadViewer.replay(${JSON.stringify(a.rec)});
     const views = ui.views();
     const legacy = await cadViewer.replay(${JSON.stringify(old)});
     const legacyViews = ui.views();
+    const legacyZ = await cadViewer.replay(${JSON.stringify(oldZ)});
     // The end's Fit otherwise: said.
     const ended = ${JSON.stringify(a.rec)};
     ended.events.findLast((e) => e.type === 'state').state.views.fit = false;
     const tampered = (await cadViewer.replay(ended)).divergences;
-    return { report, views, legacy, legacyViews, tampered };
+    return { report, views, legacy, legacyViews, legacyZ, tampered };
   })()`) as { after: Record<string, any> };
   const b = replayed.after, k = JSON.stringify(b);
   expect(b.report.divergences.length === 0 && b.report.applied === b.report.steps && b.views.motion === 'together',
     `replayed: ${k}`);
-  expect(b.legacy.divergences.length === 0 && b.legacyViews.fit === false, `an older recording's Iso: ${k}`);
+  expect(b.legacy.divergences.length === 0 && b.legacyViews.fit === false && b.legacyZ.divergences.length === 0 &&
+    b.legacyZ.applied === b.legacyZ.steps, `older recordings' Iso and Iso Z: ${k}`);
   expect(b.tampered.length === 1 && b.tampered[0].startsWith('the end: views is {"fit":true'),
     `the end's Fit otherwise: ${k}`);
-  // A Y-up file: Iso Y the world's iso, which the gnomon's origin asks for.
+  // A Y-up file: the isos the world's, the first what the gnomon's origin asks for.
   const glb = await page(`?url=${encodeURIComponent('/content/as1.glb')}&check`, `(async () => {
     await cadViewer.ready;
     await cadViewer.idle();
     viewer.setView('front', { instant: true });
     const asked = viewer.gnomonView('iso');
     ui.gui.controllersRecursive().find((c) => c._name === 'Fit').setValue(false);
-    ui.gui.controllersRecursive().find((c) => c._name === 'Iso Y').$button.click();
+    ui.gui.controllersRecursive().find((c) => c._name === 'Iso (top, front, right)').$button.click();
     const s = viewer.cameraState();
     const d = s.position.map((x, i) => x - s.target[i]), n = Math.hypot(...d);
     return { asked, dir: d.map((x) => x / n), up: s.up };
   })()`) as { after: { asked: string; dir: number[]; up: number[] } };
   // (Fit off: the view's up as given, not made perpendicular.)
-  expect(glb.after.asked === 'isoY' && near(glb.after.dir, [s3, -s3, s3]) && near(glb.after.up, [0, 0, 1]),
-    `a Y-up file: Iso Y is the world's iso: ${JSON.stringify(glb.after)}`);
+  expect(glb.after.asked === 'isoFrontRight' && near(glb.after.dir, [s3, -s3, s3]) && near(glb.after.up, [0, 0, 1]),
+    `a Y-up file: the world's iso: ${JSON.stringify(glb.after)}`);
   return undefined;
 });
 await check('keyboard shortcuts', async () => {
@@ -5580,11 +5588,11 @@ await check('keyboard shortcuts', async () => {
   const a = r.after, j = JSON.stringify(a);
   expect(a.f[0] && a.f[1].join() === 'all' && a.fSelected[0] && a.fSelected[1].join() === 'selected',
     `f: zoom all with nothing selected, zoom selected with something: ${j}`);
-  expect(a.views.join() === 'true,true,true,true,true,true,true,true,true,false' && a.viewCalls.join() ===
-    'fit front,fit back,fit left,fit right,fit top,fit bottom,fit isoX,fit isoY,fit isoZ',
-  `1 to 9: the views, in order, fitting: ${j}`);
-  expect(a.shifted.join() === 'true,true,false,true,true' && a.shiftedCalls.join() ===
-    'front,isoZ,fit back,left', `shift: Fit the other way: ${j}`);
+  expect(a.views.join() === 'true,true,true,true,true,true,true,true,true,true' && a.viewCalls.join() ===
+    'fit front,fit back,fit left,fit right,fit top,fit bottom,fit isoFrontRight,fit isoRightBack,fit isoBackLeft,' +
+    'fit isoLeftFront', `1 to 9 then 0: the views, in order, fitting: ${j}`);
+  expect(a.shifted.join() === 'true,true,true,true,true' && a.shiftedCalls.join() ===
+    'front,isoBackLeft,isoLeftFront,fit back,left', `shift: Fit the other way: ${j}`);
   expect(a.h.join() === 'true,true' && a.s.join() === 'true,false', `h hides the selection, s shows it: ${j}`);
   expect(a.escape.join() === 'true,0', `Escape: nothing selected: ${j}`);
   expect(a.tree[0] !== a.tree[1] && a.tree[0] === a.tree[2], `t: the tree shown or not: ${j}`);
@@ -5595,7 +5603,8 @@ await check('keyboard shortcuts', async () => {
   expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
     `none in a text field, with a modifier, repeated, or unbound: ${j}`);
   expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Front 1,Back 2,Left 3,'
-    + 'Right 4,Top 5,Bottom 6,Iso X 7,Iso Y 8,Iso Z 9,Show the tree t,Faces, edges, curves, vertices e,Pick e,'
+    + 'Right 4,Top 5,Bottom 6,Iso (top, front, right) 7,Iso (top, right, back) 8,Iso (top, back, left) 9,'
+    + 'Iso (top, left, front) 0,Show the tree t,Faces, edges, curves, vertices e,Pick e,'
     + 'Select none Esc,Hide selected h,Show selected s,Vertices e,Triangle edges g'
     && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
   expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|View/Look Along an Axis/Front shift|'
@@ -7621,7 +7630,8 @@ await check('axes gnomon clicks', async () => {
   expect(!is(a.oblique, [s3, -s3, s3]) && is(a.iso, [s3, -s3, s3]), `the origin's box: iso: ${j}`);
   expect(is(a.isoAgain, [s3, -s3, s3]) && a.controlsAfter === a.controlsBefore, `iso again: nothing: ${j}`);
   expect(a.hand === 'pointer' && a.away === '', `the pointer: ${j}`);
-  const views = ['Top', 'Bottom', 'Right', 'Back', 'Front', 'Iso Z', 'Top', 'Iso Z'].map((v) =>
+  const views = ['Top', 'Bottom', 'Right', 'Back', 'Front', 'Iso (top, front, right)', 'Top',
+    'Iso (top, front, right)'].map((v) =>
     `View/Look Along an Axis/${v}`);
   expect(JSON.stringify(a.recorded) === JSON.stringify(views) && a.picks === 1,
     `recorded as the views' buttons, one pick (the click near z): ${j}`);
@@ -7899,9 +7909,9 @@ await check('axes gnomon beside the phone tree', async () => {
 // mirrored as that view shows it, a Y-up file's too (the cube made again for its axes); a face's
 // tooltip its view's name and key (the key as the controls show theirs), none over an edge or corner; a click on a face
 // presses that view's button (the same camera; recorded as the control), on a corner or an edge looks along it from
-// the cube's centre, the file's up axis up (a corner's camera Iso Z's where they agree; an edge's two faces symmetric),
-// fitting as the buttons do (shift the other way), the corner by the origin's box the cube's; recorded and replayed;
-// with Cube off, not drawn or clicked.
+// the cube's centre, the file's up axis up (a corner's camera an iso's where they agree; an edge's two faces
+// symmetric), fitting as the buttons do (shift the other way), the corner by the origin's box the cube's; recorded and
+// replayed; with Cube off, not drawn or clicked.
 await check('view cube', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1&cube=1`, `(async () => {
     await cadViewer.ready;
@@ -8020,7 +8030,7 @@ await check('view cube', async () => {
       }
     }
     g.showCube = true;
-    // Iso Z: F, R and T in sight.
+    // Iso (top, front, right): F, R and T in sight.
     // (Through the interface, which a replay makes again.)
     const start = () => { cadViewer.view('isoZ'); return cadViewer.idle(); };
     await start();
@@ -8036,7 +8046,7 @@ await check('view cube', async () => {
     control('Front').$button.click();
     await cadViewer.idle();
     out.frontButton = cam();
-    // A corner: Iso Z's.
+    // A corner: Iso (top, front, right)'s.
     await start();
     cadViewer.view('front');
     await cadViewer.idle();
@@ -8044,7 +8054,7 @@ await check('view cube', async () => {
     out.corner = { cam: cam(), back: back() };
     cadViewer.view('front');
     await cadViewer.idle();
-    control('Iso Z').$button.click();
+    control('Iso (top, front, right)').$button.click();
     await cadViewer.idle();
     out.isoButton = cam();
     // Edges: the vertical front-right one, the front-top one.
@@ -8059,7 +8069,7 @@ await check('view cube', async () => {
     await start();
     await click([0.5, 0, -0.08]);
     out.outside = back();
-    // The cube's corner by the origin's box: the cube's (the corner away from every axis's tip), not Iso Z.
+    // The cube's corner by the origin's box: the cube's (the corner away from every axis's tip), not the iso.
     await start();
     await click([0.03, 0, 0.03]);
     out.originCorner = back();

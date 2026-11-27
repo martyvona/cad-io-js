@@ -76,8 +76,8 @@ export interface ViewState {
   meshing?: Partial<TessellationSettings>;
 }
 
-const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso', 'isoX', 'isoY',
-  'isoZ'];
+const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoFrontRight',
+  'isoRightBack', 'isoBackLeft', 'isoLeftFront', 'iso', 'isoX', 'isoY', 'isoZ'];
 const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
 const FLAGS = ['ao', 'smaa', 'edges', 'vertices'] as const;

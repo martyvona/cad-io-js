@@ -15,7 +15,7 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, describeStretched, meshDeflections, type Diagnostic, type Mesh, type Properties,
   type Vec3 } from 'cad-scene';
 import { AXIS_VIEWS, clipTo, cubeLook, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect,
-  smoothstep, turnOf, upIso, viewCamera, VIEWS, type Leg, type Look, type LookMotion, type ViewName }
+  smoothstep, turnOf, viewCamera, VIEWS, type Leg, type Look, type LookMotion, type ViewName }
   from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
@@ -809,13 +809,13 @@ export class Viewer {
 
   /**
    * The view a click on the gnomon asks for: along the axis clicked, that axis pointing at the viewer (away if it
-   * already does), or from the origin's box the iso view of the file's axis that's up (upIso: as `iso`); undefined if
-   * the view is that already (iso) or there's none.
+   * already does), or from the origin's box Iso (top, front, right); undefined if the view is that already (iso) or
+   * there's none.
    */
   gnomonView(target: GnomonTarget): ViewName | undefined {
     if (typeof target === 'object') return this.gnomon.cubeView(target.cube);
     if (target !== 'iso') return axisView('xyz'.indexOf(target), this.gnomon.axesInWorld, this.back());
-    const iso = upIso(this.gnomon.axesInWorld);
+    const iso: ViewName = 'isoFrontRight';
     const to = viewCamera(this.cameraState(), iso, this.gnomon.axesInWorld);
     const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(
       new THREE.Vector3().fromArray(to.position), new THREE.Vector3().fromArray(to.target),
@@ -840,7 +840,8 @@ export class Viewer {
     }
     const t = this.tip;
     t.textContent = AXIS_VIEWS[i]!.name;
-    t.append(Object.assign(document.createElement('span'), { className: 'cv-key', textContent: String(i + 1) }));
+    t.append(Object.assign(document.createElement('span'), { className: 'cv-key',
+      textContent: AXIS_VIEWS[i]!.key }));
     t.hidden = false;
     // (Above and right of the pointer, kept in the window.)
     const r = t.getBoundingClientRect();
