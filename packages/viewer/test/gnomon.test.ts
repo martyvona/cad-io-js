@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { axisSymbol, axisView, backingColour, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
+import { axisSymbol, axisView, backingColour, besideSide, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
   NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn, stepNudges, SYMBOL }
   from '../src/gnomon.ts';
 
@@ -136,6 +136,57 @@ test('the labels: a pair nudged apart evenly, the way their points lie; one off 
   assert.deepEqual([p!.x, p!.y], [14, 1]);
   const [q] = layoutLabels([{ x: 0, y: 0 }, { x: -50, y: 0 }, { x: 50, y: 0 }], { x: 0, y: 0 }, 14);
   assert.equal(q!.x, -14);
+});
+
+test('the labels: beside the symbol, the side farthest from the other two, however its point lies', () => {
+  const o = { x: 0, y: 0 };
+  // z's point a little right of the origin, x's label off to the right, y's up: the old way right, now left.
+  const pts = [{ x: 44, y: 0 }, { x: 0, y: 44 }, { x: 2, y: 1 }];
+  assert.equal(layoutLabels(pts, o, 14)[2]!.x, 14);
+  assert.equal(besideSide(pts, o, 14, 2), -1);
+  assert.deepEqual(layoutLabels(pts, o, 14, 2)[2], { x: -14, y: 1 });
+  // Mirrored: x's to the left, z's point a little left: right.
+  const mirrored = [{ x: -44, y: 0 }, { x: 0, y: 44 }, { x: -2, y: 1 }];
+  assert.deepEqual(layoutLabels(mirrored, o, 14, 2)[2], { x: 14, y: 1 });
+  // By the nearer of the two: x's far right, y's near on the left: right, away from y, though x is farther from the
+  // left side.
+  assert.equal(besideSide([{ x: 300, y: 0 }, { x: -20, y: 20 }, { x: 0, y: 0 }], o, 14, 2), 1);
+  // A tie (the two level either side): as the point lies.
+  const level = [{ x: -44, y: 0 }, { x: 44, y: 0 }, { x: 2, y: 1 }];
+  assert.equal(besideSide(level, o, 14, 2), 0);
+  assert.equal(layoutLabels(level, o, 14, 2)[2]!.x, 14);
+  // Only the label beside: another on the origin's box keeps the way its point lies.
+  assert.equal(layoutLabels([{ x: 2, y: 1 }, { x: 0, y: 44 }, { x: 60, y: 60 }], o, 14, 2)[0]!.x, 14);
+  // Only from the origin's box: overlapping another label, the label beside parts the way their points lie.
+  const [p0, , p2] = layoutLabels([{ x: 30, y: 0 }, { x: 0, y: 44 }, { x: 33, y: 0 }], { x: -100, y: -100 }, 14, 2);
+  assert.ok(p2!.x > p0!.x, JSON.stringify([p0, p2]));
+  const [q0, q1] = layoutLabels([{ x: 33, y: 0 }, { x: 30, y: 0 }, { x: 0, y: 44 }], { x: -100, y: -100 }, 14, 0);
+  assert.ok(q0!.x > q1!.x, JSON.stringify([q0, q1]));
+});
+
+test('the gnomon: the label beside a fading symbol away from the others, whichever way the axis leans', () => {
+  // From the top, Y up (x's label right, y's up, z at the origin), tilted 6 degrees either way: the symbol partly
+  // shown; z's label left of it both ways (the way its tip lies would flip it).
+  for (const lean of [-0.1, 0.1]) {
+    const g = new Gnomon();
+    g.set(undefined, new THREE.Matrix4());
+    g.advance(looking([lean, 0, 1], [0, 1, 0]), { now: 0 });
+    const [x, , z, origin] = g.layout;
+    assert.ok(g.symbol?.axis === 2 && g.symbol.opacity > 0 && g.symbol.opacity < 1, JSON.stringify(g.symbol));
+    assert.ok(x!.x > origin!.x && Math.abs(z!.x - (origin!.x - LABEL_BOX)) < 1e-6, `${lean}: ${JSON.stringify(
+      g.layout)}`);
+  }
+});
+
+test('the gnomon: a flight\'s destination laid out with its symbol\'s label beside it, as settled there', () => {
+  for (const lean of [-0.1, 0.1]) {
+    const to = looking([lean, 0, 1], [0, 1, 0]);
+    const g = new Gnomon();
+    g.set(undefined, new THREE.Matrix4());
+    g.advance(ISO, { now: 0 });
+    g.advance(to, { now: 16, flight: { id: {}, to, s: 1 } });
+    assert.ok(far(g.layout, settled(to)) < 1e-9, `${lean}: ${JSON.stringify([g.layout, settled(to)])}`);
+  }
 });
 
 test('the labels: nudged again until nothing overlaps (a pair pushed onto the origin\'s box)', () => {

@@ -7206,10 +7206,105 @@ await check('axes gnomon in flight', async () => {
 // ring and on the cross's arms past the dot's reach; back (y at the viewer), a ringed dot: green on the ring and at the
 // centre, nothing where the cross's arm would be; inside the ring, the background (the other axes' lines hidden);
 // iso, none. Green measured as its excess over red and blue.
+// The gnomon antialiased as the view is (Rendering's SMAA), on a screen of one device pixel per CSS pixel: with SMAA on,
+// its edges smoothed (pixels at them differ from SMAA off), its colours where it's one colour all round the same as
+// without (the raw sRGB numbers drawn into the texture; SMAA changes only edges, a letter's too), and nothing of the view more than a pixel from what it touches changed (what's
+// under it not smoothed twice). With SMAA off, as before.
+await check('axes gnomon antialiased', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1&deterministic`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    viewer.setView('iso', { instant: true });
+    await cadViewer.idle();
+    const fitted = viewer.cameraState();
+    const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
+    const g = document.getElementById('gnomon').getBoundingClientRect(), cb = canvas.getBoundingClientRect();
+    const dpr = canvas.width / canvas.clientWidth;
+    const box = { x: Math.round((g.left - cb.left) * dpr), y: Math.round((cb.bottom - g.bottom) * dpr),
+      w: Math.round(g.width * dpr), h: Math.round(g.height * dpr) };
+    const grab = (smaa, shown) => {
+      ui.setRender({ smaa });
+      viewer.showGnomon = shown;
+      viewer.draw();
+      const px = new Uint8Array(4 * box.w * box.h);
+      gl.readPixels(box.x, box.y, box.w, box.h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const n = box.w * box.h;
+    const diff = (p, q, i) => Math.max(...[0, 1, 2].map((c) => Math.abs(p[4 * i + c] - q[4 * i + c])));
+    // The model's edges under the box too, so smoothing them again would show: panned until SMAA changes enough of
+    // what's there without the gnomon.
+    let under = 0;
+    for (const [k, pan] of [[0, 0], [150, 100], [250, 150], [100, 200], [300, 250], [200, 300]].entries()) {
+      const mm = fitted.height / canvas.clientHeight;
+      viewer.setCamera({ ...fitted, height: fitted.height / (k ? 2 : 1), pan: [-pan[0] * mm, -pan[1] * mm] });
+      await cadViewer.idle();
+      const a0 = grab(false, false), a = grab(true, false);
+      under = 0;
+      for (let i = 0; i < n; i++) if (diff(a, a0, i) > 8) under++;
+      if (under > 50) break;
+    }
+    const A0 = grab(false, false), B0 = grab(false, true), A = grab(true, false), B = grab(true, true);
+    // The same drawn after another view (its edges elsewhere): SMAA's own targets start empty each time.
+    const camera = viewer.cameraState();
+    viewer.setView('top', { instant: true });
+    grab(true, true);
+    viewer.setCamera(camera);
+    const again = grab(true, true);
+    let stale = 0;
+    for (let i = 0; i < box.w * box.h; i++) if (diff(again, B, i) > 0) stale++;
+    ui.setRender({ smaa: true });
+    const touched = new Uint8Array(n);
+    for (let i = 0; i < n; i++) touched[i] = diff(A0, B0, i) > 0 ? 1 : 0;
+    // Whether every pixel within k of i is touched (all), or any is (some).
+    const near = (i, k, all) => {
+      const x = i % box.w, y = Math.floor(i / box.w);
+      for (let dy = -k; dy <= k; dy++) for (let dx = -k; dx <= k; dx++) {
+        const X = x + dx, Y = y + dy;
+        const t = X >= 0 && Y >= 0 && X < box.w && Y < box.h && touched[Y * box.w + X] === 1;
+        if (all && !t) return false;
+        if (!all && t) return true;
+      }
+      return all;
+    };
+    // Whether the gnomon is one colour next to i (without SMAA): no edge at i's sides, so SMAA leaves it (it blends a
+    // pixel only across an edge at one of its sides; a letter's are smoothed).
+    const flat = (i) => {
+      const x = i % box.w, y = Math.floor(i / box.w);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const X = x + dx, Y = y + dy, k = 4 * (Y * box.w + X);
+        if (X < 0 || Y < 0 || X >= box.w || Y >= box.h) return false;
+        if ([0, 1, 2].some((c) => B0[k + c] !== B0[4 * i + c])) return false;
+      }
+      return true;
+    };
+    let leaked = 0, inside = 0, insideOff = 0, smoothed = 0, worst = 0;
+    for (let i = 0; i < n; i++) {
+      if (diff(A, B, i) > 2 && !near(i, 1, false)) leaked++;
+      if (touched[i] && near(i, 1, true) && flat(i)) {
+        inside++;
+        const d = diff(B, B0, i);
+        worst = Math.max(worst, d);
+        if (d > 3) insideOff++;
+      }
+      if (touched[i] && !near(i, 1, true) && diff(B, B0, i) > 8) smoothed++;
+    }
+    return { box, touched: touched.reduce((a, b) => a + b, 0), leaked, inside, insideOff, worst, smoothed, under,
+      stale };
+  })()`) as { after: { touched: number; leaked: number; inside: number; insideOff: number; worst: number;
+    smoothed: number; under: number; stale: number } };
+  const a = r.after, j = JSON.stringify(a);
+  expect(a.touched > 200 && a.smoothed > 20 && a.under > 50, `SMAA on: the gnomon's edges smoothed: ${j}`);
+  expect(a.inside > 10 && a.insideOff === 0, `its colours inside as without SMAA: ${j}`);
+  expect(a.leaked === 0, `nothing more than a pixel from it changed: ${j}`);
+  expect(a.stale === 0, `the same after another view: ${j}`);
+  return undefined;
+});
 await check('axes gnomon symbols', async () => {
   for (const scheme of ['dark', 'light'] as const) {
     const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1`, `(async () => {
       await cadViewer.ready; await cadViewer.idle();
+      // (The shapes as drawn, without SMAA, whose blending reaches into the gaps: axes gnomon antialiased checks it.)
+      ui.setRender({ smaa: false });
       const gl = viewer.renderer.getContext(), canvas = viewer.renderer.domElement;
       const dpr = canvas.width / canvas.clientWidth;
       const sample = async (view, tilt = 0) => {

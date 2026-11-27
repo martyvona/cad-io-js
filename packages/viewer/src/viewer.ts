@@ -746,8 +746,10 @@ export class Viewer {
       if (fat) this.camera.layers.enable(EDGES);
     }
     const box = gnomon && this.showGnomon && this.root ? this.gnomonViewport() : undefined;
+    // (Antialiased as the view is: Rendering's SMAA.)
     if (box) this.gnomon.draw(this.renderer, this.camera, box, this.scene.background as THREE.Color, {
-      now: performance.now(), ...(flight ? { flight: { id: flight, to: flight.turn, s: progress } } : {}) });
+      now: performance.now(), ...(flight ? { flight: { id: flight, to: flight.turn, s: progress } } : {}) },
+    this.render.smaa);
     // (A picture without it keeps the last drawn layout's targets: the screen still shows it.)
     if (gnomon) this.gnomonDrawn = box;
     // (Labels still gliding to their places want frames too.)
