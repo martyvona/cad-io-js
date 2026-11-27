@@ -19,14 +19,13 @@
 
 import { openAnalysis, openBrep, type BrepAnalysis, type BrepData } from 'cad-brep';
 import * as THREE from 'three';
-import { biasTowardCamera } from './depth-bias.ts';
 import { faceFailures, instances, partInstances, placedName, stretchWords, type FaceFailure, type Mat4, type Measures,
   type Mesh, type PartInstance, type Scene, type SourceId } from 'cad-scene';
 import type { Looks, PlacementLook } from './model.ts';
 import type { PartModel } from './part-model.ts';
 import type { DetailSources } from './details.ts';
-import { geometryKind, type GeometryKind } from './geometry-info.ts';
-import { setItems, type Item } from './items.ts';
+import { geometryOf, type Geometry } from './geometry-info.ts';
+import { DETECTED_EDGES, setItems, type Item } from './items.ts';
 import { faceIndexAttribute, PICK_INDEX } from './pick-ids.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
 import { DiscMaterial } from './vertex-points.ts';
@@ -99,12 +98,11 @@ interface MeshedPart {
 }
 
 /**
- * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), in red (so where they should be can be
- * found). The tree marks their nodes the same red (tree-panel.ts).
+ * Faces that failed to mesh: their outlines (Mesh.faceOutlines, from the file), objects drawn as nothing here, kept
+ * for picking (pick-ids.ts draws their ids) and highlights: the Viewer's alerts draw them, over everything (so where
+ * they should be can be found). The tree marks their nodes red (tree-panel.ts).
  */
-export const FAILED_COLOR = 0xe02020;
-// (Drawn in front of the black edges along the same B-rep edges: depth-bias.ts.)
-const OUTLINE = biasTowardCamera(new THREE.LineBasicMaterial({ color: FAILED_COLOR }));
+export const OUTLINE = new THREE.LineBasicMaterial({ colorWrite: false, depthWrite: false });
 
 /** Hidden faces' triangles: drawn with nothing. */
 const HIDDEN = new THREE.MeshBasicMaterial({ visible: false });
@@ -175,22 +173,22 @@ export class SceneGraph implements Looks {
   }
 
   /**
-   * A face's surface or an edge's or curve's curve, by kind (the tree's icons), from the part's model; kept once
-   * found, so it stays while the model is lent; none while it's never been held.
+   * A face's surface or an edge's or curve's curve, its kind and name (the tree's icons and names), from the part's
+   * model; kept once found, so it stays while the model is lent; none while it's never been held.
    */
-  geometryKind(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined {
+  geometry(part: number, kind: 'face' | 'edge' | 'curve', id: number): Geometry | undefined {
     const key = `${kind}#${id}`;
     const kinds = this.kinds.get(part);
     if (kinds?.has(key)) return kinds.get(key) ?? undefined;
     const model = this.modelOf(part);
     if (!model) return undefined;
-    const k = geometryKind(model, kind, id);
-    (kinds ?? this.kinds.set(part, new Map()).get(part)!).set(key, k ?? null);
-    return k;
+    const g = geometryOf(model, kind, id);
+    (kinds ?? this.kinds.set(part, new Map()).get(part)!).set(key, g ?? null);
+    return g;
   }
 
-  /** geometryKind's answers by part (null: none), until the part's model changes. */
-  private readonly kinds = new Map<number, Map<string, GeometryKind | null>>();
+  /** geometry's answers by part (null: none), until the part's model changes. */
+  private readonly kinds = new Map<number, Map<string, Geometry | null>>();
 
   /** What Details reads of a part (details.ts): its model and analysis where held, its mesh, its measures. */
   readonly sources: DetailSources = {
@@ -315,9 +313,10 @@ export class SceneGraph implements Looks {
   }
 
   /**
-   * A part's edges found from its mesh's triangles (edges.ts, in the model worker: model-load.ts), as segments in
-   * the mesh's coordinates, added to each placement of its mesh (in place of any found before). Nothing if the part
-   * has no mesh with triangles now. Returns the objects they were added to.
+   * A part's edges detected from its mesh's triangles (edges.ts: in the model worker for a mesh without edges of its
+   * own, model-load.ts; or asked for, Viewer.detectEdges), as segments in the mesh's coordinates, added to each
+   * placement of its mesh as a line object of their own (DETECTED_EDGES, beside any B-rep edges), in place of any
+   * detected before. Nothing if the part has no mesh with triangles now. Returns the objects they were added to.
    */
   setFoundEdges(part: number, positions: Float32Array): THREE.Object3D[] {
     const meshed = this.meshed.get(part);
@@ -327,8 +326,8 @@ export class SceneGraph implements Looks {
     const n = positions.length / 3;
     g.setIndex(new THREE.BufferAttribute(Uint32Array.from({ length: n }, (_, i) => i), 1));
     for (const { obj } of meshed.objects) {
-      for (const old of obj.children.filter((c) => c.name === 'edges')) obj.remove(old);
-      const e = Object.assign(new THREE.LineSegments(g, this.lineMaterial), { name: 'edges' });
+      for (const old of obj.children.filter((c) => c.name === DETECTED_EDGES)) obj.remove(old);
+      const e = Object.assign(new THREE.LineSegments(g, this.lineMaterial), { name: DETECTED_EDGES });
       e.layers.set(EDGES);
       // (One item, all of them: they're no B-rep edges.)
       e.userData.found = true;
@@ -407,6 +406,10 @@ export class SceneGraph implements Looks {
     const failures = faceFailures(mesh, measured ? { measured } : {});
     const failedFaces = faceSources.filter((s) => failures.has(s) && failures.get(s) !== 'partly');
     const partlyFailedFaces = faceSources.filter((s) => failures.get(s) === 'partly');
+    // Faces at a defect that keeps the mesh from being a closed, oriented manifold (cad-scene's Mesh.defectFaces):
+    // marked as partly failed in the tree, drawn as meshed.
+    const defects = new Set(mesh.defectFaces ?? []);
+    const defectFaces = faceSources.filter((s) => defects.has(s));
     // (Each face's areas only when Details asks: measuring every face of a large file took a quarter second.)
     let report: Record<number, FaceReport> | undefined;
     const faceReport = () => (report ??= reportOf(mesh, failures, p.measures));
@@ -437,7 +440,7 @@ export class SceneGraph implements Looks {
         obj = new THREE.Group();
       }
       const closed = this.scene.parts[part]!.closed;
-      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces,
+      obj.userData = { faces: faceSources, faceRanges: mesh.faces, failedFaces, partlyFailedFaces, defectFaces,
         ...(closed === undefined ? {} : { closed }) };
       Object.defineProperty(obj.userData, 'faceReport', { get: faceReport, enumerable: true });
       obj.name = group.name;
@@ -461,11 +464,10 @@ export class SceneGraph implements Looks {
         obj.add(d);
       }
       this.addVertices(part, obj);
-      // (On the edges' layer too, so fat edges draw them fat; picked as their face.)
+      // (Picked as their face.)
       for (const [source, g] of outlines) {
         const l = Object.assign(new THREE.LineSegments(g, OUTLINE), { name: 'outline' });
         l.userData.outlineFace = source;
-        l.layers.enable(EDGES);
         l.visible = !faceHidden(this.looks.get(instance), source);
         obj.add(l);
       }

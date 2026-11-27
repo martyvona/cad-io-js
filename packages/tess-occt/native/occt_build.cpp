@@ -30,9 +30,11 @@
 //     decision 3 has backends do.
 //   - Items: each built alone, then moved by its transform (a similarity: OCCT holds no other), an instance sharing
 //     the shapes of the item it places.
-//   - What the builder doesn't build yet (composite curves as edges' curves) fails the part with an error naming it
-//     (decision 13); faces on Part 42's swept surfaces, which OCCT's API has no counterpart for, are dropped with a
-//     warning.
+//   - Composite curves as the translator takes them: a curve item's, or a curve-bounded face's segment's, as an edge
+//     per piece, nested composites flattened (pieces()). What the builder doesn't build (a composite anywhere else:
+//     an edge's curve, a trimmed or offset curve's basis, a swept surface's curve, which the translator can't make
+//     either) fails the part with an error naming it (decision 13); faces on Part 42's swept surfaces, which OCCT's
+//     API has no counterpart for, are dropped with a warning.
 
 #include "occt_build.h"
 
@@ -312,7 +314,8 @@ struct Builder
   }
 
   // Part 42's parameter on a curve as OCCT's: t' = f t + shift (a line's times its magnitude, an ellipse's shifted by
-  // pi/2 where OCCT swaps its axes, a parabola's times 2 a; a trimmed curve its basis's); false where not affine.
+  // pi/2 where OCCT swaps its axes, a parabola's times 2 a; a trimmed or offset curve its basis's, however deeply
+  // wrapped); false where not affine.
   bool curveParam(int k, double& f, double& shift)
   {
     f = 1.;
@@ -333,6 +336,7 @@ struct Builder
         f = 2. * re[p];
         return true;
       case CBR_CURVE_TRIMMED:
+      case CBR_CURVE_OFFSET: // (Its basis first among its ints, as a trimmed curve's.)
         return curveParam(r.i32(CBR_POOL_CURVE_INT)[r.i32(CBR_CURVE_INT)[k]], f, shift);
       case CBR_CURVE_COMPOSITE:
         return false;
@@ -458,22 +462,16 @@ struct Builder
 
   // A trimmed curve as OCCT's STEP translator makes one (StepToGeom::MakeTrimmedCurve): each trim by its parameter
   // where the master representation says so (or says nothing), by its point projected where cartesian, else by
-  // whichever it has; a parameter mapped to OCCT's on the basis curve (a line's times its magnitude, an ellipse's
-  // shifted by pi/2 where OCCT swaps its axes, a parabola's times 2 a: Part 42's t is OCCT's u / 2a, which the
-  // translator doesn't convert); clamped to a bounded basis curve; equal trims round a periodic or closed one.
+  // whichever it has; a parameter mapped to OCCT's on the basis curve by curveParam (a line's times its magnitude, an
+  // ellipse's shifted by pi/2 where OCCT swaps its axes, a parabola's times 2 a: Part 42's t is OCCT's u / 2a, which
+  // the translator doesn't convert; through any trims and offsets between, where the translator maps only a basis
+  // that is itself the line or ellipse); clamped to a bounded basis curve; equal trims round a periodic or closed one.
   occ::handle<Geom_Curve> trimmed(int k, const double* re, const int32_t* in)
   {
     const int               bi    = in[0];
     occ::handle<Geom_Curve> basis = curve(bi);
-    const int               bkind = r.u8(CBR_CURVE_KIND)[bi];
-    const double*           bre   = r.f64(CBR_POOL_CURVE_REAL) + r.i32(CBR_CURVE_REAL)[bi];
     double                  fact = 1., shift = 0.;
-    if (bkind == CBR_CURVE_LINE)
-      fact = bre[6];
-    else if (bkind == CBR_CURVE_ELLIPSE && bre[9] < bre[10])
-      shift = 0.5 * M_PI;
-    else if (bkind == CBR_CURVE_PARABOLA)
-      fact = 2. * bre[9];
+    curveParam(bi, fact, shift); // (Not affine only on a composite, which curve() doesn't build.)
     const int master = in[2]; // TRIM_PREFERENCES: 0 unspecified, 1 parameter, 2 cartesian
     auto      trim = [&](int j, double& t) {
       const double  param = re[j];
@@ -523,22 +521,36 @@ struct Builder
                  : occ::handle<Geom_Curve>(new Geom_TrimmedCurve(basis, t2, t1, false));
   }
 
+  // Curve k run with (sense) or against its direction as the pieces OCCT's STEP translator makes edges of, in order
+  // along it, each with whether it runs with its own direction: a composite its segments, flattened where a segment
+  // is itself a composite (StepToTopoDS_TranslateCompositeCurve), last first where run against; any other curve
+  // itself. (A model's curves refer only to earlier rows: no cycles.)
+  void pieces(int k, bool sense, std::vector<std::pair<int, bool>>& out)
+  {
+    if (r.u8(CBR_CURVE_KIND)[k] != CBR_CURVE_COMPOSITE)
+    {
+      out.emplace_back(k, sense);
+      return;
+    }
+    // (Per segment: curve, same_sense, transition, after n and self_intersect: layout.ts's CURVE_LAYOUTS.)
+    const int32_t* in = r.i32(CBR_POOL_CURVE_INT) + r.i32(CBR_CURVE_INT)[k];
+    for (int i = 0; i < in[0]; ++i)
+    {
+      const int j = sense ? i : in[0] - 1 - i;
+      pieces(in[2 + 3 * j], sense == (in[3 + 3 * j] != 0), out);
+    }
+  }
+
   // A curve item as OCCT's STEP translator makes one of a geometric set's: an edge over the curve's whole range (none
-  // where that fails: an unbounded one); a composite curve its segments' edges, each with the composite's id.
+  // where that fails: an unbounded one); a composite curve its pieces' edges, each with the composite's id.
   void curveItem(int k, uint32_t id, TopoDS_Compound& all)
   {
     BRep_Builder bb;
-    std::vector<std::pair<occ::handle<Geom_Curve>, bool>> segments;
-    if (r.u8(CBR_CURVE_KIND)[k] == CBR_CURVE_COMPOSITE)
+    std::vector<std::pair<int, bool>> segments;
+    pieces(k, true, segments);
+    for (const auto& [ck, sense] : segments)
     {
-      const int32_t* in = r.i32(CBR_POOL_CURVE_INT) + r.i32(CBR_CURVE_INT)[k];
-      for (int j = 0; j < in[0]; ++j)
-        segments.emplace_back(curve(in[2 + 3 * j]), in[3 + 3 * j] != 0);
-    }
-    else
-      segments.emplace_back(curve(k), true);
-    for (const auto& [c, sense] : segments)
-    {
+      occ::handle<Geom_Curve>  c = curve(ck);
       BRepBuilderAPI_MakeEdge me(c, c->FirstParameter(), c->LastParameter());
       if (!me.IsDone())
       {
@@ -998,6 +1010,39 @@ struct Builder
       for (int c = c0; c < c0 + cn; ++c)
       {
         const int   e  = r.i32(CBR_COEDGE_EDGE)[c], ci = r.i32(CBR_EDGE_CURVE)[e], pc = r.i32(CBR_COEDGE_PCURVE)[c];
+        const bool  reversed = r.u8(CBR_COEDGE_ORIENTATION)[c] == CBR_ORIENTATION_REVERSED;
+        if (ci >= 0 && r.u8(CBR_CURVE_KIND)[ci] == CBR_CURVE_COMPOSITE)
+        {
+          // A segment on a composite: an edge per piece along the use, as the translator flattens a boundary's
+          // composite segment; without p-curves (a composite's can't be shared out among its pieces).
+          std::vector<std::pair<int, bool>> ps;
+          pieces(ci, (r.u8(CBR_EDGE_SAME_SENSE)[e] != 0) != reversed, ps);
+          for (const auto& [pk, sense] : ps)
+          {
+            TopoDS_Edge pe;
+            try
+            {
+              occ::handle<Geom_Curve> c3 = curve(pk);
+              BRepBuilderAPI_MakeEdge me(c3, c3->FirstParameter(), c3->LastParameter());
+              if (me.IsDone())
+                pe = me.Edge();
+            }
+            catch (const Standard_Failure&)
+            {
+              pe.Nullify();
+            }
+            if (pe.IsNull())
+            {
+              out.warnings.push_back(what + ": a boundary segment that can't be made an edge; left out (as OCCT's "
+                                     "STEP reader leaves it out)");
+              continue;
+            }
+            if (const uint32_t id = r.u32(CBR_EDGE_ID)[e])
+              made.emplace_back(pe, id);
+            wd->Add(sense ? pe : TopoDS::Edge(pe.Reversed()));
+          }
+          continue;
+        }
         TopoDS_Edge ed;
         try
         {
@@ -1051,7 +1096,7 @@ struct Builder
         const uint32_t id = r.u32(CBR_EDGE_ID)[e];
         if (id)
           made.emplace_back(ed, id);
-        wd->Add(r.u8(CBR_COEDGE_ORIENTATION)[c] == CBR_ORIENTATION_REVERSED ? TopoDS::Edge(ed.Reversed()) : ed);
+        wd->Add(reversed ? TopoDS::Edge(ed.Reversed()) : ed);
       }
       if (wd->NbEdges() == 0)
         continue;

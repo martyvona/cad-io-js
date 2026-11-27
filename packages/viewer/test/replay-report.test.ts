@@ -14,7 +14,9 @@ test('isStep: what replay acts on, and what it keeps only for reading', () => {
   const steps = [{ type: 'load', files: [] }, { type: 'control', path: 'View/Zoom selected' },
     { type: 'select', source: 'tree', paths: [] }, { type: 'select', source: 'id', paths: [] },
     { type: 'api', method: 'view', args: [] }, { type: 'camera' }, { type: 'state' },
-    { type: 'pick', x: 0, y: 0, add: false, path: null }].map(ev);
+    { type: 'pick', x: 0, y: 0, add: false, path: null }, { type: 'appearance', path: 'a', override: {} },
+    { type: 'detection', detection: { angle: 10, grid: 0.001 } },
+    { type: 'detect', detection: { angle: 10, grid: 0.001 }, selectionOnly: false }].map(ev);
   const others = [{ type: 'control', path: 'File/Open file...' },
     { type: 'control', path: 'Selection/Select by ID...' },
     { type: 'select', source: 'pick', paths: [] }, { type: 'select', source: 'api', paths: [] },

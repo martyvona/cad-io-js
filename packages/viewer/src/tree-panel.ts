@@ -82,9 +82,9 @@ export function overrideText(o: AppearanceOverride): string {
  */
 function iconHtml(model: NodeModel, id: number): string {
   const failure = model.failure(id);
-  const g = failure ? undefined : model.geometryKind(id);
-  const icon = g && GEOMETRY_ICONS[g];
-  return `<span class="tree-icon${failure ? ' broken' : ''}"${icon ? ` title="${g!.replace('curve:', '')}"` : ''}>${
+  const g = failure ? undefined : model.geometry(id);
+  const icon = g && GEOMETRY_ICONS[g.kind];
+  return `<span class="tree-icon${failure ? ' broken' : ''}"${icon ? ` title="${g!.name}"` : ''}>${
     failure ? BROKEN_ICON : icon ?? ICONS[model.nodes[id]!.kind]}</span>`;
 }
 
@@ -103,8 +103,12 @@ export class TreePanel {
   private selection: number[] = [];
   /** The selection changed in the tree. */
   onSelect?: (ids: readonly number[]) => void;
+  /** Whether multi-select is on (tree-view.ts's `multi`). */
+  multi?: () => boolean;
   /** A row's context menu asked for, at a point of the page (client pixels). */
   onContextMenu?: (id: number, x: number, y: number) => void;
+  /** The row under the mouse: its node, or undefined once the mouse leaves the tree (tree-view.ts's onHover). */
+  onHover?: (id: number | undefined) => void;
   private readonly container: HTMLElement;
   private readonly listeners: [string, EventListener][] = [];
 
@@ -136,14 +140,19 @@ export class TreePanel {
         const row = content.parentElement!;
         row.classList.toggle('hidden', model.hiddenInTree(n.id));
         row.classList.toggle('failed', failure !== undefined);
+        // Still to be meshed, or holding a part that is: a spinner after the name (index.html).
+        const loading = model.loading(n.id);
+        row.classList.toggle('loading', loading);
         row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
           : failure === 'partly' ? ' (some faces failed to mesh)' : ''}${own ? ` (appearance overridden: ${
-          overrideText(own)})` : ''}`;
+          overrideText(own)})` : ''}${loading ? ' (still meshing)' : ''}`;
       },
       onSelectionChange: (ids) => {
         this.selection = ids.map(num);
         this.onSelect?.(this.selection);
       },
+      onHover: (id) => this.onHover?.(id === undefined ? undefined : num(id)),
+      multi: () => this.multi?.() ?? false,
     });
     this.container = container;
     // A row's context menu: right-click, or a long press with a finger; the focus moved to the row (the selection not).

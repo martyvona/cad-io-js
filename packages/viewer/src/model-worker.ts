@@ -11,6 +11,7 @@
 import dracoWasm from 'draco3dgltf/draco_decoder_gltf.wasm?url';
 import dracoEncoderWasm from 'draco3dgltf/draco_encoder.wasm?url';
 import { chooseLod, type Mesh, type Scene } from 'cad-scene';
+import type { EdgeDetection } from './edges.ts';
 import type { ExportRequest } from './export-formats.ts';
 import { exportModel, type Exported } from './export-model.ts';
 import { handOver, isLent, loadModelIn, meshable, meshBuffers, meshModelIn, needModels, takeBack, type ModelEvent,
@@ -19,13 +20,14 @@ import { partModelBuffers, type PartModel } from './part-model.ts';
 import { Tessellation, wantedOf, type TessellationSettings } from './tessellation.ts';
 
 export type ToModelWorker =
-  | { type: 'load'; load: number; input?: ModelInput; settings: TessellationSettings; workers: number }
+  | { type: 'load'; load: number; input?: ModelInput; settings: TessellationSettings; workers: number;
+    edges?: EdgeDetection }
   /**
    * The last load's scene meshed again (its mesh events and end under `load`); an error if there's none. `models`: the
    * B-rep models (and analyses) the page holds, by part, lent back (each returned with its part's mesh).
    */
   | { type: 'remesh'; load: number; settings: TessellationSettings; workers: number;
-    models: [number, PartModel][] }
+    models: [number, PartModel][]; edges?: EdgeDetection }
   /** Answered with `cancelled` (its id): after it, no model of the cancelled run comes (handOver asks first). */
   | { type: 'cancel'; id: number }
   /**
@@ -116,7 +118,7 @@ scope.onmessage = async (e) => {
       last.settings = msg.settings;
       await meshModelIn(last.scene, msg.settings, msg.workers, tessellation, (ev, transfer) => {
         if (load === current) scope.postMessage({ ...ev, load }, transfer ?? []);
-      }, () => load !== current);
+      }, () => load !== current, undefined, msg.edges);
     } catch (err) {
       if (load === current) scope.postMessage({ type: 'error', message: (err as Error).message ?? String(err), load });
     }

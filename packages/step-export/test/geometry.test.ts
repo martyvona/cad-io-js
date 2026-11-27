@@ -1017,6 +1017,106 @@ test('a loose face (a face item in no shell) written as a CURVE_BOUNDED_SURFACE,
   assert.match(render(ws, 30, new Set([0])), /^ADVANCED_FACE\(/);
 });
 
+test('a loose face\'s segments on composites over their whole ranges written untrimmed (nested ones too), run as their '
+  + 'uses run; read back the same', async () => {
+  // The rectangle 0..4 by 0..1: its bottom (edge 10) and top (edge 12) each on a composite from x = 0 to 4 (curves 7
+  // and 8) of a unit line and a composite of three more, some run against themselves; the top's use reversed (case
+  // a), or its edge against its curve (case b). Its sides on lines trimmed 0 to 1.
+  const make = (againstEdge: boolean) => {
+    const b = new BrepBuilder({ uncertainty: 1e-6 });
+    const plane = b.addSurface({ kind: 'plane', position: P });
+    const unit = (x: number, y: number) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line',
+      point: [x, y, 0], direction: [1, 0, 0], magnitude: 1 }), trim1: { parameter: 0 }, trim2: { parameter: 1 },
+    sense: true, preference: 'parameter' });
+    const seg = (curve: number, sameSense: boolean) => ({ curve, sameSense, transition: 'continuous' as const });
+    const along = (y: number, id: number) => {
+      const back = b.addCurve({ kind: 'composite', segments: [seg(unit(3, y), false), seg(unit(2, y), false),
+        seg(unit(1, y), false)], selfIntersect: false });
+      return b.addCurve({ kind: 'composite', segments: [seg(unit(0, y), true), seg(back, false)],
+        selfIntersect: false, id });
+    };
+    const side = (p: number[], q: number[], id: number) => b.addEdge({ curve: b.addCurve({ kind: 'trimmed',
+      basis: b.addCurve({ kind: 'line', point: p, direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 }),
+      trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true, preference: 'parameter' }), sameSense: true,
+    id });
+    const bottom = b.addEdge({ curve: along(0, 7), sameSense: true, id: 10 });
+    const top = b.addEdge({ curve: along(1, 8), sameSense: !againstEdge, id: 12 });
+    const f = b.addFace({ surface: plane, sameSense: true, id: 20, loops: [{ kind: 'edge', bound: 'outer',
+      sense: true, coedges: [{ edge: bottom, orientation: 'forward' as const },
+        { edge: side([4, 0, 0], [4, 1, 0], 11), orientation: 'forward' as const },
+        { edge: top, orientation: againstEdge ? 'forward' as const : 'reversed' as const },
+        { edge: side([0, 1, 0], [0, 0, 0], 13), orientation: 'forward' as const }] }] });
+    b.addItem({ kind: 'face', ref: f });
+    const d = b.finish();
+    assert.deepEqual(b.diagnostics, []);
+    return d;
+  };
+  for (const againstEdge of [false, true]) {
+    const what = againstEdge ? 'the top against its curve' : 'the top used reversed';
+    const d = make(againstEdge);
+    // The builder joins the segments: each edge with its vertices, a composite's range its whole, [0, 2] (from 2 to 0
+    // where the edge runs against it).
+    const e10 = decode.edge(d, 0), top = Array.from({ length: rowCount(d, 'edge') }, (_, k) => decode.edge(d, k))
+      .find((e) => e.id === 12)!;
+    assert.deepEqual([e10.id, e10.range, top.range, top.start !== undefined],
+      [10, [0, 2], againstEdge ? [2, 0] : [0, 2], true], what);
+    const w = written(d);
+    assert.deepEqual(w.diagnostics, [], what);
+    // The segments on the composites themselves, the top's run against it.
+    assert.equal(render(w, 10, new Set([7])), 'COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#7)', what);
+    assert.equal(render(w, 12, new Set([8])), 'COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.F.,#8)', what);
+    assert.doesNotMatch(w.text, /TRIMMED_CURVE\('',#[78],/, what);
+    // Read back: the same model (case a); case b's top read as on its curve with its use reversed, the same vertices
+    // at either end of the use.
+    const back = (await readBack(w.data, w.rootId)).brep;
+    if (!againstEdge) {
+      assert.deepEqual(differences(walk(d), walk(back), '', [], modelSize(d)).filter((x) => !x.bits), [], what);
+      continue;
+    }
+    const edges = (m: BrepData) => Array.from({ length: rowCount(m, 'edge') }, (_, k) => decode.edge(m, k));
+    const useEnds = (m: BrepData) => {
+      const loop = decode.face(m, 0).loops[0]!;
+      assert.ok(loop.kind === 'edge');
+      return loop.coedges.map((c) => {
+        const e = decode.edge(m, c.edge), ends = [e.start!, e.end!].map((v) => decode.vertex(m, v).point);
+        return [e.id, ...(c.orientation === 'reversed' ? ends.reverse() : ends)];
+      });
+    };
+    assert.deepEqual(useEnds(back), useEnds(d), what);
+    const topBack = edges(back).find((e) => e.id === 12)!;
+    assert.deepEqual([topBack.sameSense, topBack.range, decode.curve(back, topBack.curve!).kind],
+      [true, [0, 2], 'composite'], what);
+  }
+  // Edges over part of a composite's range ([0, 1], [0, 1.5] and [1, 2] of [0, 2]): trimmed as other curves are; and
+  // a B-spline's over its whole range (the top) trimmed still.
+  for (const r of [[0, 1], [0, 1.5], [1, 2]] as [number, number][]) {
+    const b = new BrepBuilder({ uncertainty: 1e-6 });
+    const unit = (x: number) => b.addCurve({ kind: 'trimmed', basis: b.addCurve({ kind: 'line', point: [x, 0, 0],
+      direction: [1, 0, 0], magnitude: 1 }), trim1: { parameter: 0 }, trim2: { parameter: 1 }, sense: true,
+    preference: 'parameter' });
+    const comp = b.addCurve({ kind: 'composite', segments: [0, 1].map((x) => ({ curve: unit(x), sameSense: true,
+      transition: 'continuous' as const })), selfIntersect: false, id: 7 });
+    const [x0, x1] = r, c = [[x0, 0, 0], [x1, 0, 0], [x1, 1, 0], [x0, 1, 0]];
+    const vs = c.map((point) => b.addVertex({ point }));
+    const es = c.map((p, k) => {
+      const q = c[(k + 1) % 4]!, v = q.map((x, j) => x - p[j]!), n = Math.hypot(...v);
+      const curve = k === 0 ? comp : k === 2 ? b.addCurve({ kind: 'bspline', degree: 1, knots: [0, 1],
+        multiplicities: [2, 2], poles: [p, q], form: 'unspecified', closed: false, selfIntersect: false })
+        : b.addCurve({ kind: 'line', point: p, direction: v.map((x) => x / n), magnitude: n });
+      return b.addEdge({ curve, start: vs[k]!, end: vs[(k + 1) % 4]!, sameSense: true, range: k === 0 ? r : [0, 1],
+        id: 10 + k });
+    });
+    b.addItem({ kind: 'face', ref: b.addFace({ surface: b.addSurface({ kind: 'plane', position: P }), sameSense: true,
+      loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: es.map((edge) => ({ edge,
+        orientation: 'forward' as const })) }] }) });
+    const w = written(b.finish());
+    const value = (x: number) => `\\(PARAMETER_VALUE\\(${x}\\.?\\)\\)`;
+    assert.match(render(w, 10, new Set([7])), new RegExp('^COMPOSITE_CURVE_SEGMENT\\(\\.CONTINUOUS\\.,\\.T\\.,'
+      + `TRIMMED_CURVE\\('',#7,${value(r[0])},${value(r[1])},\\.T\\.`), `${r}`);
+    assert.match(render(w, 12), /^COMPOSITE_CURVE_SEGMENT\(\.CONTINUOUS\.,\.T\.,TRIMMED_CURVE\(''/, `${r}`);
+  }
+});
+
 test('a loose face whose segments meet a little apart, untrimmed: read back the same, its vertices where they were',
   async () => {
   const b = new BrepBuilder({ uncertainty: 0.01 });

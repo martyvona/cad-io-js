@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { VIEWS, type ViewName } from './camera.ts';
+import { AXIS_VIEWS, type LookMotion, type ViewName } from './camera.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { askDemo } from './demo.ts';
@@ -16,7 +16,7 @@ import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
-import { highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
+import { highlightForNode, highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
   from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
@@ -37,6 +37,8 @@ import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
 import { isLineKind, type AppearanceOverride, type NodeModel, type PathOverride, type Slot } from './model.ts';
 import type { Pick } from './pick.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
+import { edgeRunShown, edgeValuesShown, showEdgeDetection, type EdgeRun } from './edge-dialog.ts';
+import { detectionFrom, type EdgeDetection } from './edges.ts';
 import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
 import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
@@ -119,6 +121,19 @@ export interface Ui {
   setOverride(id: number, o: AppearanceOverride): void;
   /** The tree panel's state. */
   tree(): { open: boolean; detail: boolean };
+  /** Look Along an Axis's Fit, and View's Look and fit (how a view that fits moves). */
+  views(): { fit: boolean; motion: LookMotion };
+  /** Sets them (the controls follow). */
+  setViews(v: Partial<{ fit: boolean; motion: LookMotion }>): void;
+  /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
+  edgeDetection(): EdgeDetection;
+  /** Mesh edge detection's values set, remembered in this browser (valid ones: edges.ts's detectionProblem). */
+  setEdgeDetection(d: EdgeDetection): void;
+  /**
+   * Mesh edge detection's Detect: edges detected again on every part with triangles, or (`selectionOnly`) the
+   * selection's parts; what it did, or why it didn't.
+   */
+  detectEdges(d: EdgeDetection, selectionOnly: boolean): Promise<EdgeRun>;
   /** No model to open at start: says how to open one. */
   empty(): void;
   /** Says something in the status line. */
@@ -135,6 +150,10 @@ export interface Ui {
   linkDeviceDefaults(): boolean;
   /** The view's address, for "Link to this view..." (set by the automation layer). */
   link?: () => string;
+  /** Called with each model's source as an open (not Mesh again) reads it (set by the automation layer). */
+  onSource?: (src: Source) => void;
+  /** About's Reload (set by the automation layer; else a plain reload). */
+  reload?: () => void;
   /** The controls (for the recorder, recorder.ts, and replay). */
   readonly gui: GUI;
   /** What happens, as it happens (for the recorder). */
@@ -150,7 +169,11 @@ export type UiEvent =
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean }
-  | { type: 'appearance'; id: number; override: AppearanceOverride };
+  | { type: 'appearance'; id: number; override: AppearanceOverride }
+  /** Mesh edge detection's values set. */
+  | { type: 'detection'; detection: EdgeDetection }
+  /** A run of Mesh edge detection, as it begins; `done` with what it did. */
+  | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; done: Promise<EdgeRun> };
 
 /** How long the status line, and the details while nothing is selected, stay after they last changed. */
 const HIDE_AFTER = 5000;
@@ -173,6 +196,8 @@ const GNOMON_KEY = 'cad-viewer.gnomon';
 const KEYBOARD_KEY = 'cad-viewer.keyboard';
 /** Link to this view...'s Include device defaults, as remembered in this browser ('1' on; else off). */
 const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
+/** Mesh edge detection's values (edge-dialog.ts), as JSON: every load's detection too. */
+const EDGE_DETECTION_KEY = 'cad-viewer.edgeDetection';
 /** The remembered choice (off where storage can't be read). */
 function linkDefaultsRemembered(): boolean {
   try {
@@ -382,7 +407,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
       ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched,
     problems: () => void showProblems(m.name, m.diagnostics ?? []) } : undefined,
-    updates, () => void loadDemo());
+    updates, () => void loadDemo(), () => ui.reload ? ui.reload() : location.reload());
   };
   const loadDemo = async () => {
     const p = await askDemo();
@@ -467,7 +492,10 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const t = performance.now();
       let gen = viewer.nextLoad();
       last = src;
-      if (!keep) restore = undefined;
+      if (!keep) {
+        restore = undefined;
+        ui.onSource?.(src);
+      }
       // Mesh again: the model worker's scene meshed again in place where it can, else the file loaded again.
       let inPlace = false;
       // (Why Mesh again loaded the file again instead, said once it's done.)
@@ -648,15 +676,35 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     } catch { /* not remembered */ }
     viewer.redraw();
   });
+  // How a view that fits moves (Viewer.lookAlong): zooming out to the whole model, orbiting, zooming in; or at once.
+  const looking: { fit: boolean; motion: LookMotion } = { fit: true, motion: 'steps' };
+  const motionControl = view.add(looking, 'motion', { 'Zoom out, turn, zoom in': 'steps', 'All at once': 'together' })
+    .name('Look and fit');
   const views = view.addFolder('Look Along an Axis');
+  // Fit: each view fits the selection (else the model) as it turns; a shift-click (or shift with the key) the other
+  // way.
+  const fitControl = views.add(looking, 'fit').name('Fit');
+  // (Whether the button's click is shifted: seen on the way down to it, before lil-gui's own handler calls it.)
+  let shifted = false;
+  views.domElement.addEventListener('click', (e) => { shifted = e.shiftKey; }, { capture: true });
+  const lookAlong = (v: ViewName) => {
+    const fit = looking.fit !== shifted;
+    shifted = false;
+    if (!fit) return viewer.setView(v);
+    const s = selected.length && viewer.nodes ? sphereOf(piecesOf(viewer.nodes, selected)) : undefined;
+    viewer.lookAlong(v, s && !s.isEmpty() ? s : viewer.modelSphere(), looking.motion);
+  };
   const viewButtons = new Map<ViewName, HTMLElement>(), viewControls = new Map<ViewName, unknown>();
-  for (const v of Object.keys(VIEWS) as ViewName[]) {
-    const c = views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
+  for (const { view: v, name } of AXIS_VIEWS) {
+    const c = views.add({ [v]: () => lookAlong(v) }, v).name(name);
     viewButtons.set(v, (c as unknown as { $button: HTMLElement }).$button);
     viewControls.set(v, c);
   }
+  // A view's button pressed as a click would (shifted or not), so it's recorded as that control.
+  const pressView = (v: ViewName, shiftKey: boolean) => viewButtons.get(v)!.dispatchEvent(new MouseEvent('click',
+    { bubbles: true, cancelable: true, shiftKey }));
   // A click on the gnomon presses the view's button, as the user would (recorded as that control).
-  viewer.onGnomonView = (v) => viewButtons.get(v)!.click();
+  viewer.onGnomonView = pressView;
   const setTheme = (c: ThemeChoice) => {
     const t = applyTheme(c);
     viewer.setTheme(t);
@@ -679,10 +727,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const first = setTheme(theme.choice);
   // Auto follows the system as it changes.
   onSystemTheme(() => { if (theme.choice === 'auto') setTheme('auto'); });
-  file.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
-    .onChange((c: ThemeChoice) => setTheme(c));
   fullscreen();
   file.add({ about: () => about() }, 'about').name('About...');
+  // Last in File.
+  file.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
+    .onChange((c: ThemeChoice) => setTheme(c));
   // Filled once what they drive exists (below).
   const treeFolder = gui.addFolder('Tree');
   const selFolder = gui.addFolder('Selection');
@@ -726,8 +775,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const look = viewer.render;
   // (The selection's colour is the Highlighter's, made below.)
   let recolour = () => {};
+  // The tree's row under the mouse in the highlight's colour, its text dark or light to stand out on it.
+  const hoverColours = () => {
+    const c = parseInt(look.highlightColor.slice(1), 16);
+    const luma = 0.299 * (c >> 16) + 0.587 * (c >> 8 & 255) + 0.114 * (c & 255);
+    treeElement.style.setProperty('--row-hovered', look.highlightColor);
+    treeElement.style.setProperty('--row-hovered-fg', luma > 140 ? '#111' : '#fff');
+  };
+  hoverColours();
   const restyle = () => {
     recolour();
+    hoverColours();
     viewer.setRender(look);
   };
   rendering.add(look, 'ao').name('Ambient occlusion').onChange(restyle);
@@ -748,11 +806,57 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   edgeWidth.show(look.edgeStyle === 'fat');
   // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
   rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
-  // Vertices' dots and failed faces' outlines toward the camera (depth-bias.ts): the faces they lie on cut into them
-  // with less, what's just behind a face shows through it with more.
-  rendering.add(look, 'depthOffset', 0, 16, 0.5).name('Depth offset (pixels)').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
+  // Mesh edge detection... (edge-dialog.ts): its values remembered in this browser, every load's detection too.
+  try {
+    viewer.edgeDetection = detectionFrom(localStorage.getItem(EDGE_DETECTION_KEY));
+  } catch { /* the defaults */ }
+  // The scene parts a selection covers: a selected node's part, every part below a selected assembly.
+  const partsOf = (ids: readonly number[]) => {
+    const m = viewer.nodes, out = new Set<number>();
+    if (!m) return [];
+    const walk = (id: number) => {
+      const n = m.nodes[id]!;
+      if (n.kind === 'assembly') return (n.children ?? []).forEach(walk);
+      const p = m.nodes[m.partOf(id)]!;
+      if (p.kind === 'part') out.add(p.object!.userData.part as number);
+    };
+    ids.forEach(walk);
+    return [...out];
+  };
+  const setEdgeDetection = (d: EdgeDetection) => {
+    viewer.edgeDetection = { ...d };
+    try {
+      localStorage.setItem(EDGE_DETECTION_KEY, JSON.stringify(d));
+    } catch { /* not remembered; it still applies now */ }
+    edgeValuesShown(d);
+    hooks.onEvent?.({ type: 'detection', detection: { ...d } });
+  };
+  const runDetection = async (d: EdgeDetection, selectionOnly: boolean): Promise<EdgeRun> => {
+    if (!viewer.model) return { text: 'No model open.', error: true };
+    if (viewer.loading) return { text: 'Still loading: detect once it\'s meshed.', error: true };
+    const parts = selectionOnly ? partsOf(selected) : undefined;
+    if (parts && !parts.length) return { text: 'Nothing selected.', error: true };
+    const r = await viewer.detectEdges(parts, d, (k, n) => say(`detecting edges: ${k} of ${n} parts`));
+    if (r.stopped) return { text: `Stopped after ${r.parts} parts (another run, or another model).` };
+    const text = `Detected ${r.segments.toLocaleString()} edge segments on ${r.parts.toLocaleString()} ` +
+      `${r.parts === 1 ? 'part' : 'parts'}.`;
+    say(text.toLowerCase().replace(/\.$/, ''));
+    return { text };
+  };
+  // (Shown in the panel and recorded as it begins, so what's selected meanwhile comes after it in a recording.)
+  const detectEdges = (d: EdgeDetection, selectionOnly: boolean) => {
+    const done = runDetection({ ...d }, selectionOnly);
+    edgeRunShown(d, selectionOnly, done);
+    hooks.onEvent?.({ type: 'detect', detection: { ...d }, selectionOnly, done });
+    return done;
+  };
+  rendering.add({ detect: () => showEdgeDetection({
+    values: () => ({ ...viewer.edgeDetection }),
+    remember: setEdgeDetection,
+    run: detectEdges,
+  }) }, 'detect').name('Mesh edge detection...');
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
     rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle),
     rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle),
@@ -767,6 +871,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   rendering.addColor(look, 'highlightColor').name('Highlight colour').onChange(restyle);
   rendering.add(look, 'highlightWidth', 0.5, 8, 0.25).name('Highlight width (pixels)').onChange(restyle);
   rendering.addColor(look, 'selectionColor').name('Selection colour').onChange(restyle);
+  // Alerts (Viewer.alerts: failed faces' outlines) drawn over everything.
+  rendering.addColor(look, 'alertColor').name('Alert colour').onChange(restyle);
   // The view's background: the theme's, or the picker's while Custom background is on (the picker starting at the
   // theme's colour); remembered in this browser.
   const background = customBackground(hexColour(VIEW_BACKGROUNDS[first]));
@@ -847,12 +953,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let openControl: { setValue(v: boolean): unknown } | undefined;
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
+  /** The node of the tree's row under the mouse, if any (highlighted as the 3D view's hover is). */
+  let treeHovered: number | undefined;
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
   recolour = () => highlighter.setColor(parseInt(look.selectionColor.slice(1), 16));
   recolour();
-  // Details on by default.
-  const selection = { level: 'part' as PickLevel, multi: false, instances: false, details: true };
+  // Multi-select and Details on by default.
+  const selection = { level: 'part' as PickLevel, multi: true, instances: false, details: true };
   // The objects the highlight covered: a selected part's or face's mesh may arrive after it was selected (always so
   // when meshing again restores the selection: the selection comes back with the tree, the meshes later, each in a
   // new object); it's then highlighted (and described) again.
@@ -904,11 +1012,32 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     describe();
   };
   // A node's context menu, from a right-click or long press on its row in the tree or on it in the view. Hide and Show
-  // set each node's own override's visibility, as Override Appearance... would, keeping the rest of it; Remove
-  // Appearance Override (when one has an override) clears them. Each on the node, or on the whole selection when the
-  // node is in it with others; Override Appearance... on the node alone. At once, recorded node by node, the open panel
-  // following. Then Selection's actions: Select parent and Select children on the same nodes as Hide, the rest as
-  // their buttons.
+  // set each node's own override's visibility, as Override Appearance... would, keeping the rest of it; Hide others and
+  // Show others hide and show what those of Selection do (NodeModel.others); Remove Appearance Override (when one has
+  // an override) clears them. Each on the node, or on the whole selection when the node is in it with others; Show all
+  // as its button; Override Appearance... on the node alone. At once, recorded node by node (Hide and Show others as
+  // the overrides they changed), the open panel following. Then Selection's actions: Select parent and Select children
+  // on the same nodes as Hide, the rest (Hide selected and Show selected last) as their buttons.
+  // Hide others or Show others of `ids` (NodeModel.others, by setHidden's rules), recorded as the overrides that
+  // changed, node by node (a removed one as none), so a replay sets exactly those.
+  const othersRecorded = (hidden: boolean, ids: readonly number[]) => {
+    const nodes = viewer.nodes;
+    if (!nodes) return;
+    const text = (o: object) => JSON.stringify(o);
+    const before = new Map(nodes.overrides().map(({ path, ...o }) => [path, text(o)]));
+    hide(hidden, nodes.others(ids));
+    const changed: [string, AppearanceOverride][] = [];
+    const after = new Set<string>();
+    for (const { path, ...o } of nodes.overrides()) {
+      after.add(path);
+      if (before.get(path) !== text(o)) changed.push([path, o]);
+    }
+    for (const path of before.keys()) if (!after.has(path)) changed.push([path, {}]);
+    for (const [path, override] of changed) {
+      const t = nodes.find(path);
+      if (t !== undefined) hooks.onEvent?.({ type: 'appearance', id: t, override });
+    }
+  };
   // A node's menu (the tree's row's, or the view's for what was clicked: `header` then, the node as its row shows it).
   const nodeMenu = (id: number, x: number, y: number, header = false) => {
     const nodes = viewer.nodes, graph = viewer.graph;
@@ -933,6 +1062,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     showMenu(x, y, [
       { label: many('Hide', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: true })) },
       { label: many('Show', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: false })) },
+      { label: 'Hide others', action: () => othersRecorded(true, targets) },
+      { label: 'Show others', action: () => othersRecorded(false, targets) },
+      { label: 'Show all', action: () => press(showAllControl) },
       { label: 'Override Appearance...', action: () => editAppearance(id) },
       ...(overridden ? [{ label: many('Remove Appearance Override', overridden),
         action: () => each(() => ({})) }] : []),
@@ -942,6 +1074,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Select all', action: () => ui.selectAll() },
       { label: 'Invert selection', action: () => ui.invertSelection() },
       { label: 'Select by ID...', action: () => void selectById() },
+      { label: 'Hide selected', action: () => press(hideControl) },
+      { label: 'Show selected', action: () => press(showControl) },
       ...(errors + warnings ? [{ label: `${count(errors, 'Error')}, ${count(warnings, 'Warning')}...`,
         divider: true, action: () => void showProblems(name, mine, nodes.nodes[id]!.face ? name
           : `${name} and everything in it`) }] : []),
@@ -961,8 +1095,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     viewer.triangleEdges.select([]);
     zoomSelected.disable();
     panel = new TreePanel(treeElement, nodes);
+    panel.multi = () => selection.multi;
     panel.onSelect = (ids) => select(ids, 'tree');
     panel.onContextMenu = nodeMenu;
+    panel.onHover = (id) => {
+      treeHovered = id;
+      hover();
+    };
+    treeHovered = undefined;
     if (tree.detail) panel.setDetail(true);
     if (restore) {
       // Exactly the overrides before (the file's own hiding giving way to them).
@@ -985,11 +1125,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
     return hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level, hit.item);
   };
-  // What the pointer's over, highlighted at the pick level (the last kept, for a change of level).
+  // What the pointer's over, highlighted at the pick level (the last kept, for a change of level); or the tree's row
+  // under the mouse, its node.
   let hovering: Pick | undefined;
   const hover = () => {
     const nodes = viewer.nodes;
-    viewer.setHighlight(hovering && nodes ? highlightForPick(nodes, hovering, selection.level) : undefined);
+    viewer.setHighlight(!nodes ? undefined : treeHovered !== undefined ? highlightForNode(nodes, treeHovered)
+      : hovering ? highlightForPick(nodes, hovering, selection.level) : undefined);
   };
   viewer.onHover = (hit) => {
     hovering = hit;
@@ -1016,7 +1158,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     hooks.onEvent?.({ type: 'pick', clientX: keys.clientX, clientY: keys.clientY, add, ...(id !== undefined ? { id }
       : {}), ...(hit ? { point: hit.point.toArray() } : {}) });
     if (id === undefined) return add ? undefined : select([], 'pick');
-    select(!add ? [id] : selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id], 'pick');
+    // (Something selected, clicked again, comes out of the selection, adding or not.)
+    select(selected.includes(id) ? selected.filter((s) => s !== id) : add ? [...selected, id] : [id], 'pick');
   };
   // Once a frame while meshes arrive; `refreshed` settles after (for cadViewer.idle).
   let refresh = false;
@@ -1250,6 +1393,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       return missing;
     },
     tree: () => ({ open: tree.open, detail: tree.detail }),
+    views: () => ({ ...looking }),
+    setViews: (v) => {
+      Object.assign(looking, v);
+      fitControl.updateDisplay();
+      motionControl.updateDisplay();
+    },
+    edgeDetection: () => ({ ...viewer.edgeDetection }),
+    setEdgeDetection,
+    detectEdges,
     empty: () => {
       say('Open a file (or drop one here), or load one by URL');
       report({ empty: true });
@@ -1264,11 +1416,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
   selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
     'Face, edge, curve, vertex': 'detail' }).name('Pick').onChange(hover);
-  selFolder.add(selection, 'multi').name('Multi-select (touch)');
+  selFolder.add(selection, 'multi').name('Multi-select');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
   selFolder.add({ parent: () => ui.selectParent() }, 'parent').name('Select parent');
   selFolder.add({ children: () => ui.selectChildren() }, 'children').name('Select children');
-  selFolder.add({ none: selectNone }, 'none').name('Select none');
+  const noneControl = selFolder.add({ none: selectNone }, 'none').name('Select none');
   selFolder.add(ui, 'selectAll').name('Select all');
   selFolder.add(ui, 'invertSelection').name('Invert selection');
   selFolder.add({ byId: selectById }, 'byId').name('Select by ID...');
@@ -1277,7 +1429,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const showControl = selFolder.add(ui, 'showSelected').name('Show selected');
   selFolder.add(ui, 'hideOthers').name('Hide others');
   selFolder.add(ui, 'showOthers').name('Show others');
-  selFolder.add(ui, 'showAll').name('Show all');
+  const showAllControl = selFolder.add(ui, 'showAll').name('Show all');
   // Transparency: the selection at this opacity, or back to the file's.
   selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
   selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
@@ -1310,6 +1462,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   hint(showControl, 's');
   hint(openControl, 't');
   hint(triangleEdges, 'g');
+  hint(noneControl, 'Esc');
   // The hints show where there's a mouse or trackpad (index.html), and once a physical keyboard has been seen (a class
   // on the page, remembered in this browser): a tablet's keyboard alone isn't told to the page any other way.
   const keyboardSeen = () => document.documentElement.classList.add('cv-keyboard');
@@ -1327,10 +1480,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!s) return;
     e.preventDefault();
     if (s.type === 'zoom') press(selected.length ? zoomSelected : zoomAll);
-    else if (s.type === 'view') viewButtons.get(s.view)!.click();
+    else if (s.type === 'view') pressView(s.view, s.shift);
     else if (s.type === 'hide') press(hideControl);
     else if (s.type === 'show') press(showControl);
     else if (s.type === 'tree') set(openControl!, !tree.open);
+    else if (s.type === 'selectNone') press(noneControl);
     else set(triangleEdges, nextTriangleEdges(look.triangleEdges, selected.length > 0));
   });
 

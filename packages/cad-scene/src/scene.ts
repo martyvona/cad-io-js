@@ -280,6 +280,12 @@ export interface Mesh {
    */
   faceOutlinePositions?: Float32Array;
   faceOutlines?: { source: number; start: number; count: number }[];
+  /**
+   * The faces the error of a mesh that isn't a closed, oriented manifold over its closed shells names (all of them,
+   * where its message names ten), in its order: tessellateScene's check (manifold.ts's `reported` defects). None if
+   * it is one, or wasn't checked.
+   */
+  defectFaces?: number[];
 }
 
 export type EdgeKind = 'shared' | 'seam' | 'free' | 'degenerate';

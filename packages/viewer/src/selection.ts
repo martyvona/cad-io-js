@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { boxesSphere, type Box } from 'cad-scene';
 import { biasTowardCamera, keepBias } from './depth-bias.ts';
-import { rangeOf } from './items.ts';
+import { itemsOf, rangeOf } from './items.ts';
 import type { NodeModel } from './model.ts';
 
 export type PickLevel = 'assembly' | 'part' | 'detail';
@@ -228,6 +228,52 @@ export function highlightForPick(model: NodeModel, hit: { object: THREE.Object3D
   // (A cap, a pick without a face index: the part.)
   const id = nodeForPick(model, hit.object, hit.faceIndex, level);
   return id === undefined ? none : { outline: piecesOf(model, [id]), marks: [] };
+}
+
+/**
+ * A tree node's highlight, as hovering in the 3D view at its level would give it: faces, parts, assemblies and the
+ * faces group a silhouette of their pieces (a failed face's outline marked); edges, curves, vertices and points, and
+ * their groups, marks.
+ */
+export function highlightForNode(model: NodeModel, id: number): { outline: Piece[]; marks: Piece[] } {
+  const n = model.nodes[id];
+  if (!n || n.dead) return { outline: [], marks: [] };
+  const pieces = piecesOf(model, [id]);
+  if (n.item || n.kind === 'edges' || n.kind === 'vertices') return { outline: [], marks: pieces };
+  if (!n.face) return { outline: pieces, marks: [] };
+  const failed = (p: Piece) => p.object.userData.outlineFace !== undefined;
+  return { outline: pieces.filter((p) => !failed(p)), marks: pieces.filter(failed) };
+}
+
+/**
+ * What an alert on a node draws (alerts.ts): its lines and dots, never its faces. An edge, curve, vertex or point
+ * itself; a face its edges (by its part's B-rep, `edgesOf` giving a face's edge ids where the page holds it) and its
+ * outline if it failed; a part, an assembly or a faces group their edges, curves, failed faces' outlines and loose
+ * points; an edges or vertices group its members. Nothing hidden (items.ts) or dead.
+ */
+export function alertForNode(model: NodeModel, id: number, edgesOf?: (part: number, face: number) => number[]):
+  Piece[] {
+  const n = model.nodes[id];
+  if (!n || n.dead) return [];
+  // (Vertices' dots: their DiscMaterial's mark.)
+  const lineOrLoose = (p: Piece) => !(p.object as THREE.Mesh).isMesh &&
+    ![p.object.material].flat()[0]?.userData.dots;
+  if (n.item || n.kind === 'edges' || n.kind === 'vertices') return piecesOf(model, [id]);
+  if (!n.face && n.kind !== 'faces') return piecesOf(model, [id]).filter(lineOrLoose);
+  const group = model.nodes[model.partOf(id)]!.object!;
+  const placed = group.children.find((c) => c.userData.faceRanges !== undefined);
+  const lines = placed?.children.find((c) => c.name === 'edges') as THREE.LineSegments | undefined;
+  if (n.kind === 'faces') {
+    const outlines = piecesOf(model, [id]).filter((p) => !(p.object as THREE.Mesh).isMesh);
+    return [...lines ? [{ object: lines }] : [], ...outlines];
+  }
+  const own = piecesOf(model, [id]).filter((p) => !(p.object as THREE.Mesh).isMesh);
+  const edges = new Set(edgesOf?.(group.userData.part as number, n.face!.source) ?? []);
+  const ranges = !lines ? [] : itemsOf(lines).flatMap((item, k) => {
+    const r = item.source !== null && edges.has(item.source) ? rangeOf(lines, k) : undefined;
+    return r ? [r] : [];
+  });
+  return ranges.length ? [...own, { object: lines!, ranges }] : own;
 }
 
 /** The placements of a part node's part: the part nodes of the same scene part. */

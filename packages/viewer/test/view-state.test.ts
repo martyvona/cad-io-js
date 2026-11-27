@@ -13,7 +13,7 @@ test('view state: every field through the query and back; numbers to 6 decimals;
     render: { ao: false, smaa: true, edges: false, vertices: true, shininess: 50, aoIntensity: 2.5,
       aoRadius: 16, aoQuality: 'Low', edgeStyle: 'thin', edgeWidth: 2.5, specular: 0.25, ambient: 0.8, light: 3,
       capStyle: 'parts', hatchWidth: 2.25, depthOffset: 0, highlightWidth: 5, highlightColor: '#00ff7f',
-      selectionColor: '#a0b1c2' },
+      selectionColor: '#a0b1c2', alertColor: '#c00000' },
     tree: { open: false, detail: true }, pick: 'detail', instances: true,
     hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], shown: ['as1/plate/edges'],
     opacity: [{ path: 'as1/a%2Fb:2/nut', alpha: 0.3 }, { path: 'as1/rod', alpha: 'default' },
@@ -43,9 +43,9 @@ test('view state: every field through the query and back; numbers to 6 decimals;
 test('view state: malformed values left out, each with a message', () => {
   const { state, problems } = fromQuery(new URLSearchParams('view=sideways&camera=1,2,3&cut=w:1&cut=x:a&cut=y:1:up'
     + '&aoQuality=Best&shininess=-1&pick=face&tree=0&edgeStyle=bold&capStyle=onshape&specular=-1&hatchWidth=x'
-    + '&highlightColor=%23ffe100&selectionColor=fff'));
+    + '&highlightColor=%23ffe100&selectionColor=fff&alertColor=red'));
   assert.deepEqual(state, { cut: {}, tree: { open: false } });
-  assert.equal(problems.length, 14, problems.join('\n'));
+  assert.equal(problems.length, 15, problems.join('\n'));
   // Colours: six hex digits, either case, kept as `#` and lower case.
   assert.deepEqual(fromQuery(new URLSearchParams('highlightColor=FFE100')).state, { render: { highlightColor:
     '#ffe100' } });
@@ -55,6 +55,10 @@ test('view state: malformed values left out, each with a message', () => {
     '&alpha=default:b&alpha=Default:b'));
   assert.deepEqual([alpha.state.opacity, alpha.problems.length], [[{ path: 'a:2', alpha: 0 },
     { path: 'b', alpha: 'default' }], 6]);
+  // The views by name, the iso views in the file's axes too.
+  for (const view of ['front', 'iso', 'isoX', 'isoY', 'isoZ']) {
+    assert.deepEqual(fromQuery(new URLSearchParams(`view=${view}`)), { state: { view }, problems: [] });
+  }
   const tri = fromQuery(new URLSearchParams('tri=on:a:2&tri=yes:a&tri=off:&tri=a'));
   assert.deepEqual([tri.state.triangleEdges, tri.problems.length], [[{ path: 'a:2', on: true }], 3]);
 });

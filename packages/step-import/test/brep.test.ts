@@ -128,6 +128,67 @@ test('geometry in radians is left as written', async () => {
   assert.deepEqual([t.trim1.parameter, t.trim2.parameter, cone.semiAngle], [90, 180, 30]);
 });
 
+test('trims on wrapped circles and ellipses in degrees are radians; on a line, a B-spline or a composite kept', async () => {
+  // Trims (90 to 180 degrees) on: a trim of a circle, an offset of an ellipse, a surface curve on a circle, a trim of
+  // an offset of a trim of a circle; then on a trim of a line, an offset of a B-spline and a composite of the line.
+  const data = `
+#1=CARTESIAN_POINT('',(0.,0.,0.));
+#2=DIRECTION('',(0.,0.,1.));
+#3=DIRECTION('',(1.,0.,0.));
+#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);
+#10=CIRCLE('',#4,2.);
+#11=ELLIPSE('',#4,3.,1.);
+#12=CYLINDRICAL_SURFACE('',#4,2.);
+#13=TRIMMED_CURVE('',#10,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(270.)),.T.,.PARAMETER.);
+#14=OFFSET_CURVE_3D('',#11,0.5,.F.,#2);
+#15=SURFACE_CURVE('',#10,(#12),.CURVE_3D.);
+#16=OFFSET_CURVE_3D('',#13,0.5,.F.,#2);
+#17=TRIMMED_CURVE('',#16,(PARAMETER_VALUE(10.)),(PARAMETER_VALUE(260.)),.T.,.PARAMETER.);
+#21=VECTOR('',#2,1.);
+#22=LINE('',#1,#21);
+#23=TRIMMED_CURVE('',#22,(PARAMETER_VALUE(0.)),(PARAMETER_VALUE(1.)),.T.,.PARAMETER.);
+#31=CARTESIAN_POINT('',(1.,1.,0.));
+#32=CARTESIAN_POINT('',(2.,0.,0.));
+#33=B_SPLINE_CURVE_WITH_KNOTS('',1,(#1,#31,#32),.UNSPECIFIED.,.F.,.F.,(2,1,2),(0.,90.,180.),.UNSPECIFIED.);
+#34=OFFSET_CURVE_3D('',#33,0.5,.F.,#2);
+#35=COMPOSITE_CURVE('',(#36),.F.);
+#36=COMPOSITE_CURVE_SEGMENT(.CONTINUOUS.,.T.,#23);
+#41=TRIMMED_CURVE('',#13,(PARAMETER_VALUE(90.)),(PARAMETER_VALUE(180.)),.T.,.PARAMETER.);
+#42=TRIMMED_CURVE('',#14,(PARAMETER_VALUE(90.)),(PARAMETER_VALUE(180.)),.T.,.PARAMETER.);
+#43=TRIMMED_CURVE('',#15,(PARAMETER_VALUE(90.)),(PARAMETER_VALUE(180.)),.T.,.PARAMETER.);
+#44=TRIMMED_CURVE('',#17,(PARAMETER_VALUE(90.)),(PARAMETER_VALUE(180.)),.T.,.PARAMETER.);
+#45=TRIMMED_CURVE('',#23,(PARAMETER_VALUE(0.25)),(PARAMETER_VALUE(0.5)),.T.,.PARAMETER.);
+#46=TRIMMED_CURVE('',#34,(PARAMETER_VALUE(90.)),(PARAMETER_VALUE(180.)),.T.,.PARAMETER.);
+#47=TRIMMED_CURVE('',#35,(PARAMETER_VALUE(0.25)),(PARAMETER_VALUE(0.5)),.T.,.PARAMETER.);
+#50=GEOMETRIC_SET('',(#41,#42,#43,#44,#45,#46,#47));
+`;
+  const { brep: d, warnings } = await convert(data, [50], DEG);
+  assert.deepEqual(validateBrep(d), []);
+  assert.deepEqual(warnings, []);
+  const trims = (id: number) => {
+    const c = decode.curve(d, Array.from(d.curve.id).indexOf(id));
+    assert.ok(c.kind === 'trimmed', `#${id}`);
+    return [c.trim1.parameter!, c.trim2.parameter!];
+  };
+  const q = [Math.PI / 2, Math.PI];
+  for (const id of [41, 42, 43, 44]) assert.ok(close(trims(id), q), `#${id}: ${trims(id)}`);
+  assert.ok(close(trims(17), [10 * DEG, 260 * DEG]));
+  assert.deepEqual(trims(45), [0.25, 0.5]);
+  assert.deepEqual(trims(46), [90, 180]);
+  assert.deepEqual(trims(47), [0.25, 0.5]);
+  // A 2D offset of a 2D circle likewise (a loose 2D curve: left out as an item, said, its rows still made).
+  const plane = await convert(`
+#1=CARTESIAN_POINT('',(0.,0.));
+#3=DIRECTION('',(1.,0.));
+#4=AXIS2_PLACEMENT_2D('',#1,#3);
+#10=CIRCLE('',#4,2.);
+#14=OFFSET_CURVE_2D('',#10,0.5,.F.);
+#42=TRIMMED_CURVE('',#14,(PARAMETER_VALUE(90.)),(PARAMETER_VALUE(180.)),.T.,.PARAMETER.);
+#50=GEOMETRIC_SET('',(#42));`, [50], DEG);
+  const t2 = decode.curve(plane.brep, Array.from(plane.brep.curve.id).indexOf(42));
+  assert.ok(t2.kind === 'trimmed' && close([t2.trim1.parameter!, t2.trim2.parameter!], q));
+});
+
 test('implicit knots and folding', () => {
   assert.deepEqual(implicitKnots('bezier', 7, 3), { knots: [0, 1, 2], multiplicities: [4, 3, 4] });
   assert.equal(implicitKnots('bezier', 6, 3), undefined);

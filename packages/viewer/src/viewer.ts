@@ -14,8 +14,8 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, describeStretched, meshDeflections, type Diagnostic, type Mesh, type Properties,
   type Vec3 } from 'cad-scene';
-import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, turnOf, viewCamera, VIEWS,
-  type ViewName } from './camera.ts';
+import { clipTo, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect, smoothstep, turnOf, upIso,
+  viewCamera, VIEWS, type Leg, type LookMotion, type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
@@ -26,9 +26,12 @@ import { Highlights, type Highlight } from './outline.ts';
 import { Composer } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
+import { faceEdges } from './geometry-info.ts';
+import { Marks } from './marks.ts';
+import { alertForNode, type Piece } from './selection.ts';
 import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
-import { biasFor, depthBias } from './depth-bias.ts';
+import { biasFor, depthBias, dotBias, EDGE_BIAS_PIXELS } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
@@ -36,6 +39,8 @@ import { dotPixels, setDotSize, vertexDiameter, type DiscMaterial } from './vert
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
+import { DEFAULT_DETECTION, type EdgeDetection } from './edges.ts';
+import type { EdgeAnswer, EdgeRequest } from './edge-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
 import { partModelBuffers, type PartModel } from './part-model.ts';
 import type { Exported } from './export-model.ts';
@@ -205,10 +210,12 @@ export class Viewer {
   private transparencyStale = true;
   private changed = false;
   /**
-   * Zoom all, zoom selected and the views fly the camera there: eased by smoothstep over `flightMs` (0: at once), a
-   * frame at a time, stopped by the user's own input or a camera set exactly.
+   * Zoom all, zoom selected and the views fly the camera there: in legs (camera.ts's lookLegs), each eased by
+   * smoothstep over its share of `flightMs` (0: at once), a frame at a time, stopped by the user's own input or a
+   * camera set exactly. `turn`: the destination's, for the gnomon, whose labels follow the legs that turn.
    */
-  private flight?: { from: CameraState; to: CameraState; start: number; turn: THREE.Quaternion };
+  private flight?: { legs: { at: (f: number) => CameraState; to: CameraState; ms: number; turns: boolean }[];
+    to: CameraState; start: number; turn: THREE.Quaternion };
   flightMs = FLIGHT_MS;
   /** How long the page works on a load's meshes before yielding (SLICE_MS; the browser check shortens it). */
   sliceMs = SLICE_MS;
@@ -225,6 +232,12 @@ export class Viewer {
   /** Counts loads, so a superseded one's late results are dropped. */
   private generation = 0;
   private meshing = false;
+  /**
+   * The scene's parts (by index) a load or Mesh again is still to mesh, and a count of its changes (the tree's
+   * spinners: NodeModel.loading); none once it ends.
+   */
+  private readonly pending = new Set<number>();
+  private pendingVersion = 0;
   /** The load whose scene is shown whole (every part added): what Mesh again meshes in place. */
   private shown = 0;
   /** Whether a model is loading or being meshed (Export waits for it). */
@@ -251,6 +264,14 @@ export class Viewer {
   private readonly idCamera = new THREE.Matrix4();
   /** The highlight (outline.ts): what the pointer is over, at the pick level (ui.ts sets it, from onHover). */
   readonly highlights = new Highlights();
+  /**
+   * Alerts: the failed faces' outlines and the nodes `alertNodes` gives, their lines (a vertex's or point's dot) drawn
+   * again in the alert colour over everything, after the model (neither depth test nor write); made again when meshes
+   * or models change, following their sources' visibility and placement each frame.
+   */
+  readonly alerts = new Marks('alerts', { grow: 0, onTop: true });
+  private alerted: readonly number[] = [];
+  private alertsStale = true;
   /** Where the mouse is over the view, no button down (client pixels); undefined elsewhere. */
   private hoverAt?: { x: number; y: number };
   /** What the pointer was last found over (a key: hoverKey), so onHover is told of changes only. */
@@ -266,7 +287,7 @@ export class Viewer {
   /** Where the gnomon was last drawn (setViewport's terms), for clicks on it; undefined when it wasn't. */
   private gnomonDrawn?: { x: number; y: number; width: number; height: number };
   /** A click on the gnomon asks for a view (the View menu's own button, so recordings have it); else setView. */
-  onGnomonView?: (view: ViewName) => void;
+  onGnomonView?: (view: ViewName, shift: boolean) => void;
 
   /** The element that places the gnomon (its lower left corner; sized here to hold it). */
   get gnomonBox(): HTMLElement | undefined {
@@ -329,7 +350,8 @@ export class Viewer {
     this.headlight.position.set(1, 1, 2);
     this.camera.add(this.headlight, this.headlight.target);
     this.scene.add(this.camera, this.display);
-    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group, this.highlights.group);
+    this.scene.add(this.sections.group, this.triangleEdges.group, this.fatEdges.group, this.highlights.group,
+      this.alerts.group);
     this.composer.setFinal(this.highlights.pass);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(1, -1, 1);
@@ -428,7 +450,7 @@ export class Viewer {
       if (target) {
         const view = this.gnomonView(target);
         if (view) {
-          if (this.onGnomonView) this.onGnomonView(view);
+          if (this.onGnomonView) this.onGnomonView(view, e.shiftKey);
           else this.setView(view);
         }
         return;
@@ -665,17 +687,31 @@ export class Viewer {
     const flight = this.flight;
     let progress = 0;
     if (flight) {
-      const f = (performance.now() - flight.start) / this.flightMs;
-      progress = f >= 1 ? 1 : smoothstep(f);
-      this.place(f >= 1 ? flight.to : interpolateCamera(flight.from, flight.to, progress));
-      if (f >= 1) this.flight = undefined;
-      else flying = true;
+      // The leg under way, how far along it, and how far the turning legs have come (the gnomon's progress).
+      let t = performance.now() - flight.start, turned = 0, turning = 0;
+      for (const l of flight.legs) if (l.turns) turning += l.ms;
+      let camera = flight.to;
+      for (const l of flight.legs) {
+        if (t < l.ms) {
+          const e = smoothstep(t / l.ms);
+          camera = l.at(e);
+          if (l.turns) turned += e * l.ms;
+          flying = true;
+          break;
+        }
+        t -= l.ms;
+        if (l.turns) turned += l.ms;
+      }
+      progress = turning ? turned / turning : 1;
+      this.place(camera);
+      if (!flying) this.flight = undefined;
     }
     this.controls.update();
     this.shift();
     clipTo(this.camera, this.bounds);
-    depthBias.value = biasFor(this.render.depthOffset, this.pixelSize(),
-      meshDeflections(deflectionsOf(this.settings)).linearDeflection);
+    const deflection = meshDeflections(deflectionsOf(this.settings)).linearDeflection;
+    depthBias.value = biasFor(EDGE_BIAS_PIXELS, this.pixelSize(), deflection);
+    dotBias.value = biasFor(this.render.depthOffset, this.pixelSize(), deflection);
     this.sections.update(this.root ? this.display : undefined, () => this.nodes?.nodes.flatMap((n) =>
       n.kind === 'part' && n.object ? [n.object] : []) ?? []);
     const fat = this.render.edges && this.render.edgeStyle === 'fat';
@@ -698,6 +734,9 @@ export class Viewer {
     if (this.hoverAt && this.idFresh) this.resolveHover();
     this.highlights.update(this.renderer, this.camera, this.idFresh ? this.idPass.target : undefined,
       this.idFresh ? this.idPass.ids.idsOf(this.highlights.outlinePieces) : [], (m) => this.pointPixels(m));
+    if (this.alertsStale) this.makeAlerts();
+    this.alerts.setWidth(fat ? this.render.edgeWidth : 1);
+    this.alerts.update();
     // Fat edges drawn instead of the thin ones, which stay shown (to the camera's layers, which picking follows) for
     // picking.
     if (fat) this.camera.layers.disable(EDGES);
@@ -707,8 +746,10 @@ export class Viewer {
       if (fat) this.camera.layers.enable(EDGES);
     }
     const box = gnomon && this.showGnomon && this.root ? this.gnomonViewport() : undefined;
+    // (Antialiased as the view is: Rendering's SMAA.)
     if (box) this.gnomon.draw(this.renderer, this.camera, box, this.scene.background as THREE.Color, {
-      now: performance.now(), ...(flight ? { flight: { id: flight, to: flight.turn, s: progress } } : {}) });
+      now: performance.now(), ...(flight ? { flight: { id: flight, to: flight.turn, s: progress } } : {}) },
+    this.render.smaa);
     // (A picture without it keeps the last drawn layout's targets: the screen still shows it.)
     if (gnomon) this.gnomonDrawn = box;
     // (Labels still gliding to their places want frames too.)
@@ -741,15 +782,17 @@ export class Viewer {
 
   /**
    * The view a click on the gnomon asks for: along the axis clicked, that axis pointing at the viewer (away if it
-   * already does), or iso from the origin's box; undefined if the view is that already (iso) or there's none.
+   * already does), or from the origin's box the iso view of the file's axis that's up (upIso: as `iso`); undefined if
+   * the view is that already (iso) or there's none.
    */
   gnomonView(target: GnomonTarget): ViewName | undefined {
     if (target !== 'iso') return axisView('xyz'.indexOf(target), this.gnomon.axesInWorld, this.back());
-    const to = viewCamera(this.cameraState(), 'iso');
+    const iso = upIso(this.gnomon.axesInWorld);
+    const to = viewCamera(this.cameraState(), iso, this.gnomon.axesInWorld);
     const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(
       new THREE.Vector3().fromArray(to.position), new THREE.Vector3().fromArray(to.target),
       new THREE.Vector3().fromArray(to.up)));
-    return sameTurn(turn, this.camera.quaternion) ? undefined : 'iso';
+    return sameTurn(turn, this.camera.quaternion) ? undefined : iso;
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
@@ -761,6 +804,7 @@ export class Viewer {
     this.sections.setStyle(s.capStyle);
     this.sections.setHatchWidth(s.hatchWidth);
     this.highlights.setColor(parseInt(s.highlightColor.slice(1), 16));
+    this.alerts.setColor(parseInt(s.alertColor.slice(1), 16));
     this.display.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if ((o as THREE.Mesh).isMesh) for (const x of Array.isArray(m) ? m : [m]) {
@@ -849,7 +893,8 @@ export class Viewer {
   /** Draws the ids of what the camera shows now (pick-ids.ts). */
   private renderIds(): void {
     this.idPass.render(this.renderer, this.scene, this.camera, this.camera.layers.mask, this.root ? this.display
-      : undefined, [this.fatEdges.group, this.triangleEdges.group, this.highlights.group], (m) => this.pointPixels(m));
+      : undefined, [this.fatEdges.group, this.triangleEdges.group, this.highlights.group, this.alerts.group],
+      (m) => this.pointPixels(m));
     this.idCamera.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this.idFresh = true;
   }
@@ -925,6 +970,29 @@ export class Viewer {
   }
 
   /** Highlights these (outline.ts), in place of the last; none: nothing. */
+  /** Alerts these nodes (in place of the last), besides the failed faces (`alerts`). */
+  alertNodes(ids: readonly number[]): void {
+    this.alerted = [...ids];
+    this.alertsStale = true;
+    this.redraw();
+  }
+
+  /** The alerts made again: every failed face's outline, and the alerted nodes' pieces (selection.ts). */
+  private makeAlerts(): void {
+    this.alertsStale = false;
+    const pieces: Piece[] = [];
+    this.root?.traverse((o) => {
+      if (o.userData.outlineFace !== undefined) pieces.push({ object: o as THREE.LineSegments });
+    });
+    const graph = this.graph, nodes = this.nodes;
+    const edgesOf = (part: number, face: number) => {
+      const d = graph?.modelOf(part);
+      return d ? faceEdges(d, face) : [];
+    };
+    if (nodes) for (const id of this.alerted) pieces.push(...alertForNode(nodes, id, edgesOf));
+    this.alerts.set(pieces);
+  }
+
   setHighlight(h: Highlight | undefined): void {
     this.highlights.set(h ?? { outline: [], marks: [] });
     if (!this.drawing) this.redraw();
@@ -950,9 +1018,11 @@ export class Viewer {
   private show(root: THREE.Object3D, model: ModelInfo, looks: Looks | undefined, keep: boolean): void {
     this.clear();
     this.setHighlight(undefined);
+    this.alerted = [];
     this.hovered = '';
     this.root = root;
     this.nodes = new NodeModel(root, looks);
+    this.nodes.loadingParts = () => ({ parts: this.pending, version: this.pendingVersion });
     this.triangleEdgesOverridden = false;
     this.display.add(root);
     this.model = model;
@@ -969,6 +1039,7 @@ export class Viewer {
     this.fit.start();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
+    this.alertsStale = true;
     this.transparencyStale = true;
     this.sections.invalidate();
     this.onModel?.(this.nodes);
@@ -1171,8 +1242,71 @@ export class Viewer {
   private modelChanged(graph: SceneGraph, part: number): void {
     if (graph !== this.graph) return;
     for (const p of graph.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
+    this.alertsStale = true;
     this.onMeshes?.();
     this.redraw();
+  }
+
+  /**
+   * How edges are detected from the triangles of meshes without edges of their own, as every load and Mesh again
+   * finds them (Mesh edge detection..., remembered in the browser: ui.ts).
+   */
+  edgeDetection: EdgeDetection = { ...DEFAULT_DETECTION };
+  /** The edge worker (edge-worker.ts), started when first asked; its requests waiting, by id. */
+  private edgeWorker?: Worker;
+  private readonly edgeRequests = new Map<number, (a: EdgeAnswer) => void>();
+  private edgeIds = 0;
+  /** Counts detectEdges' runs, so a later one (or another model) stops the last. */
+  private edgeRun = 0;
+
+  /** A mesh's edges detected in the edge worker (copies of its positions and indices go). */
+  private edgesIn(mesh: Mesh, d: EdgeDetection): Promise<Float32Array> {
+    if (!this.edgeWorker) {
+      const w = new Worker(new URL('./edge-worker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<EdgeAnswer>) => {
+        const f = this.edgeRequests.get(e.data.id);
+        this.edgeRequests.delete(e.data.id);
+        f?.(e.data);
+      };
+      this.edgeWorker = w;
+    }
+    const id = ++this.edgeIds;
+    const req: EdgeRequest = { id, positions: mesh.positions.slice(), indices: mesh.indices.slice(),
+      detection: { ...d } };
+    return new Promise((resolve, reject) => {
+      this.edgeRequests.set(id, (a) => a.positions ? resolve(a.positions) : reject(new Error(a.error ?? 'failed')));
+      this.edgeWorker!.postMessage(req, [req.positions.buffer as ArrayBuffer, req.indices.buffer as ArrayBuffer]);
+    });
+  }
+
+  /**
+   * Edges detected again from the triangles of these parts (scene indices; every part with triangles if none given)
+   * as `d` says, in the edge worker, part by part: each part's in place of any detected before, beside its B-rep
+   * edges (the tree's detected mesh edges). `onProgress` after each part. Stops (`stopped`) once another run starts
+   * or another model is shown; a part meshed again meanwhile is skipped (its new mesh's edges are as it came).
+   */
+  async detectEdges(parts: readonly number[] | undefined, d: EdgeDetection,
+    onProgress?: (done: number, total: number) => void): Promise<{ parts: number; segments: number;
+      stopped?: boolean }> {
+    const graph = this.graph;
+    const run = ++this.edgeRun;
+    if (!graph) return { parts: 0, segments: 0 };
+    const list = [...new Set(parts ?? graph.meshes.keys())].filter((p) =>
+      (graph.meshes.get(p)?.indices.length ?? 0) > 0 && graph.placements.has(p));
+    let done = 0, segments = 0;
+    for (const p of list) {
+      const mesh = graph.meshes.get(p)!;
+      const found = await this.edgesIn(mesh, d);
+      if (run !== this.edgeRun || graph !== this.graph) return { parts: done, segments, stopped: true };
+      if (graph.meshes.get(p) !== mesh) continue;
+      graph.setFoundEdges(p, found);
+      this.partChanged(graph, p);
+      done++;
+      segments += found.length / 6;
+      onProgress?.(done, list.length);
+      this.redraw();
+    }
+    return { parts: done, segments };
   }
 
   /** The model worker, started when first needed and kept for later files. */
@@ -1229,6 +1363,7 @@ export class Viewer {
     const edgesAdded = (part: number) => {
       for (const p of graph!.placements.get(part) ?? []) this.nodes?.invalidate(p.group);
       this.fatEdges.invalidate();
+      this.alertsStale = true;
       this.onMeshes?.();
     };
     const added = (part: number, mesh: Mesh) => this.partChanged(graph!, part, mesh);
@@ -1246,7 +1381,7 @@ export class Viewer {
     this.meshing = true;
     try {
       const msg: ToModelWorker = { type: 'load', load: gen, input, settings: { ...this.settings,
-        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device) };
+        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), edges: { ...this.edgeDetection } };
       for await (const ev of this.events(gen, msg, [input.bytes.buffer as ArrayBuffer,
         ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
         if (gen !== this.generation) return;
@@ -1265,6 +1400,8 @@ export class Viewer {
             stretched: describeStretched(scene),
             parts: { total: brep.length, done: 0, failed: 0 },
             diagnostics: [...scene.diagnostics], meshedWith };
+          // (Not told: the tree is new, drawn after, and nothing meshed has changed.)
+          this.setPending(brep, false);
           this.show(graph.root, model, graph, keep);
           this.graph = graph;
           this.display.updateWorldMatrix(true, false);
@@ -1311,6 +1448,7 @@ export class Viewer {
             added(ev.part, mesh);
           }
           if (!drawn) model!.parts!.failed++;
+          this.partDone(ev.part);
           progress();
         } else if (ev.type === 'edges') {
           // Edges found for a level from the file (model-load.ts), after it was shown.
@@ -1326,7 +1464,10 @@ export class Viewer {
         this.redraw();
       }
     } finally {
-      if (gen === this.generation) this.meshing = false;
+      if (gen === this.generation) {
+        this.meshing = false;
+        this.setPending([]);
+      }
     }
     if (gen !== this.generation || !model) return;
     this.updateBounds();
@@ -1340,6 +1481,7 @@ export class Viewer {
     this.sections.invalidate();
     this.triangleEdges.invalidate();
     this.fatEdges.invalidate();
+    this.alertsStale = true;
     this.transparencyStale = true;
     this.onMeshes?.();
   }
@@ -1369,6 +1511,7 @@ export class Viewer {
     const wanted = wantedOf(this.settings);
     const brep = graph.scene.parts.flatMap((p, i) => (p.brep && graph.placements.has(i) ? [i] : []));
     const parts = model.parts = { total: brep.length, done: 0, failed: 0 };
+    this.setPending(brep);
     model.diagnostics = [...graph.scene.diagnostics];
     delete model.meshing;
     this.moved = true;
@@ -1382,7 +1525,8 @@ export class Viewer {
       this.modelsFor(gen, graph);
       const models = graph.lendModels();
       const msg: ToModelWorker = { type: 'remesh', load: gen, settings: { ...this.settings,
-        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), models };
+        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), models,
+        edges: { ...this.edgeDetection } };
       for await (const ev of this.events(gen, msg, models.flatMap(([, b]) => partModelBuffers(b)))) {
         if (gen !== this.generation) return true;
         if (ev.type === 'importing') {
@@ -1413,6 +1557,7 @@ export class Viewer {
               this.partChanged(graph, ev.part);
             }
           }
+          this.partDone(ev.part);
           status();
         } else if (ev.type === 'done') {
           ended = ev;
@@ -1422,12 +1567,31 @@ export class Viewer {
         this.redraw();
       }
     } finally {
-      if (gen === this.generation) this.meshing = false;
+      if (gen === this.generation) {
+        this.meshing = false;
+        this.setPending([]);
+      }
     }
     if (gen !== this.generation) return true;
     this.updateBounds();
     this.fit.end(ended?.bounds);
     return true;
+  }
+
+  /** The parts still to mesh are these (the tree told, by onMeshes, unless not `tell`). */
+  private setPending(parts: readonly number[], tell = true): void {
+    if (!parts.length && !this.pending.size) return;
+    this.pending.clear();
+    for (const p of parts) this.pending.add(p);
+    this.pendingVersion++;
+    if (tell) this.onMeshes?.();
+  }
+
+  /** A part's mesh came (or its failure), and has been handled. */
+  private partDone(part: number): void {
+    if (!this.pending.delete(part)) return;
+    this.pendingVersion++;
+    this.onMeshes?.();
   }
 
   /** A part's new mesh grows the clipping sphere and, unless it's the file's, the model's (centres kept). */
@@ -1457,9 +1621,12 @@ export class Viewer {
     this.redraw();
   }
 
-  /** Flies the camera to a state (or puts it there, with `flightMs` 0). */
-  private fly(to: CameraState): void {
-    if (this.flightMs > 0) this.flight = { from: this.cameraState(), to, start: performance.now(), turn: turnOf(to) };
+  /** Flies the camera to a state (or puts it there, with `flightMs` 0): in one blend, or in `legs`. */
+  private fly(to: CameraState, legs?: Leg[]): void {
+    const from = this.cameraState();
+    const all = (legs ?? [{ kind: 'blend', from, to, ms: 1 } as Leg]).map((l) => ({ at: legCamera(l), to: l.to,
+      ms: l.ms * this.flightMs, turns: l.kind !== 'zoom' }));
+    if (this.flightMs > 0 && all.length) this.flight = { legs: all, to, start: performance.now(), turn: turnOf(to) };
     else {
       this.flight = undefined;
       this.place(to);
@@ -1631,14 +1798,27 @@ export class Viewer {
   }
 
   /**
-   * Looks along one of the world's axes, turning about the orbit centre (zoom and pan kept): flying there, or with
-   * `instant` (a link's or a recording's view) at once.
+   * Looks along a view's axis (camera.ts's VIEWS: the world's, or the file's for the iso views), turning about the
+   * orbit centre (zoom and pan kept): flying there, or with `instant` (a link's or a recording's view) at once.
    */
   setView(view: ViewName, opts: { instant?: boolean } = {}): void {
-    const to = viewCamera(this.cameraState(), view);
+    const to = viewCamera(this.cameraState(), view, this.gnomon.axesInWorld);
     if (!opts.instant) return this.fly(to);
     this.flight = undefined;
     this.place(to);
     this.redraw();
+  }
+
+  /**
+   * Looks along a view's axis and fits a sphere (the selection's, or the model's) as it goes: `steps` zooming out
+   * until the model shows whole, orbiting along the screw motion to the view's pose about the sphere, then zooming to
+   * fit it (each step left out where the camera is there already); `together` all of it in one blend (camera.ts's
+   * lookLegs). An empty sphere: setView's turn alone.
+   */
+  lookAlong(view: ViewName, fit: THREE.Sphere, motion: LookMotion): void {
+    if (fit.isEmpty()) return this.setView(view);
+    const from = this.cameraState();
+    const to = fitCamera(viewCamera(from, view, this.gnomon.axesInWorld), fit, this.fitAspect());
+    this.fly(to, lookLegs(from, to, motion, this.modelSphere(), this.fitAspect()));
   }
 }

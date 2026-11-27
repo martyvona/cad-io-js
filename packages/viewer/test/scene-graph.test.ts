@@ -5,6 +5,7 @@ import { identity, multiply, type Mesh } from 'cad-scene';
 import { detailOf, plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
+import { DETECTED_EDGES } from '../src/items.ts';
 import { capCeilingOf, defaultSettings, fallbackOf, workerCount } from '../src/tessellation.ts';
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) < 1e-9);
@@ -119,7 +120,7 @@ test('meshes: wireframes as curves and points in the instance colour; no faces, 
   assert.equal(g.addMesh(5, wire()).length, 0);
 });
 
-test('edges found later (setFoundEdges) for every placement of a part without B-rep edges; B-rep edges at once', () => {
+test('edges detected later (setFoundEdges) for every placement, beside any B-rep edges; B-rep edges at once', () => {
   const g = new SceneGraph(scene(), 'model');
   const bare = plate();
   delete bare.edges;
@@ -130,14 +131,24 @@ test('edges found later (setFoundEdges) for every placement of a part without B-
   const segments = Float32Array.of(0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0);
   assert.deepEqual(g.setFoundEdges(0, segments), made);
   for (const m of made) {
-    const e = m.children.filter((c) => c.name === 'edges') as THREE.LineSegments[];
+    assert.ok(!m.children.some((c) => c.name === 'edges'));
+    const e = m.children.filter((c) => c.name === DETECTED_EDGES) as THREE.LineSegments[];
     assert.equal(e.length, 1);
     assert.equal(e[0]!.layers.mask, 1 << EDGES);
     assert.equal(e[0]!.geometry.getAttribute('position').count, 4);
   }
   // Again: in place of the first, not beside it.
   g.setFoundEdges(0, segments);
-  assert.ok(made.every((m) => m.children.filter((c) => c.name === 'edges').length === 1));
+  assert.ok(made.every((m) => m.children.filter((c) => c.name === DETECTED_EDGES).length === 1));
+  // A part with B-rep edges: detected ones beside them, the B-rep edges kept.
+  const withEdges = new SceneGraph(scene(), 'model');
+  const objs = withEdges.addMesh(0, plate());
+  const brep = objs.map((m) => m.children.find((c) => c.name === 'edges'));
+  assert.ok(brep.every((x) => x));
+  withEdges.setFoundEdges(0, segments);
+  withEdges.setFoundEdges(0, segments);
+  assert.ok(objs.every((m, k) => m.children.find((c) => c.name === 'edges') === brep[k]
+    && m.children.filter((c) => c.name === DETECTED_EDGES).length === 1));
   // A part with no mesh: nothing.
   assert.deepEqual(new SceneGraph(scene(), 'model').setFoundEdges(0, segments), []);
   // Only seams: the B-rep has edges, none to draw.
@@ -179,11 +190,11 @@ test('the fallback: SMLib for OCCT by default; none, the backend itself or none 
   assert.equal(fallbackOf({ backend: 'occt' } as Parameters<typeof fallbackOf>[0]), undefined);
 });
 
-test('faces that failed to mesh: outlined in red per placement, marked failed, hidden with their face, picked as it',
+test('faces that failed to mesh: outlines per placement (drawn by the alerts), marked failed, hidden with their face, picked as it',
   async () => {
     const { NodeModel } = await import('../src/model.ts');
-    const { nodeForPick, piecesOf } = await import('../src/selection.ts');
-    const { FAILED_COLOR } = await import('../src/scene-graph.ts');
+    const { alertForNode, nodeForPick, piecesOf } = await import('../src/selection.ts');
+    const { OUTLINE } = await import('../src/scene-graph.ts');
     const graph = new SceneGraph(scene(), 'model');
     // The plate with face 7 failed (a range of none) and its outline: two polylines.
     const m: Mesh = { ...plate(), indices: Uint32Array.of(0, 1, 2), faces: [{ source: 8, start: 0, count: 3 },
@@ -196,10 +207,11 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
       const lines = o.children.filter((c) => c.name === 'outline') as THREE.LineSegments[];
       assert.equal(lines.length, 1);
       assert.equal(lines[0]!.userData.outlineFace, 7);
-      assert.equal((lines[0]!.material as THREE.LineBasicMaterial).color.getHex(), FAILED_COLOR);
+      // (Drawn as nothing: the Viewer's alerts draw them.)
+      assert.ok(lines[0]!.material === OUTLINE && !OUTLINE.colorWrite && !OUTLINE.depthWrite);
       // Three segments: two in the first polyline, one in the second, none across.
       assert.deepEqual(Array.from(lines[0]!.geometry.index!.array), [0, 1, 1, 2, 3, 4]);
-      assert.ok(lines[0]!.layers.isEnabled(0) && lines[0]!.layers.isEnabled(EDGES));
+      assert.ok(lines[0]!.layers.isEnabled(0) && !lines[0]!.layers.isEnabled(EDGES));
     }
     const model = new NodeModel(graph.root, graph);
     model.setDetail(true);
@@ -221,6 +233,27 @@ test('faces that failed to mesh: outlined in red per placement, marked failed, h
     assert.equal(nodeForPick(model, line, undefined, 'detail'), failed);
     assert.equal(nodeForPick(model, line, undefined, 'part'), parts[0]!.id);
     assert.ok(piecesOf(model, [failed]).some((p) => p.object === line && !p.ranges));
+    // Alerts (Viewer.alerts): a face's lines, never its triangles: its outline where it failed, and its edges as its
+    // part's B-rep gives them (here edge 4 for face 7); a part's every line, whole; an edge itself; an edges group its
+    // members; nothing for a node that isn't there.
+    const edgesOf = (_part: number, face: number) => face === 7 ? [4] : [];
+    const said = (pieces: { object: THREE.Object3D; ranges?: { start: number; count: number }[] }[]) =>
+      pieces.map((p) => `${p.object.name}${p.ranges ? ':' + p.ranges.map((r) => `${r.start}+${r.count}`).join() : ''}`)
+        .sort();
+    const placed = objs[0]!;
+    assert.deepEqual(said(alertForNode(model, failed, edgesOf)), ['edges:0+2', 'outline']);
+    assert.deepEqual(said(alertForNode(model, failed)), ['outline']);
+    assert.deepEqual(said(alertForNode(model, ok, edgesOf)), []);
+    assert.deepEqual(said(alertForNode(model, parts[0]!.id, edgesOf)), ['edges', 'outline']);
+    const groups = detailOf(model, parts[0]!.id);
+    const group = (k: string) => groups.find((c) => model.nodes[c]!.kind === k)!;
+    assert.deepEqual(said(alertForNode(model, group('faces'))), ['edges', 'outline']);
+    assert.deepEqual(said(alertForNode(model, group('edges'))), ['edges']);
+    const edge4 = detailOf(model, parts[0]!.id).find((c) => model.nodes[c]!.item?.source === 4)!;
+    assert.deepEqual(said(alertForNode(model, edge4)), ['edges:0+2']);
+    assert.ok(alertForNode(model, failed, edgesOf).every((p) => p.object.parent === placed || p.object === placed
+      .children.find((c) => c.name === 'edges')));
+    assert.deepEqual(alertForNode(model, 9999), []);
     // A part whose faces all failed (no triangles: a group, no mesh): failed.
     const graph2 = new SceneGraph(scene(), 'model');
     graph2.addMesh(0, { origin: [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(),
@@ -307,6 +340,48 @@ test('faces judged by their part\'s measures: partly, excess and unverified, all
   const empty: Mesh = { ...mesh(), faces: [{ source: 8, start: 0, count: 3 }, { source: 7, start: 3, count: 0 }] };
   const [o4] = new SceneGraph(scene(), 'model').addMesh(0, empty);
   assert.deepEqual([o4!.userData.failedFaces, o4!.userData.partlyFailedFaces], [[7], []]);
+});
+
+test('faces at a defect of the mesh (Mesh.defectFaces, not a closed, oriented manifold): partly, drawn as meshed; '
+  + 'Details', async () => {
+  const { NodeModel } = await import('../src/model.ts');
+  const { details } = await import('../src/details.ts');
+  // (A face the mesh doesn't have, 99, left out.)
+  const graph = new SceneGraph(scene(), 'model');
+  const [obj] = graph.addMesh(0, { ...plate(), defectFaces: [8, 99] });
+  assert.deepEqual([obj!.userData.failedFaces, obj!.userData.partlyFailedFaces, obj!.userData.defectFaces],
+    [[], [], [8]]);
+  assert.equal(obj!.children.filter((c) => c.name === 'outline').length, 0);
+  const model = new NodeModel(graph.root, graph);
+  model.setDetail(true);
+  const part = model.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const face = (s: number) => detailOf(model, part).find((c) => model.nodes[c]!.face?.source === s)!;
+  assert.deepEqual([model.failure(face(8)), model.failure(face(7)), model.failure(part)],
+    ['partly', undefined, 'partly']);
+  const said = details(model, [face(8)]);
+  assert.ok(said.some((l) => l.startsWith("At a defect of its part's mesh: not a closed, oriented manifold there")),
+    said.join('\n'));
+  assert.ok(!said.some((l) => l.startsWith('Part of it failed')), said.join('\n'));
+  assert.ok(!details(model, [face(7)]).some((l) => l.startsWith('At a defect')));
+  assert.ok(details(model, [part]).includes('Of 2 faces, 1 at a defect of the mesh (not a closed, oriented manifold '
+    + 'there)'), details(model, [part]).join('\n'));
+  // Also short of its measured area: both said.
+  const sc = scene();
+  sc.parts[0]!.measures = { by: 'test', faces: new Map([[8, { area: 645.16, perimeter: 76.2, valid: true }]]) };
+  const g2 = new SceneGraph(sc, 'model');
+  g2.addMesh(0, { ...plate(), defectFaces: [8] }, 0.001);
+  const m2 = new NodeModel(g2.root, g2);
+  m2.setDetail(true);
+  const p2 = m2.nodes.find((n) => n.kind === 'part' && n.name === 'plate')!.id;
+  const f2 = detailOf(m2, p2).find((c) => m2.nodes[c]!.face?.source === 8)!;
+  const both = details(m2, [f2]);
+  assert.ok(both.some((l) => l.startsWith('Part of it failed')) && both.some((l) => l.startsWith('At a defect')),
+    both.join('\n'));
+  assert.ok(details(m2, [p2]).includes('Of 2 faces, 1 partly (outlined in red); 1 at a defect of the mesh (not a '
+    + 'closed, oriented manifold there)'), details(m2, [p2]).join('\n'));
+  // None: as before.
+  const [clean] = new SceneGraph(scene(), 'model').addMesh(0, plate());
+  assert.deepEqual(clean!.userData.defectFaces, []);
 });
 
 test("setLook: a placement's opacity, its faces' own winning, hidden faces; back to the very materials", () => {

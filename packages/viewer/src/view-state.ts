@@ -71,7 +71,8 @@ export interface ViewState {
   meshing?: Partial<TessellationSettings>;
 }
 
-const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso'];
+const VIEW_NAMES: readonly ViewName[] = ['front', 'back', 'left', 'right', 'top', 'bottom', 'iso', 'isoX', 'isoY',
+  'isoZ'];
 const PICKS: readonly PickLevel[] = ['assembly', 'part', 'detail'];
 const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low', 'Medium', 'High', 'Ultra'];
 const FLAGS = ['ao', 'smaa', 'edges', 'vertices'] as const;
@@ -79,7 +80,7 @@ const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'sele
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
   'hatchWidth', 'depthOffset', 'highlightWidth'] as const;
 /** Colours, `#rrggbb`, in links as the six digits. */
-const COLOURS = ['highlightColor', 'selectionColor'] as const;
+const COLOURS = ['highlightColor', 'selectionColor', 'alertColor'] as const;
 /** Settings that are one of a few words. */
 const CHOICES = { edgeStyle: ['thin', 'fat'], capStyle: ['drawing', 'parts'] } as const;
 

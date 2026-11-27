@@ -115,6 +115,22 @@ export function badFaces(r: TessellationResult, model: BrepData | undefined, def
 
 const described = (i: TessellatorInfo) => `${i.name} ${i.version}`;
 
+/**
+ * What `meshed` says of the fallback's part in its result, for the warnings: the fallback's result itself (made for
+ * the faces, reused for the wires), whether its whole mesh was taken, else the faces taken from it; and why.
+ */
+interface Held {
+  fallback?: Promise<TessellationResult | Error>;
+  whole?: boolean;
+  faces?: number[];
+  why?: string;
+  /** Said after `why` for the faces taken: how they were judged. */
+  note?: string;
+}
+
+/** How many faces a model has (by id; faces without one can't be told apart, and aren't counted). */
+const modelFaces = (d: BrepData) => new Set([...d.face.id].filter((id) => id)).size;
+
 /** The faces a result's backend kept with a defect past its own limits (TessellationResult's `defects`), by id. */
 export function pastLimits(r: TessellationResult): number[] {
   return (r.defects ?? []).filter((x) => x.pastLimits).map((x) => x.entityId);
@@ -183,30 +199,49 @@ export class FallbackTessellator implements Tessellator {
 
   /**
    * The faces' result (meshed), then the model's wireframe curves and points the result lacks (missingWires) taken
-   * from the fallback's result where it has them (its result already made for the faces, else asked for them), said
-   * in a warning; what neither delivers is tessellateScene's to say.
+   * from the fallback's result where it has them (its result already made for the faces, else asked for them); what
+   * neither delivers is tessellateScene's to say. What the fallback meshed is said in a warning each (`face #12
+   * meshed by the fallback backend ...`, so each names its item), unless it meshed all of the part (its faces, and
+   * its curves and points), said in one warning for the part.
    */
   async tessellate(req: TessellationRequest, onProgress?: (p: TessellationProgress) => void):
     Promise<TessellationResult> {
-    const held: { fallback?: Promise<TessellationResult | Error> } = {};
+    const held: Held = {};
     const r = await this.meshed(req, onProgress, held);
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
-    if (!model) return r;
-    const missing = missingWires(model, r);
-    if (noneMissing(missing)) return r;
-    const b = await (held.fallback ?? this.fallback.tessellate(req, onProgress).catch((e: unknown) =>
-      e instanceof Error ? e : new Error(String(e))));
-    if (b instanceof Error) return r;
-    const { result, added } = addWires(r, b, missing);
-    if (noneMissing(added)) return r;
-    return { ...result, diagnostics: [{ severity: 'warning', message: `${describeWires(added)} meshed by the fallback `
-      + `backend (${this.fallback.info.name}), which ${this.primary.info.name}'s result left out` },
-    ...result.diagnostics] };
+    const missing = model ? missingWires(model, r) : { curves: [], points: [] };
+    const b = noneMissing(missing) ? undefined : await (held.fallback ?? this.fallback.tessellate(req, onProgress)
+      .catch((e: unknown) => e instanceof Error ? e : new Error(String(e))));
+    const { result, added } = b && !(b instanceof Error) ? addWires(r, b, missing)
+      : { result: r, added: { curves: [], points: [] } };
+    const p = this.primary.info.name, f = this.fallback.info.name;
+    const faces = held.faces ?? [];
+    // (The wires the model has, all of them: those of a result with none.)
+    const allWires = model ? missingWires(model, { ...r, curves: [], points: undefined, pointIds: [] })
+      : { curves: [], points: [] };
+    const wiresAll = held.whole || added.curves.length === allWires.curves.length
+      && added.points.length === allWires.points.length;
+    const facesAll = held.whole || !!model && faces.length > 0 && faces.length === modelFaces(model)
+      || !!model && modelFaces(model) === 0;
+    const notes: Diagnostic[] = [];
+    if (facesAll && wiresAll && (held.whole || faces.length || !noneMissing(added))) {
+      const why = [held.why ? `since ${p}'s mesh had problems: ${held.why}` : '',
+        noneMissing(added) ? '' : `${describeWires(added)} left out of ${p}'s result`].filter(Boolean).join('; ');
+      notes.push({ severity: 'warning', message: `meshed by the fallback backend (${f}), ${why}` });
+    } else {
+      for (const x of faces) notes.push({ severity: 'warning', message: `face #${x} meshed by the fallback backend `
+        + `(${f}), since ${p}'s mesh had problems: ${held.why}${held.note ?? ''}` });
+      for (const x of added.curves) notes.push({ severity: 'warning', message: `wireframe curve #${x} meshed by the `
+        + `fallback backend (${f}), which ${p}'s result left out` });
+      for (const x of added.points) notes.push({ severity: 'warning', message: `point #${x} meshed by the fallback `
+        + `backend (${f}), which ${p}'s result left out` });
+    }
+    return notes.length ? { ...result, diagnostics: [...notes, ...result.diagnostics] } : result;
   }
 
   /** The part's faces: the primary's result, or where it isn't sound the fallback's (`held.fallback`) or both's. */
   private async meshed(req: TessellationRequest, onProgress: ((p: TessellationProgress) => void) | undefined,
-    held: { fallback?: Promise<TessellationResult | Error> }): Promise<TessellationResult> {
+    held: Held): Promise<TessellationResult> {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
     const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
@@ -276,18 +311,17 @@ export class FallbackTessellator implements Tessellator {
           : ' (their deviation not judged, no deviation judge set: by area alone)';
         const vc = judgeResult(c, model, D, undefined, req.analysis);
         if (compareVerdicts(vc, va) < 0 && compareVerdicts(vc, vb) <= 0) {
-          const n = swapped.length, ids = swapped.slice(0, 10).map((x) => `#${x}`).join(', ')
-            + (n > 10 ? ', ...' : '');
+          const n = swapped.length;
+          Object.assign(held, { faces: swapped, why, note });
           return this.finish({ ...c, backend: `${described(this.primary.info)}, with ${n} ${n === 1 ? 'face' : 'faces'}`
-            + ` by ${described(this.fallback.info)}` }, this.primary, req, [{ severity: 'warning', message: `${n} `
-            + `${n === 1 ? 'face' : 'faces'} meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
-            + `${why}: ${ids}${note}` }]);
+            + ` by ${described(this.fallback.info)}` }, this.primary, req, []);
         }
       }
     }
-    if (compareVerdicts(vb, va) < 0) return this.finish(b as TessellationResult, this.fallback, req,
-      [{ severity: 'warning', message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
-        + why }]);
+    if (compareVerdicts(vb, va) < 0) {
+      Object.assign(held, { whole: true, why });
+      return this.finish(b as TessellationResult, this.fallback, req, []);
+    }
     if (a instanceof Error) throw a;
     return this.finish(a, this.primary, req, [{ severity: 'info', message: `the fallback backend (${f}) did no `
       + `better than ${p} (${vb.problems.join('; ')}), so ${p}'s mesh is kept` }]);

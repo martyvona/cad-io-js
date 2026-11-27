@@ -494,3 +494,96 @@ test("vertices: a part's B-rep vertices once the page holds its model, a node ea
   assert.deepEqual(graph.holdModel(0, held()), []);
   assert.equal(meshes[0]!.children.find((c) => c.name === 'vertices'), dots);
 });
+
+test('loading: a part still to be meshed (every placement of it) and what holds it; none once done, its detail never',
+  () => {
+  const { graph, model } = stepModel();
+  const [asm] = model.roots;
+  const [left, sub] = model.children(asm!);
+  const [plateNode, wireNode] = model.children(left!);
+  const index = (id: number) => model.nodes[id]!.object!.userData.part as number;
+  assert.equal(model.loading(asm!), false, 'no parts given: none');
+  const parts = new Set([index(plateNode!)]);
+  let version = 1;
+  model.loadingParts = () => ({ parts, version });
+  const all = model.nodes.filter((n) => model.loading(n.id)).map((n) => n.id);
+  // Every placement of the plate, and their assemblies up to the root; the wire not.
+  const plates = model.nodes.filter((n) => n.kind === 'part' && index(n.id) === index(plateNode!)).map((n) => n.id);
+  const expected = new Set<number>();
+  for (const p of plates) for (let k = p; k >= 0; k = model.nodes[k]!.parent) expected.add(k);
+  assert.deepEqual(new Set(all), expected);
+  assert.ok(plates.length > 1 && all.includes(asm!) && all.includes(left!) && !all.includes(wireNode!));
+  // A change seen by its version; the same version kept as it was; none left, none.
+  parts.clear();
+  parts.add(index(wireNode!));
+  assert.equal(model.loading(wireNode!), false);
+  version++;
+  assert.deepEqual([model.loading(wireNode!), model.loading(plateNode!)], [true, false]);
+  parts.clear();
+  assert.equal(model.loading(asm!), false);
+  // The part's detail, once it has a mesh: not loading, the part is.
+  graph.addMesh(index(plateNode!), plate());
+  model.setDetail(true);
+  parts.add(index(plateNode!));
+  version++;
+  const faces = model.children(plateNode!).flatMap((g) => [g, ...model.children(g)]);
+  assert.ok(faces.length > 0 && faces.every((f) => !model.loading(f)) && model.loading(plateNode!));
+  void sub;
+});
+
+test('detected mesh edges: a node of their own beside the edges group, shown and hidden apart from the B-rep edges; '
+  + 'the older path read', () => {
+  const { graph, model } = stepModel();
+  const [asm] = model.roots;
+  const [left] = model.children(asm!);
+  const [plateNode] = model.children(left!);
+  const part = model.nodes[plateNode!]!.object!.userData.part as number;
+  graph.addMesh(part, plate());
+  graph.setFoundEdges(part, Float32Array.of(0, 0, 0, 1, 0, 0));
+  for (const p of graph.placements.get(part)!) model.invalidate(p.group);
+  model.setDetail(true);
+  const kids = model.children(plateNode!);
+  assert.deepEqual(kids.map((k) => `${model.nodes[k]!.kind}:${model.nodes[k]!.name}`),
+    ['faces:faces', 'edges:edges', 'edge:detected mesh edges', 'vertices:vertices'].filter((x) =>
+      kids.some((k) => `${model.nodes[k]!.kind}:${model.nodes[k]!.name}` === x)));
+  const detected = kids.find((k) => model.nodes[k]!.name === 'detected mesh edges')!;
+  const edges = kids.find((k) => model.nodes[k]!.kind === 'edges')!;
+  assert.ok(kids.indexOf(detected) === kids.indexOf(edges) + 1);
+  const path = model.pathOf(detected);
+  assert.ok(path.endsWith('/detected'), path);
+  assert.equal(model.find(path), detected);
+  assert.equal(model.find(path.replace(/detected$/, 'edges/found')), detected);
+  // Its line object picks it.
+  const line = model.nodes[detected]!.item!.object;
+  assert.equal(model.nodeOf(line), detected);
+  const brep = (model.nodes[edges]!.members ?? [])[0]!;
+  // The edges group hidden: the detected edges still drawn; they hidden: the B-rep edges drawn.
+  model.setHidden([edges], true);
+  assert.deepEqual([brep.visible, line.visible], [false, true]);
+  model.setHidden([edges], false);
+  model.setHidden([detected], true);
+  assert.deepEqual([brep.visible, line.visible, model.hiddenInTree(detected)], [true, false, true]);
+  model.setHidden([detected], false);
+  // The part hidden: both.
+  model.setHidden([plateNode!], true);
+  assert.deepEqual([line.visible, model.hiddenInTree(detected)], [false, true]);
+  // Set by path before the detail is made again (a new mesh), kept.
+  model.setHidden([plateNode!], false);
+  assert.deepEqual(model.setOverrides([{ path, hidden: true }], ['hidden']), []);
+  graph.setFoundEdges(part, Float32Array.of(0, 0, 0, 0, 1, 0));
+  for (const p of graph.placements.get(part)!) model.invalidate(p.group);
+  const again = model.find(path)!;
+  assert.equal(again, detected, 'the same id by path');
+  assert.equal(model.nodes[again]!.item!.object.visible, false);
+  // A new mesh with none: the node dead, its line object finding nothing.
+  const old = model.nodes[again]!.item!.object;
+  graph.addMesh(part, plate());
+  for (const p of graph.placements.get(part)!) model.invalidate(p.group);
+  assert.equal(model.nodeOf(old), undefined);
+  assert.equal(model.find(path), undefined);
+  // An override by its path before any detail is made: taken.
+  const fresh = stepModel();
+  const freshPart = fresh.model.children(fresh.model.children(fresh.model.roots[0]!)[0]!)[0]!;
+  assert.deepEqual(fresh.model.setOverrides([{ path: `${fresh.model.pathOf(freshPart)}/detected`, hidden: true }],
+    ['hidden']), []);
+});

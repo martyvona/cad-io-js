@@ -223,15 +223,19 @@ test("details from the part's B-rep and mesh: a face's surface, an edge's curve,
   // A face isn't a whole part: no volume; the wire has no solid.
   assert.deepEqual(volume([find(plateLeft, 'cylinder #8')]), []);
   assert.deepEqual(volume([partOf(sub, 1)]), []);
-  // A model healed again, its face 8 on a plane now: its icon's kind follows.
+  // A model healed again, its face 8 on a trimmed plane now: its icon's kind follows (the plane's).
   const plane = new BrepBuilder();
-  plane.addFace({ id: 8, surface: plane.addSurface({ kind: 'plane', position: XY }), sameSense: true, loops: [] });
+  plane.addFace({ id: 8, surface: plane.addSurface({ kind: 'rectangularTrimmed', basis: plane.addSurface({
+    kind: 'plane', position: XY }), u1: 0, u2: 1, v1: 0, v2: 1, uSense: true, vSense: true }), sameSense: true,
+    loops: [] });
   const held = graph.lendModels().find(([p]) => p === 0)![1];
   graph.holdModel(0, { model: plane.finish().buffer });
   assert.equal(model.geometryKind(find(plateLeft, 'cylinder #8')), 'plane');
-  // Its name follows when its detail's made again (the Viewer's modelChanged).
+  // Its name follows when its detail's made again (the Viewer's modelChanged), the wrapper named.
   for (const p of graph.placements.get(0)!) model.invalidate(p.group);
-  assert.ok(find(plateLeft, 'plane #8') !== undefined);
+  assert.ok(find(plateLeft, 'trimmed plane #8') !== undefined);
+  // The icon's tooltip: the same name.
+  assert.deepEqual(model.geometry(find(plateLeft, 'trimmed plane #8')), { kind: 'plane', name: 'trimmed plane' });
   graph.holdModel(0, held);
   // Without the analysis: said so, the mesh's still given.
   graph.holdModel(0, { model: graph.lendModels().find(([p]) => p === 0)![1].model });

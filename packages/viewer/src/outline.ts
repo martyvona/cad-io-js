@@ -16,13 +16,10 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
-import { Wireframe } from 'three/examples/jsm/lines/Wireframe.js';
-import { biasTowardCamera, depthBias } from './depth-bias.ts';
+import { depthBias, dotBias } from './depth-bias.ts';
+import { type Drawable, Marks, shown, subGeometry } from './marks.ts';
 import { coverRuns } from './pick-ids.ts';
 import type { Piece } from './selection.ts';
-import { DiscMaterial } from './vertex-points.ts';
 
 /** How strongly the silhouette shows where it's hidden (its colour's weight over what's in front). */
 export const XRAY = 0.4;
@@ -138,37 +135,11 @@ void main() {
 /** sRGB as it is (the composite works on the frame's sRGB values). */
 const raw = (hex: number) => new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
 
-type Drawable = THREE.Mesh | THREE.LineSegments | THREE.Points;
-
-/** Drawn: it and every ancestor visible, up to the scene. */
-function shown(o: THREE.Object3D): boolean {
-  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (!p.visible) return false;
-  return true;
-}
-
-/** A geometry of some of an object's index (the same attributes), kept per geometry and ranges. */
-const subGeometries = new WeakMap<THREE.BufferGeometry, Map<string, THREE.BufferGeometry>>();
-function subGeometry(g: THREE.BufferGeometry, ranges: readonly { start: number; count: number }[]):
-  THREE.BufferGeometry {
-  const key = ranges.map((r) => `${r.start}+${r.count}`).join(',');
-  let byKey = subGeometries.get(g);
-  if (!byKey) subGeometries.set(g, (byKey = new Map()));
-  let sub = byKey.get(key);
-  if (!sub) {
-    sub = new THREE.BufferGeometry();
-    for (const [name, a] of Object.entries(g.attributes)) sub.setAttribute(name, a);
-    const index = g.index!;
-    const out: number[] = [];
-    for (const r of ranges) for (let i = r.start; i < r.start + r.count; i++) out.push(index.getX(i));
-    sub.setIndex(out);
-    byKey.set(key, sub);
-  }
-  return sub;
-}
 
 export class Highlights {
   /** The marks (edges' fat lines, vertices' larger dots): a group in the scene, apart from the model. */
-  readonly group = new THREE.Group();
+  private readonly marks = new Marks('highlights', { grow: 2 });
+  readonly group = this.marks.group;
   readonly pass: ShaderPass;
   private readonly maskTarget: THREE.WebGLRenderTarget;
   private readonly rowTarget: THREE.WebGLRenderTarget;
@@ -180,13 +151,8 @@ export class Highlights {
   private readonly shared: Record<string, THREE.IUniform>;
   private readonly maskMaterials: Record<'mesh' | 'line' | 'biased' | 'points', THREE.ShaderMaterial>;
   private highlight: Highlight = { outline: [], marks: [] };
-  private readonly markLine = biasTowardCamera(new LineMaterial({ linewidth: 3 }));
-  private readonly markDots = new DiscMaterial();
-  private readonly lineGeometries = new WeakMap<THREE.BufferGeometry, LineSegmentsGeometry>();
-  private marks: { source: Drawable; mark: THREE.Object3D }[] = [];
 
   constructor() {
-    this.group.name = 'highlights';
     this.maskTarget = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.UnsignedByteType,
       depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
     this.rowTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false,
@@ -196,8 +162,10 @@ export class Highlights {
         reach: { value: 3 } }, depthTest: false, depthWrite: false }));
     this.shared = { idColour: { value: null }, idDepth: { value: null }, lo: { value: this.lo },
       hi: { value: this.hi }, epsilon: { value: 1e-5 }, depthBias, pointSize: { value: 1 } };
+    // (Dots biased as dots are: their own uniform, the rest shared.)
     const make = (defines: Record<string, number>, extra: THREE.ShaderMaterialParameters = {}) =>
-      new THREE.ShaderMaterial({ vertexShader: MASK_VERTEX, fragmentShader: MASK_FRAGMENT, uniforms: this.shared,
+      new THREE.ShaderMaterial({ vertexShader: MASK_VERTEX, fragmentShader: MASK_FRAGMENT, uniforms: defines.POINTS
+        ? { ...this.shared, depthBias: dotBias } : this.shared,
         defines, clipping: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
         blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation, blendSrc: THREE.OneFactor,
         blendDst: THREE.OneFactor, ...extra });
@@ -208,15 +176,13 @@ export class Highlights {
     this.pass.enabled = false;
     this.pass.uniforms.tMask!.value = this.maskTarget.texture;
     this.pass.uniforms.tRows!.value = this.rowTarget.texture;
-    this.markDots.uniforms.grow!.value = 2;
     this.setColor(0xffe100);
   }
 
   /** The highlight's colour (sRGB), the silhouette's and the marks'. */
   setColor(hex: number): void {
     this.pass.uniforms.seen!.value = raw(hex);
-    this.markLine.color.setHex(hex);
-    this.markDots.color.setHex(hex);
+    this.marks.setColor(hex);
   }
 
   /** Whether anything is highlighted. */
@@ -237,29 +203,7 @@ export class Highlights {
   /** Highlights these (in place of the last). */
   set(h: Highlight): void {
     this.highlight = h;
-    for (const { mark } of this.marks) {
-      mark.removeFromParent();
-      if (mark instanceof THREE.Points) mark.geometry.dispose();
-    }
-    this.marks = [];
-    for (const { object, ranges } of h.marks) {
-      const source = object as Drawable;
-      let g = source.geometry;
-      if (ranges) g = subGeometry(g, ranges);
-      let mark: THREE.Object3D;
-      if ((source as THREE.Points).isPoints) {
-        mark = new THREE.Points(g, this.markDots);
-      } else {
-        let fat = this.lineGeometries.get(g);
-        if (!fat) this.lineGeometries.set(g, (fat = segmentsOf(g)));
-        mark = new Wireframe(fat, this.markLine);
-      }
-      mark.matrixAutoUpdate = false;
-      mark.matrixWorldAutoUpdate = false;
-      mark.raycast = () => {};
-      this.group.add(mark);
-      this.marks.push({ source, mark });
-    }
+    this.marks.set(h.marks);
     this.pass.enabled = h.outline.length > 0;
   }
 
@@ -281,7 +225,7 @@ export class Highlights {
       u.reach!.value = reach;
     }
     this.pass.uniforms.thickness!.value = thickness;
-    this.markLine.linewidth = markWidth;
+    this.marks.setWidth(markWidth);
   }
 
   /**
@@ -290,10 +234,7 @@ export class Highlights {
    */
   update(renderer: THREE.WebGLRenderer, camera: THREE.Camera, ids: THREE.WebGLRenderTarget | undefined,
     runs: readonly [number, number][], pointSize: (m: THREE.Material) => number): void {
-    for (const { source, mark } of this.marks) {
-      mark.visible = shown(source) && !!source.parent;
-      mark.matrixWorld.copy(source.matrixWorld);
-    }
+    this.marks.update();
     if (!this.pass.enabled || !ids) return;
     const cover = coverRuns(runs, RUNS);
     this.lo.fill(0);
@@ -349,18 +290,3 @@ export class Highlights {
   }
 }
 
-/** A line geometry's segments as LineSegmentsGeometry wants them: each segment's two ends, not indexed. */
-function segmentsOf(g: THREE.BufferGeometry): LineSegmentsGeometry {
-  const pos = g.getAttribute('position');
-  const index = g.index;
-  const n = index ? index.count : pos.count;
-  const m = n - (n % 2);
-  const out = new Float32Array(m * 3);
-  for (let i = 0; i < m; i++) {
-    const v = index ? index.getX(i) : i;
-    out[3 * i] = pos.getX(v);
-    out[3 * i + 1] = pos.getY(v);
-    out[3 * i + 2] = pos.getZ(v);
-  }
-  return new LineSegmentsGeometry().setPositions(out);
-}

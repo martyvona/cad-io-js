@@ -137,16 +137,22 @@ function backend(r: TessellationResult, name = 'fake'): Tessellator & { asked: n
   return t;
 }
 
-test('tessellateScene: an error where a part\'s mesh, as kept, isn\'t a closed, oriented manifold; manifold: false '
-  + 'none', async () => {
+test('tessellateScene: an error where a part\'s mesh, as kept, isn\'t a closed, oriented manifold, its faces on the '
+  + 'mesh (defectFaces, as the message orders them); manifold: false none', async () => {
   const bad = flipped(quads(d), 21);
   const msg = 'not a closed, oriented manifold over its closed shells: 4 mesh edges (4 used twice the same way); '
     + 'faces #21, #23, #24, #25, #26';
   const opts = { measures: false, join: false, fill: false, orient: false, linearDeflection: 0.1 };
-  const r = await tessellateScene(scene(), backend(bad), opts);
+  const sc = scene();
+  const r = await tessellateScene(sc, backend(bad), opts);
   assert.deepEqual(r.diagnostics, [{ severity: 'error', message: msg, source: { format: 'step', id: 7 } }]);
-  assert.deepEqual((await tessellateScene(scene(), backend(quads(d)), opts)).diagnostics, []);
-  assert.deepEqual((await tessellateScene(scene(), backend(bad), { ...opts, manifold: false })).diagnostics, []);
+  assert.deepEqual(sc.parts[0]!.lods[0]!.mesh.defectFaces, [21, 23, 24, 25, 26]);
+  const good = scene();
+  assert.deepEqual((await tessellateScene(good, backend(quads(d)), opts)).diagnostics, []);
+  assert.equal(good.parts[0]!.lods[0]!.mesh.defectFaces, undefined);
+  const off = scene();
+  assert.deepEqual((await tessellateScene(off, backend(bad), { ...opts, manifold: false })).diagnostics, []);
+  assert.equal(off.parts[0]!.lods[0]!.mesh.defectFaces, undefined);
 });
 
 test('fallback: a primary whose mesh isn\'t an oriented manifold falls back, judged so whatever it says', async () => {

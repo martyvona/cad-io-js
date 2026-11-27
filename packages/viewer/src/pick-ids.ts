@@ -14,7 +14,7 @@
 // outline.ts). Transparent faces are drawn as opaque: they're picked, as raycasting did.
 
 import * as THREE from 'three';
-import { depthBias } from './depth-bias.ts';
+import { depthBias, dotBias } from './depth-bias.ts';
 import { itemsOf } from './items.ts';
 import type { FaceRange } from './selection.ts';
 
@@ -315,7 +315,7 @@ export function idMaterial(kind: IdKind, opts: { perVertex: boolean; bias: boole
     vertexShader: ID_VERTEX, fragmentShader: ID_FRAGMENT, clipping: true, blending: THREE.NoBlending,
     defines: { ...(opts.perVertex ? { PICK_ATTR: 1 } : {}), ...(opts.bias ? { DEPTH_BIAS: 1 } : {}),
       ...(kind === 'points' ? { POINTS: 1 } : {}) },
-    uniforms: { base: { value: 0 }, depthBias, pointSize: { value: 1 } },
+    uniforms: { base: { value: 0 }, depthBias: kind === 'points' ? dotBias : depthBias, pointSize: { value: 1 } },
     side: opts.side ?? THREE.FrontSide,
     // Faces as drawn (behind their edges: scene-graph.ts); lines and points after them, writing no depth.
     ...(line ? { transparent: true, depthWrite: false } : { polygonOffset: true, polygonOffsetFactor: 1,

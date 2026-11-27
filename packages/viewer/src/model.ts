@@ -4,18 +4,21 @@
 //   assembly, part: the placements (the graph says which groups are which: component instances and placed parts);
 //   below a part, when the tree shows detail (built when first asked for), up to three groups, each only where it has
 //     something: `faces` (a face node each, those with ids), `edges` (an edge node each of its B-rep edges, then a
-//     curve node each of its free curves; or one for the edges found from its triangles, a mesh's) and `vertices`
-//     (a vertex node each of its B-rep vertices, once the page holds its model, then a point node each of its
-//     isolated points). Edges, curves, vertices and points are items of their placement's line and point objects
-//     (items.ts).
+//     curve node each of its free curves) and `vertices` (a vertex node each of its B-rep vertices, once the page
+//     holds its model, then a point node each of its isolated points); and after `edges`, beside the groups, one
+//     edge node, "detected mesh edges", for the edges detected from its triangles (a mesh without edges of its own, or
+//     asked for: Mesh edge detection...), shown and hidden apart from the B-rep edges. Edges, curves, vertices and
+//     points are items of their placement's line and point objects (items.ts).
 //
 // Paths name nodes stably, for links, the automation interface (automation.ts) and recordings: each node's
 // segment is its name (`/`, `:` and `%` escaped as in URLs), or below a part `faces`, `edges` or `vertices`, and
 // below those `face#<source id>`, `edge#<id>`, `curve#<id>`, `vertex#<id>`, `point#<id>` (the kind alone where
-// there's no id; `found` for found edges), followed by `:k` for the k-th sibling with that segment (k > 1); the
+// there's no id), or `detected` for the detected mesh edges (beside the groups), followed by `:k` for the k-th
+// sibling with that segment (k > 1); the
 // path joins the segments from the top node down with `/` (`as1/l-bracket-assembly:2/nut/faces/face#78`). A path
-// finds its node whether or not the tree shows detail. Older paths are read too (LEGACY): a face's straight below its
-// part (`nut/face#78`), and the one-node `curves` and `points`, read as the edges and vertices groups.
+// finds its node whether or not the tree shows detail. Older paths are read too (legacyDetail): a face's straight
+// below its part (`nut/face#78`), the one-node `curves` and `points`, read as the edges and vertices groups, and the
+// edges found from the triangles in the edges group (`edges/found`), read as `detected`.
 //
 // Appearance (hiding and transparency one mechanism): a node may have an AppearanceOverride, whose slots (hidden,
 // alpha) hold for it and for every node below it that doesn't set the same slot itself; the file's hidden placements
@@ -28,8 +31,8 @@
 // detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
 
 import * as THREE from 'three';
-import { GEOMETRY_NAMES, type GeometryKind } from './geometry-info.ts';
-import { hideItems, itemsOf } from './items.ts';
+import type { Geometry, GeometryKind } from './geometry-info.ts';
+import { DETECTED_EDGES, hideItems, itemsOf } from './items.ts';
 
 export type Kind = 'assembly' | 'part' | 'faces' | 'edges' | 'vertices' | 'face' | 'edge' | 'curve' | 'vertex' |
   'point';
@@ -49,11 +52,16 @@ export const isLineKind = (k: Kind): boolean => k === 'edges' || k === 'vertices
   k === 'vertex' || k === 'point';
 
 /** A path below a part that names detail (normalized: legacyDetail), by its form alone. */
-const DETAIL_PATH = /^(faces|edges|vertices)(\/(face|edge|curve|vertex|point)(#\d+)?(:\d+)?|\/found(:\d+)?)?$/;
+const DETAIL_PATH = /^((faces|edges|vertices)(\/(face|edge|curve|vertex|point)(#\d+)?(:\d+)?)?|detected(:\d+)?)$/;
+
+/** The path below a part of its detected mesh edges (a sibling of its groups). */
+const DETECTED = 'detected';
 
 /** An older path below a part as it's named now (the file's comment); unchanged if it's not an older one. */
 export function legacyDetail(rel: string): string {
   if (/^face#\d+(:\d+)?$/.test(rel)) return `faces/${rel}`;
+  const found = /^edges\/found(:\d+)?$/.exec(rel);
+  if (found) return `${DETECTED}${found[1] ?? ''}`;
   if (rel === 'curves') return 'edges';
   if (rel === 'points') return 'vertices';
   return rel;
@@ -121,8 +129,8 @@ export interface PlacementLook {
 /** What the scene graph does with a placement's look: its faces' materials (scene-graph.ts). */
 export interface Looks {
   setLook(group: THREE.Object3D, look: PlacementLook): void;
-  /** A face's surface or an edge's or curve's curve, by kind, where the part's B-rep says (geometry-info.ts). */
-  geometryKind?(part: number, kind: 'face' | 'edge' | 'curve', id: number): GeometryKind | undefined;
+  /** A face's surface or an edge's or curve's curve, kind and name, where the part's B-rep says (geometry-info.ts). */
+  geometry?(part: number, kind: 'face' | 'edge' | 'curve', id: number): Geometry | undefined;
 }
 
 /**
@@ -168,12 +176,19 @@ interface DetailEntry {
   item?: { object: THREE.Object3D; k: number; source: number | null };
 }
 
+/** A part's detail: its groups, each with its members (line and point objects) and entries; its detected edges. */
+interface Detail {
+  groups: { group: Group; members: THREE.Object3D[]; entries: DetailEntry[] }[];
+  /** The detected mesh edges, one entry per line object (DETECTED_EDGES; one item each), beside the groups. */
+  detected: DetailEntry[];
+}
+
 /**
  * A part's detail as its placement's objects have it now (its mesh's faces, its line and point objects' items), by
  * group, in order, each entry's segment made unique among its siblings with `:k`; the groups with none left out. The
  * one source both the nodes (detailOf) and the drawing (applyPart) work from, so their paths agree.
  */
-function detailEntries(o: THREE.Object3D): { group: Group; members: THREE.Object3D[]; entries: DetailEntry[] }[] {
+function detailEntries(o: THREE.Object3D): Detail {
   const out = GROUPS.map((group) => ({ group, members: [] as THREE.Object3D[], entries: [] as DetailEntry[],
     seen: new Map<string, number>() }));
   const push = (g: typeof out[number], base: string, e: Omit<DetailEntry, 'rel'>) => {
@@ -192,14 +207,21 @@ function detailEntries(o: THREE.Object3D): { group: Group; members: THREE.Object
       if (c.name !== name) continue;
       g.members.push(c);
       itemsOf(c).forEach((item, k) => {
-        const found = c.userData.found === true;
-        const base = found ? 'found' : item.source === null ? kind : `${kind}#${item.source}`;
-        push(g, base, { kind, name: found ? 'edges found from the triangles' : item.source === null ? kind
-          : `${kind} #${item.source}`, item: { object: c, k, source: item.source } });
+        const base = item.source === null ? kind : `${kind}#${item.source}`;
+        push(g, base, { kind, name: item.source === null ? kind : `${kind} #${item.source}`,
+          item: { object: c, k, source: item.source } });
       });
     }
   }
-  return out.filter((g) => g.entries.length).map(({ group, members, entries }) => ({ group, members, entries }));
+  const detected: DetailEntry[] = [];
+  for (const m of o.children) for (const c of m.children) {
+    if (c.name !== DETECTED_EDGES) continue;
+    const k = detected.length + 1;
+    detected.push({ rel: k > 1 ? `${DETECTED}:${k}` : DETECTED, kind: 'edge', name: 'detected mesh edges',
+      item: { object: c, k: 0, source: null } });
+  }
+  return { groups: out.filter((g) => g.entries.length).map(({ group, members, entries }) => ({ group, members,
+    entries })), detected };
 }
 
 export class NodeModel {
@@ -208,6 +230,10 @@ export class NodeModel {
   private readonly byObject = new Map<THREE.Object3D, number>();
   private readonly looks?: Looks;
   private detail = false;
+  /** The scene's parts still to be meshed, and a count of their changes (set by the viewer: Viewer.pending). */
+  loadingParts?: () => { parts: ReadonlySet<number>; version: number };
+  /** The nodes `loading` says are, for one version of the parts. */
+  private loadingNodes?: { version: number; ids: Set<number> };
 
   constructor(root: THREE.Object3D, looks?: Looks) {
     this.looks = looks;
@@ -251,12 +277,15 @@ export class NodeModel {
         this.nodes[k] = { id: k, ...n };
       }
       for (const m of n.members ?? []) this.byObject.set(m, k);
+      // (A detected mesh edges node is its line object's: a pick of it finds the node.)
+      if (n.item && rel.startsWith(DETECTED)) this.byObject.set(n.item.object, k);
       this.segments.set(k, rel.slice(rel.lastIndexOf('/') + 1));
       return k;
     };
     const partIndex = o.userData.part as number;
     const failures = new Map<number, 'failed' | 'partly'>();
     for (const m of o.children) {
+      for (const f of (m.userData.defectFaces as number[] | undefined) ?? []) failures.set(f, 'partly');
       for (const f of (m.userData.partlyFailedFaces as number[] | undefined) ?? []) failures.set(f, 'partly');
       for (const f of (m.userData.failedFaces as number[] | undefined) ?? []) failures.set(f, 'failed');
     }
@@ -266,11 +295,13 @@ export class NodeModel {
       if (source === undefined || source === null || (e.kind !== 'face' && e.kind !== 'edge' && e.kind !== 'curve')) {
         return e.name;
       }
-      const g = this.looks?.geometryKind?.(partIndex, e.kind, source);
-      return g ? `${GEOMETRY_NAMES[g]} #${source}` : e.name;
+      const g = this.looks?.geometry?.(partIndex, e.kind, source);
+      return g ? `${g.name} #${source}` : e.name;
     };
     const out: number[] = [];
-    for (const { group, members, entries } of detailEntries(o)) {
+    const { groups, detected } = detailEntries(o);
+    const loose = () => detected.map((e) => add({ kind: e.kind, name: e.name, parent: id, item: e.item! }, e.rel));
+    for (const { group, members, entries } of groups) {
       const g = add({ kind: group, name: group, parent: id, ...(members.length ? { members } : {}) }, group);
       this.nodes[g]!.children = entries.map((e) => {
         const failure = e.face === undefined ? undefined : failures.get(e.face);
@@ -279,7 +310,10 @@ export class NodeModel {
           ...(failure ? { failure } : {}) }, e.rel);
       });
       out.push(g);
+      // (After the edges group, or where it would be.)
+      if (group === 'edges' || group === 'faces' && !groups.some((x) => x.group === 'edges')) out.push(...loose());
     }
+    if (!groups.some((x) => x.group === 'faces' || x.group === 'edges')) out.unshift(...loose());
     // (Those with no counterpart now stay dead.)
     return out;
   }
@@ -312,12 +346,17 @@ export class NodeModel {
 
   /** A face's, edge's or curve's geometry by kind (its icon), where its part's B-rep says; none for other nodes. */
   geometryKind(id: number): GeometryKind | undefined {
+    return this.geometry(id)?.kind;
+  }
+
+  /** A face's, edge's or curve's geometry, its kind and name (its icon and tooltip); as geometryKind. */
+  geometry(id: number): Geometry | undefined {
     const n = this.nodes[id];
     if (!n || n.dead || (n.kind !== 'face' && n.kind !== 'edge' && n.kind !== 'curve')) return undefined;
     const source = n.face?.source ?? n.item?.source;
     if (source === undefined || source === null) return undefined;
     const part = this.nodes[this.partOf(id)]!.object!.userData.part as number;
-    return this.looks?.geometryKind?.(part, n.kind, source);
+    return this.looks?.geometry?.(part, n.kind, source);
   }
 
   /** The part a node is or is detail of (itself for assemblies). */
@@ -355,6 +394,7 @@ export class NodeModel {
       for (const k of old) {
         const n = this.nodes[k]!;
         for (const m of n.members ?? []) this.byObject.delete(m);
+        if (n.item && this.byObject.get(n.item.object) === k) this.byObject.delete(n.item.object);
         this.nodes[k] = { id: k, kind: n.kind, name: n.name, parent: n.parent, ...(n.face ? { face: n.face } : {}),
           dead: true };
         this.segments.delete(k);
@@ -437,8 +477,29 @@ export class NodeModel {
   }
 
   /**
+   * Whether a node is still loading: a part whose mesh is still to come (a load's or Mesh again's), or a node holding
+   * one (its assemblies). A part's faces, edges and vertices aren't: a backend meshes the part whole.
+   */
+  loading(id: number): boolean {
+    const l = this.loadingParts?.();
+    if (!l?.parts.size) return false;
+    if (this.loadingNodes?.version !== l.version) {
+      const ids = new Set<number>();
+      for (const n of this.nodes) {
+        if (n.kind !== 'part' || n.object?.userData.cad !== 'part' || !l.parts.has(n.object.userData.part as number)) {
+          continue;
+        }
+        for (let k = n.id; k >= 0 && !ids.has(k); k = this.nodes[k]!.parent) ids.add(k);
+      }
+      this.loadingNodes = { version: l.version, ids };
+    }
+    return this.loadingNodes.ids.has(id);
+  }
+
+  /**
    * Meshing failures: a face drawn as failed, or a part all of whose faces are, `failed`; a face short of its area
-   * (cad-scene's faceFailures), or a part some of whose faces failed in any way, `partly`.
+   * (cad-scene's faceFailures) or at a defect of its part's mesh (not a closed, oriented manifold: Mesh.defectFaces),
+   * or a part some of whose faces failed in any way, `partly`.
    */
   failure(id: number): 'failed' | 'partly' | undefined {
     const n = this.nodes[id];
@@ -450,8 +511,9 @@ export class NodeModel {
     for (const m of n.object.children) {
       const failed = (m.userData.failedFaces as number[] | undefined)?.length ?? 0;
       const partly = (m.userData.partlyFailedFaces as number[] | undefined)?.length ?? 0;
+      const defects = (m.userData.defectFaces as number[] | undefined)?.length ?? 0;
       if (failed && failed === (m.userData.faces as number[]).length) return 'failed';
-      if (failed || partly) return 'partly';
+      if (failed || partly || defects) return 'partly';
     }
     return undefined;
   }
@@ -714,7 +776,16 @@ export class NodeModel {
     const tri: TriangleEdgesLook = { ...(fl.triangleEdges === undefined ? {} : { whole: fl.triangleEdges }),
       ...(edges.size ? { faces: edges } : {}) };
     group.userData.triangleEdges = tri;
-    for (const { group: g, members, entries } of detailEntries(group)) {
+    const { groups, detected } = detailEntries(group);
+    // The detected mesh edges: as their own override says, else as the part.
+    const partHidden = this.look(id).hidden;
+    for (const e of detected) {
+      const m = e.item!.object;
+      m.visible = !(over(e.rel)?.hidden ?? partHidden);
+      hideItems(m as THREE.Object3D & { geometry: THREE.BufferGeometry }, new Set());
+      shown ||= m.visible;
+    }
+    for (const { group: g, members, entries } of groups) {
       if (g === 'faces') continue;
       const hidden = this.groupLook(id, g).hidden;
       const out = new Map<THREE.Object3D, Set<number>>(members.map((m) => [m, new Set()]));

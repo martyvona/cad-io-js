@@ -19,15 +19,46 @@ const OVERSCAN = 5;
 /** Space after a row's content. */
 const END = 6;
 
-// Plain clicks select and focus; only the expander expands and collapses.
+/** What the library keeps between clicks (`selectUpToAnchorId`: the row last clicked without shift), and ours. */
+type ClickData = { selectUpToAnchorId?: string | null; holdSelection?: boolean; multi?: () => boolean };
+
+// Plain clicks select and focus; only the expander expands and collapses. A shift-click with nothing selected (a
+// click on nothing in the 3D view may have cleared it) is a plain click: the library's range would start at the row
+// last clicked, no longer selected, so its anchor is dropped first (with none, selectUpTo selects the row alone).
+// A click on a selected row takes it out of the selection, a shift-click the rows from it to the anchor (as a
+// shift-click selects them), instead of what the library does; its selection changes on the way aren't reported
+// (`holdSelection`), only the result. A ctrl/cmd-click is the library's toggle. With multi-select on (`multi`) every
+// click is taken as ctrl/cmd held: a plain click toggles the row, a shift-click adds the span to the selection.
 const clickSelectsOnly: FeatureImplementation<string> = {
   key: 'click-selects-only',
   itemInstance: {
-    getProps: ({ item, prev }) => {
+    getProps: ({ tree, item, itemId, prev }) => {
       const p = prev?.() ?? {};
-      return { ...p, onClick: (e: MouseEvent) => {
+      return { ...p, onClick: (clicked: MouseEvent) => {
+        const data = tree.getDataRef().current as ClickData;
+        // (A plain object, as Space's click is: the library reads only the keys.)
+        const e = data.multi?.() && !clicked.ctrlKey && !clicked.metaKey ? { shiftKey: clicked.shiftKey,
+          ctrlKey: true, metaKey: false } as MouseEvent : clicked;
+        const before = tree.getState().selectedItems ?? [];
+        if (e.shiftKey && before.length === 0) data.selectUpToAnchorId = null;
+        const deselect = item.isSelected() && (e.shiftKey || !(e.ctrlKey || e.metaKey));
+        let span = [itemId];
+        if (deselect && e.shiftKey && data.selectUpToAnchorId) {
+          const ids = tree.getItems().map((i) => i.getId());
+          const a = ids.indexOf(data.selectUpToAnchorId), b = ids.indexOf(itemId);
+          if (a >= 0) span = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+        }
         const was = item.isExpanded();
-        (p.onClick as ((e: MouseEvent) => void) | undefined)?.(e);
+        data.holdSelection = deselect;
+        try {
+          (p.onClick as ((e: MouseEvent) => void) | undefined)?.(e);
+        } finally {
+          data.holdSelection = false;
+        }
+        if (deselect) {
+          const out = new Set(span);
+          tree.setSelectedItems(before.filter((id) => !out.has(id)));
+        }
         if (item.isExpanded() !== was) {
           if (was) item.expand();
           else item.collapse();
@@ -70,6 +101,9 @@ export class HeadlessTreeView implements TreeView {
   /** The focus cleared (focus(undefined)): the library, focused on nothing, would outline the first row. */
   private unfocused = false;
   private scheduled = false;
+  /** Where the mouse is over the tree (client pixels), and the node of the row there. */
+  private pointer: { x: number; y: number } | undefined;
+  private hovered: string | undefined;
   /** The widest row drawn so far (pixels). */
   private width = 0;
 
@@ -89,7 +123,7 @@ export class HeadlessTreeView implements TreeView {
       scrollToItem: (item) => this.scrollTo(this.tree.getItems().indexOf(item)),
       setState: (state) => {
         const sel = (state as { selectedItems?: string[] }).selectedItems ?? [];
-        if (sel !== this.selected) {
+        if (sel !== this.selected && !(this.tree.getDataRef().current as ClickData).holdSelection) {
           this.selected = sel;
           opts.onSelectionChange([...sel]);
         }
@@ -115,12 +149,26 @@ export class HeadlessTreeView implements TreeView {
           return first;
         }),
         collapseOrUp: this.arrow('ArrowLeft', (id) => data.parent(id)),
+        // Space and shift-space: a click and a shift-click on the focused row (outlined), if any.
+        customClick: { hotkey: 'Space', preventDefault: true, handler: (_e, tree) => this.clickFocused(tree, false) },
+        customShiftClick: { hotkey: 'Shift+Space', preventDefault: true,
+          handler: (_e, tree) => this.clickFocused(tree, true) },
       },
     });
+    (this.tree.getDataRef().current as ClickData).multi = () => opts.multi?.() ?? false;
     this.tree.setMounted(true);
     this.tree.rebuildTree();
     applyProps(this.scroller, this.tree.getContainerProps('Model tree'));
     this.scroller.addEventListener('scroll', () => this.schedule());
+    this.scroller.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      this.pointer = { x: e.clientX, y: e.clientY };
+      this.hoverAt();
+    });
+    this.scroller.addEventListener('pointerleave', () => {
+      this.pointer = undefined;
+      this.hoverAt();
+    });
     new ResizeObserver(() => this.schedule()).observe(this.scroller);
     this.draw();
   }
@@ -148,6 +196,14 @@ export class HeadlessTreeView implements TreeView {
     const target = to(focused ?? tree.getFocusedItem().getId());
     if (target === undefined) return;
     tree.getItemInstance(target).setFocused();
+    tree.updateDomFocus();
+  }
+
+  /** The focused row clicked (its props' handler, as a click on it would be), shift held or not; none, nothing. */
+  private clickFocused(tree: TreeInstance<string>, shiftKey: boolean): void {
+    if (tree.getState().focusedItem === null && this.unfocused) return;
+    const onClick = tree.getFocusedItem().getProps().onClick as (e: Partial<MouseEvent>) => void;
+    onClick({ shiftKey, ctrlKey: false, metaKey: false });
     tree.updateDomFocus();
   }
 
@@ -214,6 +270,7 @@ export class HeadlessTreeView implements TreeView {
       el.style.paddingLeft = `${item.getItemMeta().level * INDENT}px`;
       applyProps(el, item.getProps());
       el.classList.toggle('selected', item.isSelected());
+      el.classList.toggle('hovered', item.getId() === this.hovered);
       el.classList.toggle('focused', item.isFocused() && !(this.unfocused &&
         this.tree.getState().focusedItem === null));
       el.dataset.id = item.getId();
@@ -231,6 +288,19 @@ export class HeadlessTreeView implements TreeView {
     this.width = widest;
     // (The rows, absolutely placed, make the scroller as wide; at least as wide as it, for the selection's colour.)
     for (let s = 0; s < slot; s++) this.rows[s]!.style.width = `${this.width}px`;
+    // (Rows drawn again may have moved under a still mouse: scrolled, or the tree's shape changed.)
+    this.hoverAt();
+  }
+
+  /** The node of the row under the mouse, marked and reported if it changed. */
+  private hoverAt(): void {
+    const p = this.pointer;
+    const el = p && document.elementFromPoint(p.x, p.y)?.closest<HTMLElement>('.tree-row');
+    const id = el && this.scroller.contains(el) && el.style.display !== 'none' ? el.dataset.id : undefined;
+    if (id === this.hovered) return;
+    this.hovered = id;
+    for (const row of this.rows) row.classList.toggle('hovered', id !== undefined && row.dataset.id === id);
+    this.opts.onHover?.(id);
   }
 
   refresh(): void {
@@ -327,6 +397,8 @@ export class HeadlessTreeView implements TreeView {
   }
 
   dispose(): void {
+    this.pointer = undefined;
+    this.hoverAt();
     this.tree.setMounted(false);
     this.scroller.remove();
   }

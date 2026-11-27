@@ -9,7 +9,10 @@
 //   pick     a click or tap that picked: x, y, whether it added to the selection, the node picked (its path) and the
 //            point (world mm), or nothing
 //   select   the selection after a change: its paths, and where the change came from (tree, pick, api)
-//   control  a control changed (its folder path and value) or a button pressed (no value)
+//   control  a control changed (its folder path and value) or a button pressed (no value; `shift` if shift-clicked)
+//   appearance  a node's appearance override set exactly (the tree's Override Appearance...)
+//   detection   Mesh edge detection's values set (remembered: every later load detects with them)
+//   detect   a run of Mesh edge detection, as it began: its values, Selection only, and what it did once done
 //   camera   the camera at the end of each drag or zoom
 //   api      a call through the automation interface (cadViewer.hide, view, apply...): its method and arguments
 //   load     a model opened: its URL (with the bytes' size and SHA-256 once loaded), or local files' names, sizes
@@ -18,7 +21,8 @@
 //            the page
 //
 // Replaying applies them in order through the same operations, waiting for the viewer to be idle before each: the
-// controls' values and buttons, selections from the tree or the API, loads (local files given again, matched by
+// controls' values and buttons, selections from the tree or the API, Mesh edge detection's values and runs (each
+// run's outcome compared with what it did then), loads (local files given again, matched by
 // name, size and hash, or, in the page, the model checked by its hash and asked for if it isn't the one open:
 // automation.ts), the camera as it was after each drag or zoom (pointer moves themselves can't be replayed
 // in the page: the controls capture the pointer), and each pick at its recorded pixel through the view's own
@@ -34,12 +38,13 @@
 // (closed again when the replay ends), scrolled to, flashed.
 
 import { sha256 } from 'cad-scene';
-import { interpolateCamera } from './camera.ts';
+import { AXIS_VIEWS, interpolateCamera, upIso } from './camera.ts';
 import { formatOf } from './formats.ts';
 import { nodeForPick } from './selection.ts';
 import { setSideWidth, sideWidth } from './side-handle.ts';
 import type { Ui, UiEvent } from './ui.ts';
 import { isStep, NOT_REPLAYED } from './replay-report.ts';
+import type { EdgeDetection } from './edges.ts';
 import type { AppearanceOverride } from './model.ts';
 import type { CameraState } from './view-state.ts';
 import type { Viewer } from './viewer.ts';
@@ -55,7 +60,11 @@ export type RecordedEvent = { t: number } & (
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; paths: string[] }
   /** A node's appearance override set exactly (the tree's Override Appearance...). */
   | { type: 'appearance'; path: string; override: AppearanceOverride }
-  | { type: 'control'; path: string; value?: unknown }
+  | { type: 'control'; path: string; value?: unknown; shift?: true }
+  /** Mesh edge detection's values set (edge-dialog.ts). */
+  | { type: 'detection'; detection: EdgeDetection }
+  /** A run of Mesh edge detection; `result`: what it did, in words, once done. */
+  | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; result?: string; error?: boolean }
   /** Older recordings' answer to a question Mesh again no longer asks (it heals again in place): ignored. */
   | { type: 'reload'; confirmed: boolean }
   | { type: 'camera'; camera: CameraState }
@@ -177,7 +186,9 @@ export class Recorder {
     });
     gui.domElement.addEventListener('click', (e) => {
       const c = gui.controllersRecursive().find((x) => x.$button?.contains(e.target as Node));
-      if (c && !UNRECORDED.test(controlPath(c))) this.push({ type: 'control', path: controlPath(c) });
+      if (c && !UNRECORDED.test(controlPath(c))) {
+        this.push({ type: 'control', path: controlPath(c), ...(e.shiftKey ? { shift: true as const } : {}) });
+      }
     }, { capture: true });
     const previous = ui.onEvent;
     ui.onEvent = (e) => {
@@ -260,6 +271,17 @@ export class Recorder {
         path: e.id !== undefined && model ? model.pathOf(e.id) : null, ...(e.point ? { point: e.point } : {}) });
     } else if (e.type === 'appearance') {
       if (model) this.push({ type: 'appearance', path: model.pathOf(e.id), override: e.override });
+    } else if (e.type === 'detection') this.push({ type: 'detection', detection: e.detection });
+    else if (e.type === 'detect') {
+      // What it did, once done, into its event (already in its place).
+      const ev: Untimed<Extract<RecordedEvent, { type: 'detect' }>> = { type: 'detect', detection: e.detection,
+        selectionOnly: e.selectionOnly };
+      this.push(ev);
+      const rec = this.rec;
+      void e.done.then((r) => {
+        const x = rec.events.findLast((y) => y.type === 'detect' && y.detection === ev.detection);
+        if (x?.type === 'detect') Object.assign(x, { result: r.text, ...(r.error ? { error: true } : {}) });
+      }, () => undefined);
     } else this.push({ type: 'status', text: e.text, error: e.error });
   }
 }
@@ -337,6 +359,11 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
   const meshing = (first?.state.model as { meshedWith?: object } | undefined)?.meshedWith ?? first?.state.meshing;
   // (Recordings from before healing have no heal: as imported.)
   if (meshing) session.apply({ meshing: { heal: false, ...meshing } });
+  // Mesh edge detection's values too, which every load detects with (recordings before 2026-11-27 have none).
+  const detection = first?.state.edgeDetection as EdgeDetection | undefined;
+  if (detection) ui.setEdgeDetection(detection);
+  // Fit and Look and fit as they were (recordings before 2026-11-27 have none: their views turned alone).
+  ui.setViews((first?.state.views as ReturnType<Ui['views']> | undefined) ?? { fit: false });
   const gui = ui.gui as unknown as { controllersRecursive(): Controller[] };
   const resolve = (paths: string[]) => paths.map((p) => viewer.nodes?.find(p)).filter((x) => x !== undefined);
   const open = async (e: Extract<RecordedEvent, { type: 'load' }>, at: string) => {
@@ -374,8 +401,9 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     if (signal?.aborted) return stopped();
     // Only what's applied waits for the viewer (pointer moves, statuses... are many and change nothing).
     if (APPLIED.has(e.type)) await session.idle();
-    const control = e.type === 'control' && !NOT_REPLAYED.test(e.path) ? gui.controllersRecursive().find((x) =>
-      controlPath(x) === e.path) : undefined;
+    const path = e.type === 'control' ? legacyPath(e.path, viewer) : '';
+    const control = e.type === 'control' && !NOT_REPLAYED.test(path) ? gui.controllersRecursive().find((x) =>
+      controlPath(x) === path) : undefined;
     // A control's folders opened during the wait before it changes, so it changes on time.
     if (show && control) await show.reveal(control);
     if (opts.realtime) {
@@ -400,8 +428,10 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const c = control;
       if (!c) { divergences.push(`${at}: no control ${e.path}`); continue; }
       show?.flash(c);
-      // A button's work done (Mesh again: its load) before the next event, whatever the pace.
-      if (c.$button) await (c.getValue() as () => unknown).call(c.object);
+      // A button's work done (Mesh again: its load) before the next event, whatever the pace; shift-clicked as it was.
+      if (c.$button && e.shift) c.$button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true,
+        shiftKey: true }));
+      else if (c.$button) await (c.getValue() as () => unknown).call(c.object);
       else c.setValue(e.value);
       applied++;
     } else if (e.type === 'api') {
@@ -414,6 +444,14 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
         ui.setOverride(id, e.override);
         applied++;
       }
+    } else if (e.type === 'detection') {
+      ui.setEdgeDetection(e.detection);
+      applied++;
+    } else if (e.type === 'detect') {
+      // Done before the next event, whatever the pace; what it did compared with what it did then.
+      const r = await ui.detectEdges(e.detection, e.selectionOnly);
+      if (e.result !== undefined && r.text !== e.result) divergences.push(`${at}: ${r.text}, recorded ${e.result}`);
+      applied++;
     } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id')) {
       // Selections by pick and through the interface come back with their pick and api events.
       ui.select(resolve(e.paths) as number[], e.source === 'id' ? 'id' : 'api');
@@ -453,10 +491,12 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const text = (key: string, v: unknown) => JSON.stringify((key === 'hidden' || key === 'shown') &&
         Array.isArray(v) ? [...v].sort() : v);
       for (const key of ['cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden', 'shown',
-        'opacity', 'triangleEdges', 'selected']) {
+        'opacity', 'triangleEdges', 'edgeDetection', 'views', 'selected']) {
         // (Recordings before 2026-10-27 have no meshing, those before 2026-10-31 no shown, opacity nor triangle
         // edges.)
-        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity', 'triangleEdges'].includes(key)) continue;
+        // (Nor those before 2026-11-27 edge detection.)
+        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity', 'triangleEdges', 'edgeDetection', 'views']
+          .includes(key)) continue;
         // (The meshing settings recorded only: those before 2026-10-28 have no timeout.)
         if (key === 'meshing') now[key] = Object.fromEntries(Object.keys(e.state[key] as object).map((k) =>
           [k, (now[key] as Record<string, unknown>)[k]]));
@@ -481,8 +521,19 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
 
 
 
+/**
+ * A recorded control's path now: Look Along an Axis's Iso (recordings before 2026-11-27) is the iso view of the
+ * file's axis that's up, which looks the same.
+ */
+function legacyPath(path: string, viewer: Viewer): string {
+  if (path !== 'View/Look Along an Axis/Iso') return path;
+  const name = AXIS_VIEWS.find((v) => v.view === upIso(viewer.gnomon.axesInWorld))!.name;
+  return `View/Look Along an Axis/${name}`;
+}
+
 /** The events replay applies (and so waits for the viewer before). */
-const APPLIED = new Set<RecordedEvent['type']>(['load', 'control', 'api', 'select', 'camera', 'pick', 'state']);
+const APPLIED = new Set<RecordedEvent['type']>(['load', 'control', 'api', 'select', 'camera', 'pick', 'state',
+  'detection', 'detect']);
 
 /** What a replay in real time shows besides the events themselves: the pointer, and the camera turning in drags. */
 class Show {

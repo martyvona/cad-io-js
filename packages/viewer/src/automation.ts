@@ -7,10 +7,11 @@
 // At start it opens ?model= if there is one (as Load URL... reads what's typed: a path within the content root, a
 // path on the server or a URL, sources.ts; ?url= is the same, for older links), then applies the view in the
 // address (after #, or in the query as older links have it); `ready` settles after both.
+// Then the address follows the model open (followed), so a reload doesn't open a model that was replaced.
 
 import { sha256 } from 'cad-scene';
 import { parseIds } from './step-ids.ts';
-import { VIEWS, type ViewName } from './camera.ts';
+import { VIEWS, type LookMotion, type ViewName } from './camera.ts';
 import { askUrl, showDialog } from './dialog.ts';
 import { DEVICE_PROFILES } from './device.ts';
 import { formatOf } from './formats.ts';
@@ -26,6 +27,7 @@ import { backendsFromQuery, deflectionFromQuery, deflectionQuery, fromQuery, hea
   type CameraState, type ViewState } from
   './view-state.ts';
 import type { TessellationSettings } from './tessellation.ts';
+import type { EdgeDetection } from './edges.ts';
 import type { MeshedWith, Viewer } from './viewer.ts';
 
 export interface NodeInfo { path: string; kind: string; name: string; hidden: boolean }
@@ -40,6 +42,10 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 
   device: { detected: string; used: string; profile: string };
   /** The meshing settings (B-Rep Meshing's), for the next model meshed. */
   meshing: TessellationSettings;
+  /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
+  edgeDetection: EdgeDetection;
+  /** Look Along an Axis's Fit and View's Look and fit (how a view that fits moves). */
+  views: { fit: boolean; motion: LookMotion };
   /**
    * The model: its file's name and URL (if it came from one), counts, sphere and parts (STEP), and (STEP) the
    * meshing settings it was meshed with.
@@ -95,6 +101,11 @@ export interface CadViewer {
 
 const VERSION = 5;
 
+/** The address's options that are the page's, not the model's or its view's: kept as the address follows models. */
+const PAGE_OPTIONS = ['check', 'controls', 'deterministic', 'gnomon'];
+/** Session storage: the name of the local file open, for the page after a reload. */
+const LOCAL_FILE_KEY = 'cad-viewer.localFile';
+
 /** The model's sphere in the world (what zoom all fits), where it has one. */
 const sphereOf = (viewer: Viewer) => {
   const s = viewer.modelSphere();
@@ -144,6 +155,8 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       render: { ...viewer.render }, tree: ui.tree(),
       device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
       meshing: { ...viewer.settings },
+      edgeDetection: ui.edgeDetection(),
+      views: ui.views(),
       pick: ui.selection.level, instances: ui.selection.instances,
       // The appearance overrides (model.ts), detail nodes' whether or not their nodes exist yet (made on demand).
       ...appearance(),
@@ -191,6 +204,49 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     return problems;
   };
 
+  // A model below the content root is named by its path there, so the address works wherever the viewer is served
+  // with that content (the dev server, a deployment's demo models); another from the same server by its path, so it
+  // works however the server is reached.
+  const modelParam = (from: string) => contentPath(from) ?? (from.startsWith(location.origin + '/')
+    ? from.slice(location.origin.length) : from);
+
+  // The address follows the model opened, so a reload (About's, or the browser's) never opens the one it replaced: a
+  // URL's ?model= (what else the address said was about the model before, and goes), the page's own options kept; a
+  // local file's none, the file's name kept in this tab's session storage (no copy of it, sources.ts) so the page
+  // after a reload can say to open it again. Not the start's model, which is the address's own (its view with it).
+  let starting = true;
+  // A URL with the address's page options added, as the address spells them (`?check` stays a bare flag).
+  const withPageOptions = (url: URL) => {
+    const options = location.search.slice(1).split('&').filter((p) => {
+      try {
+        return PAGE_OPTIONS.includes(decodeURIComponent(p.split('=')[0]!.replace(/\+/g, ' ')));
+      } catch {
+        return false;
+      }
+    });
+    const search = [url.search.slice(1), ...options].filter((x) => x).join('&');
+    return url.pathname + (search ? '?' + search : '') + url.hash;
+  };
+  const followed = (src: Source) => {
+    if (starting) return;
+    const url = new URL(location.pathname, location.origin);
+    if (src.url) url.searchParams.set('model', modelParam(src.url));
+    history.replaceState(history.state, '', withPageOptions(url));
+    try {
+      if (src.url) sessionStorage.removeItem(LOCAL_FILE_KEY);
+      else sessionStorage.setItem(LOCAL_FILE_KEY, src.name);
+    } catch {
+      // Not kept: the page after a reload just has no model.
+    }
+  };
+  ui.onSource = followed;
+  // About's Reload: a URL's model with its view (the link's, the page's options kept); a local file's address as it
+  // is (followed).
+  ui.reload = () => {
+    if (ui.currentUrl()) history.replaceState(history.state, '', withPageOptions(new URL(link())));
+    location.reload();
+  };
+
   const link = (): string => {
     const s = state();
     // (Include device defaults: the settings whose defaults depend on the device spelled out, so the link shows the
@@ -202,11 +258,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       selected: s.selected };
     const url = new URL(location.pathname, location.origin);
     const from = ui.currentUrl();
-    // A model below the content root is linked by its path there, so the link works wherever the viewer is served
-    // with that content (the dev server, a deployment's demo models); another from the same server by its path, so
-    // the link works however the server is reached.
-    if (from) url.searchParams.set('model', contentPath(from) ?? (from.startsWith(location.origin + '/')
-      ? from.slice(location.origin.length) : from));
+    if (from) url.searchParams.set('model', modelParam(from));
     // Its deflections where they aren't the device's profile (or always, with Include device defaults), so the link
     // meshes it as it's shown.
     const m = viewer.model?.meshedWith;
@@ -244,6 +296,21 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
   };
 
   const start = async () => {
+    try {
+      await opening();
+    } finally {
+      starting = false;
+    }
+  };
+  const opening = async () => {
+    // The local file open before a reload (followed), if any: said when the address names no model.
+    let local: string | null = null;
+    try {
+      local = sessionStorage.getItem(LOCAL_FILE_KEY);
+      sessionStorage.removeItem(LOCAL_FILE_KEY);
+    } catch {
+      // None.
+    }
     // The view from after # and from the query (older links, `cad-viewer shot --state`), the fragment's first where
     // both give one.
     const params = new URLSearchParams([...new URLSearchParams(location.hash.slice(1)),
@@ -272,7 +339,11 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     if (url) {
       const r = await loadUrl(url);
       if (r.error) return;
-    } else ui.empty();
+    } else {
+      ui.empty();
+      if (local !== null) ui.say(`${local} was open from this computer before the page reloaded: open it again ` +
+        '(File, Open file...)');
+    }
     // Recorded (?record began before it) as the call it is, so a replay applies the address's view too.
     if (Object.keys(st).length) recorder.api('apply', [st]);
     problems.push(...apply(st));

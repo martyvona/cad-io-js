@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { EDGE_GRID_MM, findEdges } from '../src/edges.ts';
+import { DEFAULT_DETECTION, detectionFrom, detectionProblem, EDGE_GRID_MM, findEdges } from '../src/edges.ts';
 
 const found = (g: THREE.BufferGeometry, angle: number, scale: number) => Array.from(findEdges(
   g.getAttribute('position').array, g.getIndex()?.array, angle, scale));
@@ -25,4 +25,20 @@ test('findEdges: vertices one or apart by the grid; 1 um in the world', () => {
   const p = [0, 0, 0, 1, 0, 0, 0, 1, 0, 1.00002, 0, 0, 1, 1, 0, 0.00002, 1, 0];
   assert.equal(findEdges(p, undefined, 10, 1e4).length / 6, 4);
   assert.equal(findEdges(p, undefined, 10, 1e5).length / 6, 6);
+});
+
+test('detection: the defaults (10 degrees, 1 um); values checked; stored ones read, else the defaults', () => {
+  assert.deepEqual(DEFAULT_DETECTION, { angle: 10, grid: EDGE_GRID_MM });
+  assert.equal(detectionProblem({ angle: 0, grid: 1e-6 }), '');
+  assert.equal(detectionProblem({ angle: 180, grid: 5 }), '');
+  for (const angle of [-1, 181, NaN, Infinity]) assert.match(detectionProblem({ angle, grid: 1 }), /angle/, `${angle}`);
+  for (const grid of [0, -1, NaN, Infinity]) assert.match(detectionProblem({ angle: 10, grid }), /weld/, `${grid}`);
+  assert.deepEqual(detectionFrom('{"angle":5,"grid":0.01}'), { angle: 5, grid: 0.01 });
+  for (const s of [null, undefined, '', 'nope', '{"angle":500,"grid":1}', '{"angle":5}', '[]']) {
+    assert.deepEqual(detectionFrom(s), DEFAULT_DETECTION, String(s));
+  }
+  // (A copy: changing it leaves the defaults.)
+  const d = detectionFrom(null);
+  d.angle = 1;
+  assert.equal(DEFAULT_DETECTION.angle, 10);
 });

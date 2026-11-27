@@ -26,6 +26,13 @@ export interface TreeViewOptions {
   renderRow(id: string, content: HTMLElement): void;
   /** The selection changed by the user (clicks, ctrl/cmd-click, shift-click, keys). */
   onSelectionChange(ids: string[]): void;
+  /** Whether multi-select is on: every click then adds or removes, as a ctrl/cmd-click does. */
+  multi?(): boolean;
+  /**
+   * The row under the mouse changed (moved, or rows scrolled under it; not touch): its node, or undefined once the
+   * mouse leaves the tree. The view marks that row `hovered`.
+   */
+  onHover?(id: string | undefined): void;
 }
 
 export interface TreeView {

@@ -48,3 +48,167 @@ test('interpolateCamera: the pan straight, none at either end none between', () 
   near(c.pan!, [7.5, -3], 'pan');
   near(interpolateCamera(a, { ...b, pan: [0, 8] }, 1).pan!, [0, 8], 'pan at the end');
 });
+
+// The iso views in the file's axes; the legs of a move to a view that fits; the screw motion between two cameras.
+import * as THREE from 'three';
+import { centred, fitCamera, heightShowing, legCamera, lookLegs, screwCamera, upIso, viewAxes, viewCamera, VIEWS }
+  from '../src/camera.ts';
+
+// A Y-up file's axes in the world (glTF's, turned so its Y is the world's Z): x -> x, y -> z, z -> -y.
+const Y_UP = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1),
+  new THREE.Vector3(0, -1, 0));
+// A file whose X is the world's up: x -> z, y -> x, z -> y.
+const X_UP = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(0, 1, 0));
+const arr = (v: THREE.Vector3) => v.toArray();
+
+test('viewAxes and upIso: Iso X, Y and Z put that file axis up; the up axis\'s iso is the world\'s iso', () => {
+  const iso = { dir: arr(new THREE.Vector3(...VIEWS.iso.dir).normalize()), up: [0, 0, 1] };
+  // A Z-up file (no axes, or the world's): Iso Z is iso.
+  for (const axes of [undefined, new THREE.Matrix4()]) {
+    const z = viewAxes('isoZ', axes);
+    near(arr(z.dir), iso.dir, 'Iso Z dir');
+    near(arr(z.up), iso.up, 'Iso Z up');
+    assert.equal(upIso(axes), 'isoZ');
+    near(arr(viewAxes('isoY', axes).up), [0, 1, 0], 'Iso Y up');
+    near(arr(viewAxes('isoX', axes).up), [1, 0, 0], 'Iso X up');
+  }
+  // A Y-up file: Iso Y is iso; its Z, the world's -Y, is up in Iso Z.
+  const y = viewAxes('isoY', Y_UP);
+  near(arr(y.dir), iso.dir, 'Y up: Iso Y dir');
+  near(arr(y.up), iso.up, 'Y up: Iso Y up');
+  near(arr(viewAxes('isoZ', Y_UP).up), [0, -1, 0], 'Y up: Iso Z up');
+  assert.equal(upIso(Y_UP), 'isoY');
+  assert.equal(upIso(X_UP), 'isoX');
+  near(arr(viewAxes('isoX', X_UP).up), [0, 0, 1], 'X up: Iso X up');
+  // The world's views ignore the file's axes.
+  near(arr(viewAxes('front', Y_UP).dir), [0, -1, 0], 'front');
+  // viewCamera with them: about the same target, at the same distance.
+  const c = viewCamera({ position: [1, -48, 3], target: [1, 2, 3], up: [0, 0, 1], height: 10 }, 'isoZ', Y_UP);
+  near(c.up, [0, -1, 0], 'viewCamera up');
+  const d = new THREE.Vector3().fromArray(c.position).sub(new THREE.Vector3(1, 2, 3));
+  assert.ok(Math.abs(d.length() - 50) < 1e-9);
+  // (Iso Z's direction in the file, (1, -1, 1), in the world: (1, -1, -1).)
+  near(arr(d.normalize()), arr(new THREE.Vector3(1, -1, -1).normalize()), 'viewCamera dir');
+});
+
+// From the front (looking along +Y, Z up: right is +X), 400 mm high, about the origin.
+const front: CameraState = { position: [0, -100, 0], target: [0, 0, 0], up: [0, 0, 1], height: 400 };
+
+test('centred: the pan made the orbit centre, nothing drawn moving', () => {
+  // The pan draws the target 10 mm right of the view's centre and 5 up: the centre is 10 left and 5 down of it.
+  const c = centred({ ...front, pan: [10, 5] });
+  near(c.target, [-10, 0, -5], 'target');
+  near(c.position, [-10, -100, -5], 'position');
+  assert.equal(c.pan, undefined);
+  assert.equal(centred(front), front);
+});
+
+test('heightShowing: the whole sphere where it is in the view, with the margin', () => {
+  // Centre 30 right and 40 up of the view's centre, radius 10, the free width twice the height: 50 up, 40 / 2 across.
+  const sphere = new THREE.Sphere(new THREE.Vector3(30, 50, 40), 10);
+  assert.ok(Math.abs(heightShowing(front, sphere, 2) - 2 * 50 * 1.1) < 1e-9);
+  // Panned 20 right: the centre 20 left, the sphere 50 right of it: (50 + 10) / 2 = 30, less than 50.
+  assert.ok(Math.abs(heightShowing({ ...front, pan: [20, 0] }, sphere, 2) - 2 * 50 * 1.1) < 1e-9);
+  // Wide: across decides.
+  assert.ok(Math.abs(heightShowing(front, sphere, 0.5) - 2 * (40 / 0.5) * 1.1) < 1e-9);
+});
+
+test('lookLegs: zoom out to the model, orbit, zoom in, each left out where the camera is there already', () => {
+  const model = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 100);
+  const part = new THREE.Sphere(new THREE.Vector3(10, 0, 0), 20);
+  const goal = fitCamera(viewCamera(front, 'right'), part, 1.5);
+  assert.ok(Math.abs(goal.height - 2 * 20 * 1.1) < 1e-9);
+  // The model shows already (220 of 400): orbit at 400, then zoom in to the part.
+  let legs = lookLegs(front, goal, 'steps', model, 1.5);
+  assert.deepEqual(legs.map((l) => l.kind), ['orbit', 'zoom']);
+  assert.deepEqual(legs.map((l) => l.ms), [1, 0.5]);
+  assert.equal(legs[0]!.to.height, 400);
+  near(legs[0]!.to.target, goal.target, 'orbit to the goal\'s centre');
+  near(legs[0]!.to.position, goal.position, 'orbit to the goal\'s pose');
+  assert.equal(legs[1]!.from, legs[0]!.to);
+  assert.equal(legs[1]!.to, goal);
+  // Zoomed in to 50: out to show the model first (220), without moving.
+  const close = { ...front, height: 50 };
+  legs = lookLegs(close, goal, 'steps', model, 1.5);
+  assert.deepEqual(legs.map((l) => [l.kind, l.ms]), [['zoom', 0.5], ['orbit', 1], ['zoom', 0.5]]);
+  assert.ok(Math.abs(legs[0]!.to.height - 220) < 1e-9);
+  near(legs[0]!.to.position, close.position, 'zoom out in place');
+  // Panned: zoomed about the view's centre, made the orbit centre.
+  // (The model 120 right of the centre: (120 + 100) / 1.5 across, more than 100 up.)
+  legs = lookLegs({ ...close, pan: [120, 0] }, goal, 'steps', model, 1.5);
+  near(legs[0]!.from.target, [-120, 0, 0], 'the pan made the centre');
+  assert.ok(Math.abs(legs[0]!.to.height - 2 * (220 / 1.5) * 1.1) < 1e-9);
+  // Looking along the view at the part's centre already: the zoom alone (no zoom out first, whatever shows).
+  for (const height of [300, 10]) {
+    assert.deepEqual(lookLegs({ ...goal, height }, goal, 'steps', model, 1.5).map((l) => l.kind), ['zoom']);
+  }
+  // There already: nothing; the model's sphere empty, no zoom out.
+  assert.deepEqual(lookLegs(goal, goal, 'steps', model, 1.5), []);
+  assert.deepEqual(lookLegs(close, goal, 'steps', new THREE.Sphere().makeEmpty(), 1.5).map((l) => l.kind),
+    ['orbit', 'zoom']);
+  // The pose differing only by a turn about the view's axis, or only by its centre: an orbit (the model shown whole
+  // first, then the part).
+  const all = ['zoom', 'orbit', 'zoom'];
+  assert.deepEqual(lookLegs({ ...goal, up: [0, 1, 0] }, goal, 'steps', model, 1.5).map((l) => l.kind), all);
+  assert.deepEqual(lookLegs({ ...goal, position: [goal.position[0]!, 5, goal.position[2]!],
+    target: [goal.target[0]!, 5, goal.target[2]!] }, goal, 'steps', model, 1.5).map((l) => l.kind), all);
+  // Together: one blend.
+  legs = lookLegs(close, goal, 'together', model, 1.5);
+  assert.deepEqual(legs.map((l) => [l.kind, l.ms, l.from, l.to]), [['blend', 1, close, goal]]);
+});
+
+test('screwCamera: the ends; a turn about the target keeps it; a slide goes straight; a screw\'s helix', () => {
+  const at = (s: CameraState) => ({ target: s.target, up: s.up, dir: arr(new THREE.Vector3().fromArray(s.position)
+    .sub(new THREE.Vector3().fromArray(s.target)).normalize()) });
+  const same = (c: CameraState, s: CameraState, what: string) => {
+    const [x, y] = [at(c), at(s)];
+    near(x.target, y.target, `${what}: target`);
+    near(x.up, y.up, `${what}: up`);
+    near(x.dir, y.dir, `${what}: direction`);
+  };
+  // About the target: front to right, both 100 away.
+  const right: CameraState = { position: [100, 0, 0], target: [0, 0, 0], up: [0, 0, 1], height: 400 };
+  let m = screwCamera(front, right);
+  same(m(0), front, 'start');
+  same(m(1), right, 'end');
+  for (const f of [0.25, 0.5, 0.75]) {
+    near(m(f).target, [0, 0, 0], `the target fixed at ${f}`);
+    const t = (f * Math.PI) / 2;
+    near(m(f).position, [100 * Math.sin(t), -100 * Math.cos(t), 0], `on the circle at ${f}`);
+  }
+  // A slide: the same turn, the centre moving straight at an even pace, the distance and height by theirs.
+  const slid: CameraState = { position: [40, -200, 30], target: [40, 0, 30], up: [0, 0, 1], height: 100 };
+  m = screwCamera(front, slid);
+  for (const f of [0.3, 0.6]) {
+    near(m(f).target, [40 * f, 0, 30 * f], `slid at ${f}`);
+    near(at(m(f)).dir, [0, -1, 0], `not turned at ${f}`);
+    const d = new THREE.Vector3().fromArray(m(f).position).distanceTo(new THREE.Vector3().fromArray(m(f).target));
+    assert.ok(Math.abs(d - (100 + 100 * f)) < 1e-9 && Math.abs(m(f).height - 400 * (100 / 400) ** f) < 1e-9);
+  }
+  // A screw: a turn of 2 about the vertical line through (50, 20, 0) with a slide of 60 up it (independently: three's
+  // rotation about that line, then the slide), the camera's frame carried along; halfway is half of each.
+  const screw = (angle: number, slide: number) => (p: THREE.Vector3) => p.clone().sub(new THREE.Vector3(50, 20, 0))
+    .applyAxisAngle(new THREE.Vector3(0, 0, 1), angle).add(new THREE.Vector3(50, 20, slide));
+  const turn = (angle: number) => (v: THREE.Vector3) => v.clone().applyAxisAngle(new THREE.Vector3(0, 0, 1), angle);
+  const start: CameraState = { position: [0, -100, 30], target: [0, 0, 30], up: [0.6, 0, 0.8], height: 80 };
+  const moved = (angle: number, slide: number): CameraState => ({
+    position: arr(screw(angle, slide)(new THREE.Vector3().fromArray(start.position))),
+    target: arr(screw(angle, slide)(new THREE.Vector3().fromArray(start.target))),
+    up: arr(turn(angle)(new THREE.Vector3().fromArray(start.up))), height: 80 });
+  m = screwCamera(start, moved(2, 60));
+  for (const f of [0.2, 0.5, 0.9]) same(m(f), moved(2 * f, 60 * f), `the helix at ${f}`);
+});
+
+test('legCamera: an orbit along the screw (not the blend), a zoom the height alone, a blend interpolateCamera', () => {
+  // Turning a quarter about Z while the target moves: the screw's helix and the blend's straight target differ.
+  const a: CameraState = { position: [0, -100, 0], target: [0, 0, 0], up: [0, 0, 1], height: 50 };
+  const b: CameraState = { position: [140, 40, 0], target: [40, 40, 0], up: [0, 0, 1], height: 50 };
+  const orbit = legCamera({ kind: 'orbit', from: a, to: b, ms: 1 })(0.5);
+  near(orbit.target, screwCamera(a, b)(0.5).target, 'orbit: the screw');
+  assert.ok(Math.abs(orbit.target[0]! - 20) + Math.abs(orbit.target[1]! - 20) > 1, 'not straight');
+  near(legCamera({ kind: 'blend', from: a, to: b, ms: 1 })(0.5).target, [20, 20, 0], 'blend: straight');
+  const zoom = legCamera({ kind: 'zoom', from: a, to: { ...a, height: 200 }, ms: 0.5 })(0.5);
+  assert.deepEqual({ ...zoom, height: 0 }, { ...a, height: 0 });
+  assert.ok(Math.abs(zoom.height - 100) < 1e-9);
+});

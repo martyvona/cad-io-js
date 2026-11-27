@@ -162,6 +162,12 @@ test('loadModelIn: the scene (postable), a mesh per placed brep part, then the e
     await loadModelIn({ input: stepInput() }, { ...DEFAULT_SETTINGS, profile: 'custom', angularDeflection: 10 }, 3,
       custom.tessellation, () => {}, () => false);
     assert.equal(custom.requests[0]!.angularDeflection, 10 * Math.PI / 180);
+    // The edges found as the source says: a weld tolerance past the parts' size makes every triangle one point.
+    const welded: ModelEvent[] = [];
+    await loadModelIn({ input: stepInput(), edges: { angle: 10, grid: 1e6 } }, DEFAULT_SETTINGS, 3, fake().tessellation,
+      (e) => { welded.push(e); }, () => false);
+    const weldedMeshes = welded.filter((e) => e.type === 'mesh') as Extract<ModelEvent, { type: 'mesh' }>[];
+    assert.ok(weldedMeshes.length === 5 && weldedMeshes.every((e) => e.foundEdges?.length === 0));
     const done = events.at(-1) as Extract<ModelEvent, { type: 'done' }>;
     assert.deepEqual(done.meshing, { backend: 'fake 1', pools: 1, workers: 2 });
     // The model's sphere: estimated in the scene event, made again from the meshes in the end's.

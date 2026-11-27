@@ -1,0 +1,10 @@
+{
+  "name": "cad-kinematics",
+  "version": "0.3.0",
+  "description": "Rigid motions: the exponential and logarithm maps of SO(3) and SE(3), and screw (Chasles) interpolation between poses",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

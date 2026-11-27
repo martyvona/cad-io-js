@@ -670,12 +670,19 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
         const g = c.pcurve === undefined ? undefined : pcurveGeometry(s, c.pcurve);
         // An edge with vertices (a loose face's): its 3D curve trimmed to its range, from its start to its end, so
         // the segment runs with it as its use does (the range the edge's, else its vertices' parameters); its
-        // p-curve, whose parameter is the curve's, beside it.
+        // p-curve, whose parameter is the curve's, beside it. A composite over its whole range is written untrimmed,
+        // the segment run against it where the edge is: a trim of a composite measures it in the library's
+        // parameterization, which isn't Part 42's, and OCCT's reader can't make one (it drops the segment).
         let c3 = e.curve === undefined ? -1 : curveId(e.curve);
+        let sense = orientation(c.orientation, c.id, c.range);
         if (e.curve !== undefined && e.start !== undefined && e.end !== undefined) {
           const ev = curveEvaluator(d, e.curve);
           const r = e.range ?? (ev ? edgeParams(d, c.edge, ev) : undefined);
-          if (r && r.every(Number.isFinite)) {
+          // (The range in the edge's direction: from the composite's end to its start where the edge runs against it.)
+          if (r && ev && curveKinds[e.curve] === 'composite' && Math.min(...r) === ev.range[0]
+            && Math.max(...r) === ev.range[1]) {
+            sense = sense === e.sameSense;
+          } else if (r && r.every(Number.isFinite)) {
             const at = (x: number): Value => list([{ k: 'typed', type: 'PARAMETER_VALUE', v: real(x) }]);
             c3 = emit(fresh(), 'TRIMMED_CURVE', [NAME, ref(c3), at(r[0]), at(r[1]), bool(e.sameSense),
               enu('PARAMETER')]);
@@ -688,11 +695,9 @@ export function stepGeometry(d: BrepData, opts: StepGeometryOptions = {}): StepG
         if (parent < 0) {
           note('a curve-bounded face\'s boundary segment with neither a 3D curve nor a p-curve it can be written '
             + 'with (written unset)', e.id);
-          return emit(own(e.id), 'COMPOSITE_CURVE_SEGMENT', [enu('CONTINUOUS'),
-            bool(orientation(c.orientation, c.id, c.range)), UNSET]);
+          return emit(own(e.id), 'COMPOSITE_CURVE_SEGMENT', [enu('CONTINUOUS'), bool(sense), UNSET]);
         }
-        return emit(own(e.id), 'COMPOSITE_CURVE_SEGMENT', [enu('CONTINUOUS'),
-          bool(orientation(c.orientation, c.id, c.range)), ref(parent)]);
+        return emit(own(e.id), 'COMPOSITE_CURVE_SEGMENT', [enu('CONTINUOUS'), bool(sense), ref(parent)]);
       });
       boundaries.push(emit(own(l.id), l.bound === 'outer' && !implicitOuter ? 'OUTER_BOUNDARY_CURVE'
         : 'BOUNDARY_CURVE', [NAME, refs(segments), logical(null)]));

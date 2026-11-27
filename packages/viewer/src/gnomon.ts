@@ -14,6 +14,12 @@
 // viewer, a ringed cross pointing away, its ring filled with the view's background, fading in over SYMBOL_FADE. The #gnomon box holds every layout the labels can
 // take (GNOMON_EXTENT, checked over sampled turns by the unit test), so nothing leaves it as the gnomon turns.
 //
+// Antialiasing as the view's (Rendering's SMAA): with it on, the gnomon is drawn over a copy of the canvas's pixels
+// under its box (copyFramebufferToTexture), that smoothed by an SMAA pass of its own, and only the pixels the gnomon
+// touched (its own or SMAA's blend into them: alpha above 0, the copy's being 0) put back, so what's under it isn't
+// smoothed twice. Rendering into a texture writes linear values, the canvas sRGB ones: there the colours are set as
+// their sRGB numbers taken as linear (raw), so they and their blending come out as on the canvas.
+//
 // Labels move smoothly: each rides its placement point (which turns with the view, as its tip does), its nudge changing
 // at most NUDGE_SPEED as the view turns freely, and during a flight (Viewer's eased moves to a view) blended from what
 // it was to the destination's layout as the camera's turn is, so each label ends the flight where it belongs.
@@ -22,6 +28,8 @@ import * as THREE from 'three';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { VIEWS, type ViewName } from './camera.ts';
 
 /** The axes' colours, X, Y, Z: readable on the dark and the light themes' backgrounds. */
@@ -60,12 +68,15 @@ export interface Point2 {
 /**
  * Label centres for the three placement points (screen pixels, any origin, y up) with the fixed box at `origin`, every
  * box `size` square: boxes that overlap are moved sideways apart, a pair of labels each by half, a label alone from the
- * origin box; each pair parts the way their placement points lie (lower index left where they're level).
+ * origin box; each pair parts the way their placement points lie (lower index left where they're level). `beside`: the
+ * label of the axis whose symbol is in the origin's box (axisSymbol), which parts from that box to the side farthest
+ * from the other two labels (besideSide), however its placement point lies.
  */
-export function layoutLabels(points: readonly Point2[], origin: Point2, size: number): Point2[] {
+export function layoutLabels(points: readonly Point2[], origin: Point2, size: number, beside?: number): Point2[] {
   const start = [...points, origin];
   const at = start.map((p) => ({ x: p.x, y: p.y }));
   const fixed = start.length - 1;
+  const side = beside === undefined ? 0 : besideSide(points, origin, size, beside);
   for (let pass = 0; pass < 200; pass++) {
     let moved = false;
     for (let i = 0; i < at.length; i++) {
@@ -73,7 +84,7 @@ export function layoutLabels(points: readonly Point2[], origin: Point2, size: nu
         const a = at[i]!, b = at[j]!;
         if (Math.abs(a.y - b.y) >= size || Math.abs(a.x - b.x) >= size) continue;
         // i goes to side s of j.
-        const s = Math.sign(start[i]!.x - start[j]!.x) || -1;
+        const s = (j === fixed && i === beside && side) || Math.sign(start[i]!.x - start[j]!.x) || -1;
         const need = size - s * (a.x - b.x);
         if (need <= 1e-9) continue;
         if (j === fixed) a.x += s * need;
@@ -89,11 +100,28 @@ export function layoutLabels(points: readonly Point2[], origin: Point2, size: nu
   return at.slice(0, fixed);
 }
 
-/** The labels' nudges (where layoutLabels puts them less their placement points) for a projection. */
-export function nudgesOf(p: { placements: Point2[]; origin: Point2 }): Point2[] {
-  return layoutLabels(p.placements, p.origin, LABEL_BOX).map((l, k) => ({ x: l.x - p.placements[k]!.x,
+/**
+ * The side of the origin's box (-1 left, 1 right) for label `k` beside it: the one whose place (a box's width from the
+ * origin's centre, level with it) is farther from the nearer of the other two labels' placement points; 0 on a tie.
+ */
+export function besideSide(points: readonly Point2[], origin: Point2, size: number, k: number): -1 | 0 | 1 {
+  const others = points.filter((_, i) => i !== k);
+  const room = (s: number) => Math.min(...others.map((p) => Math.hypot(p.x - (origin.x + s * size), p.y - origin.y)));
+  const d = room(1) - room(-1);
+  return Math.abs(d) < 1e-9 ? 0 : d > 0 ? 1 : -1;
+}
+
+/**
+ * The labels' nudges (where layoutLabels puts them less their placement points) for a projection, `beside` the label of
+ * the axis whose symbol shows in the origin's box, if one does.
+ */
+export function nudgesOf(p: { placements: Point2[]; origin: Point2 }, beside?: number): Point2[] {
+  return layoutLabels(p.placements, p.origin, LABEL_BOX, beside).map((l, k) => ({ x: l.x - p.placements[k]!.x,
     y: l.y - p.placements[k]!.y }));
 }
+
+/** The symbol's axis for a turn of the axes relative to the view (project's), if one shows. */
+const symbolAxis = (turn: THREE.Matrix4) => axisSymbol([0, 1, 2].map((k) => turn.elements[k * 4 + 2]!))?.axis;
 
 /** Nudges moved from `shown` towards `target`, each by at most `step` pixels. */
 export function stepNudges(shown: readonly Point2[], target: readonly Point2[], step: number): Point2[] {
@@ -255,6 +283,13 @@ export class Gnomon {
   /** Behind the symbol, inside its ring: the view's background, opaque (but as the symbol fades). */
   private disc?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private symbolMaps?: { head: THREE.Texture; tail: THREE.Texture };
+  /**
+   * Smoothing's (drawSmoothed): the canvas's pixels under the box, the gnomon drawn over them, SMAA's result, the pass,
+   * and the quads that copy the pixels in (alpha 0) and put the gnomon's back; for a size of the box in device pixels.
+   */
+  private smoothing?: { width: number; height: number; under: THREE.FramebufferTexture;
+    drawn: THREE.WebGLRenderTarget; out: THREE.WebGLRenderTarget; smaa: SMAAPass; copy: FullScreenQuad;
+    put: FullScreenQuad };
 
   constructor() {
     for (const [i, colour] of AXIS_COLOURS.entries()) {
@@ -329,11 +364,12 @@ export class Gnomon {
    * Draws over what's on the canvas: looking as `view` looks (its turn), into `box` (CSS pixels from the canvas's
    * bottom left, as setViewport takes them; Gnomon.size), the sphere's centre at GNOMON_EXTENT's left and down; the
    * labels' backings a shade off `background`, the view's. `motion`: the time, and the flight in progress (its
-   * identity, its destination's turn, and how far it has come, smoothstepped as the camera is).
+   * identity, its destination's turn, and how far it has come, smoothstepped as the camera is). `smaa`: antialiased as
+   * the view is with Rendering's SMAA (drawSmoothed), where the box lies within the canvas.
    */
   draw(renderer: THREE.WebGLRenderer, view: THREE.Camera, box: { x: number; y: number; width: number;
     height: number }, background: THREE.Color, motion: { now: number; flight?: { id: object;
-    to: THREE.Quaternion; s: number } } = { now: 0 }): void {
+    to: THREE.Quaternion; s: number } } = { now: 0 }, smaa = false): void {
     view.getWorldQuaternion(this.camera.quaternion);
     this.camera.position.set(0, 0, 2).applyQuaternion(this.camera.quaternion);
     this.camera.updateMatrixWorld();
@@ -344,8 +380,13 @@ export class Gnomon {
     this.camera.updateProjectionMatrix();
     this.advance(this.camera.quaternion, motion);
     this.layOut(box);
-    this.backing!.color.copy(backingColour(background));
-    this.disc!.material.color.copy(background);
+    const pr = renderer.getPixelRatio(), canvas = renderer.getDrawingBufferSize(new THREE.Vector2());
+    // (In device pixels as setViewport makes them: each rounded.)
+    const px = { x: Math.round(box.x * pr), y: Math.round(box.y * pr), width: Math.round(box.width * pr),
+      height: Math.round(box.height * pr) };
+    const smooth = smaa && px.x >= 0 && px.y >= 0 && px.width > 0 && px.height > 0 && px.x + px.width <= canvas.x &&
+      px.y + px.height <= canvas.y;
+    this.paint(background, smooth);
     const viewport = renderer.getViewport(new THREE.Vector4());
     const scissor = renderer.getScissor(new THREE.Vector4());
     const scissorTest = renderer.getScissorTest();
@@ -360,9 +401,12 @@ export class Gnomon {
       renderer.setViewport(box.x, box.y, box.width, box.height);
       renderer.setScissor(box.x, box.y, box.width, box.height);
       renderer.setScissorTest(true);
-      renderer.clearDepth();
-      renderer.render(this.scene, this.camera);
-      renderer.render(this.labelScene, this.labelCamera);
+      if (smooth) this.drawSmoothed(renderer, px);
+      else {
+        renderer.clearDepth();
+        renderer.render(this.scene, this.camera);
+        renderer.render(this.labelScene, this.labelCamera);
+      }
     } finally {
       renderer.setRenderTarget(target);
       renderer.setViewport(viewport);
@@ -373,6 +417,66 @@ export class Gnomon {
     }
   }
 
+  /** The colours: as sRGB (the canvas's), or `raw`, their sRGB numbers taken as linear (drawSmoothed's texture). */
+  private paint(background: THREE.Color, raw: boolean): void {
+    const set = (c: THREE.Color, hex: number) => c.setHex(hex, raw ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace);
+    for (const [i, line] of this.axes.children.entries()) set((line as LineSegments2).material.color, AXIS_COLOURS[i]!);
+    for (const [i, label] of this.labels!.entries()) {
+      set(((label.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial).color, AXIS_COLOURS[i]!);
+    }
+    set(this.backing!.color, backingColour(background).getHex());
+    set(this.disc!.material.color, background.getHex());
+    if (this.symbol) set(this.symbolMesh!.material.color, AXIS_COLOURS[this.symbol.axis]!);
+  }
+
+  /**
+   * The gnomon antialiased by SMAA (see the file's comment), into the canvas's `px` (device pixels from its lower
+   * left), the canvas's viewport and scissor set to the box: its pixels copied, drawn over, smoothed, the touched ones
+   * put back.
+   */
+  private drawSmoothed(renderer: THREE.WebGLRenderer, px: { x: number; y: number; width: number; height: number }):
+    void {
+    let t = this.smoothing;
+    if (t?.width !== px.width || t.height !== px.height) {
+      if (t) for (const x of [t.under, t.drawn, t.out, t.smaa]) x.dispose();
+      const vertexShader = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * ' +
+        'modelViewMatrix * vec4(position, 1.0); }';
+      const quad = (fragmentShader: string, uniforms: Record<string, THREE.IUniform>) => new FullScreenQuad(
+        new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader, depthTest: false, depthWrite: false,
+          blending: THREE.NoBlending }));
+      const under = new THREE.FramebufferTexture(px.width, px.height);
+      const drawn = new THREE.WebGLRenderTarget(px.width, px.height, { depthBuffer: true });
+      const out = new THREE.WebGLRenderTarget(px.width, px.height, { depthBuffer: false });
+      const smaa = new SMAAPass();
+      smaa.setSize(px.width, px.height);
+      // (The canvas's pixels with alpha 0, so only what the gnomon touches has any; put back only those, opaque.)
+      const copy = quad('uniform sampler2D tUnder; varying vec2 vUv; void main() { gl_FragColor = ' +
+        'vec4(texture2D(tUnder, vUv).rgb, 0.0); }', { tUnder: { value: under } });
+      const put = quad('uniform sampler2D tColor; varying vec2 vUv; void main() { vec4 c = texture2D(tColor, vUv); ' +
+        'if (c.a < 0.5 / 255.0) discard; gl_FragColor = vec4(c.rgb, 1.0); }', { tColor: { value: out.texture } });
+      t = this.smoothing = { width: px.width, height: px.height, under, drawn, out, smaa, copy, put };
+    }
+    renderer.setRenderTarget(null);
+    renderer.copyFramebufferToTexture(t.under, new THREE.Vector2(px.x, px.y));
+    renderer.setRenderTarget(t.drawn);
+    t.copy.render(renderer);
+    renderer.clearDepth();
+    renderer.render(this.scene, this.camera);
+    renderer.render(this.labelScene, this.labelCamera);
+    // (SMAA's edges pass draws only edges: its targets cleared first, to nothing.)
+    const clear = renderer.getClearColor(new THREE.Color()), alpha = renderer.getClearAlpha();
+    renderer.setClearColor(0x000000, 0);
+    renderer.autoClear = true;
+    try {
+      t.smaa.render(renderer, t.out, t.drawn, 0, false);
+    } finally {
+      renderer.autoClear = false;
+      renderer.setClearColor(clear, alpha);
+    }
+    renderer.setRenderTarget(null);
+    t.put.render(renderer);
+  }
+
   /**
    * The labels for a camera turned `q`: each at its placement point plus its nudge as drawn (`nudges`), in `layout`
    * (draw's `motion`).
@@ -381,15 +485,17 @@ export class Gnomon {
     void {
     const turn = this.turnFor(q);
     const now = project(turn);
-    const target = nudgesOf(now);
     this.symbol = axisSymbol([0, 1, 2].map((k) => turn.elements[k * 4 + 2]!));
+    const target = nudgesOf(now, this.symbol?.axis);
     const dt = Math.min(MAX_STEP, Math.max(0, (motion.now - this.last) / 1000));
     this.last = motion.now;
     const f = motion.flight;
     if (!this.nudges) this.nudges = target;
     else if (f) {
-      if (this.flight?.id !== f.id) this.flight = { id: f.id, from: this.nudges, to: nudgesOf(project(
-        this.turnFor(f.to))) };
+      if (this.flight?.id !== f.id) {
+        const to = this.turnFor(f.to);
+        this.flight = { id: f.id, from: this.nudges, to: nudgesOf(project(to), symbolAxis(to)) };
+      }
       const { from, to } = this.flight;
       this.nudges = from.map((a, k) => ({ x: a.x + (to[k]!.x - a.x) * f.s, y: a.y + (to[k]!.y - a.y) * f.s }));
     } else {
@@ -439,7 +545,6 @@ export class Gnomon {
     m.visible = sym !== undefined;
     if (sym) {
       m.material.alphaMap = sym.head ? this.symbolMaps!.head : this.symbolMaps!.tail;
-      m.material.color.setHex(AXIS_COLOURS[sym.axis]!);
       m.material.opacity = this.disc!.material.opacity = sym.opacity;
       m.position.set(this.boxes[3]!.x, this.boxes[3]!.y, 0);
     }
@@ -462,7 +567,7 @@ export function axisView(k: number, axes: THREE.Matrix4, back: THREE.Vector3): V
   const d = new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!).normalize();
   if (d.dot(back) >= ALIGNED) d.negate();
   // (A view's `dir` is where the camera sits from what it looks at: the axis pointing at it.)
-  return (Object.keys(VIEWS) as ViewName[]).find((v) => v !== 'iso' &&
+  return (Object.keys(VIEWS) as ViewName[]).find((v) => !v.startsWith('iso') &&
     new THREE.Vector3(...VIEWS[v].dir).normalize().dot(d) >= ALIGNED);
 }
 
