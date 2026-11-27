@@ -55,6 +55,10 @@ test('view state: malformed values left out, each with a message', () => {
     '&alpha=default:b&alpha=Default:b'));
   assert.deepEqual([alpha.state.opacity, alpha.problems.length], [[{ path: 'a:2', alpha: 0 },
     { path: 'b', alpha: 'default' }], 6]);
+  // The views by name, the iso views in the file's axes too.
+  for (const view of ['front', 'iso', 'isoX', 'isoY', 'isoZ']) {
+    assert.deepEqual(fromQuery(new URLSearchParams(`view=${view}`)), { state: { view }, problems: [] });
+  }
   const tri = fromQuery(new URLSearchParams('tri=on:a:2&tri=yes:a&tri=off:&tri=a'));
   assert.deepEqual([tri.state.triangleEdges, tri.problems.length], [[{ path: 'a:2', on: true }], 3]);
 });

@@ -55,7 +55,7 @@ function makePanel(b: EdgeDetectionBinding): NonNullable<typeof panel> {
   const title = document.createElement('h2');
   title.className = 'drag';
   const text = Object.assign(document.createElement('span'), { textContent: 'Mesh Edge Detection' });
-  const close = Object.assign(document.createElement('button'), { type: 'button', textContent: '×',
+  const close = Object.assign(document.createElement('button'), { type: 'button', textContent: '\u00D7',
     className: 'close' });
   close.setAttribute('aria-label', 'Close');
   const end = () => {

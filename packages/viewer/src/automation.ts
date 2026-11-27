@@ -11,7 +11,7 @@
 
 import { sha256 } from 'cad-scene';
 import { parseIds } from './step-ids.ts';
-import { VIEWS, type ViewName } from './camera.ts';
+import { VIEWS, type LookMotion, type ViewName } from './camera.ts';
 import { askUrl, showDialog } from './dialog.ts';
 import { DEVICE_PROFILES } from './device.ts';
 import { formatOf } from './formats.ts';
@@ -44,6 +44,8 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 
   meshing: TessellationSettings;
   /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
   edgeDetection: EdgeDetection;
+  /** Look Along an Axis's Fit and View's Look and fit (how a view that fits moves). */
+  views: { fit: boolean; motion: LookMotion };
   /**
    * The model: its file's name and URL (if it came from one), counts, sphere and parts (STEP), and (STEP) the
    * meshing settings it was meshed with.
@@ -154,6 +156,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
       meshing: { ...viewer.settings },
       edgeDetection: ui.edgeDetection(),
+      views: ui.views(),
       pick: ui.selection.level, instances: ui.selection.instances,
       // The appearance overrides (model.ts), detail nodes' whether or not their nodes exist yet (made on demand).
       ...appearance(),

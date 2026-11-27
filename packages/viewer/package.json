@@ -18,6 +18,7 @@
     "@headless-tree/core": "1.7.0",
     "cad-brep": "0.3.0",
     "cad-heal": "0.3.0",
+    "cad-kinematics": "0.3.0",
     "cad-scene": "0.3.0",
     "draco3dgltf": "1.5.9",
     "export-3mf": "0.3.0",

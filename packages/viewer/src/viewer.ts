@@ -14,8 +14,8 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, describeStretched, meshDeflections, type Diagnostic, type Mesh, type Properties,
   type Vec3 } from 'cad-scene';
-import { clipTo, fitCamera, fitSphere, interpolateCamera, setAspect, smoothstep, turnOf, viewCamera, VIEWS,
-  type ViewName } from './camera.ts';
+import { clipTo, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect, smoothstep, turnOf, upIso,
+  viewCamera, VIEWS, type Leg, type LookMotion, type ViewName } from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
@@ -210,10 +210,12 @@ export class Viewer {
   private transparencyStale = true;
   private changed = false;
   /**
-   * Zoom all, zoom selected and the views fly the camera there: eased by smoothstep over `flightMs` (0: at once), a
-   * frame at a time, stopped by the user's own input or a camera set exactly.
+   * Zoom all, zoom selected and the views fly the camera there: in legs (camera.ts's lookLegs), each eased by
+   * smoothstep over its share of `flightMs` (0: at once), a frame at a time, stopped by the user's own input or a
+   * camera set exactly. `turn`: the destination's, for the gnomon, whose labels follow the legs that turn.
    */
-  private flight?: { from: CameraState; to: CameraState; start: number; turn: THREE.Quaternion };
+  private flight?: { legs: { at: (f: number) => CameraState; to: CameraState; ms: number; turns: boolean }[];
+    to: CameraState; start: number; turn: THREE.Quaternion };
   flightMs = FLIGHT_MS;
   /** How long the page works on a load's meshes before yielding (SLICE_MS; the browser check shortens it). */
   sliceMs = SLICE_MS;
@@ -285,7 +287,7 @@ export class Viewer {
   /** Where the gnomon was last drawn (setViewport's terms), for clicks on it; undefined when it wasn't. */
   private gnomonDrawn?: { x: number; y: number; width: number; height: number };
   /** A click on the gnomon asks for a view (the View menu's own button, so recordings have it); else setView. */
-  onGnomonView?: (view: ViewName) => void;
+  onGnomonView?: (view: ViewName, shift: boolean) => void;
 
   /** The element that places the gnomon (its lower left corner; sized here to hold it). */
   get gnomonBox(): HTMLElement | undefined {
@@ -448,7 +450,7 @@ export class Viewer {
       if (target) {
         const view = this.gnomonView(target);
         if (view) {
-          if (this.onGnomonView) this.onGnomonView(view);
+          if (this.onGnomonView) this.onGnomonView(view, e.shiftKey);
           else this.setView(view);
         }
         return;
@@ -685,11 +687,24 @@ export class Viewer {
     const flight = this.flight;
     let progress = 0;
     if (flight) {
-      const f = (performance.now() - flight.start) / this.flightMs;
-      progress = f >= 1 ? 1 : smoothstep(f);
-      this.place(f >= 1 ? flight.to : interpolateCamera(flight.from, flight.to, progress));
-      if (f >= 1) this.flight = undefined;
-      else flying = true;
+      // The leg under way, how far along it, and how far the turning legs have come (the gnomon's progress).
+      let t = performance.now() - flight.start, turned = 0, turning = 0;
+      for (const l of flight.legs) if (l.turns) turning += l.ms;
+      let camera = flight.to;
+      for (const l of flight.legs) {
+        if (t < l.ms) {
+          const e = smoothstep(t / l.ms);
+          camera = l.at(e);
+          if (l.turns) turned += e * l.ms;
+          flying = true;
+          break;
+        }
+        t -= l.ms;
+        if (l.turns) turned += l.ms;
+      }
+      progress = turning ? turned / turning : 1;
+      this.place(camera);
+      if (!flying) this.flight = undefined;
     }
     this.controls.update();
     this.shift();
@@ -765,15 +780,17 @@ export class Viewer {
 
   /**
    * The view a click on the gnomon asks for: along the axis clicked, that axis pointing at the viewer (away if it
-   * already does), or iso from the origin's box; undefined if the view is that already (iso) or there's none.
+   * already does), or from the origin's box the iso view of the file's axis that's up (upIso: as `iso`); undefined if
+   * the view is that already (iso) or there's none.
    */
   gnomonView(target: GnomonTarget): ViewName | undefined {
     if (target !== 'iso') return axisView('xyz'.indexOf(target), this.gnomon.axesInWorld, this.back());
-    const to = viewCamera(this.cameraState(), 'iso');
+    const iso = upIso(this.gnomon.axesInWorld);
+    const to = viewCamera(this.cameraState(), iso, this.gnomon.axesInWorld);
     const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(
       new THREE.Vector3().fromArray(to.position), new THREE.Vector3().fromArray(to.target),
       new THREE.Vector3().fromArray(to.up)));
-    return sameTurn(turn, this.camera.quaternion) ? undefined : 'iso';
+    return sameTurn(turn, this.camera.quaternion) ? undefined : iso;
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
@@ -1602,9 +1619,12 @@ export class Viewer {
     this.redraw();
   }
 
-  /** Flies the camera to a state (or puts it there, with `flightMs` 0). */
-  private fly(to: CameraState): void {
-    if (this.flightMs > 0) this.flight = { from: this.cameraState(), to, start: performance.now(), turn: turnOf(to) };
+  /** Flies the camera to a state (or puts it there, with `flightMs` 0): in one blend, or in `legs`. */
+  private fly(to: CameraState, legs?: Leg[]): void {
+    const from = this.cameraState();
+    const all = (legs ?? [{ kind: 'blend', from, to, ms: 1 } as Leg]).map((l) => ({ at: legCamera(l), to: l.to,
+      ms: l.ms * this.flightMs, turns: l.kind !== 'zoom' }));
+    if (this.flightMs > 0 && all.length) this.flight = { legs: all, to, start: performance.now(), turn: turnOf(to) };
     else {
       this.flight = undefined;
       this.place(to);
@@ -1776,14 +1796,27 @@ export class Viewer {
   }
 
   /**
-   * Looks along one of the world's axes, turning about the orbit centre (zoom and pan kept): flying there, or with
-   * `instant` (a link's or a recording's view) at once.
+   * Looks along a view's axis (camera.ts's VIEWS: the world's, or the file's for the iso views), turning about the
+   * orbit centre (zoom and pan kept): flying there, or with `instant` (a link's or a recording's view) at once.
    */
   setView(view: ViewName, opts: { instant?: boolean } = {}): void {
-    const to = viewCamera(this.cameraState(), view);
+    const to = viewCamera(this.cameraState(), view, this.gnomon.axesInWorld);
     if (!opts.instant) return this.fly(to);
     this.flight = undefined;
     this.place(to);
     this.redraw();
+  }
+
+  /**
+   * Looks along a view's axis and fits a sphere (the selection's, or the model's) as it goes: `steps` zooming out
+   * until the model shows whole, orbiting along the screw motion to the view's pose about the sphere, then zooming to
+   * fit it (each step left out where the camera is there already); `together` all of it in one blend (camera.ts's
+   * lookLegs). An empty sphere: setView's turn alone.
+   */
+  lookAlong(view: ViewName, fit: THREE.Sphere, motion: LookMotion): void {
+    if (fit.isEmpty()) return this.setView(view);
+    const from = this.cameraState();
+    const to = fitCamera(viewCamera(from, view, this.gnomon.axesInWorld), fit, this.fitAspect());
+    this.fly(to, lookLegs(from, to, motion, this.modelSphere(), this.fitAspect()));
   }
 }

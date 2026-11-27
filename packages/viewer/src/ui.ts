@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { VIEWS, type ViewName } from './camera.ts';
+import { AXIS_VIEWS, type LookMotion, type ViewName } from './camera.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { askDemo } from './demo.ts';
@@ -121,6 +121,10 @@ export interface Ui {
   setOverride(id: number, o: AppearanceOverride): void;
   /** The tree panel's state. */
   tree(): { open: boolean; detail: boolean };
+  /** Look Along an Axis's Fit, and View's Look and fit (how a view that fits moves). */
+  views(): { fit: boolean; motion: LookMotion };
+  /** Sets them (the controls follow). */
+  setViews(v: Partial<{ fit: boolean; motion: LookMotion }>): void;
   /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
   edgeDetection(): EdgeDetection;
   /** Mesh edge detection's values set, remembered in this browser (valid ones: edges.ts's detectionProblem). */
@@ -672,15 +676,35 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     } catch { /* not remembered */ }
     viewer.redraw();
   });
+  // How a view that fits moves (Viewer.lookAlong): zooming out to the whole model, orbiting, zooming in; or at once.
+  const looking: { fit: boolean; motion: LookMotion } = { fit: true, motion: 'steps' };
+  const motionControl = view.add(looking, 'motion', { 'Zoom out, turn, zoom in': 'steps', 'All at once': 'together' })
+    .name('Look and fit');
   const views = view.addFolder('Look Along an Axis');
+  // Fit: each view fits the selection (else the model) as it turns; a shift-click (or shift with the key) the other
+  // way.
+  const fitControl = views.add(looking, 'fit').name('Fit');
+  // (Whether the button's click is shifted: seen on the way down to it, before lil-gui's own handler calls it.)
+  let shifted = false;
+  views.domElement.addEventListener('click', (e) => { shifted = e.shiftKey; }, { capture: true });
+  const lookAlong = (v: ViewName) => {
+    const fit = looking.fit !== shifted;
+    shifted = false;
+    if (!fit) return viewer.setView(v);
+    const s = selected.length && viewer.nodes ? sphereOf(piecesOf(viewer.nodes, selected)) : undefined;
+    viewer.lookAlong(v, s && !s.isEmpty() ? s : viewer.modelSphere(), looking.motion);
+  };
   const viewButtons = new Map<ViewName, HTMLElement>(), viewControls = new Map<ViewName, unknown>();
-  for (const v of Object.keys(VIEWS) as ViewName[]) {
-    const c = views.add({ [v]: () => viewer.setView(v) }, v).name(v[0]!.toUpperCase() + v.slice(1));
+  for (const { view: v, name } of AXIS_VIEWS) {
+    const c = views.add({ [v]: () => lookAlong(v) }, v).name(name);
     viewButtons.set(v, (c as unknown as { $button: HTMLElement }).$button);
     viewControls.set(v, c);
   }
+  // A view's button pressed as a click would (shifted or not), so it's recorded as that control.
+  const pressView = (v: ViewName, shiftKey: boolean) => viewButtons.get(v)!.dispatchEvent(new MouseEvent('click',
+    { bubbles: true, cancelable: true, shiftKey }));
   // A click on the gnomon presses the view's button, as the user would (recorded as that control).
-  viewer.onGnomonView = (v) => viewButtons.get(v)!.click();
+  viewer.onGnomonView = pressView;
   const setTheme = (c: ThemeChoice) => {
     const t = applyTheme(c);
     viewer.setTheme(t);
@@ -1342,6 +1366,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       return missing;
     },
     tree: () => ({ open: tree.open, detail: tree.detail }),
+    views: () => ({ ...looking }),
+    setViews: (v) => {
+      Object.assign(looking, v);
+      fitControl.updateDisplay();
+      motionControl.updateDisplay();
+    },
     edgeDetection: () => ({ ...viewer.edgeDetection }),
     setEdgeDetection,
     detectEdges,
@@ -1423,7 +1453,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!s) return;
     e.preventDefault();
     if (s.type === 'zoom') press(selected.length ? zoomSelected : zoomAll);
-    else if (s.type === 'view') viewButtons.get(s.view)!.click();
+    else if (s.type === 'view') pressView(s.view, s.shift);
     else if (s.type === 'hide') press(hideControl);
     else if (s.type === 'show') press(showControl);
     else if (s.type === 'tree') set(openControl!, !tree.open);

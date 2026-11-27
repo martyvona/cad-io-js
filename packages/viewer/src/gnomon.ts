@@ -462,7 +462,7 @@ export function axisView(k: number, axes: THREE.Matrix4, back: THREE.Vector3): V
   const d = new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!).normalize();
   if (d.dot(back) >= ALIGNED) d.negate();
   // (A view's `dir` is where the camera sits from what it looks at: the axis pointing at it.)
-  return (Object.keys(VIEWS) as ViewName[]).find((v) => v !== 'iso' &&
+  return (Object.keys(VIEWS) as ViewName[]).find((v) => !v.startsWith('iso') &&
     new THREE.Vector3(...VIEWS[v].dir).normalize().dot(d) >= ALIGNED);
 }
 
