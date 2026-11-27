@@ -94,7 +94,7 @@ const sub = (a: ArrayLike<number>, i: number, b: ArrayLike<number>, j: number) =
   Math.hypot(a[i]! - b[j]!, a[i + 1]! - b[j + 1]!, a[i + 2]! - b[j + 2]!);
 
 /** The model's topology as lists, edited, then written as a model again. */
-class Topo {
+export class Topo {
   v: V[] = [];
   e: E[] = [];
   c: C[] = [];
@@ -717,7 +717,7 @@ const NEAR_SAMPLES = 64;
  * face's surface is nearest the curve's at t (sampled over the use's range, then refined by golden section), where
  * that's within tol of it; else undefined. `range` is the use's p-curve's parameters at its edge's start and end.
  */
-function nearestOn(g: Geometry, topo: Topo, row: number, t: number, tol: number):
+export function nearestOn(g: Geometry, topo: Topo, row: number, t: number, tol: number):
   (c: number, loop: number, start: number, range: [number, number]) => PcurveSplit | undefined {
   return (c, loop, _start, [r0, r1]) => {
     const f = topo.f.findIndex((F) => F.loops.includes(loop)), C0 = topo.c[c]!;
