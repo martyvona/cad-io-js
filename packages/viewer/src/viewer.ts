@@ -20,7 +20,7 @@ import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { NodeModel, type Looks } from './model.ts';
-import { hitsAlong, PICK_PIXELS, pickOfTarget, viewRay, type Pick } from './pick.ts';
+import { hitsAlong, PICK_PIXELS, pickOfHit, pickOfTarget, viewRay, type Pick } from './pick.ts';
 import { choose, IdPass, type IdTarget } from './pick-ids.ts';
 import { Highlights, type Highlight } from './outline.ts';
 import { Composer } from './render.ts';
@@ -1693,6 +1693,24 @@ export class Viewer {
     if (!this.idsCurrent()) this.renderIds();
     const t = this.targetAt(clientX, clientY);
     return t && this.pickOf(t, clientX, clientY);
+  }
+
+  /**
+   * Everything drawn along the line of sight through a point of the page (client coordinates), nearest first, by
+   * rays (pick.ts's hitsAlong, not the ids: those see only the nearest): a triangle of each face, a segment or point
+   * of each line or point object, a cap, wherever the ray meets them (Pick...: ui.ts).
+   */
+  picksAt(clientX: number, clientY: number): Pick[] {
+    if (!this.root) return [];
+    const r = this.renderer.domElement.getBoundingClientRect();
+    if (!r.width || !r.height) return [];
+    const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
+    this.display.updateWorldMatrix(true, true);
+    this.shift();
+    clipTo(this.camera, this.bounds);
+    const { hits } = hitsAlong(this.camera, this.display, ndc, this.pixelSize(), this.clipped,
+      (q) => this.sections.capHits(q));
+    return hits.map(pickOfHit);
   }
 
   /** Fits a sphere (in the world) in the viewport, from the current direction; zoom all if it's empty. */

@@ -176,6 +176,18 @@
       color: var(--row-hovered-fg, #111);
     }
     .tree-row.hovered { background: var(--row-hovered, #ffe100); }
+    /* Pick...'s list (pick-list.ts): the tree's rows in a box that scrolls; its cursor's row in the alert colour
+       (ui.ts sets it), over the hovered and selected rows' colours. */
+    .pick-list {
+      position: relative; width: min(420px, 80vw); height: var(--pick-list-height, 50vh); max-height: 50vh;
+      margin: 0 0 4px; border: 1px solid var(--border);
+    }
+    .pick-list .tree-scroller { position: absolute; inset: 0; overflow: auto; }
+    .cv-dialog.pick::backdrop { background: transparent; }
+    .tree-row.alert, .tree-row.alert .tree-icon:not(.broken), .tree-row.alert .tree-override {
+      color: var(--row-alert-fg, #fff);
+    }
+    .tree-row.alert { background: var(--row-alert, #ff0000); }
     /* Context menus (context-menu.ts). */
     .cv-menu {
       position: fixed; z-index: 2000; min-width: 160px; padding: 4px 0; color: var(--panel-fg);

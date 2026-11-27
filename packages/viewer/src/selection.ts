@@ -203,6 +203,20 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
 }
 
 /**
+ * The nodes a ray's picks (nearest first: pick.ts's hitsAlong and pickOfHit) stand for at a level, each once, at its
+ * nearest; picks of nothing in the model skipped.
+ */
+export function nodesAlong(model: NodeModel, picks: readonly { object: THREE.Object3D; faceIndex?: number;
+  item?: number }[], level: PickLevel): number[] {
+  const seen = new Set<number>();
+  for (const p of picks) {
+    const id = nodeForPick(model, p.object, p.faceIndex, level, p.item);
+    if (id !== undefined) seen.add(id);
+  }
+  return [...seen];
+}
+
+/**
  * What the pointer being over a pick highlights at a level (outline.ts): at the part or assembly level, the node's
  * pieces outlined; at the detail level, a face's ranges (every range of its source) outlined, an edge's, curve's,
  * vertex's or point's range marked, a failed face's outline marked; a cap, its part outlined. Detail needs no nodes

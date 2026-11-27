@@ -97,6 +97,30 @@ export function nodeLabel(model: NodeModel, id: number): HTMLElement {
   return el;
 }
 
+/**
+ * Draws a node's row (the tree's, Pick...'s list's: pick-list.ts): its content element (icon, name, override's eye)
+ * and the row's classes and title (hidden, failed, loading); the row is the content's parent.
+ */
+export function drawRow(model: NodeModel, id: number, content: HTMLElement): void {
+  const n = model.nodes[id]!;
+  // Failed to mesh, wholly or partly: red, with a broken icon.
+  const failure = model.failure(n.id);
+  content.innerHTML = `${iconHtml(model, n.id)}<span class="tree-name"></span>`;
+  content.lastElementChild!.textContent = n.name;
+  const own = model.ownOverride(n.id);
+  if (own) content.insertAdjacentHTML('beforeend', `<span class="tree-override">${own.hidden ? EYE_OFF_ICON
+    : EYE_ICON}</span>`);
+  const row = content.parentElement!;
+  row.classList.toggle('hidden', model.hiddenInTree(n.id));
+  row.classList.toggle('failed', failure !== undefined);
+  // Still to be meshed, or holding a part that is: a spinner after the name (index.html).
+  const loading = model.loading(n.id);
+  row.classList.toggle('loading', loading);
+  row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
+    : failure === 'partly' ? ' (some faces failed to mesh)' : ''}${own ? ` (appearance overridden: ${
+    overrideText(own)})` : ''}${loading ? ' (still meshing)' : ''}`;
+}
+
 export class TreePanel {
   readonly model: NodeModel;
   private readonly view: TreeView;
@@ -128,25 +152,7 @@ export class TreePanel {
           return p < 0 ? undefined : String(p);
         },
       },
-      renderRow: (id, content) => {
-        const n = model.nodes[num(id)]!;
-        // Failed to mesh, wholly or partly: red, with a broken icon (before, partly had the icon only).
-        const failure = model.failure(n.id);
-        content.innerHTML = `${iconHtml(model, n.id)}<span class="tree-name"></span>`;
-        content.lastElementChild!.textContent = n.name;
-        const own = model.ownOverride(n.id);
-        if (own) content.insertAdjacentHTML('beforeend', `<span class="tree-override">${own.hidden ? EYE_OFF_ICON
-          : EYE_ICON}</span>`);
-        const row = content.parentElement!;
-        row.classList.toggle('hidden', model.hiddenInTree(n.id));
-        row.classList.toggle('failed', failure !== undefined);
-        // Still to be meshed, or holding a part that is: a spinner after the name (index.html).
-        const loading = model.loading(n.id);
-        row.classList.toggle('loading', loading);
-        row.title = `${n.kind}: ${n.name}${failure === 'failed' ? ' (failed to mesh: its outline drawn in red)'
-          : failure === 'partly' ? ' (some faces failed to mesh)' : ''}${own ? ` (appearance overridden: ${
-          overrideText(own)})` : ''}${loading ? ' (still meshing)' : ''}`;
-      },
+      renderRow: (id, content) => drawRow(model, num(id), content),
       onSelectionChange: (ids) => {
         this.selection = ids.map(num);
         this.onSelect?.(this.selection);

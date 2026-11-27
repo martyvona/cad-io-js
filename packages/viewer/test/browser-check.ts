@@ -1483,6 +1483,226 @@ await check('view context menu', async () => {
     a.detail.selected.length === 0, `at the detail level: ${j}`);
   return undefined;
 });
+// The view's menu's Pick... (above Select parent, starting its group; not in the tree's menu) opens a movable modal
+// listing everything along the line of sight at the point right-clicked, nearest first: as many as hiding the nearest
+// part and picking again peels off there (the ids' pick sees only the nearest), the rows as the tree's (icon, name).
+// The cursor on the first row from the start, outlined and in the alert colour, its node alerted in the view; the
+// arrows move it (clamped at the ends), a click moves it there. The mouse over a row marks it hovered and highlights
+// its node as the tree's row does. Clicks, shift-clicks and Space select as the tree's rows do, the rows drawn
+// selected, the tree following; recorded and replayed as those selections. Closed by Escape: no alert, no highlight.
+// Long lists: only the rows in view drawn (200,000, through the module, on the dev server).
+await check('pick list', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    ui.selection.multi = false;
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const send = (type, x, y, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: x, clientY: y, ...o }));
+    // What's along the line of sight at a point (fractions of the view), by hiding the nearest and picking again.
+    const peel = async (fx, fy) => {
+      const ids = [];
+      for (let k = 0; k < 20; k++) {
+        await frame();
+        const path = cadViewer.pickAt(fx, fy)?.path;
+        if (!path) break;
+        const id = m.find(path);
+        if (ids.includes(id)) break;
+        ids.push(id);
+        ui.setOverride(id, { hidden: true });
+      }
+      for (const id of ids) ui.setOverride(id, {});
+      await cadViewer.idle();
+      await frame();
+      return ids;
+    };
+    let spot;
+    for (const [fx, fy] of [[0.5, 0.5], [0.45, 0.5], [0.55, 0.5], [0.5, 0.45], [0.5, 0.55], [0.4, 0.4], [0.6, 0.6],
+      [0.4, 0.6], [0.6, 0.4], [0.35, 0.5], [0.65, 0.5]]) {
+      const ids = await peel(fx, fy);
+      if (!spot || ids.length > spot.ids.length) spot = { fx, fy, ids, x: rect.left + fx * rect.width,
+        y: rect.top + fy * rect.height };
+      if (spot.ids.length >= 3) break;
+    }
+    const out = { peeled: spot.ids };
+    const items = () => [...document.querySelectorAll('.cv-menu button')].map((b) => ({ text: b.textContent,
+      divider: b.classList.contains('divider') }));
+    // The tree's menu: no Pick....
+    ui.panel().onContextMenu(spot.ids[0], 100, 100);
+    out.treeMenu = items().map((i) => i.text);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // The colours the list's rows take: Rendering's (not the page's defaults).
+    ui.setRender({ highlightColor: '#1f3fff', alertColor: '#20a040' });
+    await frame();
+    cadViewer.record(true);
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointerup', spot.x, spot.y, { button: 2, buttons: 0 });
+    await frame();
+    out.viewMenu = items();
+    [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === 'Pick...').click();
+    await frame();
+    await frame();
+    const dialog = document.querySelector('dialog.cv-dialog[open]');
+    const scroller = dialog.querySelector('.pick-list .tree-scroller');
+    const rows = () => [...dialog.querySelectorAll('.tree-row')].filter((x) => x.style.display !== 'none')
+      .sort((a, b) => +a.dataset.index - +b.dataset.index);
+    const state = () => {
+      const all = rows();
+      const cls = (c) => all.filter((x) => x.classList.contains(c)).map((x) => +x.dataset.index);
+      const h = viewer.highlights.highlight;
+      return { focused: cls('focused'), alert: cls('alert'), hovered: cls('hovered'), selected: cls('selected'),
+        alerted: [...viewer.alerted], picked: [...ui.selected()], outline: h.outline.length + h.marks.length,
+        treeSelected: [...document.querySelectorAll('#tree .tree-row.selected')].map((x) => +x.dataset.id),
+        cursorBg: all.find((x) => x.classList.contains('alert')) && getComputedStyle(all.find((x) =>
+          x.classList.contains('alert'))).backgroundColor, active: document.activeElement === scroller };
+    };
+    out.title = dialog.querySelector('h2 span').textContent;
+    out.modal = dialog.matches(':modal');
+    out.backdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+    out.drag = dialog.querySelector('h2').classList.contains('drag');
+    out.rows = rows().map((x) => ({ id: +x.dataset.id, name: x.querySelector('.tree-name').textContent,
+      icon: x.querySelector('.tree-icon')?.outerHTML }));
+    out.names = out.rows.map((x) => m.nodes[x.id].name);
+    // The tree's own rows' icons, for the same nodes.
+    out.treeIcons = [];
+    for (const x of out.rows) {
+      ui.panel().setFocus(x.id);
+      await frame();
+      out.treeIcons.push(document.querySelector('#tree .tree-row[data-id="' + x.id + '"] .tree-icon')?.outerHTML);
+    }
+    out.start = state();
+    const key = (k, o = {}) => scroller.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true,
+      cancelable: true, ...o }));
+    const n = out.rows.length;
+    key('ArrowDown');
+    await frame();
+    out.down = state();
+    for (let i = 0; i < n + 2; i++) key('ArrowDown');
+    await frame();
+    out.bottom = state();
+    for (let i = 0; i < n + 2; i++) key('ArrowUp');
+    await frame();
+    out.top = state();
+    const rowAt = (i) => rows().find((x) => +x.dataset.index === i);
+    const over = async (i) => {
+      const b = rowAt(i).getBoundingClientRect();
+      scroller.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: b.left + 30,
+        clientY: b.top + b.height / 2, pointerType: 'mouse' }));
+      await frame();
+    };
+    await over(1);
+    out.hover = state();
+    out.hoverBg = getComputedStyle(rowAt(1)).backgroundColor;
+    const click = async (i, o = {}) => {
+      rowAt(i).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...o }));
+      await frame();
+    };
+    await click(1);
+    out.click = state();
+    await click(n - 1, { shiftKey: true });
+    out.shiftClick = state();
+    key('ArrowUp');
+    await frame();
+    key(' ');
+    await frame();
+    out.space = state();
+    key('ArrowUp');
+    await frame();
+    key(' ', { shiftKey: true });
+    await frame();
+    out.shiftSpace = state();
+    await click(0, { ctrlKey: true });
+    out.ctrlClick = state();
+    scroller.dispatchEvent(new PointerEvent('pointerleave', { clientX: 0, clientY: 0, pointerType: 'mouse' }));
+    await frame();
+    out.left = state();
+    out.final = [...ui.selected()];
+    // Closed with the mouse over a row: its highlight gone.
+    await over(1);
+    out.hoverBeforeClose = state().outline;
+    dialog.close();
+    await frame();
+    out.closed = { open: !!document.querySelector('dialog.cv-dialog[open]'), alerted: [...viewer.alerted],
+      outline: viewer.highlights.highlight.outline.length + viewer.highlights.highlight.marks.length };
+    out.rec = cadViewer.record(false);
+    if (${!process.env.BUILD}) {
+      // A long list, through the module: only the rows in view drawn, the last reached by scrolling.
+      const { showPickList } = await import('${base}src/pick-list.ts');
+      const parts = m.nodes.filter((x) => x.kind === 'part').map((x) => x.id);
+      const ids = Array.from({ length: 200000 }, (_, i) => parts[i % parts.length]);
+      const t0 = performance.now();
+      let cursor;
+      showPickList({ model: m, ids, selected: () => [], multi: () => false, onSelect: () => {}, onHover: () => {},
+        onCursor: (c) => { cursor = c; }, onClose: () => {} });
+      await frame();
+      const big = document.querySelector('dialog.cv-dialog[open]');
+      const sc = big.querySelector('.tree-scroller');
+      out.big = { ms: Math.round(performance.now() - t0), rows: big.querySelectorAll('.tree-row').length,
+        height: sc.scrollHeight };
+      sc.scrollTop = sc.scrollHeight;
+      await frame();
+      await frame();
+      const shown = [...big.querySelectorAll('.tree-row')].filter((x) => x.style.display !== 'none')
+        .map((x) => +x.dataset.index);
+      out.big.last = Math.max(...shown);
+      out.big.drawn = shown.length;
+      out.big.cursor = cursor;
+      big.close();
+      await frame();
+    }
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined });
+  const ids = (x: number[]) => JSON.stringify(x);
+  const menu = a.viewMenu as { text: string; divider: boolean }[];
+  const at = menu.findIndex((i) => i.text === 'Pick...');
+  expect(at > 0 && menu[at + 1]?.text === 'Select parent' && menu[at]!.divider && !menu[at + 1]!.divider &&
+    !(a.treeMenu as string[]).includes('Pick...'), `the menus: ${j}`);
+  const rows = a.rows as { id: number; name: string; icon: string }[];
+  const n = rows.length;
+  expect(a.peeled.length >= 3 && ids(rows.map((x) => x.id)) === ids(a.peeled), `the rows, nearest first: ${j}`);
+  expect(a.title === `Pick: ${n} items` && a.modal && a.drag && a.backdrop === 'rgba(0, 0, 0, 0)' &&
+    rows.every((x, i) => x.name === a.names[i] && !!x.icon && x.icon === a.treeIcons[i]), `the dialog, the rows as the tree's: ${j}`);
+  const green = 'rgb(32, 160, 64)';
+  const s = (o: any, cursor: number) => ids(o.focused) === ids([cursor]) && ids(o.alert) === ids([cursor]) &&
+    ids(o.alerted) === ids([rows[cursor]!.id]);
+  expect(s(a.start, 0) && a.start.cursorBg === green && a.start.active && a.start.selected.length === 0,
+    `the cursor at first: ${j}`);
+  expect(s(a.down, 1) && s(a.bottom, n - 1) && s(a.top, 0), `the arrows: ${j}`);
+  expect(ids(a.hover.hovered) === '[1]' && a.hover.outline > 0 && a.hoverBg === 'rgb(31, 63, 255)' && s(a.hover, 0),
+    `hovered: ${j}`);
+  const sel = (from: number, to: number) => ids(rows.slice(from, to + 1).map((x) => x.id));
+  expect(s(a.click, 1) && ids(a.click.picked) === sel(1, 1) && ids(a.click.selected) === '[1]' &&
+    ids(a.click.treeSelected) === sel(1, 1), `a click: ${j}`);
+  expect(s(a.shiftClick, n - 1) && ids([...a.shiftClick.picked].sort()) === ids(rows.slice(1).map((x) => x.id)
+    .sort()), `a shift-click: ${j}`);
+  // (Space on a selected row: it comes out; shift-space there: the span from the anchor, row 1, comes out.)
+  const cur = n - 2;
+  expect(s(a.space, cur) && !a.space.picked.includes(rows[cur]!.id) && a.space.picked.length === n - 2,
+    `space: ${j}`);
+  // (Up a row, shift-space: the rows from there to the anchor, the row Space clicked, in place of the selection.)
+  const spanned = rows.slice(cur - 1, cur + 1).map((x) => x.id);
+  expect(s(a.shiftSpace, cur - 1) && ids([...a.shiftSpace.picked].sort()) === ids([...spanned].sort()),
+    `shift-space: ${j}`);
+  const toggled = spanned.includes(rows[0]!.id) ? spanned.filter((x) => x !== rows[0]!.id) : [...spanned, rows[0]!.id];
+  expect(s(a.ctrlClick, 0) && ids([...a.ctrlClick.picked].sort()) === ids(toggled.sort()), `a ctrl-click: ${j}`);
+  expect(a.left.hovered.length === 0, `the mouse gone: ${j}`);
+  expect(!a.closed.open && a.closed.alerted.length === 0 && a.hoverBeforeClose > 0 && a.closed.outline === 0,
+    `closed: ${j}`);
+  if (!process.env.BUILD) {
+    expect(a.big.rows < 80 && a.big.last === 199999 && a.big.drawn < 80 && a.big.height >= 199999 * 18 &&
+      a.big.ms < 1000, `a long list: ${JSON.stringify(a.big)}`);
+  }
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    return { divergences: report.divergences, selected: [...ui.selected()] };
+  })()`) as { after: { divergences: string[]; selected: number[] } };
+  expect(replayed.after.divergences.length === 0 && ids(replayed.after.selected) === ids(a.final),
+    `replayed: ${JSON.stringify(replayed.after)} ${j}`);
+  return undefined;
+});
 // The tree's arrow keys move its focus through the structure: up and down to the previous and next sibling, past
 // the first to the parent, past the last to the next sibling of the parent; right to the first child, unfolding it;
 // left to the parent; with the focus cleared, nowhere. Space and shift-space click and shift-click the focused row.

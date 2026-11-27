@@ -57,7 +57,7 @@ export type RecordedEvent = { t: number } & (
     pointerType: string; button: number; buttons: number; mods: string }
   | { type: 'wheel'; x: number; y: number; deltaY: number; deltaMode: number }
   | { type: 'pick'; x: number; y: number; add: boolean; path: string | null; point?: number[] }
-  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; paths: string[] }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id' | 'list'; paths: string[] }
   /** A node's appearance override set exactly (the tree's Override Appearance...). */
   | { type: 'appearance'; path: string; override: AppearanceOverride }
   | { type: 'control'; path: string; value?: unknown; shift?: true }
@@ -452,8 +452,9 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const r = await ui.detectEdges(e.detection, e.selectionOnly);
       if (e.result !== undefined && r.text !== e.result) divergences.push(`${at}: ${r.text}, recorded ${e.result}`);
       applied++;
-    } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id')) {
-      // Selections by pick and through the interface come back with their pick and api events.
+    } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id' || e.source === 'list')) {
+      // Selections by pick and through the interface come back with their pick and api events; Pick...'s list's
+      // (ui.ts) as the selections they made.
       ui.select(resolve(e.paths) as number[], e.source === 'id' ? 'id' : 'api');
       applied++;
     } else if (e.type === 'camera') {

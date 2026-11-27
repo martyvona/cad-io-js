@@ -16,8 +16,8 @@ import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
-import { highlightForNode, highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
-  from './selection.ts';
+import { highlightForNode, highlightForPick, Highlighter, instancesOf, nodeForPick, nodesAlong, piecesOf, sphereOf,
+  type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
@@ -26,6 +26,7 @@ import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSetti
   from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { nodeLabel, TreePanel } from './tree-panel.ts';
+import { showPickList } from './pick-list.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
 import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
@@ -166,7 +167,7 @@ export interface Ui {
 export type UiEvent =
   | { type: 'load'; url?: string; files?: File[] }
   | { type: 'loaded'; report: Record<string, unknown> }
-  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id' | 'list'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean }
   | { type: 'appearance'; id: number; override: AppearanceOverride }
@@ -775,13 +776,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const look = viewer.render;
   // (The selection's colour is the Highlighter's, made below.)
   let recolour = () => {};
-  // The tree's row under the mouse in the highlight's colour, its text dark or light to stand out on it.
-  const hoverColours = () => {
-    const c = parseInt(look.highlightColor.slice(1), 16);
-    const luma = 0.299 * (c >> 16) + 0.587 * (c >> 8 & 255) + 0.114 * (c & 255);
-    treeElement.style.setProperty('--row-hovered', look.highlightColor);
-    treeElement.style.setProperty('--row-hovered-fg', luma > 140 ? '#111' : '#fff');
+  // A row under the mouse (the tree's, Pick...'s list's) in the highlight's colour, the list's cursor's row in the
+  // alert colour, their text dark or light to stand out on it.
+  const rowColours = (el: HTMLElement) => {
+    for (const [name, colour] of [['hovered', look.highlightColor], ['alert', look.alertColor]] as const) {
+      const c = parseInt(colour.slice(1), 16);
+      const luma = 0.299 * (c >> 16) + 0.587 * (c >> 8 & 255) + 0.114 * (c & 255);
+      el.style.setProperty(`--row-${name}`, colour);
+      el.style.setProperty(`--row-${name}-fg`, luma > 140 ? '#111' : '#fff');
+    }
   };
+  const hoverColours = () => rowColours(treeElement);
   hoverColours();
   const restyle = () => {
     recolour();
@@ -953,7 +958,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let openControl: { setValue(v: boolean): unknown } | undefined;
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
-  /** The node of the tree's row under the mouse, if any (highlighted as the 3D view's hover is). */
+  /**
+   * The node of the tree's row under the mouse, or Pick...'s list's, if any (highlighted as the 3D view's hover is).
+   */
   let treeHovered: number | undefined;
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
@@ -998,7 +1005,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     detailsElement.textContent = text;
   };
   /** Sets the selection; from the 3D view (or code), the tree follows. */
-  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' | 'id' = 'api', reveal = true) => {
+  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' | 'id' | 'list' = 'api', reveal = true) => {
     selected = [...new Set(ids)];
     // A selection made while meshing again replaces the one being restored.
     if (source !== 'api' && restore) restore.selected = [];
@@ -1039,7 +1046,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
   };
   // A node's menu (the tree's row's, or the view's for what was clicked: `header` then, the node as its row shows it).
-  const nodeMenu = (id: number, x: number, y: number, header = false) => {
+  const nodeMenu = (id: number, x: number, y: number, header = false, pick?: () => void) => {
     const nodes = viewer.nodes, graph = viewer.graph;
     if (!nodes) return;
     // Its errors and warnings, and everything's in it (problems.ts's itemDiagnostics): an item only if there are any.
@@ -1068,7 +1075,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Override Appearance...', action: () => editAppearance(id) },
       ...(overridden ? [{ label: many('Remove Appearance Override', overridden),
         action: () => each(() => ({})) }] : []),
-      { label: 'Select parent', divider: true, action: () => ui.selectParent(targets) },
+      ...(pick ? [{ label: 'Pick...', divider: true, action: pick }] : []),
+      { label: 'Select parent', divider: !pick, action: () => ui.selectParent(targets) },
       { label: 'Select children', action: () => ui.selectChildren(targets) },
       { label: 'Select none', action: selectNone },
       { label: 'Select all', action: () => ui.selectAll() },
@@ -1117,13 +1125,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let detailControl: { updateDisplay(): unknown; setValue(v: boolean): unknown } | undefined;
   /** The node picked at the pick level, or none (picking faces turns the tree's detail on). */
   const picked = (nodes: NodeModel, p: TreePanel, hit: Pick | undefined) => {
-    // Picking faces needs their nodes: the tree shows detail from then on.
-    if (selection.level === 'detail' && !nodes.hasDetail()) {
-      tree.detail = true;
-      p.setDetail(true);
-      detailControl?.updateDisplay();
-    }
+    detailToPick(nodes, p);
     return hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level, hit.item);
+  };
+  /** Picking faces needs their nodes: the tree shows detail from then on. */
+  const detailToPick = (nodes: NodeModel, p: TreePanel) => {
+    if (selection.level !== 'detail' || nodes.hasDetail()) return;
+    tree.detail = true;
+    p.setDetail(true);
+    detailControl?.updateDisplay();
   };
   // What the pointer's over, highlighted at the pick level (the last kept, for a change of level); or the tree's row
   // under the mouse, its node.
@@ -1144,7 +1154,38 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes || !panel) return;
     const id = picked(nodes, panel, hit);
     panel.setFocus(id);
-    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY, true);
+    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY, true, () => pickList(at.clientX, at.clientY));
+  };
+  // Pick...: everything along the line of sight through the point the view's menu was asked for, at the pick level
+  // (pick-list.ts), the nodes there selected as the tree's rows are (recorded as the list's selections), the row
+  // under the mouse highlighted as the tree's is, its cursor's node drawn as an alert until it closes.
+  let pickListShown: { redraw(): void } | undefined;
+  const pickList = (clientX: number, clientY: number) => {
+    const nodes = viewer.nodes;
+    if (!nodes || !panel) return;
+    const picks = viewer.picksAt(clientX, clientY);
+    detailToPick(nodes, panel);
+    const ids = nodesAlong(nodes, picks, selection.level);
+    if (!ids.length) {
+      void showDialog({ title: 'Pick', body: ['Nothing is drawn along the line of sight there.'],
+        buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+      return;
+    }
+    pickListShown = showPickList({ model: nodes, ids, selected: () => selected, multi: () => selection.multi,
+      style: rowColours,
+      onSelect: (s) => {
+        select(s, 'list', true);
+        pickListShown?.redraw();
+      },
+      onHover: (h) => {
+        treeHovered = h;
+        hover();
+      },
+      onCursor: (c) => viewer.alertNodes([c]),
+      onClose: () => {
+        pickListShown = undefined;
+        viewer.alertNodes([]);
+      } });
   };
   viewer.onPick = (hit, keys) => {
     const nodes = viewer.nodes;
