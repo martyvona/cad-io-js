@@ -1,9 +1,10 @@
 // Override Appearance... (the tree's context menu, tree-panel.ts): one node's appearance override, in a panel that
 // floats over the page without blocking it (the 3D view and the tree still work), dragged by its title, closed by its x
 // or Escape. Visibility (Inherit, Hide, Show), Opacity (Inherit, Transparent, Default: the file's own) with a slider
-// and a box for the alpha, and Triangle edges (Inherit, On, Off; Rendering's Triangle edges deciding where nothing sets
-// them). The alpha takes input only while Opacity is Transparent; otherwise it shows the alpha the node draws with
-// (inherited, or the file's), and switching to Transparent starts from that. Every change takes effect at once (the
+// and a box for the alpha, Triangle edges (Inherit, On, Off; Rendering's Triangle edges deciding where nothing sets
+// them), and Reveal (Inherit, Reveal, None: model.ts's Reveal). The alpha takes input only while Opacity is
+// Transparent; otherwise it shows the alpha the node draws with (inherited, or the file's), and switching to
+// Transparent starts from that. Every change takes effect at once (the
 // slider as it moves), recorded once it's made (the slider let go): no OK or Cancel. One at a time: asked for another
 // node while it's open, or a node selected alone, it shows that one instead.
 
@@ -26,14 +27,16 @@ export interface AppearanceChoice {
 type Visibility = 'inherit' | 'hide' | 'show';
 type Opacity = 'inherit' | 'transparent' | 'default';
 type Edges = 'inherit' | 'on' | 'off';
+type Reveal = 'inherit' | 'reveal' | 'none';
 
 /** The override chosen, from the panel's controls (absent fields inherited). */
-export function overrideOf(visibility: Visibility, opacity: Opacity, alpha: number, edges: Edges = 'inherit'):
-  AppearanceOverride {
+export function overrideOf(visibility: Visibility, opacity: Opacity, alpha: number, edges: Edges = 'inherit',
+  reveal: Reveal = 'inherit'): AppearanceOverride {
   return { ...(visibility === 'inherit' ? {} : { hidden: visibility === 'hide' }),
     ...(opacity === 'inherit' ? {} : opacity === 'default' ? { transparent: false }
       : { transparent: true, alpha: Math.min(1, Math.max(0, alpha)) }),
-    ...(edges === 'inherit' ? {} : { triangleEdges: edges === 'on' }) };
+    ...(edges === 'inherit' ? {} : { triangleEdges: edges === 'on' }),
+    ...(reveal === 'inherit' ? {} : { reveal: reveal === 'reveal' }) };
 }
 
 const round = (x: number) => Math.round(x * 100) / 100;
@@ -112,6 +115,7 @@ function makePanel(): NonNullable<typeof panel> {
   row.append(slider, number);
   box.append(row);
   const edges = select('Triangle edges');
+  const reveal = select('Reveal');
   const note = document.createElement('p');
   note.className = 'note';
   box.append(note);
@@ -134,7 +138,7 @@ function makePanel(): NonNullable<typeof panel> {
     show(alpha);
   };
   const set = (final: boolean) => binding?.set(overrideOf(visibility.value as Visibility, opacity.value as Opacity,
-    alpha, edges.value as Edges), final);
+    alpha, edges.value as Edges, reveal.value as Reveal), final);
   // The controls from the node: its override, what it inherits.
   const read = () => {
     c = binding!.describe();
@@ -143,10 +147,12 @@ function makePanel(): NonNullable<typeof panel> {
     options(visibility, [['inherit', 'Inherit'], ['hide', 'Hide'], ['show', 'Show']]);
     options(opacity, [['inherit', 'Inherit'], ['transparent', 'Transparent'], ['default', 'Default']]);
     options(edges, [['inherit', 'Inherit'], ['on', 'On'], ['off', 'Off']]);
+    options(reveal, [['inherit', 'Inherit'], ['reveal', 'Reveal'], ['none', 'None']]);
     const o = c.own;
     visibility.value = o?.hidden === undefined ? 'inherit' : o.hidden ? 'hide' : 'show';
     opacity.value = o?.transparent === undefined ? 'inherit' : o.transparent ? 'transparent' : 'default';
     edges.value = o?.triangleEdges === undefined ? 'inherit' : o.triangleEdges ? 'on' : 'off';
+    reveal.value = o?.reveal === undefined ? 'inherit' : o.reveal ? 'reveal' : 'none';
     opacity.disabled = edges.disabled = !!c.lines;
     if (o?.transparent) alpha = o.alpha ?? 1;
     note.textContent = c.lines ? 'Edges, curves and points keep their own opacity and have no triangles.'
@@ -156,6 +162,7 @@ function makePanel(): NonNullable<typeof panel> {
   };
   visibility.addEventListener('change', () => set(true));
   edges.addEventListener('change', () => set(true));
+  reveal.addEventListener('change', () => set(true));
   opacity.addEventListener('change', () => {
     sync();
     set(true);

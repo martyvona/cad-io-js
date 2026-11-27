@@ -24,7 +24,7 @@ import { NodeModel, type Looks } from './model.ts';
 import { hitsAlong, PICK_PIXELS, pickOfHit, pickOfTarget, viewRay, type Pick } from './pick.ts';
 import { choose, IdPass, type IdTarget } from './pick-ids.ts';
 import { Highlights, type Highlight } from './outline.ts';
-import { Composer } from './render.ts';
+import { Composer, RevealPass } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
 import { faceEdges } from './geometry-info.ts';
@@ -34,7 +34,7 @@ import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
 import { biasFor, depthBias, dotBias, EDGE_BIAS_PIXELS } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
-import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
+import { DEFAULT_RENDER, EDGES, REVEAL, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import { dotPixels, setDotSize, vertexDiameter, type DiscMaterial } from './vertex-points.ts';
 import { LONG_PRESS_MS } from './context-menu.ts';
@@ -337,6 +337,10 @@ export class Viewer {
   /** Whether a world point is cut away (by the section planes): not pickable. */
   clipped?: (p: THREE.Vector3) => boolean;
 
+  /** The ghosts' pass (render.ts), and the twins in the scene now (showGhosts). */
+  private readonly revealPass: RevealPass;
+  private twinsShown?: THREE.Group;
+
   /** `pixelRatio`: fixed (deterministic screenshots: ?deterministic), else the screen's, at most 2. */
   constructor(container: HTMLElement, opts: { pixelRatio?: number } = {}) {
     this.container = container;
@@ -344,11 +348,16 @@ export class Viewer {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
     this.renderer.setPixelRatio(opts.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
     this.composer = new Composer(this.renderer, this.scene, this.camera, 1, 1);
+    this.revealPass = new RevealPass(this.scene, this.camera, { place: () => this.graph?.placeTwins(),
+      pass: (depth) => this.graph?.ghostPass(depth) });
     this.sections = new Sections(this.renderer);
     this.clipped = (p) => this.sections.clipped(p);
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(VIEW_BACKGROUNDS.dark);
     this.scene.add(this.ambient);
+    // (The lights on the ghosts' layer too, which RevealPass draws alone: render.ts.)
+    this.ambient.layers.enable(REVEAL);
+    this.headlight.layers.enable(REVEAL);
     // A headlight: the light comes from over the viewer's shoulder, whatever the view: (1, 1, 2) in the camera's frame,
     // 35 degrees off the line of sight. Its target in the camera too: three.js's default target is the world's origin
     // (outside the scene), which turned the light along the line of sight wherever the camera is far from the origin,
@@ -758,6 +767,7 @@ export class Viewer {
     // picking.
     if (fat) this.camera.layers.disable(EDGES);
     try {
+      this.showGhosts();
       this.composer.render();
     } finally {
       if (fat) this.camera.layers.enable(EDGES);
@@ -836,6 +846,21 @@ export class Viewer {
     const r = t.getBoundingClientRect();
     t.style.left = `${Math.max(0, Math.min(x + 12, innerWidth - r.width))}px`;
     t.style.top = `${Math.max(0, y - r.height - 8)}px`;
+  }
+
+  /**
+   * The ghosts drawn while something is revealed (model.ts's Reveal): the model's twins in the scene (scene-graph.ts),
+   * at Reveal alpha, and RevealPass in the composer; else neither.
+   */
+  private showGhosts(): void {
+    const twins = this.graph?.twins;
+    if (twins !== this.twinsShown) {
+      if (this.twinsShown) this.scene.remove(this.twinsShown);
+      if (twins) this.scene.add(twins);
+      this.twinsShown = twins;
+    }
+    this.graph?.setRevealAlpha(this.render.revealAlpha);
+    this.composer.setReveal(this.nodes?.revealing ? this.revealPass : undefined);
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */

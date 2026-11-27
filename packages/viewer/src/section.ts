@@ -342,7 +342,8 @@ export class Sections {
       if (!o.visible || o.userData.highlight) return;
       const within = part ?? (partSet.has(o) ? o : undefined);
       const m = o as THREE.Mesh;
-      if (m.isMesh && o.layers.isEnabled(0)) {
+      // (A mesh drawn only as a ghost, model.ts's Reveal, has no caps: they'd hide what's revealed.)
+      if (m.isMesh && o.layers.isEnabled(0) && !o.userData.ghost) {
         const key = within ?? m;
         const list = units.get(key);
         if (list) list.push(m);

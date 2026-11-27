@@ -15,7 +15,11 @@
 // each placement's Mesh its faces' source ids in `userData.faces` (and their index ranges in `faceRanges`, for
 // picking and selection). Each placement's look (Looks: the node model's overrides resolved, model.ts) sets its faces'
 // materials: a hidden face's triangles get a geometry group of their own with an invisible material, a transparent
-// face's or placement's a material at that opacity.
+// face's or placement's a material at that opacity. A ghost's faces (model.ts's Reveal) are invisible in the mesh and
+// drawn by its twin, a Mesh sharing its geometry on the REVEAL layer alone, whose materials are the ghost faces' at
+// Reveal alpha (the rest invisible), for render.ts's RevealPass. Twins live in `twins`, outside the model (so nothing
+// that walks the model, selection, measures, picking, counts them twice), placed from their meshes by `placeTwins`; a
+// mesh whose faces are all ghosts is `userData.ghost` (no section caps).
 
 import { openAnalysis, openBrep, type BrepAnalysis, type BrepData } from 'cad-brep';
 import * as THREE from 'three';
@@ -27,7 +31,7 @@ import type { DetailSources } from './details.ts';
 import { geometryOf, type Geometry } from './geometry-info.ts';
 import { DETECTED_EDGES, setItems, type Item } from './items.ts';
 import { faceIndexAttribute, PICK_INDEX } from './pick-ids.ts';
-import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
+import { DEFAULT_RENDER, EDGES, REVEAL, VERTICES } from './style.ts';
 import { DiscMaterial } from './vertex-points.ts';
 
 /** sRGB, as the exporters' default: faces, curves and points without a material. */
@@ -126,6 +130,12 @@ export class SceneGraph implements Looks {
   /** The vertices' dots' material (vertex-points.ts), black as the edges. */
   private readonly vertexMaterial = new DiscMaterial();
   private readonly materials = new Map<string, THREE.Material>();
+  /** The ghosts' materials (`ghost`), by their faces' material, and the opacity they draw at. */
+  private readonly ghosts = new Map<THREE.Material, THREE.MeshPhongMaterial>();
+  private revealAlpha = DEFAULT_RENDER.revealAlpha;
+  /** The ghosts' twins (the file's comment), and each mesh's. */
+  readonly twins = new THREE.Group();
+  private readonly twinOf = new Map<THREE.Mesh, THREE.Mesh>();
   private readonly lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
   private readonly meshed = new Map<number, MeshedPart>();
   /**
@@ -514,7 +524,8 @@ export class SceneGraph implements Looks {
   /** Sets a placement's geometry (shared by grouping) and materials: runs of faces by material, hidden faces apart. */
   private assign(part: number, meshed: MeshedPart, obj: THREE.Mesh, instance: PartInstance): void {
     const look = this.looks.get(instance);
-    const runs: { start: number; count: number; material: number | undefined | 'hidden'; alpha?: number }[] = [];
+    const runs: { start: number; count: number; material: number | undefined | 'hidden'; alpha?: number;
+      ghost?: boolean }[] = [];
     // (A mesh without faces, a foreign file's of one material: all its triangles in the part's.)
     const faces = meshed.mesh.faces.length ? meshed.mesh.faces : [{ source: null, start: 0,
       count: meshed.mesh.indices.length }];
@@ -523,10 +534,15 @@ export class SceneGraph implements Looks {
       const m = (own ?? look)?.hidden ? 'hidden' as const
         : (f.source !== null ? instance.faceMaterials.get(f.source) : undefined) ?? instance.material;
       const alpha = own ? own.alpha : look?.alpha;
+      const ghost = (own ? own.ghost : look?.ghost) === true;
       const last = runs.at(-1);
-      if (last && last.material === m && last.alpha === alpha && last.start + last.count === f.start) {
+      if (last && last.material === m && last.alpha === alpha && !!last.ghost === ghost &&
+        last.start + last.count === f.start) {
         last.count += f.count;
-      } else runs.push({ start: f.start, count: f.count, material: m, ...(alpha === undefined ? {} : { alpha }) });
+      } else {
+        runs.push({ start: f.start, count: f.count, material: m, ...(alpha === undefined ? {} : { alpha }),
+          ...(ghost ? { ghost } : {}) });
+      }
     }
     const key = runs.map((r) => `${r.start}:${r.material}${r.alpha === undefined ? '' : `@${r.alpha}`}`).join(',');
     let g = meshed.geometries.get(key);
@@ -550,7 +566,83 @@ export class SceneGraph implements Looks {
       meshed.geometries.set(key, g);
     }
     obj.geometry = g;
-    obj.material = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face', r.alpha));
+    const made = runs.map((r) => r.material === 'hidden' ? HIDDEN : this.material(r.material, 'face', r.alpha));
+    const ghosts = runs.map((r, i) => r.ghost && made[i] !== HIDDEN);
+    obj.material = made.map((m, i) => ghosts[i] ? HIDDEN : m);
+    // The ghosts' faces drawn by the twin (the file's comment).
+    let twin = this.twinOf.get(obj);
+    obj.userData.ghost = ghosts.some(Boolean) && made.every((m, i) => m === HIDDEN || ghosts[i]);
+    if (!ghosts.some(Boolean)) {
+      if (twin) {
+        this.twins.remove(twin);
+        this.twinOf.delete(obj);
+      }
+      return;
+    }
+    if (!twin) {
+      twin = new THREE.Mesh();
+      twin.matrixAutoUpdate = false;
+      twin.layers.set(REVEAL);
+      this.twins.add(twin);
+      this.twinOf.set(obj, twin);
+    }
+    twin.geometry = g;
+    twin.material = made.map((m, i) => ghosts[i] ? this.ghost(m) : HIDDEN);
+  }
+
+  /**
+   * Each twin where its mesh is drawn (its world matrix, updated first), shown while the mesh is (it and every
+   * ancestor visible); the twins of meshes no longer in the model gone (a part meshed again).
+   */
+  placeTwins(): void {
+    for (const [mesh, twin] of [...this.twinOf]) {
+      let shown = true, p: THREE.Object3D | null = mesh;
+      for (; p && p !== this.root; p = p.parent) shown &&= p.visible;
+      if (p !== this.root) {
+        this.twins.remove(twin);
+        this.twinOf.delete(mesh);
+        continue;
+      }
+      twin.visible = shown;
+      mesh.updateWorldMatrix(true, false);
+      twin.matrix.copy(mesh.matrixWorld);
+      twin.matrixWorldNeedsUpdate = true;
+    }
+  }
+
+  /** Whether any twin is drawn (a ghost shown). */
+  get ghostsShown(): boolean {
+    return [...this.twins.children].some((t) => t.visible);
+  }
+
+  /** A ghost's material for a face's: a copy at Reveal alpha, drawn by RevealPass (`ghostPass`). */
+  private ghost(m: THREE.Material): THREE.MeshPhongMaterial {
+    let g = this.ghosts.get(m);
+    if (g) return g;
+    g = (m as THREE.MeshPhongMaterial).clone();
+    g.transparent = true;
+    g.opacity = this.revealAlpha;
+    this.ghosts.set(m, g);
+    return g;
+  }
+
+  /** Reveal alpha: the ghosts' opacity. */
+  setRevealAlpha(alpha: number): void {
+    if (alpha === this.revealAlpha) return;
+    this.revealAlpha = alpha;
+    for (const g of this.ghosts.values()) g.opacity = alpha;
+  }
+
+  /**
+   * Sets the ghosts' materials for one of RevealPass's draws: `depth`, the nearest depth alone (no colour, depth
+   * written where nearer); else their colour, blended, only where they're that nearest (depth equal, not written).
+   */
+  ghostPass(depth: boolean): void {
+    for (const g of this.ghosts.values()) {
+      g.colorWrite = !depth;
+      g.depthWrite = depth;
+      g.depthFunc = depth ? THREE.LessDepth : THREE.EqualDepth;
+    }
   }
 
   /**

@@ -209,6 +209,8 @@
       text-align: left; cursor: pointer;
     }
     .cv-menu button:hover, .cv-menu button:focus { background: var(--button-hover); outline: none; }
+    /* An item that would change nothing (context-menu.ts's disabled): greyed. */
+    .cv-menu button:disabled { opacity: 0.45; cursor: default; background: none; }
     .cv-menu button.divider { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
     /* The view's menu's header: what was clicked, as its tree row shows it (tree-panel.ts's nodeLabel). */
     .cv-menu-header {

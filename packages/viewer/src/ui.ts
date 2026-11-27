@@ -448,7 +448,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const target = await saveTarget(name, { description: f.label, mime: f.mime, ext: f.ext });
       if (!target) return;
       say(`exporting ${name}...`);
-      const edits = shown ? shownEdits(graph.scene, nodes, graph) : undefined;
+      const edits = shown ? shownEdits(graph.scene, nodes, graph, viewer.render.revealAlpha) : undefined;
       // (The page blocked meanwhile: its meshes are lent to the model worker, Viewer.exportModel.)
       const done = showBusy(`Exporting ${name}`, 'The view is paused until the file is made.');
       let r;
@@ -843,6 +843,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const verticesControl = rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
+  // What isn't revealed while something is (model.ts's Reveal): its opacity, whatever its own.
+  rendering.add(look, 'revealAlpha', 0, 1, 0.01).name('Reveal alpha').onChange(restyle);
   // Mesh edge detection... (edge-dialog.ts): its values remembered in this browser, every load's detection too.
   try {
     viewer.edgeDetection = detectionFrom(localStorage.getItem(EDGE_DETECTION_KEY));
@@ -1062,7 +1064,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes) return;
     const text = (o: object) => JSON.stringify(o);
     const before = new Map(nodes.overrides().map(({ path, ...o }) => [path, text(o)]));
-    hide(hidden, nodes.others(ids));
+    hideOthers(hidden, nodes.others(ids));
     const changed: [string, AppearanceOverride][] = [];
     const after = new Set<string>();
     for (const { path, ...o } of nodes.overrides()) {
@@ -1096,9 +1098,18 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // (On several: how many, `Hide 5`; Remove's those with an override, which it changes.)
     const many = (label: string, n: number) => (targets.length > 1 ? `${label} ${compact(n)}` : label);
     const overridden = targets.filter((t) => nodes.ownOverride(t)).length;
+    // (Each greyed where it would change nothing: every node already hidden, shown or revealed, itself or inherited.)
+    const looks = targets.map((t) => nodes.look(t));
     showMenu(x, y, [
-      { label: many('Hide', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: true })) },
-      { label: many('Show', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: false })) },
+      // Hide takes away a reveal first (a node can't be both).
+      { label: many('Hide', targets.length), disabled: looks.every((l) => l.hidden), action: () => each((t) => {
+        const { reveal: _, ...own } = nodes.ownOverride(t) ?? {};
+        return { ...own, hidden: true };
+      }) },
+      { label: many('Show', targets.length), disabled: looks.every((l) => !l.hidden),
+        action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: false })) },
+      { label: many('Reveal', targets.length), disabled: looks.every((l) => l.reveal === true),
+        action: () => each((t) => ({ ...nodes.ownOverride(t), reveal: true })) },
       { label: 'Hide others', action: () => othersRecorded(true, targets) },
       { label: 'Show others', action: () => othersRecorded(false, targets) },
       { label: 'Show all', action: () => press(showAllControl) },
@@ -1310,6 +1321,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!fromPanel) refreshAppearance();
   };
   const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.setHidden(ids, hidden));
+  // Hide others and Show others (Selection's, and the menu's): every reveal gone, then the others hidden or shown.
+  const hideOthers = (hidden: boolean, others: readonly number[]) => appearance((m) => {
+    m.clearReveal();
+    m.setHidden(others, hidden);
+  });
   /**
    * What a click could select at the pick level (Select all): every part or assembly shown, or every face and edges and
    * vertices group shown (a line or point picked is its group: selection.ts's nodeForPick).
@@ -1351,17 +1367,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     showSelected: () => hide(false),
     hideOthers: () => {
       const nodes = viewer.nodes;
-      if (nodes && selected.length) hide(true, nodes.others(selected));
+      if (nodes && selected.length) hideOthers(true, nodes.others(selected));
     },
     showOthers: () => {
       const nodes = viewer.nodes;
-      if (nodes && selected.length) hide(false, nodes.others(selected));
+      if (nodes && selected.length) hideOthers(false, nodes.others(selected));
     },
     // (Edges, curves and points aren't made transparent: a wireframe stays as it is.)
     setOpacity: (alpha) => {
       if (selected.length) appearance((m) => m.setOpacity(selected, alpha ?? 'default'));
     },
-    showAll: () => appearance((m) => m.showAll()),
+    // (Every reveal gone too, as with Hide others and Show others.)
+    showAll: () => appearance((m) => {
+      m.clearReveal();
+      m.showAll();
+    }),
     zoomSelected: () => {
       if (!viewer.nodes || !selected.length) return viewer.zoomAll();
       viewer.zoomTo(sphereOf(piecesOf(viewer.nodes, selected)));

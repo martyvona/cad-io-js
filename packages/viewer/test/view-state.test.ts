@@ -13,12 +13,13 @@ test('view state: every field through the query and back; numbers to 6 decimals;
     render: { ao: false, smaa: true, edges: false, vertices: true, shininess: 50, aoIntensity: 2.5,
       aoRadius: 16, aoQuality: 'Low', edgeStyle: 'thin', edgeWidth: 2.5, specular: 0.25, ambient: 0.8, light: 3,
       capStyle: 'parts', hatchWidth: 2.25, depthOffset: 0, highlightWidth: 5, highlightColor: '#00ff7f',
-      selectionColor: '#a0b1c2', alertColor: '#c00000' },
+      selectionColor: '#a0b1c2', alertColor: '#c00000', revealAlpha: 0.25 },
     tree: { open: false, detail: true }, pick: 'detail', instances: true,
     hidden: ['as1/plate', 'as1/a%2Fb:2/nut'], shown: ['as1/plate/edges'],
     opacity: [{ path: 'as1/a%2Fb:2/nut', alpha: 0.3 }, { path: 'as1/rod', alpha: 'default' },
       { path: 'as1/bolt', alpha: 1 }], triangleEdges: [{ path: 'as1/a%2Fb:2/nut', on: true },
-      { path: 'as1/rod', on: false }], selected: ['as1/rod/face#78'],
+      { path: 'as1/rod', on: false }], revealed: ['as1/rod', 'as1/a%2Fb:2/nut'], unrevealed: ['as1/rod/face#78'],
+    selected: ['as1/rod/face#78'],
   };
   const { state, problems } = roundTrip(s);
   assert.deepEqual(problems, []);

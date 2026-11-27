@@ -1135,7 +1135,8 @@ await check('override appearance', async () => {
   const j = JSON.stringify({ ...a, rec: undefined });
   type Read = { title: string; visibility: string; opacity: string; edges: string; options: string[];
     disabled: boolean; value: string; buttons: string[] };
-  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' && !!a.closed,
+  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]' && !!a.closed,
     `the menu: ${j}`);
   const first = a.first as Read;
   expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
@@ -1163,7 +1164,8 @@ await check('override appearance', async () => {
   expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
   // (The child has an override of its own by then.)
   expect(JSON.stringify(ownItems(a.pressed as string[])) ===
-    '["Hide","Show","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override"]',
+    '["Hide","Show","Reveal","Hide others",' +
+        '"Show others","Show all","Override Appearance...","Remove Appearance Override"]',
     `a long press: ${j}`);
   // Recorded once each change was made (the box's input not, its change yes), Hide and Show selected as buttons.
   expect(a.rec.events.filter((e) => e.type === 'appearance').length === 7, `recorded: ${JSON.stringify(
@@ -1256,7 +1258,8 @@ await check('tree menu others and selected', async () => {
   const same = (x: { hidden: string[]; shown: string[] }, y: { hidden: string[]; shown: string[] }) =>
     JSON.stringify([x.hidden, x.shown]) === JSON.stringify([y.hidden, y.shown]);
   const items = a.othersSel.items as string[];
-  expect(JSON.stringify(items.slice(0, 5)) === '["Hide 2","Show 2","Hide others","Show others","Show all"]' &&
+  expect(JSON.stringify(items.slice(0, 6)) === '["Hide 2","Show 2","Reveal 2","Hide others",' +
+      '"Show others","Show all"]' &&
     JSON.stringify(items.slice(-2)) === '["Hide selected","Show selected"]' && items.at(-3) === 'Select by ID...',
   `the items: ${j}`);
   expect(same(a.othersSel, a.want.othersSel) && a.othersSel.hidden.length > 0 &&
@@ -1279,6 +1282,184 @@ await check('tree menu others and selected', async () => {
   const b = replayed.after;
   expect(a.sib && b.divergences.length === 0 && JSON.stringify([b.hidden, b.shown]) === JSON.stringify([
     [...a.final.hidden].sort(), [...a.final.shown].sort()]), `replayed: ${JSON.stringify(b)}`);
+  return undefined;
+});
+// Reveal (model.ts): the tree's and the view's menus' Reveal (after Show), greyed where it would change nothing (Hide
+// on what's hidden, itself or inherited; Show on what's shown; Reveal on what's revealed); Hide taking a reveal away
+// first; Hide others, Show others and Show all taking every reveal away. Drawn: what's revealed as it is, the rest
+// (ghosts) blending only their nearest layer at Reveal alpha: at 0.5, each pixel the even mix (in linear colour) of the
+// revealed drawn alone (the rest hidden) and the nearest ghost drawn opaque (Reveal alpha 1), with ambient occlusion
+// and without; no caps for a ghost. Override Appearance's Reveal pulldown; Reveal alpha in Rendering; in a link;
+// recorded and replayed.
+await check('reveal', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = ui.panel().model;
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    ui.panel().setExpanded(m.nodes.filter((n) => n.kind === 'assembly').map((n) => n.id));
+    await frame();
+    const rod = m.nodes.find((n) => n.name.startsWith('rod')).id;
+    const parts = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    const others = parts.filter((p) => p !== rod && m.nodes[p].parent !== rod);
+    // A node's menu (the tree's): its items, greyed or not; one chosen.
+    const menu = async (id, choose) => {
+      ui.panel().onContextMenu(id, 100, 100);
+      const items = [...document.querySelectorAll('.cv-menu button')].map((b) => (b.disabled ? '-' : '') +
+        b.textContent);
+      if (choose) [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === choose).click();
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await frame();
+      await cadViewer.idle();
+      return items.slice(0, 4);
+    };
+    const out = { alpha: control('Reveal alpha')?.getValue() };
+    cadViewer.record(true);
+    out.plain = await menu(rod);
+    out.revealIt = await menu(rod, 'Reveal');
+    out.revealed = { revealing: m.revealing, own: m.ownOverride(rod) ?? null };
+    out.again = await menu(rod);
+    // Inherited: a part of the rod's assembly (if it is one) revealed through it; a part hidden through its parent.
+    const child = m.children(rod).find((c) => m.nodes[c].kind === 'part');
+    out.child = child === undefined ? null : await menu(child);
+    // Drawn: pixels at Reveal alpha 0.5, the revealed alone, and the ghosts opaque.
+    const canvas = viewer.renderer.domElement, gl = viewer.renderer.getContext();
+    const grab = () => {
+      viewer.draw();
+      const px = new Uint8Array(4 * canvas.width * canvas.height);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const srgb = (c) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+    out.mix = [];
+    // (Where the revealed is nearest, without AO: the frame drawn as usual, nothing revealed, the same as it alone.)
+    let front;
+    for (const ao of [false, true]) {
+      ui.setRender({ ao, smaa: false, revealAlpha: 0.5 });
+      ui.setOverride(rod, {});
+      await cadViewer.idle();
+      const N = grab();
+      ui.setOverride(rod, { reveal: true });
+      await cadViewer.idle();
+      const M = grab();
+      ui.setRender({ revealAlpha: 1 });
+      const G = grab();
+      for (const p of others) ui.setOverride(p, { ...m.ownOverride(p), hidden: true });
+      await cadViewer.idle();
+      const R = grab();
+      for (const p of others) { const { hidden, ...o } = m.ownOverride(p) ?? {}; ui.setOverride(p, o); }
+      ui.setRender({ revealAlpha: 0.5 });
+      await cadViewer.idle();
+      const same = (P, Q, i) => [0, 1, 2].every((c) => Math.abs(P[i + c] - Q[Q.length === 4 ? c : i + c]) <= 1);
+      if (!ao) {
+        front = new Uint8Array(M.length / 4);
+        for (let i = 0; i < M.length; i += 4) front[i / 4] = same(N, R, i) ? 1 : 0;
+      }
+      let ghosted = 0, wrong = 0, worst = 0, unlike = 0, covered = 0, fronts = 0, shift = 0;
+      for (let i = 0; i < M.length; i += 4) {
+        // The revealed where it's nearest: the ghosts change nothing there.
+        // (The revealed's own pixels: not the background's, the first pixel's.)
+        const rodPixel = front[i / 4] && !same(R, R.subarray(0, 4), i);
+        if (rodPixel) fronts++;
+        // (Its colour as the frame drawn as usual has it, but for AO from what's hidden: the same on average.)
+        if (rodPixel) shift += [0, 1, 2].reduce((t, c) => t + Math.abs(R[i + c] - N[i + c]), 0) / 3;
+        if (rodPixel && !same(G, R, i)) covered++;
+        if ([0, 1, 2].every((c) => G[i + c] === R[i + c])) continue;
+        ghosted++;
+        const d = Math.max(...[0, 1, 2].map((c) => Math.abs(M[i + c] - srgb((lin(R[i + c]) + lin(G[i + c])) / 2))));
+        worst = Math.max(worst, d);
+        if (d > 3) wrong++;
+        // Without AO, opaque ghosts are what's drawn as usual where a ghost is nearest (lit alike; their edges not).
+        if (!ao && !same(G, N, i)) unlike++;
+      }
+      out.mix.push({ ao, ghosted, wrong, worst: Math.round(worst), unlike, covered, fronts,
+        shift: Math.round(shift / fronts * 100) / 100 });
+    }
+    ui.setRender({ ao: true, smaa: true, revealAlpha: 0.1 });
+    // Caps: none for a ghost.
+    const capped = () => { viewer.sections.invalidate(); viewer.draw(); return viewer.sections.caps.length; };
+    ui.setSections({ ...viewer.sections.get(), z: { on: true, at: 20, flip: false } });
+    out.caps = { revealed: capped() };
+    ui.setOverride(rod, {});
+    out.caps.plain = capped();
+    ui.setOverride(rod, { reveal: true });
+    ui.setSections({ ...viewer.sections.get(), z: { on: false, at: 20, flip: false } });
+    // The link carries it; a page opened with it reveals the same.
+    out.link = cadViewer.link();
+    // Override Appearance...: its Reveal pulldown.
+    await menu(others[0], 'Override Appearance...');
+    const panel = document.querySelector('dialog.cv-dialog.floating');
+    const select = [...panel.querySelectorAll('label')].find((l) => l.textContent.startsWith('Reveal'))
+      ?.querySelector('select');
+    out.pulldown = select ? [...select.options].map((o) => o.textContent) : null;
+    select.value = 'none';
+    select.dispatchEvent(new Event('change'));
+    out.none = m.ownOverride(others[0]) ?? null;
+    select.value = 'reveal';
+    select.dispatchEvent(new Event('change'));
+    out.revealPulldown = m.ownOverride(others[0]) ?? null;
+    panel.querySelector('button.close').click();
+    // Hide takes the reveal away; Show greyed then not; Hide greyed once hidden.
+    out.hideMenu = await menu(others[0], 'Hide');
+    out.hidden = m.ownOverride(others[0]) ?? null;
+    out.hiddenMenu = await menu(others[0]);
+    // Show all, Hide others, Show others: every reveal gone.
+    const clears = {};
+    for (const item of ['Show all', 'Hide others', 'Show others']) {
+      ui.setOverride(rod, { reveal: true });
+      await menu(others[1], item);
+      clears[item] = m.revealing;
+    }
+    out.clears = clears;
+    ui.setOverride(rod, { reveal: true });
+    control('Reveal alpha').setValue(0.3);
+    control('Reveal alpha')._callOnFinishChange();
+    out.final = cadViewer.state();
+    out.rec = cadViewer.record(false);
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined, final: undefined });
+  expect(a.alpha === 0.1, `Reveal alpha, 0.1 at first: ${j}`);
+  expect(JSON.stringify(a.plain) === '["Hide","-Show","Reveal","Hide others"]' &&
+    JSON.stringify(a.again) === '["Hide","-Show","-Reveal","Hide others"]' && a.revealed.revealing &&
+    a.revealed.own?.reveal === true, `the menu's Reveal, greyed once revealed: ${j}`);
+  expect(a.child === null || JSON.stringify(a.child) === '["Hide","-Show","-Reveal","Hide others"]',
+    `revealed through its parent: ${j}`);
+  for (const x of a.mix) {
+    expect(x.ghosted > 1000 && x.wrong === 0, `one ghost layer blended (ao ${x.ao}): ${JSON.stringify(x)}`);
+    expect(x.ao || x.unlike < x.ghosted * 0.1, `ghosts at alpha 1 drawn as usual: ${JSON.stringify(x)}`);
+    // (With AO, what's hidden darkens it a little when drawn as usual: about 4 in 255 on average; twice over the gamma
+    // correction, about 30.)
+    expect(x.shift < 10, `the revealed's colours as usual (ao ${x.ao}): ${JSON.stringify(x)}`);
+    // (A few pixels where the rod meets a bracket's hole, at nearly one depth, either way.)
+    expect(x.fronts > 200 && x.covered <= x.fronts * 0.01, `nothing over the revealed where it's nearest (ao ${
+      x.ao}): ${JSON.stringify(x)}`);
+  }
+  expect(a.caps.revealed > 0 && a.caps.revealed < a.caps.plain, `no caps for ghosts: ${j}`);
+  expect(/[?&#]reveal=/.test(a.link), `in the link: ${a.link}`);
+  expect(JSON.stringify(a.pulldown) === '["Inherit","Reveal","None"]' && a.none?.reveal === false &&
+    a.revealPulldown?.reveal === true, `Override Appearance's Reveal: ${j}`);
+  expect(JSON.stringify(a.hideMenu) === '["Hide","-Show","-Reveal","Hide others"]' && a.hidden?.hidden === true &&
+    a.hidden.reveal === undefined && JSON.stringify(a.hiddenMenu) === '["-Hide","Show","Reveal","Hide others"]',
+  `Hide takes the reveal away; then greyed, Show not: ${j}`);
+  expect(Object.values(a.clears).every((x) => x === false), `every reveal gone: ${j}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    const st = cadViewer.state();
+    return { divergences: report.divergences, revealed: st.revealed, alpha: st.render.revealAlpha,
+      revealing: viewer.nodes.revealing };
+  })()`) as { after: { divergences: string[]; revealed: string[]; alpha: number; revealing: boolean } };
+  const b = replayed.after;
+  expect(b.divergences.length === 0 && JSON.stringify(b.revealed) === JSON.stringify(a.final.revealed) &&
+    b.alpha === 0.3 && b.revealing, `replayed: ${JSON.stringify(b)}`);
+  const u = new URL(a.link);
+  const linked = await page(`${u.search}&check${u.hash}`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    return { revealing: viewer.nodes?.revealing, revealed: cadViewer.state().revealed };
+  })()`) as { after: { revealing: boolean; revealed: string[] } };
+  expect(linked.after.revealing && linked.after.revealed.length > 0, `a link's: ${JSON.stringify(linked.after)}`);
   return undefined;
 });
 await check('tree menu hide and show', async () => {
@@ -1335,22 +1516,26 @@ await check('tree menu hide and show', async () => {
     drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] }; multi: unknown } };
   const a = r.after;
   const j = JSON.stringify({ ...a, rec: undefined });
-  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' && !a.plain!.open &&
+  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]' && !a.plain!.open &&
     JSON.stringify(a.plain!.own) === '{"hidden":true}' && a.plain!.hidden && !a.plain!.drawn, `Hide: ${j}`);
   expect(JSON.stringify(ownItems(a.shown!.items)) ===
-    '["Hide","Show","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override"]' &&
+    '["Hide","Show","Reveal","Hide others",' +
+        '"Show others","Show all","Override Appearance...","Remove Appearance Override"]' &&
     JSON.stringify(a.shown!.own) === '{"hidden":false}' && !a.shown!.hidden && a.shown!.drawn, `Show: ${j}`);
   expect(JSON.stringify(a.hidden!.own) === '{"transparent":true,"alpha":0.5,"triangleEdges":true,"hidden":true}' &&
     a.hidden!.panel === 'hide', `Hide keeping the rest, the panel following: ${j}`);
   expect(a.removed!.own === null && !a.removed!.hidden && a.removed!.drawn && a.removed!.panel === 'inherit',
     `removed: ${j}`);
-  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]',
+  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]',
     `no Remove without: ${j}`);
   type Several = { items: string[]; open: boolean; owns: unknown[]; selected: number[]; focused: number };
   const mu = a.multi as unknown as { hide: Several; show: Several; remove: Several; outside: Several; opened: Several;
     panel: string; name: string; p: number[] };
   // (How many, on several: Remove's those with an override, one of the two at first.)
-  const all = '["Hide 2","Show 2","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override 1"]';
+  const all = '["Hide 2","Show 2","Reveal 2","Hide others",' +
+      '"Show others","Show all","Override Appearance...","Remove Appearance Override 1"]';
   const both = JSON.stringify(mu.p.slice(0, 2));
   expect(JSON.stringify(ownItems(mu.hide.items)) === all && JSON.stringify(mu.hide.owns) ===
     '[{"hidden":true},{"transparent":true,"alpha":0.5,"hidden":true},null]' && JSON.stringify(mu.hide.selected) ===
@@ -1358,10 +1543,12 @@ await check('tree menu hide and show', async () => {
   expect(JSON.stringify(mu.show.owns) === '[{"hidden":false},{"transparent":true,"alpha":0.5,"hidden":false},null]',
     `Show on the selection: ${j}`);
   expect(mu.panel === `Override Appearance: ${mu.name}`, `Override Appearance... on the one clicked: ${j}`);
-  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Hide others","Show others","Show all","Override Appearance...",' +
+  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Reveal 2","Hide others",' +
+      '"Show others","Show all","Override Appearance...",' +
     '"Remove Appearance Override 2"]' && JSON.stringify(mu.remove.owns) === '[null,null,null]',
     `Remove on the selection: ${j}`);
-  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' &&
+  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]' &&
     JSON.stringify(mu.outside.owns) === '[null,null,{"hidden":true}]' && JSON.stringify(mu.outside.selected) === both,
     `outside the selection, that one alone: ${j}`);
   // The focus (the outlined row) moved to each row right-clicked, the selection kept.

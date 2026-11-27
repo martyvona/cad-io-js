@@ -34,7 +34,7 @@ export interface NodeInfo { path: string; kind: string; name: string; hidden: bo
 
 /** Everything about the view and the model, as `state()` gives it. */
 export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 'pick' | 'instances' | 'hidden'
-  | 'shown' | 'opacity' | 'triangleEdges' | 'selected'>> {
+  | 'shown' | 'opacity' | 'triangleEdges' | 'revealed' | 'unrevealed' | 'selected'>> {
   cut: NonNullable<ViewState['cut']>;
   render: RenderSettings;
   tree: { open: boolean; detail: boolean };
@@ -133,14 +133,17 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     return { ids, missing: missing.map((p) => `no node at ${p}`) };
   };
 
-  const appearance = (): Pick<FullState, 'hidden' | 'shown' | 'opacity' | 'triangleEdges'> => {
+  const appearance = (): Pick<FullState, 'hidden' | 'shown' | 'opacity' | 'triangleEdges' | 'revealed' |
+    'unrevealed'> => {
     const list = viewer.nodes?.overrides() ?? [];
     return { hidden: list.filter((o) => o.hidden === true).map((o) => o.path),
       shown: list.filter((o) => o.hidden === false).map((o) => o.path),
       opacity: list.flatMap((o) => o.transparent === undefined ? [] : [{ path: o.path,
         alpha: o.transparent ? o.alpha ?? 1 : 'default' as const }]),
       triangleEdges: list.flatMap((o) => o.triangleEdges === undefined ? [] : [{ path: o.path,
-        on: o.triangleEdges }]) };
+        on: o.triangleEdges }]),
+      revealed: list.filter((o) => o.reveal === true).map((o) => o.path),
+      unrevealed: list.filter((o) => o.reveal === false).map((o) => o.path) };
   };
 
   const state = (): FullState => {
@@ -193,6 +196,9 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       (p) => `no node at ${p}`));
     if (st.triangleEdges) problems.push(...ui.setOverrides(st.triangleEdges.map(({ path, on }) => ({ path,
       triangleEdges: on })), ['triangleEdges']).map((p) => `no node at ${p}`));
+    if (st.revealed || st.unrevealed) problems.push(...ui.setOverrides([...(st.revealed ?? []).map((path) => ({ path,
+      reveal: true })), ...(st.unrevealed ?? []).map((path) => ({ path, reveal: false }))], ['reveal']).map(
+      (p) => `no node at ${p}`));
     if (st.opacity) problems.push(...ui.setOverrides(st.opacity.map(({ path, alpha }) => ({ path,
       ...(alpha === 'default' ? { transparent: false } : { transparent: true, alpha }) })), ['opacity']).map(
       (p) => `no node at ${p}`));
@@ -255,6 +261,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
     const render = { ...renderChanges(s.render), ...(spell ? { edgeStyle: s.render.edgeStyle } : {}) };
     const view: ViewState = { camera: s.camera, cut: s.cut, caps: s.caps, render, tree: s.tree, pick: s.pick,
       instances: s.instances, hidden: s.hidden, shown: s.shown, opacity: s.opacity, triangleEdges: s.triangleEdges,
+      revealed: s.revealed, unrevealed: s.unrevealed,
       selected: s.selected };
     const url = new URL(location.pathname, location.origin);
     const from = ui.currentUrl();

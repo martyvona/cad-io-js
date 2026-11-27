@@ -97,3 +97,25 @@ test('shownEdits: a root part hidden and made transparent, by its reference amon
   model.setHidden([loose], true);
   assert.equal(top(t(shownEdits(s, model, graph))).visible, false);
 });
+
+test("shownEdits: while something's revealed, what isn't at Reveal alpha whatever its own; a revealed face kept",
+  () => {
+  const { s, graph, model, plates } = setup();
+  const [left, second] = plates as [number, number];
+  model.setOpacity([second], 0.6);
+  model.setOverride(left, { reveal: true });
+  const r = applied(s, shownEdits(s, model, graph, 0.2));
+  // The revealed as it was; the second (overridden 0.6) at 0.2 (recoloured whole by the file: no face colour); the
+  // file's hidden one hidden.
+  assert.deepEqual(r.map((p) => [p.visible, p.opacity, p.face7]), [[true, 1, 1], [true, 0.2, undefined],
+    [false, 1, 1]]);
+  // A face of the ghost revealed: its own (the placement's override, 0.6); a face of the revealed not: at 0.2.
+  const face7 = (part: number) => detailOf(model, part).find((i) => model.nodes[i]!.name === 'face #7')!;
+  model.setOverride(face7(second), { reveal: true });
+  model.setOverride(face7(left), { reveal: false });
+  const t = applied(s, shownEdits(s, model, graph, 0.2));
+  assert.deepEqual(t.slice(0, 2).map((p) => [p.opacity, p.face7]), [[1, 0.2], [0.2, 0.6]]);
+  // Nothing revealed: as before.
+  model.clearReveal();
+  assert.deepEqual(applied(s, shownEdits(s, model, graph, 0.2)).map((p) => p.opacity), [1, 0.6, 1]);
+});

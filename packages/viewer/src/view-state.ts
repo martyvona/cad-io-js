@@ -10,13 +10,14 @@
 //   &cut=x:12.5  &cut=y:-3:flip  &caps=0
 //   &ao=0  &smaa=0  &edges=0  &triangleEdges=all  &shininess=50  &aoIntensity=3  &aoRadius=16  &aoQuality=Low
 //   &edgeStyle=thin  &edgeWidth=2  &specular=0.3  &ambient=1  &light=2.5  &capStyle=parts  &hatchWidth=2  &vertices=1
+//   &revealAlpha=0.2
 //   &tree=0  &detail=1  &pick=detail  &instances=1
-//   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &alpha=default:<path>  &tri=on:<path>  &select=<path>
-//                                              each repeated
+//   &hide=<path>  &show=<path>  &alpha=0.3:<path>  &alpha=default:<path>  &tri=on:<path>  &reveal=<path>
+//   &unreveal=<path>  &select=<path>           each repeated
 //
-// hide=, show=, alpha= and tri= are the appearance overrides (model.ts): a node hidden, shown within something
-// hidden, its opacity (`default` the file's own), its triangle edges on or off, each holding for what's below it
-// unless overridden there; together, exactly these (the others gone).
+// hide=, show=, alpha=, tri=, reveal= and unreveal= are the appearance overrides (model.ts): a node hidden, shown
+// within something hidden, its opacity (`default` the file's own), its triangle edges on or off, revealed or not
+// (Reveal), each holding for what's below it unless overridden there; together, exactly these (the others gone).
 //
 // Everything is optional: what's absent is left as it is. Numbers are written with at most 6 decimals.
 
@@ -63,6 +64,10 @@ export interface ViewState {
   opacity?: { path: string; alpha: number | 'default' }[];
   /** Nodes with a triangle edges override: exactly these. */
   triangleEdges?: { path: string; on: boolean }[];
+  /** Nodes with an override `reveal: true` (model.ts's Reveal): with `unrevealed`, exactly these overrides of it. */
+  revealed?: string[];
+  /** Nodes with an override `reveal: false`: not revealed within something revealed. */
+  unrevealed?: string[];
   selected?: string[];
   /**
    * The meshing settings (B-Rep Meshing's, as tessellation.ts has them): for the next model meshed or Mesh again,
@@ -78,7 +83,7 @@ const QUALITIES: readonly RenderSettings['aoQuality'][] = ['Performance', 'Low',
 const FLAGS = ['ao', 'smaa', 'edges', 'vertices'] as const;
 const TRIANGLE_EDGES: readonly RenderSettings['triangleEdges'][] = ['off', 'selected', 'all'];
 const NUMBERS = ['shininess', 'aoIntensity', 'aoRadius', 'edgeWidth', 'specular', 'ambient', 'light',
-  'hatchWidth', 'depthOffset', 'highlightWidth'] as const;
+  'hatchWidth', 'depthOffset', 'highlightWidth', 'revealAlpha'] as const;
 /** Colours, `#rrggbb`, in links as the six digits. */
 const COLOURS = ['highlightColor', 'selectionColor', 'alertColor'] as const;
 /** Settings that are one of a few words. */
@@ -116,6 +121,8 @@ export function toQuery(s: ViewState): [string, string][] {
   for (const p of s.hidden ?? []) q.push(['hide', p]);
   for (const p of s.shown ?? []) q.push(['show', p]);
   for (const o of s.triangleEdges ?? []) q.push(['tri', `${o.on ? 'on' : 'off'}:${o.path}`]);
+  for (const p of s.revealed ?? []) q.push(['reveal', p]);
+  for (const p of s.unrevealed ?? []) q.push(['unreveal', p]);
   for (const o of s.opacity ?? []) q.push(['alpha', `${o.alpha === 'default' ? 'default' : num(o.alpha)}:${o.path}`]);
   for (const p of s.selected ?? []) q.push(['select', p]);
   return q;
@@ -203,6 +210,8 @@ export function fromQuery(params: URLSearchParams): { state: ViewState; problems
   if (instances !== undefined) state.instances = instances;
   if (params.has('hide')) state.hidden = params.getAll('hide');
   if (params.has('show')) state.shown = params.getAll('show');
+  if (params.has('reveal')) state.revealed = params.getAll('reveal');
+  if (params.has('unreveal')) state.unrevealed = params.getAll('unreveal');
   if (params.has('tri')) {
     state.triangleEdges = [];
     for (const t of params.getAll('tri')) {
