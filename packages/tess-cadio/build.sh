@@ -69,7 +69,7 @@ if [ "$MODE" = module ]; then
       -o dist/tess_cadio.mjs -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=tessCadio -sENVIRONMENT=web,worker,node \
       -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=16MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=1MB \
       -sEXPORTED_FUNCTIONS="[$names,\"_malloc\",\"_free\"]" \
-      -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPU32","HEAPF32","UTF8ToString"]'
+      -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPU32","HEAPF32","HEAPF64","UTF8ToString"]'
   )
   echo "$PWD/dist/tess_cadio.mjs"
   exit

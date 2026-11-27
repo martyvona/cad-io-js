@@ -1797,6 +1797,10 @@ struct PartMesher::Impl {
     out.capExpected = domainExpected(d, *criteria[f]);
     out.cap = std::min(o.capCeiling, std::max(o.capFloor, o.capMultiple * out.capExpected));
     if (capKeep[f] > 0) out.cap = std::min(out.cap, capKeep[f]);  // (a retry keeps its first cap)
+    if (o.expectedOnly) {
+      out.cause = "expected count only (PartOptions::expectedOnly)";
+      return;
+    }
     mo.maxPoints = o.maxPointsPerFace >= 0 ? o.maxPointsPerFace : static_cast<int>(std::min(out.cap / 2, 1e9));
     mo.minAngle = o.minAngle;
     if (o.progress) mo.onWork = [this] { o.progress(at); };
@@ -2293,7 +2297,12 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   }
   if (I.o.creases) I.findFaceCreases();
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
-  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f), I.capCheck(f);
+  for (int f = 0; f < nf; f++, I.at.facesDone++) {
+    I.meshFace(f);
+    if (!I.o.expectedOnly) I.capCheck(f);
+  }
+  // (PartOptions::expectedOnly: no triangles to check, retry or split; each face's first meshing's count is all.)
+  if (I.o.expectedOnly) return;
   // (PartOptions::retryStretch: faces far over their patches, or whose meshing failed, meshed again at the capped
   // stretch, now and once more after the rounds.)
   for (int f = 0; f < nf; f++)

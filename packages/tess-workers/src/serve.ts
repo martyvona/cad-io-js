@@ -3,8 +3,9 @@
 // unless the worker's entry imported it already and passes it in `modules`: a bundler (the viewer's Vite build) can
 // only bundle modules imported statically.
 
-import { setAreaOracle, TessellationError, type TessellationResult, type Tessellator, type TessellatorInfo }
-  from 'cad-scene';
+import { openBrep } from 'cad-brep';
+import { faceRecords, type RecordInputs, setAreaOracle, sha256, TessellationError, type TessellationRequest,
+  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 import { AREA_ORACLE_ID, areaOracle, init as initOracle } from 'cad-oracle';
 import type { WorkerPort } from './protocol.ts';
 
@@ -43,7 +44,68 @@ function buffers(r: TessellationResult): ArrayBuffer[] {
   for (const a of [r.positions, r.normals, r.indices, r.edgePositions, r.curvePositions, r.points,
     r.outlinePositions]) if (
     a && a.buffer instanceof ArrayBuffer) out.add(a.buffer);
+  if (r.records) for (const a of Object.values(r.records)) if (ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer)
+    out.add(a.buffer);
   return [...out];
+}
+
+/** What tess-cadio gives a face's record (g, h): its part size and each face's expected count, for a request. */
+interface RecordHelper {
+  partSize(data: Uint8Array): number;
+  expectedCounts(req: Pick<TessellationRequest, 'data' | 'linearDeflection' | 'angularDeflection' | 'minAngle'
+    | 'analysis'>): Map<number, number>;
+}
+const isHelper = (t: unknown): t is RecordHelper => typeof (t as RecordHelper | undefined)?.expectedCounts
+  === 'function' && typeof (t as RecordHelper).partSize === 'function';
+
+/**
+ * tess-cadio with its defaults, for the records of another backend's results: loaded on the first request asking
+ * for records (only then: it's a few MB of WebAssembly), unless the backend is tess-cadio, whose own instance gives
+ * the part's size (its (h) is what it reports).
+ */
+let helper: Promise<RecordHelper> | undefined;
+const recordHelper = (tess: Tessellator) => isHelper(tess) ? Promise.resolve(tess) : helper ??= (async () => {
+  const { CadioTessellator } = await import('tess-cadio') as { CadioTessellator: new () => Tessellator };
+  const t = new CadioTessellator();
+  await t.init();
+  if (!isHelper(t)) throw new Error('tess-cadio has no partSize and expectedCounts');
+  return t;
+})();
+
+/**
+ * The last parts' record inputs by a hash of their payload, analysis and the request's deflections and minAngle: a
+ * part meshed by a primary and then a fallback (two pools, each its own workers, so per worker only when one worker
+ * meshes it twice) or asked again counted once.
+ */
+const inputsCache = new Map<string, RecordInputs>();
+const INPUTS_KEPT = 8;
+
+/** The result's triage records (cad-scene's records.ts) for its request, (g) and (h) by tess-cadio. */
+async function withRecords(tess: Tessellator, req: TessellationRequest, r: TessellationResult): Promise<void> {
+  if (req.format !== 'cad-brep') return;
+  const data = new Uint8Array(req.data);
+  const model = openBrep(data.buffer);
+  const hex = async (u: Uint8Array) => Array.from(await sha256(new Uint8Array(u)), (x) => x.toString(16)
+    .padStart(2, '0')).join('');
+  const key = `${isHelper(tess) ? 'own' : 'helper'}:${req.recordExpected ? 1 : 0}:${req.linearDeflection},`
+    + `${req.angularDeflection},${req.minAngle ?? ''}:${await hex(data)}:${req.analysis ? await hex(req.analysis) : ''}`;
+  let inputs = inputsCache.get(key);
+  if (!inputs) {
+    try {
+      // (tess-cadio's own results: (h) the counts it capped by, which it reports; another backend's only where the
+      // request pays for tess-cadio's first meshing, recordExpected, else unmeasured here.)
+      const h = await recordHelper(tess);
+      inputs = isHelper(tess) || !req.recordExpected ? { partSize: h.partSize(req.data) }
+        : { partSize: h.partSize(req.data), expected: h.expectedCounts(req) };
+    } catch (e) {
+      r.diagnostics.push({ severity: 'warning', message: `triage records without part size and expected counts: `
+        + message(e) });
+      inputs = {};
+    }
+    inputsCache.set(key, inputs);
+    if (inputsCache.size > INPUTS_KEPT) inputsCache.delete(inputsCache.keys().next().value!);
+  }
+  r.records = faceRecords(req, r, model, inputs);
 }
 
 /** The buffers of the typed arrays in a job's output (plain objects and arrays, walked), once each. */
@@ -112,6 +174,7 @@ export function serve(port: WorkerPort, modules: Record<string, Record<string, u
       const result = await tess.tessellate(msg.req, (progress) => port.post({ type: 'progress', id, progress,
         ...cpu() }, []));
       if (failed) result.diagnostics.push({ severity: 'warning', message: failed });
+      if (msg.req.records) await withRecords(tess, msg.req, result);
       const memory = tess.memoryBytes?.();
       port.post({ type: 'result', id: msg.id, result, ...(memory === undefined ? {} : { memory }), ...cpu() },
         buffers(result));

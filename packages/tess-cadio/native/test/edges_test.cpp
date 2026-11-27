@@ -7,6 +7,7 @@
 #include <tess_cadio/edges.h>
 #include <cstring>
 #include <tess_cadio/mesh2d.h>
+#include <tess_cadio/part.h>
 
 #include <cad_geom/curve.h>
 #include <cad_geom/surface.h>
@@ -1743,3 +1744,147 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
   }
 }
 
+
+TEST_CASE("a vertex merging an end's two corners (mergedCornerStrip, Top): each use's ends at its own projection's") {
+  // A strip 1.5 wide under an uncertainty of 1, each end's two corners one vertex, at the bottom or (Top) the top:
+  // the projected uses' ends at the other corners are 1.5 from the vertex's one foot, so they keep their own and meet
+  // as their curves do; the loop the rectangle (snapped to the foot, the far corners all at it, the sides crossed).
+  for (const char* name : {"mergedCornerStrip", "mergedCornerStripTop"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    for (int c = 0; c < 4; c++) CHECK(em.coedge(c).projected);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 1u);
+    double area = 0, out = 0;
+    const auto& L = fb.loops[0];
+    for (size_t k = 0; k < L.size(); k++) {
+      Vec2 a = L[k].uv, b = L[(k + 1) % L.size()].uv;
+      area += 0.5 * (a.x * b.y - b.x * a.y);
+      out = std::fmax(out, std::fmax(std::fmax(-a.x, a.x - 40), std::fmax(-a.y, a.y - 1.5)));
+  }
+  if (!(std::fabs(area - 60) < 1e-9) || !(out < 1e-9))
+    std::printf("  %s: (u, v) area %.12g, farthest outside the rectangle %g\n", name, area, out);
+  CHECK(std::fabs(area - 60) < 1e-9);
+  CHECK(out < 1e-9);
+  PartOptions po;
+  po.d.linear = 0.1, po.d.angular = 0.26;
+  PartMesher pm(m, po);
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  }
+}
+
+TEST_CASE("a junction's uses at their vertex's foot unless their curves meet away from it (offCorner*)") {
+  // The square's corner at the origin a vertex its sides' curves miss, under a tolerance of 0.2: curves ending 0.36
+  // apart at 0.42-0.5 from the vertex (Apart) or meeting within the tolerance of it (Near) meet at its foot; curves
+  // meeting 0.71 from it (Met), at their own ends; ends 1 and 0.91 from it, 0.0996 apart (Uneven: a tenth of the
+  // nearer's distance the measure), at its foot.
+  const struct { const char* name; Vec2 corner; } cases[] = {
+    {"offCornerApart", {0, 0}}, {"offCornerNear", {0, 0}}, {"offCornerMet", {0.5, 0.5}}, {"offCornerUneven", {0, 0}}};
+  for (const auto& k : cases) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    for (int c = 0; c < 4; c++) CHECK(em.coedge(c).projected);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 1u);
+    // The loop's points near the corner: exactly one, at the expected (u, v).
+    int near = 0, at = 0;
+    for (const auto& p : fb.loops[0])
+      if (norm(p.uv) < 1) near++, at += norm(p.uv - k.corner) < 1e-9;
+    if (near != 1 || at != 1) std::printf("  %s: %d points near the corner, %d at it\n", k.name, near, at);
+    CHECK(near == 1);
+    CHECK(at == 1);
+  }
+}
+
+TEST_CASE("an internal use's end at its vertex's foot, no other use at its junction (slitOffCorner)") {
+  cadgeom::Model m = load("slitOffCorner");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& s = em.coedge(4);
+  REQUIRE(s.projected);
+  REQUIRE(s.uv.size() >= 2u);
+  const Vec2 end = s.index.front() == 0 ? s.uv.front() : s.uv.back();
+  if (!(norm(end) < 1e-9)) std::printf("  slitOffCorner: the slit's end at (%g, %g)\n", end.x, end.y);
+  CHECK(norm(end) < 1e-9);
+}
+
+TEST_CASE("a hole touching its outer loop at the hole's vertex (tangentHole*): the loops' points there one (u, v)") {
+  // The hole's p-curve's end there 4e-15 from the vertex's foot, the outer loop's projected arcs at the foot: given
+  // ends at a vertex the boundary touches itself at take the foot too, within the tolerance (SplitPcurve, Pcurves),
+  // not past it (PcurveOff, 5e-5 off at a tolerance of 1e-5, its own end). Unsplit, the outer circle's chord passes
+  // under the vertex: the boundary crosses itself (healing splits the circle there).
+  const struct { const char* name; bool meshes; double holeV; } cases[] = {{"tangentHoleSplit", true, 26},
+    {"tangentHoleSplitPcurve", true, 26}, {"tangentHoleSplitPcurves", true, 26},
+    {"tangentHoleSplitPcurveOff", false, 26 + 5e-5}, {"tangentHole", false, NAN}, {"tangentHolePcurve", false, NAN}};
+  for (const auto& k : cases) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 2u);
+    if (std::isfinite(k.holeV)) {
+      // Each loop's point nearest (0, 26): the outer's at the foot, the hole's there too (holeV 26) or at its own
+      // p-curve's end.
+      Vec2 at[2];
+      for (int l = 0; l < 2; l++) {
+        double best = INFINITY;
+        for (const auto& p : fb.loops[l])
+          if (norm(p.uv - Vec2{0, 26}) < best) best = norm(p.uv - Vec2{0, 26}), at[l] = p.uv;
+      }
+      if (!(at[0].x == 0 && at[0].y == 26 && norm(at[1] - Vec2{0, k.holeV}) < (k.holeV == 26 ? 1e-300 : 1e-12)))
+        std::printf("  %s: outer (%.17g, %.17g), hole (%.17g, %.17g)\n", k.name, at[0].x, at[0].y, at[1].x, at[1].y);
+      CHECK(at[0].x == 0);
+      CHECK(at[0].y == 26);
+      if (k.holeV == 26) {
+        CHECK(at[1].x == 0);
+        CHECK(at[1].y == 26);
+      } else {
+        CHECK(norm(at[1] - Vec2{0, k.holeV}) < 1e-12);
+      }
+    }
+    PartOptions po;
+    po.d.linear = 0.1, po.d.angular = 0.26;
+    PartMesher pm(m, po);
+    if ((pm.face(0).status == cadgeom::Status::ok) != k.meshes)
+      std::printf("  %s: status %d %s\n", k.name, int(pm.face(0).status), pm.face(0).cause.c_str());
+    CHECK((pm.face(0).status == cadgeom::Status::ok) == k.meshes);
+  }
+}
+
+TEST_CASE("a seam's vertices, each visited twice, keep their copies (seamPcurves, Shifted)") {
+  // The loop passes each seam vertex twice, on the seam's two sides: a given p-curve's end there takes the vertex's
+  // foot on its own side (u 0 or 2 pi, a period over where the p-curves are), not the other's.
+  for (const char* name : {"seamPcurves", "seamPcurvesShifted"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    const double shift = std::strcmp(name, "seamPcurves") ? 2 * M_PI : 0;
+    // The seam's uses: going up at u = 2 pi + shift, coming down at shift, each end too.
+    const double want[2] = {2 * M_PI + shift, shift};
+    for (int k = 0; k < 2; k++) {
+      const CoedgeSamples& s = em.coedge(k == 0 ? 1 : 3);
+      REQUIRE(s.fromPcurve);
+      double worst = 0;
+      for (const Vec2& p : s.uv) worst = std::fmax(worst, std::fabs(p.x - want[k]));
+      if (!(worst < 1e-9)) std::printf("  %s: use %d's u off %g by %g\n", name, k == 0 ? 1 : 3, want[k], worst);
+      CHECK(worst < 1e-9);
+    }
+    FaceBoundary fb = em.face(0);
+    CHECK(fb.status == cadgeom::Status::ok);
+  }
+}

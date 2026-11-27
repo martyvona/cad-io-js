@@ -1,9 +1,11 @@
 // Caching tessellation results per part: a Tessellator that answers from a store when it has seen the request, keyed
 // by a hash of the payload, the backend's name and version, and the request's meshing options (not edges or measures,
-// which don't change the triangles: an entry records whether its request asked for them). Failures are cached too.
+// which don't change the triangles: an entry records whether its request asked for them; nor triage records, kept
+// with the version of their measuring). Failures are cached too.
 
-import { failedPart, sha256 as digest, TessellationError, type TessellationProgress, type TessellationRequest,
-  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { failedPart, RECORDS_VERSION, recordsFromJson, recordsJson, sha256 as digest, TessellationError,
+  type TessellationProgress, type TessellationRequest, type TessellationResult, type Tessellator, type TessellatorInfo }
+  from 'cad-scene';
 
 /** Where cached results live: bytes by key, the least recently used evicted beyond `maxBytes`. */
 export interface CacheStore {
@@ -70,17 +72,19 @@ export async function cacheKey(info: TessellatorInfo, req: TessellationRequest):
 /**
  * What a cache holds for a request, and when (milliseconds since the epoch): the backend's result, with what the
  * request asked for besides the triangles (`edges`, `measures`: the result has what the backend could give of
- * them), or the TessellationError (or WebAssembly trap) the request threw, with its time limit if it ran out of time.
+ * them; `records`, the version of the triage records' measuring, records.ts's RECORDS_VERSION, 0 where not asked), or the TessellationError (or WebAssembly trap) the request threw, with its time limit if it ran out of time.
  */
 export type CacheEntry =
-  | { at: number; result: TessellationResult; edges: boolean; measures: boolean }
+  | { at: number; result: TessellationResult; edges: boolean; measures: boolean; records?: number }
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
 type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds'
-  | 'outlines' | 'measures' | 'oracle' | 'defects' | 'backend' | 'diagnostics'>> & {
+  | 'outlines' | 'measures' | 'oracle' | 'defects' | 'backend' | 'reported' | 'diagnostics'>> & {
   at: number;
   /** What a result's request asked for. */
-  asked?: { edges: boolean; measures: boolean };
+  asked?: { edges: boolean; measures: boolean; records?: number };
+  /** The result's triage records (cad-scene's recordsJson). */
+  records?: Record<string, unknown>;
   thrown?: { message: string; timeoutMs?: number };
   /**
    * Lengths of positions, normals, indices, edgePositions, curvePositions, points, outlinePositions (-1: absent).
@@ -99,13 +103,15 @@ export function encodeEntry(e: CacheEntry): Uint8Array {
     r?.outlinePositions];
   const header: Header = { at: e.at, n: arrays.map((a) => a?.length ?? -1) as Header['n'] };
   if (r) {
-    header.asked = { edges: (e as { edges: boolean }).edges, measures: (e as { measures: boolean }).measures };
+    const x = e as { edges: boolean; measures: boolean; records?: number };
+    header.asked = { edges: x.edges, measures: x.measures, ...(x.records ? { records: x.records } : {}) };
     Object.assign(header, { origin: r.origin, faces: r.faces, diagnostics: r.diagnostics },
       r.edges ? { edges: r.edges } : {});
     Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {},
       r.outlines ? { outlines: r.outlines } : {}, r.measures ? { measures: r.measures } : {},
       r.oracle ? { oracle: r.oracle } : {}, r.defects ? { defects: r.defects } : {},
-      r.backend !== undefined ? { backend: r.backend } : {});
+      r.backend !== undefined ? { backend: r.backend } : {}, r.reported ? { reported: r.reported } : {},
+      r.records ? { records: recordsJson(r.records) } : {});
   }
   else if ('thrown' in e) header.thrown = e.thrown;
   const json = new TextEncoder().encode(JSON.stringify(header));
@@ -163,7 +169,11 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (header.oracle) r.oracle = header.oracle;
   if (header.defects) r.defects = header.defects;
   if (header.backend !== undefined) r.backend = header.backend;
-  return { at: header.at, result: r, edges: header.asked!.edges, measures: header.asked!.measures };
+  if (header.reported) r.reported = header.reported;
+  const records = header.records ? recordsFromJson(header.records) : undefined;
+  if (records) r.records = records;
+  return { at: header.at, result: r, edges: header.asked!.edges, measures: header.asked!.measures,
+    ...(records && header.asked!.records ? { records: header.asked!.records } : {}) };
 }
 
 const align = (n: number) => (n + 3) & ~3;
@@ -274,7 +284,8 @@ export class CachedTessellator implements Tessellator {
         { at: Date.now(), thrown: { message: `${e.name}: ${e.message}` } });
       throw e;
     }
-    await this.put(key, { at: Date.now(), result: r, edges: req.edges ?? false, measures: req.measures ?? false });
+    await this.put(key, { at: Date.now(), result: r, edges: req.edges ?? false, measures: req.measures ?? false,
+      ...(req.records && r.records ? { records: RECORDS_VERSION } : {}) });
     return r;
   }
 
@@ -289,12 +300,13 @@ export class CachedTessellator implements Tessellator {
 
   /**
    * Whether an entry answers a request: a result if its request asked for at least the edges and measures this one
-   * does (a backend that gave none when asked had none to give: a part without faces, a backend that can't measure),
+   * does, and for records measured as now (RECORDS_VERSION) where this one asks for them (a backend that gave none when asked had none to give: a part without faces, a backend that can't measure),
    * else the part is meshed again and the new entry replaces it; a failure, as the options and time limit say (edges
    * and measures don't change how meshing fails).
    */
   private reusable(e: CacheEntry, req: TessellationRequest): boolean {
-    if ('result' in e && !isFailure(e)) return (!req.edges || e.edges) && (!req.measures || e.measures);
+    if ('result' in e && !isFailure(e)) return (!req.edges || e.edges) && (!req.measures || e.measures)
+      && (!req.records || e.records === RECORDS_VERSION);
     if (this.opts.retryFailures) return false;
     const ran = 'thrown' in e ? e.thrown.timeoutMs : undefined;
     if (ran === undefined) return true;

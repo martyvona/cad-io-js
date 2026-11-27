@@ -295,6 +295,11 @@ Options:
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default 1024)
       --strict             exit 3 if a part fails to tessellate (the output is written all the same)
+      --target <name>      rendering, manifold or analysis: each face's mesh classed by the target's levels
+                           (docs/triage.md), the classes said per part in the summary; nothing excluded or failed
+                           yet, and the target's meshing limits not yet applied (default: none)
+      --describe-target <name>
+                           print the target's levels, each criterion's true limit, and its meshing limits; exit
   -v, --verbose            the summary lists every error, warning and note, not the first 20 errors and warnings
   -q, --quiet              no summary on standard error
   -h, --help               show this help

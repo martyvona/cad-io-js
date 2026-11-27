@@ -81,8 +81,12 @@ export function longPlate(): BrepBuilder {
  * cad-brep's seam cylinder with no p-curves: every use by inversion, the seam's two sides from their neighbours.
  * With `sense` false the face is turned and its loop isn't: the sides its neighbours give break the rule.
  */
-function seam(sense: boolean): BrepBuilder {
+function seam(sense: boolean, pcurves = false, shift = 0): BrepBuilder {
   const b = new BrepBuilder();
+  // (With `pcurves`, each use's: u = t + shift round the circles, the seam's at u = 2 pi + shift going up and shift
+  // coming down, v = z.)
+  const p = (u: number, v: number, du: number, dv: number) =>
+    pcurves ? { pcurve: b.addCurve(line2([u + shift, v], [du, dv])) } : {};
   const bottom = b.addCurve({ kind: 'circle', position: AXIS, radius: 2 });
   const top = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, 5] }, radius: 2 });
   const line = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [0, 0, 1], magnitude: 1 });
@@ -92,8 +96,10 @@ function seam(sense: boolean): BrepBuilder {
   const es = b.addEdge({ curve: line, start: v0, end: v1, sameSense: true });
   const face = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: sense,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
-      { edge: eb, orientation: 'forward' }, { edge: es, orientation: 'forward' },
-      { edge: et, orientation: 'reversed' }, { edge: es, orientation: 'reversed' }] }] });
+      { edge: eb, orientation: 'forward', ...p(0, 0, 1, 0) },
+      { edge: es, orientation: 'forward', ...p(2 * Math.PI, 0, 0, 1) },
+      { edge: et, orientation: 'reversed', ...p(0, 5, 1, 0) },
+      { edge: es, orientation: 'reversed', ...p(0, 0, 0, 1) }] }] });
   sheet(b, face);
   return b;
 }
@@ -418,6 +424,9 @@ export function cuspEdge(near = 0): BrepBuilder {
 export const nearCusp6 = (): BrepBuilder => cuspEdge(1e-6);
 export const seamByInversion = (): BrepBuilder => seam(true);
 export const seamFlipped = (): BrepBuilder => seam(false);
+/** seam with p-curves; Shifted, a period over (u from 2 pi). */
+export const seamPcurves = (): BrepBuilder => seam(true, true);
+export const seamPcurvesShifted = (): BrepBuilder => seam(true, true, 2 * Math.PI);
 
 /**
  * A triangle on z = 0: a polyline edge with a corner, (0, 0) to (1, 0) to (1, 1) (parameter 0 to 2), and a line
@@ -902,6 +911,76 @@ export function pentagramLoop(): BrepBuilder {
   });
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A plane strip 40 long and `width` wide (on z = 0, from the origin along x) whose corners at each end are one vertex
+ * (a source's merge: the end's two corners within the vertex's tolerance, its curve's ends `width` apart), under an
+ * uncertainty of 1: each end a line from its vertex back to it, each side a line between the two vertices, its ends
+ * at their corners up to `width` off. The vertices at the bottom corners, or with `atTop` the top ones (the mirror:
+ * each use's end far from its vertex where the other's is at it). trj3_s1-al-214 #6704's #1342 and #1362 (1.0001
+ * wide, ends 1 mm arcs).
+ */
+export function mergedCornerStrip(width = 1.5, atTop = false): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1 });
+  const y = atTop ? width : 0;
+  const A = b.addVertex({ point: [0, y, 0], tolerance: 1.1 * width });
+  const B = b.addVertex({ point: [40, y, 0], tolerance: 1.1 * width });
+  const line = (p: number[], q: number[], start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line',
+    point: [p[0]!, p[1]!, 0], direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 }), start, end,
+    sameSense: true, range: [0, 1] });
+  // (Counter-clockwise: the bottom side A to B, B's end up, the top side back B to A, A's end down.)
+  const coedges = [line([0, 0], [40, 0], A, B), line([40, 0], [40, width], B, B), line([40, width], [0, width], B, A),
+    line([0, width], [0, 0], A, A)].map((edge) => ({ edge, orientation: 'forward' as const }));
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A plane square 10 x 10 (on z = 0) whose corner at the origin is a vertex its two sides' curves miss, under an
+ * uncertainty of 0.2: the bottom side's line starts at `bottom`, the left side's ends at `left` (each [x, y]), the
+ * other corners at their vertices.
+ */
+export function offCornerSquare(bottom: number[], left: number[]): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const O = b.addVertex({ point: [0, 0, 0], tolerance: 1 });
+  const V = [[10, 0], [10, 10], [0, 10]].map((p) => b.addVertex({ point: [p[0]!, p[1]!, 0] }));
+  const line = (p: number[], q: number[], start: number, end: number) => b.addEdge({ curve: b.addCurve({ kind: 'line',
+    point: [p[0]!, p[1]!, 0], direction: [q[0]! - p[0]!, q[1]! - p[1]!, 0], magnitude: 1 }), start, end,
+    sameSense: true, range: [0, 1] });
+  const coedges = [line(bottom, [10, 0], O, V[0]!), line([10, 0], [10, 10], V[0]!, V[1]!),
+    line([10, 10], [0, 10], V[1]!, V[2]!), line([0, 10], left, V[2]!, O)]
+    .map((edge) => ({ edge, orientation: 'forward' as const }));
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A plane face (z = 0) bounded by a circle of radius 22 about (0, 4) with a hole, a circle of radius 16 about (0, 10)
+ * touching it from inside at (0, 26), the hole's vertex: the outer circle one closed edge (its vertex at the bottom)
+ * or, `split`, two arcs meeting at the hole's vertex; the hole with its p-curve (exact, `shift` up in v) or without,
+ * the arcs with theirs (`outerPcurves`) or without. ec_turbine-A #11's #384 (a B-spline hole touching its circle).
+ */
+export function tangentHole(split: boolean, pcurve: boolean, shift = 0, outerPcurves = false): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-5 });
+  const outer = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 4, 0] }, radius: 22 });
+  const hole = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 10, 0], xDir: [0, 1, 0] }, radius: 16 });
+  const top = b.addVertex({ point: [0, 26, 0] }), bottom = b.addVertex({ point: [0, -18, 0] });
+  const eh = b.addEdge({ curve: hole, start: top, end: top, sameSense: true });
+  const outerEdges = split
+    ? [b.addEdge({ curve: outer, start: bottom, end: top, sameSense: true, range: [1.5 * Math.PI, 2.5 * Math.PI] }),
+      b.addEdge({ curve: outer, start: top, end: bottom, sameSense: true, range: [0.5 * Math.PI, 1.5 * Math.PI] })]
+    : [b.addEdge({ curve: outer, start: bottom, end: bottom, sameSense: true })];
+  const p = pcurve ? { pcurve: b.addCurve({ kind: 'circle', position: { origin: [0, 10 + shift], xDir: [0, 1] },
+    radius: 16 }) } : {};
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true,
+      coedges: outerEdges.map((edge) => ({ edge, orientation: 'forward' as const, ...(outerPcurves ? { pcurve:
+        b.addCurve({ kind: 'circle', position: { origin: [0, 4], xDir: [1, 0] }, radius: 22 }) } : {}) })) },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: eh, orientation: 'reversed' as const, ...p }] }] }));
   return b;
 }
 
@@ -2574,6 +2653,28 @@ export function slitFromCorner(): BrepBuilder {
 }
 
 /**
+ * slitFromCorner under an uncertainty of 0.2, its slit's line from (0.3, 0.1) (0.32 off the corner's vertex, whose
+ * tolerance is 0.5) to the middle: an internal use, no other use at its junction.
+ */
+export function slitOffCorner(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.2 });
+  const corners = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]];
+  const vs = corners.map((point, k) => b.addVertex({ point, ...(k === 0 ? { tolerance: 0.5 } : {}) }));
+  const line = (p: number[], q: number[], start: number, end: number) => {
+    const l = Math.hypot(q[0]! - p[0]!, q[1]! - p[1]!);
+    return b.addEdge({ curve: b.addCurve({ kind: 'line', point: p,
+      direction: [(q[0]! - p[0]!) / l, (q[1]! - p[1]!) / l, 0], magnitude: 1 }), start, end, sameSense: true,
+      range: [0, l] });
+  };
+  const sides = corners.map((c, k) => line(c, corners[(k + 1) % 4]!, vs[k]!, vs[(k + 1) % 4]!));
+  const slit = line([0.3, 0.1, 0], [0.5, 0.5, 0], vs[0]!, b.addVertex({ point: [0.5, 0.5, 0] }));
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true, coedges: [...sides.map((edge) => ({ edge,
+      orientation: 'forward' as const })), { edge: slit, orientation: 'internal' as const }] }] }));
+  return b;
+}
+
+/**
  * The unit sphere's lune between longitudes 0.5 and 1.5, pole to pole, and a cap of angular radius 0.2 west of it
  * touching its west meridian at the equator: the loop down that meridian leaves and returns to that vertex round the
  * cap, before the south pole's fan. Area 2 + 2 pi (1 - cos 0.2).
@@ -2920,7 +3021,16 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true), pleatStrip, thinTube,
   foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge, poleRowFan, poleRowShort, poleRowNear,
   sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true), narrowArcStrip: () => narrowArcStrip(),
-  pentagramLoop,
+  pentagramLoop, mergedCornerStrip: () => mergedCornerStrip(),
+  mergedCornerStripTop: () => mergedCornerStrip(1.5, true),
+  offCornerApart: () => offCornerSquare([0.5, 0], [0.3, 0.3]),
+  offCornerNear: () => offCornerSquare([0.1, 0.1], [0.1, 0.1]),
+  offCornerMet: () => offCornerSquare([0.5, 0.5], [0.5, 0.5]),
+  offCornerUneven: () => offCornerSquare([1, 0], [0.905, 0.03]), slitOffCorner,
+  tangentHole: () => tangentHole(false, false), tangentHoleSplit: () => tangentHole(true, false),
+  tangentHoleSplitPcurve: () => tangentHole(true, true), tangentHolePcurve: () => tangentHole(false, true),
+  tangentHoleSplitPcurveOff: () => tangentHole(true, true, 5e-5),
+  tangentHoleSplitPcurves: () => tangentHole(true, true, 0, true),
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
@@ -2963,7 +3073,8 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
-  bandByInversion, bore, nistBore, seamByInversion, torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
+  bandByInversion, bore, nistBore, seamByInversion, seamPcurves, seamPcurvesShifted,
+  torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
   pcurveOnlyWest: () => pcurveOnly(true), luneQuarter, luneOnSeam, luneOffPole, luneOffPoleBack,
   luneOffPoleC, luneOffPoleCBack, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,

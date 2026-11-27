@@ -5,13 +5,14 @@
 import type { BrepData } from 'cad-brep';
 import { failedMessage } from './fill.ts';
 import { edgeUsers, openEdges, openEdgesCount, openEdgesMessage } from './open-edges.ts';
+import { composeRecords } from './records.ts';
 import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
 
 /**
- * `a` with the faces `faces` (by id) meshed as in `b`: their triangles, measures, defects and edges' polylines `b`'s
- * (an edge only these faces use `b`'s, else `a`'s where it has one), the rest `a`'s; both results for the same request
- * (one origin). Normals where both have them. Its diagnostics: `a`'s but its errors for faces that failed and open
+ * `a` with the faces `faces` (by id) meshed as in `b`: their triangles, measures, defects, own reports, triage records
+ * (where both have them, else none) and edges' polylines `b`'s (an edge only these faces use `b`'s, else `a`'s where
+ * it has one), the rest `a`'s; both results for the same request (one origin). Normals where both have them. Its diagnostics: `a`'s but its errors for faces that failed and open
  * edges, which are made again for the composite (open edges by openEdges, not yet joined).
  */
 export function composeResults(d: BrepData, a: TessellationResult, b: TessellationResult,
@@ -66,6 +67,12 @@ export function composeResults(d: BrepData, a: TessellationResult, b: Tessellati
     ...(b.defects ?? []).filter((x) => faces.has(x.entityId))];
   if (defects.length) out.defects = defects;
   else delete out.defects;
+  const reported = [...(a.reported ?? []).filter((x) => !faces.has(x.entityId)),
+    ...(b.reported ?? []).filter((x) => faces.has(x.entityId))];
+  if (reported.length) out.reported = reported;
+  else delete out.reported;
+  if (a.records && b.records) out.records = composeRecords(a.records, b.records, faces);
+  else delete out.records;
   // The diagnostics: a's, but its failed faces and open edges told again.
   const kept: Diagnostic[] = a.diagnostics.filter((x) => !(x.severity === 'error'
     && (/^\d+ faces failed to mesh/.test(x.message) || openEdgesCount([x]))));

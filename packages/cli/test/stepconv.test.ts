@@ -483,3 +483,29 @@ test('stepconv: the summary lists the first 20 errors and warnings, errors first
   assert.deepEqual([all[0], all[1], all[25], all[26], all.length], ['  error: error 0', '  warning: warning 0',
     '  warning: warning 24', '  info: info 1', 28]);
 });
+
+test('stepconv: --describe-target prints a target\'s levels and meshing limits; --target says each part\'s faces\' '
+  + 'classes, in a pool and on the main thread, and changes nothing else', { skip }, async () => {
+  const d = await run(['--describe-target', 'manifold']);
+  assert.equal(d.code, 0);
+  assert.match(d.stdout, /^target manifold:\n {2}k /);
+  assert.match(d.stdout, /meshing limits \(not yet applied\)/);
+  assert.equal((await run(['--describe-target', 'cad'])).code, 1);
+  assert.equal((await run(['--target', 'cad', cube, '-o', path.join(tmp, 'x.glb')])).code, 1);
+  const out = path.join(tmp, 'target.glb'), plain = path.join(tmp, 'plain.glb');
+  for (const workers of ['2', '0']) {
+    const r = await run([cube, '-o', out, '--target', 'analysis', '-j', workers, '-v']);
+    assert.equal(r.code, 0, r.stderr);
+    const said = /target analysis: (\d+) faces?, (\d+) in error(?: \([^)]*\))?, (\d+) warned; by criterion: (.*)/
+      .exec(r.stderr);
+    assert.ok(said, r.stderr);
+    assert.equal(said[1], '6');
+    // (A 10 mm cube in 2 triangles a face: its 14 mm diagonals past 5 % of its size where a worker has it,
+    // tess-cadio's; on the main thread no part's size, (g) unverified.)
+    assert.match(said[4]!, workers === '0' ? /unverified [^;]*\bg 6\b/ : /error g 6\b/);
+    // (A foreign backend: its distance and angle unchecked.)
+    assert.match(said[4]!, /unchecked c 6, d 6/);
+    assert.equal((await run([cube, '-o', plain, '-j', workers])).code, 0);
+    assert.deepEqual(fs.readFileSync(out), fs.readFileSync(plain), 'the output the same');
+  }
+});

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { FallbackTessellator, oracleMeasures, TessellationError, type Diagnostic, type TessellationRequest,
+import { FallbackTessellator, faceRecords, oracleMeasures, RECORDS_VERSION, TessellationError, type Diagnostic, type TessellationRequest,
   type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 import { cube } from '../../cad-brep/test/models.ts';
 import { quads } from '../../cad-scene/test/meshes.ts';
@@ -183,6 +183,8 @@ class Fake implements Tessellator {
     if (mode === 1) Object.assign(res, { positions: new Float32Array(), indices: new Uint32Array(), faces: [] });
     // (Measures and edges only when asked for, as OCCT gives them; mode 6 a part without faces, nothing measured.)
     if (!r.measures || mode === 6) delete res.measures;
+    // (Records where asked for, as a pool's worker gives them.)
+    if (r.records) res.records = faceRecords(r, res, undefined, { partSize: 3 });
     if (!r.edges) { delete res.edges; delete res.edgePositions; }
     return res;
   }
@@ -556,3 +558,30 @@ test('a cache hit answers as the miss did, defects included: the fallback choose
   assert.deepEqual(hit.faces, miss.faces);
   assert.deepEqual(hit.diagnostics, miss.diagnostics);
 });
+
+test('triage records kept with their measuring\'s version: an entry without them, or of another version, doesn\'t '
+  + 'answer a request for them', async () => {
+  const fake = new Fake();
+  const store = new MemoryStore();
+  const t = new CachedTessellator(fake, store);
+  // Meshed without records: a request for them is meshed again; its entry then answers both kinds.
+  assert.equal((await t.tessellate(r0())).records, undefined);
+  const first = await t.tessellate({ ...r0(), records: true });
+  assert.equal(fake.calls, 2);
+  assert.ok(first.records && first.records.entityId.length === 2);
+  const again = await t.tessellate({ ...r0(), records: true });
+  assert.equal(fake.calls, 2);
+  assert.deepEqual(again.records, first.records);
+  assert.equal(again.records!.partSize, 3);
+  assert.ok(Number.isNaN(again.records!.expected[0]));
+  await t.tessellate(r0());
+  assert.equal(fake.calls, 2);
+  // An entry of another records version: measured again.
+  const key = await cacheKey(fake.info, r0());
+  const entry = decodeEntry((await store.get(key))!) as { records?: number };
+  assert.equal(entry.records, RECORDS_VERSION);
+  await store.set(key, encodeEntry({ ...(entry as CacheEntry & object), records: RECORDS_VERSION - 1 } as CacheEntry));
+  await t.tessellate({ ...r0(), records: true });
+  assert.equal(fake.calls, 3);
+});
+

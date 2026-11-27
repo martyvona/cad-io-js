@@ -391,6 +391,8 @@ constexpr double kMeshTolerance = 0.05;
  * placed samples' (computeCoedge).
  */
 constexpr double kOffSurfaceTolerances = 100, kOffSurfaceDeflections = 10;
+/** Uses' curve ends at a junction this fraction of their distance to its vertex apart, or nearer, meet there. */
+constexpr double kOwnJunction = 0.1;
 
 double nearest(double x, double to, double period) {
   return period > 0 ? x + std::round((to - x) / period) * period : x;
@@ -483,6 +485,9 @@ struct EdgeMesh::Impl {
   };
   std::vector<Edge> edges;
   std::vector<Coedge> coedges;
+  std::vector<int> prevUse, nextUse;  // by coedge: the bounding uses before and after it in its loop (-1: none)
+  /** (face row, vertex) where the face's boundary touches itself: its loops' junctions there two or more. */
+  std::set<std::pair<int, int>> pinches;
   std::vector<Face> faces;
   /** Each vertex's feet on each face it's used on, searched once (key (vertex << 32) | face row). */
   mutable EndSearchCache endFeet;
@@ -1057,6 +1062,37 @@ struct EdgeMesh::Impl {
 
   // ---- coedges ----
 
+  /** A use's curve's end in 3D at its start (else end) in its loop's direction; false where its edge has no samples. */
+  bool useCurveEnd(int c, bool start, Vec3& P) const {
+    const Edge& E = edges[m.coedgeEdge(c)];
+    if (E.s.t.empty()) return false;
+    const bool atEdgeStart = start != (m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED);
+    const double t = atEdgeStart ? E.s.t.front() : E.s.t.back();
+    P = E.geom ? E.geom->at(t) : atEdgeStart ? E.s.points.front() : E.s.points.back();
+    return true;
+  }
+
+  /**
+   * Whether the junction at a use's start (else end) keeps its two uses' own (u, v) ends, not their vertex's foot:
+   * where their curves meet each other away from the vertex, their ends nearer each other than kOwnJunction x either's
+   * distance to it, one of those past the tolerance. A vertex merging curve ends farther apart than the tolerance
+   * (trj3_s1-al-214 #6704's #574, a strip's two corners 1.0001 apart at a tolerance of 1) has one foot, and every end
+   * snapped to it would take the strip's other corner there too, the sides crossing. Curves ending apart (LMP1
+   * #172974's #1072413, 0.27 apart at 0.56 from the vertex) meet at the foot: the junction keeps one point, the
+   * other use's first span would run from its own end. Decided by the junction, so both its uses decide alike.
+   */
+  bool ownJunctionEnds(int c, bool start) const {
+    const int other = start ? prevUse[c] : nextUse[c];
+    if (other < 0) return false;
+    const Edge& E = edges[m.coedgeEdge(c)];
+    const bool atEdgeStart = start != (m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED);
+    const Vec3 V = atEdgeStart ? E.s.points.front() : E.s.points.back();
+    Vec3 P, Q;
+    if (!useCurveEnd(c, start, P) || !useCurveEnd(other, !start, Q)) return false;
+    const double dp = norm(P - V), dq = norm(Q - V);
+    return std::fmax(dp, dq) > tol && norm(P - Q) < kOwnJunction * std::fmin(dp, dq);
+  }
+
   void computeCoedge(int c) {
     Coedge& C = coedges[c];
     Edge& E = edges[m.coedgeEdge(c)];
@@ -1128,14 +1164,33 @@ struct EdgeMesh::Impl {
             C.givenMiss = std::fmax(C.givenMiss, off);
             if (off > tol && poleAt(C.face, P) < 0) s.uv[i] = localFoot(C.face, P, s.uv[i], miss);
           }
+        // A given p-curve's ends at a vertex where the face's boundary touches itself (pinches) at the vertex's foot,
+        // where that's within the tolerance of them in 3D: the uses meeting there, projected ones at the foot, then
+        // one point in (u, v), as the mesher needs (a hole touching its outer loop at its vertex, ec_turbine-A #384's,
+        // its p-curve's end 4e-15 from the foot, the two loops' points two and their segments crossing). Not at a pole.
+        if (!C.projected && n >= 2 && !pinches.empty())
+          for (int i : {0, n - 1}) {
+            const int k = s.index[i] == 0 ? 0 : s.index[i] == n - 1 ? 1 : -1;
+            const int vertex = k == 0 ? E.start : k == 1 ? E.end : -1;
+            if (vertex < 0 || !pinches.count({C.face, vertex})) continue;
+            const Vec3 at = E.s.points[s.index[i]];
+            if (poleAt(C.face, at) >= 0) continue;
+            Vec2 foot;
+            if (!vertexFoot(vertex, C.face, E.s.points[s.index[i == 0 ? 1 : n - 2]], foot)) continue;
+            const Vec2 v{nearest(foot.x, s.uv[i].x, F.period[0]), nearest(foot.y, s.uv[i].y, F.period[1])};
+            if (norm(surfaceAt(C.face, v) - surfaceAt(C.face, s.uv[i])) <= tol) s.uv[i] = v;
+          }
         // A projected use's vertices at their feet (the projection is within tol of them, not on them), the copy
-        // its own: uses meeting there meet in (u, v), a closed edge's use closes.
+        // its own: uses meeting there meet in (u, v), a closed edge's use closes. Not at a junction whose curves
+        // meet each other away from the vertex (ownJunctionEnds): its uses' own ends meet as their curves do.
         if (C.projected)
           for (int i : {0, n - 1}) {
             const int k = s.index[i] == 0 ? 0 : s.index[i] == n - 1 ? 1 : -1;
             if (k < 0 || !C.atVertex[k]) continue;
-            s.uv[i] = {nearest(C.vertexUv[k].x, s.uv[i].x, F.period[0]), nearest(C.vertexUv[k].y, s.uv[i].y,
+            const Vec2 v{nearest(C.vertexUv[k].x, s.uv[i].x, F.period[0]), nearest(C.vertexUv[k].y, s.uv[i].y,
               F.period[1])};
+            if (ownJunctionEnds(c, i == 0)) continue;
+            s.uv[i] = v;
           }
       }
     }
@@ -2810,6 +2865,25 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
   for (int c = 0; c < m.coedges(); c++) {
     Status st;
     if (m.coedgePcurve(c) >= 0) I.coedges[c].pcurve = makeCurve(m, m.coedgePcurve(c), st);
+  }
+  I.prevUse.assign(m.coedges(), -1), I.nextUse.assign(m.coedges(), -1);
+  for (int l = 0; l < m.loops(); l++) {
+    if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+    const std::vector<int> cs = I.bounding(l);
+    const int K = static_cast<int>(cs.size());
+    for (int k = 0; k < K; k++) I.prevUse[cs[k]] = cs[(k + K - 1) % K], I.nextUse[cs[k]] = cs[(k + 1) % K];
+  }
+  for (int f = 0; f < m.faces(); f++) {
+    std::map<int, int> junctions;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int c : I.bounding(l)) {
+        const int e = m.coedgeEdge(c);
+        const int v = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED ? m.edgeEnd(e) : m.edgeStart(e);
+        if (v >= 0 && ++junctions[v] == 2) I.pinches.insert({f, v});
+      }
+    }
   }
   if (cba_view v[CBA_COLUMN_COUNT]; options.analysis && cba_open(options.analysis, options.analysisSize, v) == 0)
     I.readAnalysis(v);

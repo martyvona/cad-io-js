@@ -13,8 +13,10 @@
     "./browser": "./src/browser.ts"
   },
   "dependencies": {
+    "cad-brep": "0.3.0",
     "cad-oracle": "0.3.0",
-    "cad-scene": "0.3.0"
+    "cad-scene": "0.3.0",
+    "tess-cadio": "0.3.0"
   },
   "devDependencies": {
     "cad-geom": "0.3.0",

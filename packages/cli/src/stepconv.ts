@@ -13,9 +13,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf,
-  partInstances, LENGTH_UNITS, tessellateScene, type Deflections, type Diagnostic, type ExportView,
-  type LengthUnitName, type Scene, type Tessellator } from 'cad-scene';
+import { classifyAll, CRITERIA, DEFAULT_MESH_PROFILE, describeTarget, exportView, FallbackTessellator,
+  MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf, partInstances, LENGTH_UNITS, TARGET_NAMES, TARGETS,
+  tessellateScene, type Deflections, type Diagnostic, type ExportView, type FaceClass, type LengthUnitName,
+  type Scene, type Target, type TargetName, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
@@ -242,6 +243,11 @@ ${PROFILE_LINES}
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default ${DEFAULT_FILE_BYTES / 2 ** 20})
       --strict             exit 3 if a part fails to tessellate (the output is written all the same)
+      --target <name>      rendering, manifold or analysis: each face's mesh classed by the target's levels
+                           (docs/triage.md), the classes said per part in the summary; nothing excluded or failed
+                           yet, and the target's meshing limits not yet applied (default: none)
+      --describe-target <name>
+                           print the target's levels, each criterion's true limit, and its meshing limits; exit
   -v, --verbose            the summary lists every error, warning and note, not the first 20 errors and warnings
   -q, --quiet              no summary on standard error
   -h, --help               show this help
@@ -314,6 +320,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         cache: { type: 'string' },
         'cache-size': { type: 'string' },
         strict: { type: 'boolean', default: false },
+        target: { type: 'string' },
+        'describe-target': { type: 'string' },
         verbose: { type: 'boolean', short: 'v', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -326,6 +334,14 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   const o = args.values;
   if (o.help) { io.stdout.write(USAGE); return 0; }
   const usage = (msg: string) => { io.stderr.write(`stepconv: ${msg}\n\n${USAGE}`); return 1; };
+  const isTarget = (x: string | undefined): x is TargetName => TARGET_NAMES.includes(x as TargetName);
+  if (o['describe-target'] !== undefined) {
+    if (!isTarget(o['describe-target'])) return usage(`--describe-target takes ${TARGET_NAMES.join(', ')}`);
+    io.stdout.write(describeTarget(TARGETS[o['describe-target']]));
+    return 0;
+  }
+  if (o.target !== undefined && !isTarget(o.target)) return usage(`--target takes ${TARGET_NAMES.join(', ')}`);
+  const target = o.target === undefined ? undefined : TARGETS[o.target as TargetName];
   if (args.positionals.length !== 1) return usage('expected one input file');
   if (o.output === undefined) return usage('expected an output file (-o)');
   let formatName = o.format;
@@ -537,12 +553,13 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   if (tess) try {
     const r = await tessellateScene(scene, tess, {
       ...deflections, ...(minAngle !== undefined ? { minAngle } : {}), edges: o['with-edges'],
-      concurrency: Math.max(1, workers),
+      concurrency: Math.max(1, workers), ...(target ? { records: true } : {}),
       onPart: progress ? (_p, _m, done, total) => io.stderr.write(`\rtessellating ${done}/${total}`) : undefined,
     });
     if (progress) io.stderr.write('\r\x1b[K');
     meshes = r.meshes;
     diagnostics.push(...r.diagnostics);
+    if (target) diagnostics.push(...targetDiagnostics(scene, target, deflections, minAngle));
   } finally {
     tess.dispose();
   }
@@ -586,6 +603,34 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
+}
+
+/**
+ * Each meshed part's faces classed under the target (cad-scene's classifyAll) on its level at these deflections: a
+ * warning per part with faces past a warn or error level (the criteria and the faces in error named, at most 10), the
+ * rest a note; nothing excluded or failed.
+ */
+export function targetDiagnostics(scene: Scene, target: Target, d: Deflections, minAngle?: number): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  for (const part of scene.parts) {
+    const lod = part.lods.find((l) => l.from === 'tessellated' && l.records && l.linearDeflection === d.linearDeflection
+      && l.angularDeflection === d.angularDeflection && l.minAngle === minAngle);
+    if (!lod?.records) continue;
+    const { faces, counts } = classifyAll(lod.records, target, d);
+    // (Faces per criterion and class, (i) left out: never checked.)
+    const by = (cls: FaceClass) => CRITERIA.filter((x) => x !== 'i' && counts[x][cls])
+      .map((x) => `${x} ${counts[x][cls]}`).join(', ');
+    const errors = faces.filter((f) => f.overall === 'error'), warned = faces.filter((f) => f.overall === 'warn');
+    const named = errors.slice(0, 10).map((f) => `#${f.entityId}`).join(', ') + (errors.length > 10 ? ', ...' : '');
+    const classes = (['error', 'warn', 'unverified', 'unchecked'] as const).map((c) => [c, by(c)] as const)
+      .filter(([, x]) => x).map(([c, x]) => `${c} ${x}`);
+    const source = part.sources[0];
+    out.push({ severity: errors.length || warned.length ? 'warning' : 'info', message: `target ${target.name}: `
+      + `${faces.length} ${faces.length === 1 ? 'face' : 'faces'}, ${errors.length} in error${errors.length
+        ? ` (${named})` : ''}, ${warned.length} warned; by criterion: ${classes.join('; ') || 'all passed'}`,
+    ...(source ? { source } : {}) });
+  }
+  return out;
 }
 
 /** The run's summary; `meshed` undefined when nothing was (STEP output). */

@@ -9,6 +9,7 @@
 
 import { analysisRowCount, BODY_KIND, type BrepAnalysis, type BrepData, openAnalysis } from 'cad-brep';
 import { weld } from './mesh.ts';
+import { recordOriented } from './records.ts';
 import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
 
@@ -129,15 +130,17 @@ export function againstHealedMessage(turned: readonly Turned[], backend: string)
  * `r` with the meshes of the shells wrongShells finds turned over (triangles wound the other way, normals negated;
  * a vertex they share with faces not turned copied), and a warning naming them; `r` itself where there are none.
  * `healed`, where healing oriented the model's shells (shellsOriented): the backend's name, for a warning that its
- * mesh went against the healed model.
+ * mesh went against the healed model. Its triage records, where it has them, say which faces were turned (j:
+ * recordOriented).
  */
 export function orientResult(d: BrepData, r: TessellationResult, deflection: number, healed?: { backend: string }):
   TessellationResult {
   const turned = wrongShells(d, r, deflection);
-  if (!turned.length) return r;
   const ids = new Set<number>();
   for (const { shell: s } of turned) for (let j = d.shell.first[s]!, end = j + d.shell.count[s]!; j < end; j++)
     ids.add(d.face.id[d.faceUse.face[j]!]!);
+  const records = r.records ? { records: recordOriented(r.records, ids) } : {};
+  if (!turned.length) return r.records ? { ...r, ...records } : r;
   const flip = (f: TessellationResult['faces'][number]) => f.entityId !== null && ids.has(f.entityId);
   // Vertices used by faces turned and by others: copied for the turned ones.
   const n = r.positions.length / 3, by = new Uint8Array(n);
@@ -168,5 +171,6 @@ export function orientResult(d: BrepData, r: TessellationResult, deflection: num
   }
   const note: Diagnostic = { severity: 'warning', message: healed ? againstHealedMessage(turned, healed.backend)
     : turnedMessage(turned) };
-  return { ...r, positions, indices, ...(normals ? { normals } : {}), diagnostics: [...r.diagnostics, note] };
+  return { ...r, positions, indices, ...(normals ? { normals } : {}), diagnostics: [...r.diagnostics, note],
+    ...records };
 }

@@ -117,6 +117,13 @@ struct PartOptions {
    */
   double retryStretch = 16, retryRatio = 0.1;
   /**
+   * Each face's first meshing stops at its point cap's expected count (FaceMesh::capExpected: the criteria's integral
+   * over its domain, as the cap takes it), with no triangles, cause "expected count only", and nothing after it runs
+   * (no cap checks, retries, split rounds or checks of the meshes): the count any backend's mesh of the face is judged
+   * by (triage's h). A face that fails before it keeps its status and cause, its capExpected 0 (no count).
+   */
+  bool expectedOnly = false;
+  /**
    * A face at its point cap at two meshings in a row, the second refusing no fewer triangles than the first, is
    * frozen (FaceMesh::frozen): not meshed again in the split rounds, its split requests dropped, as failCapped or
    * keepDefects then has it. Meshed once more after the rounds where its neighbours' splits changed its edges since,
