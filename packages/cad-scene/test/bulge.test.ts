@@ -155,6 +155,11 @@ test('badFaces judges a face over its area by its chords\' bulge where the model
   // Without a model there's no bulge to measure: d x P judges it, as before.
   const oracle = [{ entityId: 10, area: 400 - Math.PI * R * R, perimeter: 80 + 2 * Math.PI * R }];
   assert.equal(badFaces({ ...(r as object), oracle } as never, undefined, 1).get(10), undefined);
+  // With the model but the area the backend's own measure (no oracle for the face: an empty one given): d x P too,
+  // as a backend's measure can be short (OCCT's on healed B-splines by up to half).
+  const measures = [{ entityId: 10, area: 400 - Math.PI * R * R, perimeter: 80 + 2 * Math.PI * R, valid: true }];
+  assert.equal(badFaces({ ...(r as object), measures } as never, d, 1, new Map()).get(10), undefined);
+  assert.equal(badFaces({ ...(r as object), measures } as never, d, 1).get(10), 'excess');
   // Flat, the same mesh is over by the bulge alone.
   assert.equal(badFaces({ ...(r as object), positions: m.positions } as never, d, 1).get(10), undefined);
 });
