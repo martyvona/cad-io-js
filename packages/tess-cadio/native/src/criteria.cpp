@@ -19,6 +19,7 @@
 // chords stand for a region past the boundary curve (a band's on a sphere), not through a facet's tilt.
 #include "tess_cadio/criteria.h"
 
+#include "cad_geom/folds.h"
 #include "cad_geom/tolerance.h"
 
 #include <algorithm>
@@ -213,6 +214,8 @@ public:
     return std::sqrt(std::max(0.0, g.a * g.c - g.b * g.b));
   }
   void setCreases(std::vector<Crease> lines) override { creases_ = std::move(lines); }
+  /** The face's folds (cad-geom's folds.h) as 3D polylines, the surface's points at their crossings. */
+  void setFolds(std::vector<std::vector<Vec3>> folds) { folds_ = std::move(folds); }
 
   bool bounded() const override { return (bounded_ || kind_ != Kind::none) && !sampledAny_; }
 
@@ -569,6 +572,9 @@ private:
     double gl = norm(g), c = d_.angular > 0 ? std::cos(d_.angular) : 0;
     double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     bool facet = gl > 1e-9 * longest * longest, thin = !fan && gl / longest <= floor_;
+    // (Near a fold the corners' normals turn back across it, so neither their facet nor their spread says anything:
+    // refining there makes thinner triangles across it without end. Not a pole's fan, sized for its angle.)
+    if (!fan && nearFold(p)) return Refusal::none;
     const bool deep = !fan && unresolved(t, p);
     for (int i = 0; i < 3; i++) {
       if (!has[i]) continue;
@@ -577,6 +583,18 @@ private:
         if (d_.angular > 0 && has[j] && dot(n[i], n[j]) < c) return Refusal::normalSpread;
     }
     return Refusal::none;
+  }
+
+  /** A corner within the refinement floor of a fold (setFolds) in 3D: of a segment of its polyline, or its point. */
+  bool nearFold(const Vec3 p[3]) const {
+    for (const std::vector<Vec3>& F : folds_)
+      for (size_t k = 0; k < F.size(); k++)
+        for (int i = 0; i < 3; i++) {
+          const Vec3 a = F[k], e = k + 1 < F.size() ? F[k + 1] - a : Vec3{0, 0, 0};
+          const double l2 = dot(e, e), w = l2 > 0 ? std::clamp(dot(p[i] - a, e) / l2, 0.0, 1.0) : 0;
+          if (norm(p[i] - (a + w * e)) <= floor_) return true;
+        }
+    return false;
   }
 
   bool nearPole(const Vec3 p[3], double size) const {
@@ -1012,10 +1030,10 @@ private:
     }
     return facetAgainst(g, sum) && !foldSliver(t, p);
   }
-  /** Refused for its turn as output (turnedAsOutput): not where too thin to show it (unresolved), except in a smooth
-   * pole's fan (`fan`). */
+  /** Refused for its turn as output (turnedAsOutput): not where too thin to show it (unresolved) nor with a corner
+   * near a fold (nearFold), except in a smooth pole's fan (`fan`). */
   bool turnRefused(const Vec2 t[3], const Vec3 p[3], const Vec3 q[3], bool fan) const {
-    return (fan || !unresolved(t, p)) && turnedAsOutput(t, p, q);
+    return (fan || (!unresolved(t, p) && !nearFold(p))) && turnedAsOutput(t, p, q);
   }
   /**
    * Too thin for the output to show which way it faces: at most kUnresolvedSteps float32 steps high (twice its area
@@ -1296,6 +1314,8 @@ private:
   mutable std::unordered_map<uint64_t, CellBound> cellBounds_;
   /** The face's creases (setCreases). */
   std::vector<Crease> creases_;
+  /** The face's folds (setFolds), 3D polylines. */
+  std::vector<std::vector<Vec3>> folds_;
   Kind kind_;
   Vec3 centre_, axis_;
   double radius_, second_;  // a cone's radius at v = 0 and tan of its semi-angle; a torus's major and minor radii
@@ -1392,8 +1412,29 @@ std::unique_ptr<SurfaceCriteria> makeCriteria(const Model& m, int f, const Surfa
   Vec3 axis = closed != Local::Kind::none ? Vec3{r[3], r[4], r[5]} : Vec3{};
   double second = closed == Local::Kind::cone ? std::tan(r[10]) : closed == Local::Kind::torus ? r[10] : 0;
   const bool elementary = kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS;
-  return std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis, closed != Local::Kind::none ? r[9] : 0,
-    second, Tolerances(m).part(), Tolerances(m).face(f), elementary);
+  auto c = std::make_unique<Local>(s, uv, d, extent, tight, closed, centre, axis,
+    closed != Local::Kind::none ? r[9] : 0, second, Tolerances(m).part(), Tolerances(m).face(f), elementary);
+  // A B-spline's folds over the box (every point counted in: a fold outside the face waives only triangles within the
+  // floor of it, at its boundary), the surface's points at their crossings. Not a band within the face's tolerance
+  // (0 < depth <= it): those are foldNormal's, whose normals the face ships (waiving the tests along LMP1 #172427's
+  // pleats, 4 um deep at a 0.2 mm tolerance, left them turned past the limits).
+  if (kind == CBR_SURFACE_BSPLINE) {
+    const double size = std::max(uv.x.hi - uv.x.lo, uv.y.hi - uv.y.lo);
+    const std::vector<Fold> folds = findFolds(s, {uv.x.lo, uv.x.hi}, {uv.y.lo, uv.y.hi},
+      [](const Vec2*, int n, int* side) { std::fill(side, side + n, 0); }, [&](Vec2) { return 1e-7 * size; });
+    std::vector<std::vector<Vec3>> lines;
+    for (const Fold& F : folds) {
+      if (F.depth > 0 && F.depth <= Tolerances(m).face(f)) continue;
+      std::vector<Vec3> L;
+      for (Vec2 x : F.uv) {
+        SurfacePoint q;
+        if (s.eval(x.x, x.y, 0, q) == Status::ok) L.push_back(q.p);
+      }
+      if (!L.empty()) lines.push_back(std::move(L));
+    }
+    c->setFolds(std::move(lines));
+  }
+  return c;
 }
 
 } // namespace tesscadio
