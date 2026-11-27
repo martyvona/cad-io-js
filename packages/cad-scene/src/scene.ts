@@ -258,6 +258,13 @@ export interface Lod {
    * backend's result had them, else measured on this thread (then without the part's size or expected counts).
    */
   records?: FaceRecords;
+  /**
+   * The target it was made for (tessellateScene's `target`: its name), where one was given: its meshing limits asked
+   * and its faces in error withheld. A target's level answers only that target (chooseLod).
+   */
+  target?: string;
+  /** The faces withheld from `mesh`, in error under `target` (their records still in `records`), by id. */
+  withheld?: number[];
 }
 
 /** A triangle mesh, with any wireframe curves and points, in the part's coordinates minus `origin`. */

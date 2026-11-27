@@ -7,6 +7,8 @@ import { AREA, CHECK, composeRecords, edgeUsers, EXPECTED, FallbackTessellator, 
   oracleMeasures, ORIENTATION, orientResult, recordsFromJson, recordSewn, recordsJson, shareExpected,
   type FaceRecords, type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
 
+import { plate, plateMesh, R } from './plate.ts';
+
 const model = cube().finish();
 const FACES = [21, 22, 23, 24, 25, 26];
 const D = 0.01;
@@ -45,7 +47,7 @@ test('a sound mesh: every face its two triangles, manifold within it, its area t
       holeEdges: 0, tolerance: 1e-6, area: 1, oracleArea: 1, areaClass: AREA.pass, deviation: NaN, deviationCheck: CHECK.unchecked,
       normalAngle: NaN, normalCheck: CHECK.unchecked, turned: 0, minAngle: Math.round(Math.PI / 4 * 1e9) / 1e9,
       belowMinAngle: 0, longestEdge: Math.round(Math.SQRT2 * 1e6) / 1e6, expected: NaN,
-      expectedSource: EXPECTED.none, unsewnEdges: -1, orientation: ORIENTATION.asShipped }, `#${id}`);
+      expectedSource: EXPECTED.none, unsewnEdges: -1, orientation: ORIENTATION.asShipped, filled: 0 }, `#${id}`);
   }
   // Without normals: (e) unchecked; without edge polylines: holes unknown; without the model: only the meshed faces.
   const bare = { ...sound(), faces: sound().faces.filter((f) => f.entityId !== 26) };
@@ -285,4 +287,41 @@ test('(c)\'s tolerance: the part\'s (its uncertainty), widened by the face\'s ow
   m.part.uncertainty[0] = NaN;
   assert.equal(of(faceRecords(req, sound(), m), 21).tolerance, 1e-5);
   assert.ok(Number.isNaN(faceRecords(req, sound(), undefined).tolerance[0]!));
+});
+
+test('(b) over judged by the boundary chords\' bulge where the model lets it be measured, as the fallback\'s judge',
+  () => {
+  const rec = (radius: number, n: number, d: number, lift = 0, withModel = true, uses = 1) => {
+    const m = plateMesh([0, 0, 0], 10, n, radius);
+    // (Used by several shells: meshed once in each.)
+    const indices = Uint32Array.from({ length: uses * m.indices.length }, (_, i) => m.indices[i % m.indices.length]!);
+    const r: TessellationResult = { origin: m.origin, indices, diagnostics: [],
+      positions: Float32Array.from(m.positions, (x, i) => (lift && i % 6 === 5 ? lift : x)),
+      faces: Array.from({ length: uses }, (_, k) => ({ entityId: 10, start: k * m.indices.length,
+        count: m.indices.length })),
+      oracle: [{ entityId: 10, area: 400 - Math.PI * radius * radius, perimeter: 80 + 2 * Math.PI * radius }] };
+    return faceRecords({ linearDeflection: d }, r, withModel ? plate(radius, uses) : undefined).areaClass[0];
+  };
+  // a9's plate, its square's ring lifted 3.5: 18 % over, within d x P at d = 1 (111 mm^2) but past 1.5 x its bulge
+  // (2 mm^2); without the model, d x P judges it.
+  assert.equal(rec(R, 16, 1, 3.5), AREA.over);
+  assert.equal(rec(R, 16, 1, 3.5, false), AREA.pass);
+  assert.equal(rec(R, 16, 1), AREA.pass);
+  // An octagon in a hole of radius 9: 17.5 % over (25.4 mm^2), all of it the chords' bulge: passed within d x P;
+  // past d x P (at 0.01, 1.4 mm^2) over, the bulge not asked.
+  assert.equal(rec(9, 8, 1), AREA.pass);
+  assert.equal(rec(9, 8, 1, 0, false), AREA.pass);
+  assert.equal(rec(9, 8, 0.01), AREA.over);
+  // Its outer ring lifted 1.25: 2.1 x its bulge over, past 1.5 x.
+  assert.equal(rec(9, 8, 1, 1.25), AREA.over);
+  // A face two shells use: d x P (twice) as before, its bulge not asked (its copies weld into no boundary).
+  assert.equal(rec(9, 8, 1, 1.25, true, 2), AREA.pass);
+  // The backend's own measure alone (a healed B-spline's can be short by half): not the oracle's, so (b) is
+  // unverified with the model too, the bulge not asked.
+  const m = plateMesh([0, 0, 0], 10, 16, R);
+  const own: TessellationResult = { origin: m.origin, indices: m.indices, diagnostics: [],
+    positions: Float32Array.from(m.positions, (x, i) => (i % 6 === 5 ? 3.5 : x)),
+    faces: [{ entityId: 10, start: 0, count: m.indices.length }],
+    measures: [{ entityId: 10, area: 400 - Math.PI * R * R, perimeter: 80 + 2 * Math.PI * R, valid: true }] };
+  assert.equal(faceRecords({ linearDeflection: 1 }, own, plate(R)).areaClass[0], AREA.unverified);
 });

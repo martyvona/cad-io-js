@@ -54,7 +54,7 @@ function buffers(r: TessellationResult): ArrayBuffer[] {
 interface RecordHelper {
   partSize(data: Uint8Array): number;
   expectedCounts(req: Pick<TessellationRequest, 'data' | 'linearDeflection' | 'angularDeflection' | 'minAngle'
-    | 'analysis'>): Map<number, number>;
+    | 'maxEdge' | 'elementaryStretchCap' | 'analysis'>): Map<number, number>;
 }
 const isHelper = (t: unknown): t is RecordHelper => typeof (t as RecordHelper | undefined)?.expectedCounts
   === 'function' && typeof (t as RecordHelper).partSize === 'function';
@@ -74,7 +74,8 @@ const recordHelper = (tess: Tessellator) => isHelper(tess) ? Promise.resolve(tes
 })();
 
 /**
- * The last parts' record inputs by a hash of their payload, analysis and the request's deflections and minAngle: a
+ * The last parts' record inputs by a hash of their payload, analysis and the request's deflections and meshing limits
+ * (minAngle, maxEdge, elementaryStretchCap: the expected counts depend on them): a
  * part meshed by a primary and then a fallback (two pools, each its own workers, so per worker only when one worker
  * meshes it twice) or asked again counted once.
  */
@@ -89,7 +90,8 @@ async function withRecords(tess: Tessellator, req: TessellationRequest, r: Tesse
   const hex = async (u: Uint8Array) => Array.from(await sha256(new Uint8Array(u)), (x) => x.toString(16)
     .padStart(2, '0')).join('');
   const key = `${isHelper(tess) ? 'own' : 'helper'}:${req.recordExpected ? 1 : 0}:${req.linearDeflection},`
-    + `${req.angularDeflection},${req.minAngle ?? ''}:${await hex(data)}:${req.analysis ? await hex(req.analysis) : ''}`;
+    + `${req.angularDeflection},${req.minAngle ?? ''},${req.maxEdge ?? ''},${req.elementaryStretchCap ?? ''}:`
+    + `${await hex(data)}:${req.analysis ? await hex(req.analysis) : ''}`;
   let inputs = inputsCache.get(key);
   if (!inputs) {
     try {

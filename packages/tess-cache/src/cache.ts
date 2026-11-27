@@ -48,7 +48,8 @@ export async function keyPrefix(info: TessellatorInfo): Promise<{ backend: strin
 
 /**
  * The key for a request to a backend: the backend's prefix (`keyPrefix`), then SHA-256 (hex) over the cache format,
- * the backend's name and version, the request's options (its minAngle where given), its payload, and its analysis
+ * the backend's name and version, the request's options (its minAngle, maxEdge and elementaryStretchCap where given;
+ * not its target, which no backend reads), its payload, and its analysis
  * where given to a backend that reads it (TessellatorInfo.readsAnalysis; another's meshes don't change). Not whether it
  * asks for edges or measures: a backend's triangles don't depend on them (`Tessellator`), so one entry serves requests
  * with and without.
@@ -59,6 +60,9 @@ export async function cacheKey(info: TessellatorInfo, req: TessellationRequest):
     req.linearDeflection, req.angularDeflection,
     // (Only where given: a request without one keys as before, its backend's default.)
     ...(req.minAngle !== undefined ? [req.minAngle] : []),
+    // (Named, so one can't be read as another when the ones before it are absent.)
+    ...(req.maxEdge !== undefined ? [['maxEdge', req.maxEdge]] : []),
+    ...(req.elementaryStretchCap !== undefined ? [['elementaryStretchCap', req.elementaryStretchCap]] : []),
   ]));
   // (After the payload, as a key without one ends there: unchanged without it.)
   const an = info.readsAnalysis && req.analysis?.length ? req.analysis : undefined;

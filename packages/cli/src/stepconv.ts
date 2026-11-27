@@ -13,10 +13,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
-import { classifyAll, CRITERIA, DEFAULT_MESH_PROFILE, describeTarget, exportView, FallbackTessellator,
+import { DEFAULT_MESH_PROFILE, describeTarget, exportView, FallbackTessellator,
   MESH_PROFILE_NAMES, MESH_PROFILES, meshProfileOf, partInstances, LENGTH_UNITS, TARGET_NAMES, TARGETS,
-  tessellateScene, type Deflections, type Diagnostic, type ExportView, type FaceClass, type LengthUnitName,
-  type Scene, type Target, type TargetName, type Tessellator } from 'cad-scene';
+  tessellateScene, type Deflections, type Diagnostic, type ExportView, type LengthUnitName,
+  type Scene, type TargetName, type Tessellator } from 'cad-scene';
 import { threemf } from 'export-3mf';
 import { glb, gltfJson, type Compression, type GltfOptions } from 'export-gltf';
 import { threejsChunks } from 'export-threejs';
@@ -41,6 +41,8 @@ interface Format {
   threemf?: boolean;
   /** STEP: the exact geometry, so meshed only with --step-meshes; takes the --step-* options, not the mesh ones. */
   step?: boolean;
+  /** The target its meshes are judged by unless --target says otherwise (docs/triage.md); absent: none. */
+  target?: TargetName;
   write(scene: Scene, view: ExportView, opts: FormatOptions): Promise<Written> | Written;
 }
 
@@ -77,6 +79,7 @@ const FORMATS: Record<string, Format> = {
   threejs: {
     extensions: ['.json'],
     description: 'three.js JSON Object Scene format 4 (THREE.ObjectLoader)',
+    target: 'rendering',
     write: (scene, view, o) => ({ chunks: threejsChunks(scene, view, { name: o.name, doubleSided: o.doubleSided,
       extras: o.extras, keepEmpty: o.keepEmpty, ...(o.unit !== undefined ? { unit: o.unit } : {}) }) }),
   },
@@ -84,6 +87,7 @@ const FORMATS: Record<string, Format> = {
     extensions: ['.glb'],
     description: 'glTF 2.0, binary',
     gltf: true,
+    target: 'rendering',
     write: async (scene, view, o) => {
       const r = await glb(scene, view, gltfOptions(o));
       return { chunks: [r.bytes], diagnostics: r.diagnostics };
@@ -94,6 +98,7 @@ const FORMATS: Record<string, Format> = {
     description: 'glTF 2.0, JSON with its buffer in a .bin beside it (or embedded: --gltf-embed)',
     sidecar: '.bin',
     gltf: true,
+    target: 'rendering',
     write: async (scene, view, o) => {
       const r = await gltfJson(scene, view, o.sidecar || undefined, gltfOptions(o));
       return { chunks: [r.json], sidecar: r.bin, diagnostics: r.diagnostics };
@@ -113,6 +118,7 @@ const FORMATS: Record<string, Format> = {
     extensions: ['.3mf'],
     description: '3MF core, closed meshes (an item per placed part; colours as basematerials)',
     threemf: true,
+    target: 'manufacturing',
     write: (scene, view, o) => {
       const r = threemf(scene, view, {
         name: o.name, colors: o.colorgroup ? 'colorgroup' : 'basematerials', build: o.assembly ? 'assembly' : 'parts',
@@ -243,12 +249,18 @@ ${PROFILE_LINES}
       --timeout <s>        per part, in a worker (default ${DEFAULT_TIMEOUT_MS / 1000}); 0: none
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default ${DEFAULT_FILE_BYTES / 2 ** 20})
-      --strict             exit 3 if a part fails to tessellate (the output is written all the same)
-      --target <name>      rendering, manifold or analysis: each face's mesh classed by the target's levels
-                           (docs/triage.md), the classes said per part in the summary; nothing excluded or failed
-                           yet, and the target's meshing limits not yet applied (default: none)
+      --strict             exit 3 if a part fails to tessellate or is excluded (the output is written all the
+                           same)
+      --target <name>      rendering, manufacturing, analysis or none: what the meshes are for (docs/triage.md):
+                           the target's meshing limits asked of the backends, each face's mesh chosen between the
+                           backend's and the fallback's by its levels, a face in error withheld and its part
+                           failing the run: exit 4, nothing written (default: 3MF manufacturing, glTF and three.js
+                           rendering, STEP none)
+      --exclude-failing    with a target, the parts with a face in error (or that failed to tessellate) left out
+                           and the rest written, their errors still said
       --describe-target <name>
-                           print the target's levels, each criterion's true limit, and its meshing limits; exit
+                           print the target's levels, each criterion's true limit, its meshing limits and when
+                           the fallback is asked; exit
   -v, --verbose            the summary lists every error, warning and note, not the first 20 errors and warnings
   -q, --quiet              no summary on standard error
   -h, --help               show this help
@@ -256,7 +268,8 @@ ${PROFILE_LINES}
 
 /**
  * Run stepconv with these arguments; returns the exit code: 0 success, 1 usage error, 2 failure (nothing written), 3
- * with --strict, parts that failed to tessellate.
+ * with --strict, parts that failed to tessellate or were excluded (--exclude-failing), 4 parts failing the target
+ * (nothing written).
  */
 /**
  * The scene of a STEP file, the file dropped. In a function of its own: a local of stepconv's, though dead, stays in
@@ -322,6 +335,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
         'cache-size': { type: 'string' },
         strict: { type: 'boolean', default: false },
         target: { type: 'string' },
+        'exclude-failing': { type: 'boolean', default: false },
         'describe-target': { type: 'string' },
         verbose: { type: 'boolean', short: 'v', default: false },
         quiet: { type: 'boolean', short: 'q', default: false },
@@ -341,8 +355,8 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     io.stdout.write(describeTarget(TARGETS[o['describe-target']]));
     return 0;
   }
-  if (o.target !== undefined && !isTarget(o.target)) return usage(`--target takes ${TARGET_NAMES.join(', ')}`);
-  const target = o.target === undefined ? undefined : TARGETS[o.target as TargetName];
+  if (o.target !== undefined && o.target !== 'none' && !isTarget(o.target)) return usage(
+    `--target takes ${TARGET_NAMES.join(', ')} or none`);
   if (args.positionals.length !== 1) return usage('expected one input file');
   if (o.output === undefined) return usage('expected an output file (-o)');
   let formatName = o.format;
@@ -354,6 +368,9 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   }
   const format = FORMATS[formatName];
   if (!format) return usage(`unknown format '${formatName}'`);
+  const targetName = o.target === 'none' ? undefined : (o.target as TargetName | undefined) ?? format.target;
+  const target = targetName === undefined ? undefined : TARGETS[targetName];
+  if (o['exclude-failing'] && !target) return usage('--exclude-failing needs a target (--target)');
   const gltfGiven = (['gltf-embed', 'gltf-compression', 'gltf-draco-bits', 'gltf-instancing'] as const).find(
     (f) => o[f] !== undefined && o[f] !== false);
   if (gltfGiven && !format.gltf) return usage(`--${gltfGiven} applies to glb and gltf output`);
@@ -388,6 +405,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   const unit = unitName === undefined ? undefined : LENGTH_UNITS[unitName as LengthUnitName];
   // Whether parts are meshed: always, but for STEP without --step-meshes.
   const meshing = !format.step || o['step-meshes'];
+  if (target && !meshing) return usage('--target applies to meshes: STEP output meshes nothing without --step-meshes');
   const embed = o['gltf-embed'];
   if (format.sidecar && !embed && o.output === '-') return usage(
     `${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
@@ -554,21 +572,38 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
   if (tess) try {
     const r = await tessellateScene(scene, tess, {
       ...deflections, ...(minAngle !== undefined ? { minAngle } : {}), edges: o['with-edges'],
-      concurrency: Math.max(1, workers), ...(target ? { records: true } : {}),
+      concurrency: Math.max(1, workers), ...(target ? { target } : {}),
       onPart: progress ? (_p, _m, done, total) => io.stderr.write(`\rtessellating ${done}/${total}`) : undefined,
     });
     if (progress) io.stderr.write('\r\x1b[K');
     meshes = r.meshes;
     diagnostics.push(...r.diagnostics);
-    if (target) diagnostics.push(...targetDiagnostics(scene, target, deflections, minAngle));
   } finally {
     tess.dispose();
   }
   lap('tessellate');
 
-  // Each part's level made at these deflections (the scene holds them, its parts' levels).
-  const view = exportView(scene, { ...deflections, ...(minAngle !== undefined ? { minAngle } : {}),
-    edges: o['with-edges'], curves: o['with-curves'] });
+  // With a target, the parts failing it: a face withheld (in error under it), or no mesh. The run fails unless
+  // --exclude-failing, which leaves them out of the view.
+  const asked = minAngle ?? target?.meshing.minAngle;
+  const wanted = { ...deflections, ...(asked !== undefined ? { minAngle: asked } : {}),
+    ...(target ? { target: target.name } : {}), edges: o['with-edges'], curves: o['with-curves'] };
+  const failing = target ? failingParts(scene, meshes, target.name, deflections, asked) : [];
+  if (failing.length && !o['exclude-failing']) {
+    const n = failing.length;
+    diagnostics.unshift({ severity: 'error', message: `${n} ${n === 1 ? 'part fails' : 'parts fail'} the `
+      + `${target!.name} target (a face in error, or no mesh), so nothing is written (--exclude-failing writes the `
+      + `rest): ${failing.slice(0, 10).map((i) => `#${scene.parts[i]!.sources[0]?.id ?? `part ${i}`}`).join(', ')}`
+      + (n > 10 ? ', ...' : '') });
+    abandon();
+    // (The summary's placed parts and triangles those the output would have had.)
+    if (!o.quiet) io.stderr.write(summary(scene, meshes.size, exportView(scene, wanted), diagnostics, times, 0,
+      cached, deflections, o.verbose, healing, o['keep-failing']));
+    return 4;
+  }
+  for (const i of failing) scene.parts[i]!.lods = [];
+  // Each part's level made at these deflections and target (the scene holds them, its parts' levels).
+  const view = exportView(scene, wanted);
   let written = 0;
   try {
     const w = await format.write(scene, view, {
@@ -602,35 +637,26 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     io.stderr.write(summary(scene, meshing ? meshes.size : undefined, view, diagnostics, times, written, cached,
       deflections, o.verbose, healing, o['keep-failing']));
   }
-  const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length;
+  const failed = scene.parts.filter((p, i) => p.brep && !meshes.has(i)).length + failing.filter((i) =>
+    meshes.has(i)).length;
   return o.strict && failed ? 3 : 0;
 }
 
 /**
- * Each meshed part's faces classed under the target (cad-scene's classifyAll) on its level at these deflections: a
- * warning per part with faces past a warn or error level (the criteria and the faces in error named, at most 10), the
- * rest a note; nothing excluded or failed.
+ * The brep parts failing the target named: meshed with a face withheld (Lod.withheld) at these deflections, smallest
+ * angle and target, or not meshed at all; by index.
  */
-export function targetDiagnostics(scene: Scene, target: Target, d: Deflections, minAngle?: number): Diagnostic[] {
-  const out: Diagnostic[] = [];
-  for (const part of scene.parts) {
-    const lod = part.lods.find((l) => l.from === 'tessellated' && l.records && l.linearDeflection === d.linearDeflection
-      && l.angularDeflection === d.angularDeflection && l.minAngle === minAngle);
-    if (!lod?.records) continue;
-    const { faces, counts } = classifyAll(lod.records, target, d);
-    // (Faces per criterion and class, (i) left out: never checked.)
-    const by = (cls: FaceClass) => CRITERIA.filter((x) => x !== 'i' && counts[x][cls])
-      .map((x) => `${x} ${counts[x][cls]}`).join(', ');
-    const errors = faces.filter((f) => f.overall === 'error'), warned = faces.filter((f) => f.overall === 'warn');
-    const named = errors.slice(0, 10).map((f) => `#${f.entityId}`).join(', ') + (errors.length > 10 ? ', ...' : '');
-    const classes = (['error', 'warn', 'unverified', 'unchecked'] as const).map((c) => [c, by(c)] as const)
-      .filter(([, x]) => x).map(([c, x]) => `${c} ${x}`);
-    const source = part.sources[0];
-    out.push({ severity: errors.length || warned.length ? 'warning' : 'info', message: `target ${target.name}: `
-      + `${faces.length} ${faces.length === 1 ? 'face' : 'faces'}, ${errors.length} in error${errors.length
-        ? ` (${named})` : ''}, ${warned.length} warned; by criterion: ${classes.join('; ') || 'all passed'}`,
-    ...(source ? { source } : {}) });
-  }
+export function failingParts(scene: Scene, meshes: ReadonlyMap<number, unknown>, target: string, d: Deflections,
+  minAngle?: number): number[] {
+  const out: number[] = [];
+  scene.parts.forEach((part, i) => {
+    if (!part.brep) return;
+    if (!meshes.has(i)) { out.push(i); return; }
+    const lod = part.lods.find((l) => l.from === 'tessellated' && l.target === target
+      && l.linearDeflection === d.linearDeflection && l.angularDeflection === d.angularDeflection
+      && l.minAngle === minAngle);
+    if (lod?.withheld?.length) out.push(i);
+  });
   return out;
 }
 

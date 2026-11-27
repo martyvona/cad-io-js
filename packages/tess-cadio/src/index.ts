@@ -10,7 +10,7 @@ import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 12;
+const API_VERSION = 13;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -113,6 +113,7 @@ interface CadioExports {
   _tc_set_cap: Fn;
   _tc_set_min_angle: Fn;
   _tc_set_max_edge: Fn;
+  _tc_set_elementary_stretch_cap: Fn;
   _tc_part_size: Fn;
   _tc_expected_counts: Fn;
   _tc_expected_out: Fn;
@@ -235,9 +236,15 @@ export interface CadioInitOptions {
   minAngle?: number;
   /**
    * The longest a triangle's edge may be, as a fraction of each part's size (criteria.h's Deflections::maxEdge,
-   * part_size.h's partSize: its box's diagonal, faces' surfaces included); 0 or absent: no limit.
+   * part_size.h's partSize: its box's diagonal, faces' surfaces included); 0 or absent: no limit. A request's maxEdge
+   * takes its place for that request.
    */
   maxEdge?: number;
+  /**
+   * Elementary faces' size metric's stretch capped at this from their first meshing (part.h's PartOptions::
+   * elementaryStretchCap); 0 or absent: none. A request's elementaryStretchCap takes its place for that request.
+   */
+  elementaryStretchCap?: number;
 }
 
 async function fetchBytes(url: URL): Promise<Uint8Array> {
@@ -273,6 +280,7 @@ export class CadioTessellator implements Tessellator {
   private cap: [number, number, number] = [0, 0, 0];
   private minAngle = -1;
   private maxEdge = 0;
+  private elementaryStretchCap = 0;
   readonly info: TessellatorInfo = {
     name: 'tess-cadio', version: VERSION, license: 'AGPL-3.0-only', formats: ['cad-brep'], supportsFaceIds: true,
     supportsEdges: true, supportsCurves: true, readsAnalysis: true,
@@ -298,6 +306,7 @@ export class CadioTessellator implements Tessellator {
     this.cap = [opts.capFloor ?? 0, opts.capMultiple ?? 0, opts.capCeiling ?? 0];
     this.minAngle = opts.minAngle ?? -1;
     this.maxEdge = opts.maxEdge ?? 0;
+    this.elementaryStretchCap = opts.elementaryStretchCap ?? 0;
     if (wasm instanceof WebAssembly.Module && version === undefined) throw new TypeError(
       'tess-cadio: init({wasm}) with a compiled WebAssembly.Module needs a version, since it has no bytes to hash');
     const glueUrl = glue === undefined ? new URL('../dist/tess_cadio.mjs', import.meta.url).href : String(glue);
@@ -545,10 +554,12 @@ export class CadioTessellator implements Tessellator {
   }
 
   /**
-   * The module set to mesh as `req` asks (this tessellator's options, the request's minAngle and analysis), for
-   * tc_tessellate and tc_expected_counts alike: the analysis's copy in the module's memory (0: none), to free.
+   * The module set to mesh as `req` asks (this tessellator's options, the request's minAngle, maxEdge,
+   * elementaryStretchCap and analysis), for tc_tessellate and tc_expected_counts alike: the analysis's copy in the
+   * module's memory (0: none), to free.
    */
-  private configure(req: Pick<TessellationRequest, 'minAngle' | 'analysis'>): number {
+  private configure(req: Pick<TessellationRequest, 'minAngle' | 'maxEdge' | 'elementaryStretchCap' | 'analysis'>):
+    number {
     const m = this.m!;
     // (The part's analysis where healing gave one: its healed p-curves placed as projected, edges and vertices grown
     // past repair judged at their starting tolerances. malloc's blocks are 8-byte aligned, as the analysis's columns
@@ -572,7 +583,8 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_cap(...this.cap);
     // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)
     m._tc_set_min_angle(req.minAngle ?? this.minAngle);
-    m._tc_set_max_edge(this.maxEdge);
+    m._tc_set_max_edge(req.maxEdge ?? this.maxEdge);
+    m._tc_set_elementary_stretch_cap(req.elementaryStretchCap ?? this.elementaryStretchCap);
     return an;
   }
 
@@ -582,7 +594,7 @@ export class CadioTessellator implements Tessellator {
    * Faces that fail before the count (their boundary) are left out: no count, not 0.
    */
   expectedCounts(req: Pick<TessellationRequest, 'data' | 'linearDeflection' | 'angularDeflection' | 'minAngle'
-    | 'analysis'>): Map<number, number> {
+    | 'maxEdge' | 'elementaryStretchCap' | 'analysis'>): Map<number, number> {
     const m = this.m;
     if (!m) throw new Error('CadioTessellator: call init() first');
     const ptr = m._malloc(req.data.length) >>> 0;

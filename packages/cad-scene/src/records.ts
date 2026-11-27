@@ -5,15 +5,17 @@
 // Nothing chooses by the record yet.
 
 import type { BrepData } from 'cad-brep';
-import { BOUNDARY_SLACK, EXCESS_FRACTION, MAX_PLAUSIBLE_AREA, MISSING_FRACTION, weld } from './mesh.ts';
+import { type BulgeCache, chordBulge, newBulgeCache } from './bulge.ts';
+import { BOUNDARY_SLACK, BULGE_FACTOR, EXCESS_FRACTION, MAX_PLAUSIBLE_AREA, MISSING_FRACTION, weld } from './mesh.ts';
 import { edgeUsers } from './open-edges.ts';
+import type { Mesh } from './scene.ts';
 import type { FaceRecords, TessellationRequest, TessellationResult } from './tessellator.ts';
 
 /**
  * Names how faceRecords measures: bumped whenever a record's values change for some result, so a cache holding
  * records (tess-cache) measures again rather than answer with old ones.
  */
-export const RECORDS_VERSION = 2;
+export const RECORDS_VERSION = 3;
 
 /** tess-cadio's smallest angle by default (its minAngle), the true limit of (f) where a request gives none. */
 export const DEFAULT_MIN_ANGLE = 10 * Math.PI / 180;
@@ -162,7 +164,7 @@ function emptyRecords(ids: number[], partSize: number | undefined): FaceRecords 
     deviation: f64(NaN), deviationCheck: new Uint8Array(n), normalAngle: f64(NaN), normalCheck: new Uint8Array(n),
     turned: new Int32Array(n).fill(-1), minAngle: f64(NaN), belowMinAngle: new Uint32Array(n), longestEdge: f64(0),
     expected: f64(NaN), expectedSource: new Uint8Array(n), unsewnEdges: new Int32Array(n).fill(-1),
-    orientation: new Uint8Array(n) };
+    orientation: new Uint8Array(n), filled: new Uint8Array(n) };
 }
 
 /**
@@ -194,9 +196,14 @@ function faceTolerances(out: FaceRecords, model: BrepData): void {
   }
 }
 
+/** A result's triangles as a scene mesh, for bulge.ts (tessellate.ts's toMesh, not imported: a cycle). */
+const asMesh = (r: TessellationResult): Mesh => ({ origin: r.origin, positions: r.positions, indices: r.indices,
+  faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })) });
+
 /**
  * (b): each face's mesh area against the result's area oracle (TessellationResult.oracle), by faceFailures' rules (a
- * face used by several shells meshed once in each); unverified where the oracle trusts no area.
+ * face used by several shells meshed once in each; over judged against its boundary chords' bulge where `model` lets
+ * it be measured, BULGE_FACTOR); unverified where the oracle trusts no area.
  */
 function judgeAreas(out: FaceRecords, r: TessellationResult, model: BrepData | undefined, d: number): void {
   // (Each face's uses by shells, as tessellate.ts's faceUses: not imported, which would make a cycle through join.ts.)
@@ -206,6 +213,7 @@ function judgeAreas(out: FaceRecords, r: TessellationResult, model: BrepData | u
     if (id) uses.set(id, (uses.get(id) ?? 0) + 1);
   }
   const oracle = new Map((r.oracle ?? []).map((o) => [o.entityId, o]));
+  let cache: BulgeCache | undefined, meshOf: Mesh | undefined;
   for (let k = 0; k < out.entityId.length; k++) {
     const id = out.entityId[k]!, o = oracle.get(id);
     if (!o || !Number.isFinite(o.area) || o.area < 0 || o.area > MAX_PLAUSIBLE_AREA || !(o.perimeter >= 0)) {
@@ -215,8 +223,13 @@ function judgeAreas(out: FaceRecords, r: TessellationResult, model: BrepData | u
     const m = uses.get(id) ?? 1, a = o.area * m, perimeter = o.perimeter * m, mesh = out.area[k]!;
     out.oracleArea[k] = a;
     const slack = BOUNDARY_SLACK * d * perimeter;
+    // (Over by more than 10 % but within d x P, a face one shell uses: against its boundary chords' bulge where it
+    // can be measured, as faceFailures judges it, since on a narrow face d x P can exceed its whole area.)
+    const bulge = mesh - a > EXCESS_FRACTION * a && mesh - a <= slack && m === 1 && model
+      ? chordBulge(model, meshOf ??= asMesh(r), id, cache ??= newBulgeCache(model)) : undefined;
     out.areaClass[k] = a < d * d ? AREA.pass : a - mesh > Math.max(MISSING_FRACTION * a, slack) ? AREA.short
-      : mesh - a > Math.max(EXCESS_FRACTION * a, slack) ? AREA.over : AREA.pass;
+      : mesh - a > Math.max(EXCESS_FRACTION * a, bulge === undefined ? slack : BULGE_FACTOR * bulge) ? AREA.over
+        : AREA.pass;
   }
 }
 
@@ -254,6 +267,26 @@ export function recordSewn(records: FaceRecords, model: BrepData, open: readonly
     }
   }
   return { ...records, unsewnEdges: unsewn };
+}
+
+/**
+ * The records with the faces the sliver fill meshed (fillResult) measured on `filled`, the result it made: each face
+ * with no triangles in `records` and some in `filled` gets its row's measures of `filled` (k to l, but its sewing,
+ * orientation and expected count, which the join, orientResult and the backend gave it), and `filled` set.
+ */
+export function recordFilled(records: FaceRecords, filled: TessellationResult, model: BrepData,
+  linearDeflection: number): FaceRecords {
+  const meshed = new Set(filled.faces.filter((f) => f.count > 0).map((f) => f.entityId));
+  const ids = new Set<number>();
+  records.entityId.forEach((id, k) => { if (records.triangles[k] === 0 && meshed.has(id)) ids.add(id); });
+  if (!ids.size) return records;
+  const fresh = faceRecords({ linearDeflection }, filled, model);
+  const keep = new Set(['unsewnEdges', 'orientation', 'expected', 'expectedSource']);
+  const out = composeRecords(records, fresh, ids) as unknown as Record<string, unknown>;
+  for (const name of keep) out[name] = (records as unknown as Record<string, unknown>)[name];
+  const mark = records.filled.slice();
+  records.entityId.forEach((id, k) => { if (ids.has(id)) mark[k] = 1; });
+  return { ...(out as unknown as FaceRecords), filled: mark };
 }
 
 /** The records with (j) written: the faces of the shells orientResult turned over (`faces`, ids) turned. */

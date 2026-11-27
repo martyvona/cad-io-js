@@ -50,6 +50,16 @@ test('a foreign backend\'s results: each face\'s record, its part size, and its 
     }
     assert.notDeepEqual([...local.expectedCounts(cyl).values()],
       [...local.expectedCounts({ ...cyl, linearDeflection: 1e-3 }).values()]);
+    // Likewise at the target's meshing limits, each counted as asked (the counts depend on them).
+    for (const limits of [{}, { elementaryStretchCap: 4 }, { maxEdge: 0.02 }, {}]) {
+      const counted = local.expectedCounts({ ...cyl, ...limits });
+      const rec = (await pool.tessellate({ ...cyl, ...limits, records: true, recordExpected: true })).records!;
+      assert.deepEqual([...rec.expected], [...rec.entityId].map((id) => counted.get(id)), JSON.stringify(limits));
+    }
+    for (const limits of [{ elementaryStretchCap: 4 }, { maxEdge: 0.02 }]) {
+      assert.notDeepEqual([...local.expectedCounts(cyl).values()],
+        [...local.expectedCounts({ ...cyl, ...limits }).values()], JSON.stringify(limits));
+    }
   } finally {
     pool.dispose();
   }

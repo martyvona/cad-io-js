@@ -6,6 +6,7 @@
 
 import { type BrepData, decode } from 'cad-brep';
 import { faceFailures } from './mesh.ts';
+import { recordFilled } from './records.ts';
 import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
 
@@ -228,5 +229,7 @@ export function fillResult(d: BrepData, r: TessellationResult, deflection: numbe
   const diagnostics: Diagnostic[] = [{ severity: 'warning', message: filledMessage(f.filled) },
     ...r.diagnostics.filter((x) => !(x.severity === 'error' && /^\d+ faces failed to mesh/.test(x.message)))];
   if (left.length) diagnostics.push({ severity: 'error', message: failedMessage(left) });
-  return { ...f.result, diagnostics };
+  // (Triage records judge (k) and the rest on the filled mesh: records.ts's recordFilled.)
+  return { ...f.result, diagnostics, ...(r.records ? { records: recordFilled(r.records, f.result, d, deflection) }
+    : {}) };
 }

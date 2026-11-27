@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { BrepBuilder, decode } from 'cad-brep';
 import { box, cube } from '../../cad-brep/test/models.ts';
 import { quads } from './meshes.ts';
-import { FallbackTessellator, filledMessage, fillFaces, fillResult, judgeResult, openEdges, oracleMeasures,
-  tessellateScene, type Scene, type TessellationResult, type Tessellator } from '../src/index.ts';
+import { classifyAll, FallbackTessellator, filledMessage, fillFaces, fillResult, judgeResult, openEdges, oracleMeasures,
+  TARGETS, tessellateScene, type Scene, type TessellationResult, type Tessellator } from '../src/index.ts';
 
 /** A box 1 x 1 x 0.05: its four sides slivers 0.05 wide. */
 function thin() {
@@ -134,6 +134,40 @@ test('tessellateScene fills (fill: false opts out); the fallback judges filled r
     angularDeflection: 0.5 });
   assert.equal(b.asked, 0);
   assert.ok(judgeResult(res, d, 0.1).ok);
+});
+
+test('a target judges (k) on the filled mesh: a face only the fill meshed warned of, not withheld, the fallback not '
+  + 'asked for it under rendering and manufacturing', async () => {
+  const r = { ...without(quads(d), side), measures: oracleMeasures(d).map((m) => ({ ...m, valid: true })) };
+  const scene = (): Scene => ({ unit: 'millimetre', components: [], roots: [], materials: [], layers: [],
+    overrides: [], properties: {}, diagnostics: [], parts: [{ name: 'p', sources: [{ format: 'step', id: 7 }],
+      properties: {}, origin: [0, 0, 0], lods: [], brep: { format: 'step', model: d } }] });
+  const s = scene();
+  const out = await tessellateScene(s, backend(r), { linearDeflection: 0.1, target: 'rendering' });
+  const lod = s.parts[0]!.lods[0]!;
+  assert.equal(lod.target, 'rendering');
+  assert.deepEqual(lod.withheld ?? [], []);
+  assert.ok(lod.mesh.faces.some((f) => f.source === side && f.count > 0));
+  assert.ok(!out.diagnostics.some((x) => x.severity === 'error'), JSON.stringify(out.diagnostics));
+  const k = [...lod.records!.entityId].indexOf(side);
+  assert.ok(lod.records!.triangles[k]! > 0 && lod.records!.filled[k] === 1);
+  assert.ok(Math.abs(lod.records!.area[k]! - 0.05) < 1e-6);
+  // Its sewing the join's, which ran before the fill (a fresh measure has none: -1).
+  assert.ok([...lod.records!.unsewnEdges].every((x) => x >= 0), String([...lod.records!.unsewnEdges]));
+  const cls = classifyAll(lod.records!, TARGETS.rendering, { linearDeflection: 0.1, angularDeflection: 0.5 }).faces;
+  assert.equal(cls.find((f) => f.entityId === side)!.criteria.k.class, 'warn');
+  assert.ok(cls.filter((f) => f.entityId !== side).every((f) => f.criteria.k.class === 'pass'));
+  // Through the fallback: not asked. (Under analysis it is, but so it is for the slivers' smallest angles, (f).)
+  for (const target of [TARGETS.rendering, TARGETS.manufacturing]) {
+    const b = backend(quads(d));
+    const t = new FallbackTessellator(backend(r), b);
+    await t.init();
+    const res = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(d.buffer), linearDeflection: 0.1,
+      angularDeflection: 0.5, target });
+    assert.equal(b.asked, 0, target.name);
+    assert.equal(res.backend, 'fake 1', target.name);
+    assert.ok(res.faces.some((f) => f.entityId === side && f.count > 0), target.name);
+  }
 });
 
 test('fill: a long sliver a strip of short triangles between its sides, not fans across it', () => {

@@ -9,7 +9,8 @@ import { deviationJudge } from './deviation.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
-import { shareExpected } from './records.ts';
+import { faceRecords, shareExpected } from './records.ts';
+import { chooseFace, classifyAll, type FaceClasses, type Target, wantsFallback } from './targets.ts';
 import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
 import { orientResult, shellsOriented } from './orient.ts';
@@ -220,7 +221,9 @@ export class FallbackTessellator implements Tessellator {
     held: { fallback?: Promise<TessellationResult | Error> }): Promise<TessellationResult> {
     // (Edges to join by, and measures to judge by: both kept only if the request asked.)
     const model = req.format === 'cad-brep' ? openBrep(req.data) : undefined;
-    const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}) };
+    // (With a target, records to choose by: measured where the request runs, else here before the join.)
+    const ask = { ...req, measures: true, ...((this.join || this.fill) && model ? { edges: true } : {}),
+      ...(req.target ? { records: true } : {}) };
     const healed = shellsOriented(req.analysis);
     const tidy = (r: TessellationResult, t: Tessellator | string) => {
       if (!model) return r;
@@ -229,8 +232,11 @@ export class FallbackTessellator implements Tessellator {
       return this.orient ? orientResult(model, f, req.linearDeflection, healed
         ? { backend: typeof t === 'string' ? t : `${t.info.name} ${t.info.version}` } : undefined) : f;
     };
-    const run = (t: Tessellator) => t.tessellate(ask, onProgress).then((r) => tidy(r, t)).catch((e: unknown) =>
-      e instanceof Error ? e : new Error(String(e)));
+    const recorded = (r: TessellationResult) => (ask.records && !r.records ? { ...r, records: faceRecords(ask, r,
+      model) } : r);
+    const run = (t: Tessellator) => t.tessellate(ask, onProgress).then((r) => tidy(recorded(r), t))
+      .catch((e: unknown) => e instanceof Error ? e : new Error(String(e)));
+    if (req.target && model) return this.byTarget(req, req.target, model, run, tidy, held);
     let a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
     const va = judgeResult(a, model, req.linearDeflection, undefined, req.analysis);
@@ -305,9 +311,88 @@ export class FallbackTessellator implements Tessellator {
     if (compareVerdicts(vb, va) < 0) return this.finish(b as TessellationResult, this.fallback, req,
       [{ severity: 'warning', message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
         + why }]);
-    if (a instanceof Error) throw a;
+    // (Both threw, as a primary's timeout then the fallback's: no mesh, both errors said.)
+    if (a instanceof Error) return this.finish(this.bothFailed(req, a, b as Error), this.primary, req, []);
     return this.finish(a, this.primary, req, [{ severity: 'info', message: `the fallback backend (${f}) did no `
       + `better than ${p} (${vb.problems.join('; ')}), so ${p}'s mesh is kept` }]);
+  }
+
+  /**
+   * The part's faces chosen by `target` (docs/triage.md, "Choosing a mesh"): the primary's result, classed by its
+   * records; where a face of it sends the part to the fallback (wantsFallback) or the part failed, the fallback's too,
+   * and for each face the trigger names the mesh chooseFace picks (one it doesn't name stays the primary's), composed
+   * into the primary's and joined. A face taken from the fallback (whose own mesh isn't in error) that is in error once
+   * composed (an edge the join leaves unsewn) is put back, and the rest composed again. Faces both meshes have in error
+   * keep the primary's (tessellateScene withholds them). A part the primary failed (an error, no triangles) is the
+   * fallback's whole where the fallback's has triangles.
+   */
+  private async byTarget(req: TessellationRequest, target: Target, model: BrepData,
+    run: (t: Tessellator) => Promise<TessellationResult | Error>,
+    tidy: (r: TessellationResult, t: Tessellator | string) => TessellationResult,
+    held: { fallback?: Promise<TessellationResult | Error> }): Promise<TessellationResult> {
+    const ctx = { linearDeflection: req.linearDeflection, angularDeflection: req.angularDeflection };
+    const classes = (r: TessellationResult) => new Map<number, FaceClasses>(r.records
+      ? classifyAll(r.records, target, ctx).faces.map((f) => [f.entityId, f]) : []);
+    const p = this.primary.info.name, f = this.fallback.info.name;
+    let a = await run(this.primary);
+    const aFailed = a instanceof Error || failedPart(a);
+    const wanting = aFailed ? [] : [...classes(a as TessellationResult).values()].filter((x) =>
+      wantsFallback(x, target));
+    if (!aFailed && !wanting.length) return this.finish(a as TessellationResult, this.primary, req, []);
+    const why = aFailed ? (a instanceof Error ? `failed: ${a.message}` : 'no triangles')
+      : `${wanting.length} ${wanting.length === 1 ? 'face' : 'faces'} ${target.fallbackOn === 'error' ? 'in error'
+        : 'missing a true limit'} under the ${target.name} target`;
+    let b = await (held.fallback = run(this.fallback));
+    if (!(a instanceof Error) && !(b instanceof Error) && a.records && b.records) {
+      const ra = a.records, rb = b.records;
+      a = { ...a, records: shareExpected(ra, rb) };
+      b = { ...b, records: shareExpected(rb, ra) };
+    }
+    if (aFailed) {
+      // (The fallback's where it has triangles, or where the primary's threw: a result, if one without triangles.)
+      if (!(b instanceof Error) && (a instanceof Error || !failedPart(b))) return this.finish(b, this.fallback, req,
+        [{ severity: 'warning', message: `meshed by the fallback backend (${f}), since ${p}'s mesh had problems: `
+          + why }]);
+      if (a instanceof Error) return this.finish(this.bothFailed(req, a, b as Error), this.primary, req, []);
+      return this.finish(a, this.primary, req, []);
+    }
+    const ra = a as TessellationResult;
+    const kept = () => this.finish(ra, this.primary, req, [{ severity: 'info', message: `the fallback backend (${f}) `
+      + `did no better than ${p} under the ${target.name} target (${why}), so ${p}'s mesh is kept` }]);
+    if (b instanceof Error || failedPart(b)) return kept();
+    const rb = b;
+    const ca = classes(ra), cb = classes(rb);
+    // (Only faces the target wants replaced; one it only warns of under a trigger on errors stays the primary's.)
+    let taken = [...ca.values()].filter((x) => wantsFallback(x, target) && chooseFace(x, cb.get(x.entityId))
+      === 'fallback').map((x) => x.entityId).sort((x, y) => x - y);
+    const by = `${p} with faces from ${f}`;
+    const compose = () => (taken.length ? tidy(composeResults(model, ra, rb, new Set(taken)), by) : undefined);
+    let c = compose();
+    if (c) {
+      const cc = classes(c);
+      // (A face is taken only where its own mesh isn't in error.)
+      const broken = taken.filter((x) => cc.get(x)?.overall === 'error');
+      if (broken.length) {
+        taken = taken.filter((x) => !broken.includes(x));
+        c = compose();
+      }
+    }
+    if (!c) return kept();
+    const n = taken.length, ids = taken.slice(0, 10).map((x) => `#${x}`).join(', ') + (n > 10 ? ', ...' : '');
+    return this.finish({ ...c, backend: `${described(this.primary.info)}, with ${n} ${n === 1 ? 'face' : 'faces'} by `
+      + described(this.fallback.info) }, this.primary, req, [{ severity: 'warning', message: `${n} `
+      + `${n === 1 ? 'face' : 'faces'} meshed by the fallback backend (${f}) under the ${target.name} target, since `
+      + `${p}'s mesh had problems: ${why}: ${ids}` }]);
+  }
+
+  /**
+   * The result where both backends' requests threw (a primary's timeout, then the fallback's): no triangles, an error
+   * for each, so the caller has a failed part with its causes rather than an exception.
+   */
+  private bothFailed(req: TessellationRequest, a: Error, b: Error): TessellationResult {
+    return { origin: req.origin ?? [0, 0, 0], positions: new Float32Array(), indices: new Uint32Array(), faces: [],
+      diagnostics: [{ severity: 'error', message: `tessellation failed: ${a.message}` }, { severity: 'error',
+        message: `the fallback backend (${this.fallback.info.name}) failed too: ${b.message}` }] };
   }
 
   /** The result as the request asked for it, saying who made it, with `notes` first. */
@@ -317,6 +402,7 @@ export class FallbackTessellator implements Tessellator {
       diagnostics: [...notes, ...r.diagnostics] };
     if (!req.measures) { delete out.measures; delete out.oracle; }
     if (!req.edges) { delete out.edges; delete out.edgePositions; }
+    if (!req.records && !req.target) delete out.records;
     return out;
   }
 

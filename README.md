@@ -294,12 +294,18 @@ Options:
       --timeout <s>        per part, in a worker (default 120); 0: none
       --cache <dir>        cache tessellations in this directory
       --cache-size <MB>    the cache's maximum size (default 1024)
-      --strict             exit 3 if a part fails to tessellate (the output is written all the same)
-      --target <name>      rendering, manifold or analysis: each face's mesh classed by the target's levels
-                           (docs/triage.md), the classes said per part in the summary; nothing excluded or failed
-                           yet, and the target's meshing limits not yet applied (default: none)
+      --strict             exit 3 if a part fails to tessellate or is excluded (the output is written all the
+                           same)
+      --target <name>      rendering, manufacturing, analysis or none: what the meshes are for (docs/triage.md):
+                           the target's meshing limits asked of the backends, each face's mesh chosen between the
+                           backend's and the fallback's by its levels, a face in error withheld and its part
+                           failing the run: exit 4, nothing written (default: 3MF manufacturing, glTF and three.js
+                           rendering, STEP none)
+      --exclude-failing    with a target, the parts with a face in error (or that failed to tessellate) left out
+                           and the rest written, their errors still said
       --describe-target <name>
-                           print the target's levels, each criterion's true limit, and its meshing limits; exit
+                           print the target's levels, each criterion's true limit, its meshing limits and when
+                           the fallback is asked; exit
   -v, --verbose            the summary lists every error, warning and note, not the first 20 errors and warnings
   -q, --quiet              no summary on standard error
   -h, --help               show this help
@@ -318,6 +324,8 @@ stepconv -b truck -d 0.05 --angular-deflection 15 part.stp -o part.glb  # truck,
 stepconv --cache ~/.cache/cad-io-js big.stp -o big.glb                  # a second run reads the meshes from the cache
 cat part.stp | stepconv - -f glb -o - > part.glb                        # standard input to standard output
 stepconv --strict part.stp -o part.glb || echo "some part failed"       # exit 3 if a part has no mesh
+stepconv part.stp -o part.3mf --exclude-failing                         # parts failing manufacturing left out
+stepconv part.stp -o part.glb --target none                             # no target: meshes as the backends give
 ```
 
 The summary, for example:
@@ -348,7 +356,7 @@ What each format holds:
 
 **glTF compression** is lossy either way, and a viewer needs the codec's decoder (three.js: `DRACOLoader`, `MeshoptDecoder`). Draco, the default, quantizes positions to 14 bits over each part mesh's extent (a step of 0.05 mm on a part 785 mm across; `--gltf-draco-bits` for more), normals to 10 bits, and reorders triangles; edges, curves and points aren't compressed. meshopt quantizes positions to 16 bits over each part mesh's extent (its edges, curves and points included; the scale and offset are in the part's node), normals to 8 bits, and compresses every buffer; it reorders triangles only within each face. With `--extras`, faces stay findable for picking: with meshopt as index ranges, as uncompressed; with Draco as a `_FACE` vertex attribute, the index of the vertex's face in the primitive's `extras.faces` (16 bits, so at most 65,535 faces in one primitive, else the run fails; the corpus's largest has 4,660).
 
-Parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes about 200 s in all with 9 workers, nearly all of it tessellation; exporting is 6 s for glTF (with Draco), 15 s for three.js and 33 s for 3MF. The corpus's GLBs come to 34.5 MB with Draco, against 411 MB uncompressed; with edges and curves (which Draco leaves as they are), 90 MB with Draco and 109 MB with meshopt, against 461 MB.
+Every mesh output has a target (`docs/triage.md`): rendering for glTF and three.js, manufacturing for 3MF, none for STEP unless `--target` gives one. A face in error under it is withheld, and its part fails the run: exit 4, nothing written, the failing parts and faces in the summary; `--exclude-failing` writes the rest (with `--strict`, exit 3), `--target none` meshes as the backends give, as without a target. Faces warned of are counted in the summary per part. Without a target, parts that fail to tessellate don't fail the run; they are in the summary (with `--strict`, exit 3). OCCT's own messages are kept as warnings on their parts, not printed. Over the 517 corpus files, a run with the defaults takes about 200 s in all with 9 workers, nearly all of it tessellation; exporting is 6 s for glTF (with Draco), 15 s for three.js and 33 s for 3MF. The corpus's GLBs come to 34.5 MB with Draco, against 411 MB uncompressed; with edges and curves (which Draco leaves as they are), 90 MB with Draco and 109 MB with meshopt, against 461 MB.
 
 ## Viewer
 

@@ -3,6 +3,7 @@
 // backend reading STEP takes through step-export's StepTessellator (the model written as STEP).
 
 import type { Diagnostic, EdgeKind, Vec3 } from './scene.ts';
+import type { Target } from './targets.ts';
 
 /** `cad-brep`: a B-rep model's buffer (cad-brep's BrepData.buffer) as bytes. */
 export type PayloadFormat = 'cad-brep' | 'step' | 'iges' | 'brep';
@@ -43,6 +44,22 @@ export interface TessellationRequest {
    * 10 degrees by default, at most 30). Absent: the backend's default; backends without one ignore it.
    */
   minAngle?: number;
+  /**
+   * The longest a triangle's edge may be, as a fraction of the part's size (tess-cadio's partSize; docs/triage.md's
+   * g), for a backend that can aim at it (tess-cadio); others ignore it. Absent: none.
+   */
+  maxEdge?: number;
+  /**
+   * Elementary faces' (planes, cylinders, cones, spheres, tori) size metric's stretch capped at this from their first
+   * meshing, for a backend with a size metric (tess-cadio); others ignore it. Absent: none.
+   */
+  elementaryStretchCap?: number;
+  /**
+   * The target (targets.ts) a tessellator choosing among backends chooses each face's mesh by (FallbackTessellator,
+   * which then asks for records); backends ignore it, and it isn't in a cache's key (its meshing limits, the fields
+   * above, are).
+   */
+  target?: Target;
   /**
    * The part's analysis buffer (cad-brep's analysis-layout.ts, `BrepAnalysis.buffer`), of `data`'s model, where
    * healing gave one: present only for a healed part, and may be absent for one (a caller that doesn't pass it, a
@@ -121,6 +138,11 @@ export interface FaceRecords {
    */
   unsewnEdges: Int32Array;
   orientation: Uint8Array;
+  /**
+   * (k): 1 where only the sliver fill meshed the face (fill.ts's fillResult: no backend did), its row then measured
+   * on the filled mesh; 0 otherwise.
+   */
+  filled: Uint8Array;
 }
 
 export interface TessellationResult {

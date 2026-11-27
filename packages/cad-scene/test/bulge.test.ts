@@ -5,53 +5,7 @@ import { chordBulge, newBulgeCache } from '../src/bulge.ts';
 import { badFaces } from '../src/fallback.ts';
 import { BULGE_FACTOR, EXCESS_FRACTION, faceFailures } from '../src/mesh.ts';
 import type { Mesh } from '../src/index.ts';
-
-const N = 16, R = 5;
-const XY = { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] };
-
-/** Body `b` a sheet of `faces`. */
-function sheet(b: BrepBuilder, faces: number[]): BrepData {
-  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
-    faces: faces.map((face) => ({ face, sense: true })) }), sense: true }] }) });
-  return b.finish();
-}
-
-/** Face 10: the square [-10, 10]^2 on z = 0 with a hole of radius R at the origin (its edge the whole circle). */
-function plate(): BrepData {
-  const b = new BrepBuilder();
-  const c = [[-10, -10], [10, -10], [10, 10], [-10, 10]].map(([x, y]) => b.addVertex({ point: [x!, y!, 0] }));
-  const at = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
-  const sides = [0, 1, 2, 3].map((k) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: [...at[k]!, 0],
-    direction: [(at[(k + 1) % 4]![0]! - at[k]![0]!) / 20, (at[(k + 1) % 4]![1]! - at[k]![1]!) / 20, 0],
-    magnitude: 1 }),
-  start: c[k]!, end: c[(k + 1) % 4]!, sameSense: true, id: 1 + k }));
-  const v = b.addVertex({ point: [R, 0, 0] });
-  const hole = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: XY, radius: R }), start: v, end: v,
-    sameSense: true, id: 5 });
-  const face = b.addFace({ surface: b.addSurface({ kind: 'plane', position: XY }), sameSense: true, id: 10, loops: [
-    { kind: 'edge', bound: 'outer', sense: true, coedges: sides.map((edge) => ({ edge, orientation: 'forward' })) },
-    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: hole, orientation: 'reversed' }] }] });
-  return sheet(b, [face]);
-}
-
-/**
- * The plate's mesh: the hole's polygon of N sides (corners on the circle) joined to the points where the same rays
- * meet the square (its corners among them, at 45 degrees), a quad per ray step in two triangles, under `source`;
- * positions minus `origin`.
- */
-function plateMesh(origin: [number, number, number] = [0, 0, 0], source = 10): Mesh {
-  const pos: number[] = [], ix: number[] = [];
-  for (let k = 0; k < N; k++) {
-    const a = 2 * Math.PI * k / N, c = Math.cos(a), s = Math.sin(a), out = 10 / Math.max(Math.abs(c), Math.abs(s));
-    pos.push(R * c - origin[0], R * s - origin[1], -origin[2], out * c - origin[0], out * s - origin[1], -origin[2]);
-  }
-  for (let k = 0; k < N; k++) {
-    const h = 2 * k, o = 2 * k + 1, h1 = 2 * ((k + 1) % N), o1 = h1 + 1;
-    ix.push(h, o, o1, h, o1, h1);
-  }
-  return { origin, positions: Float32Array.from(pos), indices: Uint32Array.from(ix),
-    faces: [{ source, start: 0, count: ix.length }] };
-}
+import { N, plate, plateMesh, R, sheet, XY } from './plate.ts';
 
 /** The hole's segments between chords and circle: the circle's area less its polygon's. */
 const SEGMENTS = Math.PI * R * R - N / 2 * R * R * Math.sin(2 * Math.PI / N);

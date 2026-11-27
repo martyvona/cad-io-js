@@ -476,15 +476,17 @@ test('init({minAngle}): the mesher\'s target smallest angle, 10 degrees by defau
   assert.equal(await own(0), none);
 });
 
-test('init({maxEdge}): no triangle edge longer than that fraction of the part\'s size (partSize); none by default',
+test('init({maxEdge}): no triangle edge longer than that fraction of the part\'s size (partSize); none by default; '
+  + 'a request\'s in its place',
   { skip },
   async () => {
   // (longPlate: 100 by 4, its size the diagonal.)
   const data = new Uint8Array(TESS_MODELS.longPlate().finish().buffer), size = Math.hypot(100, 4);
-  const longest = async (maxEdge?: number) => {
+  const longest = async (maxEdge?: number, own?: number) => {
     const t = new CadioTessellator();
     await t.init(maxEdge === undefined ? {} : { maxEdge });
-    const r = await t.tessellate({ format: 'cad-brep', data, linearDeflection: 0.1, angularDeflection: 0.26 });
+    const r = await t.tessellate({ format: 'cad-brep', data, linearDeflection: 0.1, angularDeflection: 0.26,
+      ...(own !== undefined ? { maxEdge: own } : {}) });
     assert.equal(r.faces.filter((f) => f.count === 0).length, 0);
     let l = 0;
     const p = r.positions, ix = r.indices;
@@ -502,6 +504,72 @@ test('init({maxEdge}): no triangle edge longer than that fraction of the part\'s
   const limit = 0.03 * size, capped = await longest(0.03);
   assert.ok(capped <= limit * (1 + 1e-6) && capped > 0.5 * limit, `${capped} against ${limit}`);
   for (const off of [undefined, 0]) assert.ok(await longest(off) > 4 * limit);
+  // A request's own maxEdge (cad-scene's TessellationRequest) in place of init's, for that request.
+  assert.equal(await longest(undefined, 0.03), capped);
+  assert.ok(await longest(0.03, 0) > 4 * limit);
+});
+
+test('elementaryStretchCap: elementary faces\' stretch capped from their first meshing (more, shorter triangles on a '
+  + 'long cylinder), free-form ones not (the same tube as an extrusion); a request\'s in place of init\'s; the '
+  + 'expected counts follow it', { skip }, async () => {
+  // (Face ids, for the expected counts' map.)
+  const ided = (d: BrepData) => {
+    d.face.id.forEach((_, k) => { d.face.id[k] = 100 + k; });
+    return new Uint8Array(d.buffer);
+  };
+  const tube = { format: 'cad-brep' as const, data: ided(TESS_MODELS.longBand().finish()), linearDeflection: 0.01,
+    angularDeflection: 0.26 };
+  const swept = { ...tube, data: ided(TESS_MODELS.longSweep().finish()) };
+  const off = new CadioTessellator(), on = new CadioTessellator();
+  await off.init();
+  await on.init({ elementaryStretchCap: 16 });
+  const tri = async (t: CadioTessellator, r: typeof tube & { elementaryStretchCap?: number }) => {
+    const x = await t.tessellate(r);
+    assert.equal(x.faces.filter((f) => f.count === 0).length, 0);
+    return x;
+  };
+  const [a, b] = [await tri(off, tube), await tri(on, tube)];
+  assert.ok(b.indices.length > 1.5 * a.indices.length, `${a.indices.length / 3} -> ${b.indices.length / 3}`);
+  // (Free-form: the same bits.)
+  const [c, d] = [await tri(off, swept), await tri(on, swept)];
+  assert.deepEqual([c.positions, c.indices], [d.positions, d.indices]);
+  // The request's: on over init's off, off (0) over init's on.
+  assert.deepEqual((await tri(off, { ...tube, elementaryStretchCap: 16 })).indices, b.indices);
+  assert.deepEqual((await tri(on, { ...tube, elementaryStretchCap: 0 })).indices, a.indices);
+  // Under 1 or not finite: none.
+  for (const x of [0.5, NaN, -1]) assert.deepEqual((await tri(off, { ...tube, elementaryStretchCap: x })).indices,
+    a.indices, String(x));
+  const sum = (m: Map<number, number>) => {
+    assert.ok(m.size > 0);
+    return [...m.values()].reduce((p, q) => p + q, 0);
+  };
+  assert.ok(sum(off.expectedCounts({ ...tube, elementaryStretchCap: 16 })) > 1.5 * sum(off.expectedCounts(tube)));
+  assert.equal(sum(off.expectedCounts({ ...swept, elementaryStretchCap: 16 })), sum(off.expectedCounts(swept)));
+});
+
+test('elementaryStretchCap with the developed plane: the cap holds there as in (u, v), and the developed frame is '
+  + 'used (longBand at 0.01)', { skip }, async () => {
+  const data = new Uint8Array(TESS_MODELS.longBand().finish().buffer);
+  const mesh = async (develop: boolean, cap: number) => {
+    const t = new CadioTessellator();
+    await t.init({ develop, elementaryStretchCap: cap });
+    const r = await t.tessellate({ format: 'cad-brep', data, linearDeflection: 0.01, angularDeflection: 0.26 });
+    assert.equal(r.faces.filter((f) => f.count === 0).length, 0);
+    // The worst triangle's longest edge squared over twice its area (its longest edge over its height there).
+    let worst = 0;
+    for (let i = 0; i < r.indices.length; i += 3) {
+      const p = [0, 1, 2].map((k) => [0, 1, 2].map((c) => r.positions[3 * r.indices[i + k]! + c]!));
+      const e = [0, 1, 2].map((k) => Math.hypot(...[0, 1, 2].map((c) => p[k]![c]! - p[(k + 1) % 3]![c]!)));
+      const h = (e[0]! + e[1]! + e[2]!) / 2;
+      worst = Math.max(worst, Math.max(...e) ** 2 / (2 * Math.sqrt(h * (h - e[0]!) * (h - e[1]!) * (h - e[2]!))));
+    }
+    return { n: r.indices.length / 3, worst, key: r.indices.join(',') };
+  };
+  const [uv, dev, plain] = [await mesh(false, 16), await mesh(true, 16), await mesh(true, 0)];
+  // Uncapped its worst is past 400; capped at 16 near 50 in both frames.
+  assert.ok(plain.worst > 400, String(plain.worst));
+  for (const m of [uv, dev]) assert.ok(m.worst < 64 && m.n > 10 * plain.n, `${m.worst} ${m.n}`);
+  assert.notEqual(uv.key, dev.key);
 });
 
 test('refinement blocked by a pole ring\'s fixed segment, said with the face and its rounds: bentApex at 0.01; ' +

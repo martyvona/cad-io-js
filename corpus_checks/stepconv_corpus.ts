@@ -2,8 +2,10 @@
 // its .bin, 3MF): stepconv's main in this process for every file, and the bin spawned for a sample. Each file is also
 // imported and tessellated here (as stepconv's defaults: tess-workers pools of OCCT with SMLib its fallback, each
 // cached, the medium profile, no edges or curves) for the export view each output should come from; then, per format:
-//   - exit 0, nothing on standard output, and the summary's parts, tessellated parts, placed parts and triangles
-//     those of the scene and the view;
+//   - the exit code the format's default target asks (rendering for three.js and glTF, manufacturing for 3MF:
+//     docs/triage.md): 4 with nothing written where a part fails it (a face withheld, or no mesh), else 0; nothing on
+//     standard output; and the summary's parts, tessellated parts, placed parts and triangles those of the scene and
+//     the target's view;
 //   - the output read back with that format's own tools: three.js's ObjectLoader; the Khronos glTF-Validator (its
 //     errors are problems; it knows no Draco) and glTF-Transform with the Draco decoder for GLB and for glTF with its
 //     .bin; lib3mf in strict mode for 3MF;
@@ -13,7 +15,8 @@
 //     welded mesh is a closed, oriented manifold of positive volume (the others are left out with warnings);
 //   - in the sample, the bin's outputs byte-identical to main's, its exit code, standard output and summary (but
 //     for times) the same; its wall time against the summary's times gives the startup.
-// Prints, per format, sizes and the summary's import, tessellation and export times. Several files at once
+// Prints, per format, sizes and the summary's import, tessellation and export times, the exits by code, and the
+// runs exiting 4 with the criteria their withheld faces are in error by. Several files at once
 // (runner.ts: CHILDREN, MESH_WORKERS), stepconv given --workers to fit (its outputs don't depend on it; its times do).
 // Usage:
 //   node corpus_checks/stepconv_corpus.ts [file-list.txt] [max MB, default 2] [sample size, default 20]
@@ -28,7 +31,7 @@ import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRNodeVisibility } from '@
 import draco3d from 'draco3dgltf';
 import validator from 'gltf-validator';
 import * as THREE from 'three';
-import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, manifoldProblems, meshDeflections, placedName,
+import { DEFAULT_MESH_PROFILE, exportView, FallbackTessellator, TARGETS, type TargetName, manifoldProblems, meshDeflections, placedName,
   tessellateScene, weld, type ExportNode, type ExportPart, type ExportView, type PartRef,
   type Scene } from '../packages/cad-scene/src/index.ts';
 import { stepconv } from '../packages/cli/src/stepconv.ts';
@@ -51,6 +54,9 @@ interface Result {
   totals: Record<Format, ReturnType<typeof zero>>; issues: [string, number][]; problems: string[];
   /** Outputs too large to read back (three.js JSON past V8's longest string). */
   tooLarge: string[];
+  /** Each format's exit code; and where it was 4, the criteria the withheld faces are in error by, or "no mesh". */
+  exits: [Format, number][];
+  failing: [Format, string][];
   runs: [number, Format][];
 }
 
@@ -63,8 +69,9 @@ interface Summary { parts: number; meshed: number; brep: number; placed: number;
 function parseSummary(text: string): Summary | undefined {
   const a = new RegExp(String.raw`^(\d+) parts \((\d+) of (\d+) brep parts tessellated\), (\d+) placed; `
     + String.raw`(\d+) triangles; [\d.]+ MB written$`, 'm').exec(text);
-  // (The meshing profile or settings in parentheses after the tessellation's time.)
-  const b = /^import ([\d.]+) s, tessellation ([\d.]+) s(?: \([^)]*\))?, export ([\d.]+) s$/m.exec(text);
+  // (Healing's time where it healed; the meshing profile or settings in parentheses after the tessellation's time.)
+  const b = /^import ([\d.]+) s, (?:healing [\d.]+ s, )?tessellation ([\d.]+) s(?: \([^)]*\))?, export ([\d.]+) s$/m
+    .exec(text);
   if (!a || !b) return undefined;
   const [parts, meshed, brep, placed, triangles] = a.slice(1).map(Number) as [number, number, number, number, number];
   return { parts, meshed, brep, placed, triangles, import: Number(b[1]), tessellate: Number(b[2]),
@@ -193,34 +200,46 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
   async file(f, job) {
     const r: Result = { placed: 0, hidden: 0, notSolid: 0, triangles: 0, sampled: 0, startup: [],
       totals: Object.fromEntries(FORMATS.map((x) => [x, zero()])) as Result['totals'], issues: [], problems: [],
-      tooLarge: [], runs: [] };
+      tooLarge: [], runs: [], exits: [], failing: [] };
     const issues = new Map<string, number>();
     const problem = (msg: string) => { r.problems.push(msg); };
     try {
       const { scene } = await importStep(fs.readFileSync(f));
       // (As stepconv meshes by default: its default profile, medium.)
       const deflections = meshDeflections({ profile: DEFAULT_MESH_PROFILE });
-      const { meshes } = await tessellateScene(scene, tess,
-        { ...deflections, concurrency: workers });
-      const view = exportView(scene, { ...deflections, edges: false, curves: false });
-      const placed = placedParts(view, scene);
       const brep = scene.parts.filter((p) => p.brep).length;
-      let viewPlaced = 0, viewTriangles = 0;
-      const walk = (n: ExportNode) => {
-        for (const p of n.parts) { viewPlaced++;
-        viewTriangles += view.looks[p.look]!.indices.length / 3; } n.children.forEach(walk); };
-      walk({ parts: view.parts, children: view.roots } as ExportNode);
-      r.placed = placed.length;
-      r.hidden = placed.filter((p) => !p.visible).length;
-      r.notSolid = placed.filter((p) => p.visible && !p.solid).length;
-      r.triangles = viewTriangles;
+      // Each format's default target's levels (a level a target's alone), its view and the parts failing it.
+      const TARGET: Record<Format, TargetName> = { json: 'rendering', glb: 'rendering', gltf: 'rendering',
+        '3mf': 'manufacturing' };
+      const byTarget = new Map<TargetName, { meshed: number; view: ExportView; failing: number;
+        placed: ReturnType<typeof placedParts>; viewPlaced: number; viewTriangles: number }>();
+      for (const target of new Set(Object.values(TARGET))) {
+        const { meshes } = await tessellateScene(scene, tess, { ...deflections, concurrency: workers, target });
+        const minAngle = TARGETS[target].meshing.minAngle;
+        const view = exportView(scene, { ...deflections, minAngle, target, edges: false, curves: false });
+        const failing = scene.parts.filter((p, i) => p.brep && (!meshes.has(i) || p.lods.some((l) => l.target
+          === target && l.minAngle === minAngle && l.withheld?.length))).length;
+        let viewPlaced = 0, viewTriangles = 0;
+        const walk = (n: ExportNode) => {
+          for (const p of n.parts) { viewPlaced++;
+          viewTriangles += view.looks[p.look]!.indices.length / 3; } n.children.forEach(walk); };
+        walk({ parts: view.parts, children: view.roots } as ExportNode);
+        byTarget.set(target, { meshed: meshes.size, view, failing, placed: placedParts(view, scene), viewPlaced,
+          viewTriangles });
+      }
+      const rendering = byTarget.get('rendering')!;
+      r.placed = rendering.placed.length;
+      r.hidden = rendering.placed.filter((p) => !p.visible).length;
+      r.notSolid = rendering.placed.filter((p) => p.visible && !p.solid).length;
+      r.triangles = rendering.viewTriangles;
       // (A placed part's node named as its placement.)
       const partName = (p: { ref: PartRef }) => placedName(scene, p.ref);
+      const placedOf = (f: Format) => byTarget.get(TARGET[f])!.placed;
       const expected: Record<Format, { name?: string; triangles: number; visible?: boolean }[]> = {
-        json: placed.map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),
-        glb: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
-        gltf: placed.filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
-        '3mf': placed.filter((p) => p.visible && p.solid).map((p) => ({ triangles: p.triangles })),
+        json: placedOf('json').map((p) => ({ name: partName(p), triangles: p.triangles, visible: p.visible })),
+        glb: placedOf('glb').filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
+        gltf: placedOf('gltf').filter((p) => p.visible).map((p) => ({ name: partName(p), triangles: p.triangles })),
+        '3mf': placedOf('3mf').filter((p) => p.visible && p.solid).map((p) => ({ triangles: p.triangles })),
       };
 
       for (const format of FORMATS) {
@@ -231,14 +250,32 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
           { stdout: stdout.stream, stderr: stderr.stream, stdin: process.stdin });
         const wall = performance.now() - t;
         const fp = (m: string) => problem(`${format}: ${m}`);
-        if (code !== 0) fp(`exit ${code}: ${stderr.text().split('\n')[0]}`);
+        const tv = byTarget.get(TARGET[format])!;
+        r.exits.push([format, code]);
+        const wantCode = tv.failing ? 4 : 0;
+        if (code !== wantCode) fp(`exit ${code}, expected ${wantCode}: ${stderr.text().split('\n')[0]}`);
         if (stdout.text()) fp('standard output not empty');
         const s = parseSummary(stderr.text());
         if (!s) { fp(`no summary: ${stderr.text().slice(0, 200)}`); continue; }
-        const want = { parts: scene.parts.length, meshed: meshes.size, brep, placed: viewPlaced,
-          triangles: viewTriangles };
+        const want = { parts: scene.parts.length, meshed: tv.meshed, brep, placed: tv.viewPlaced,
+          triangles: tv.viewTriangles };
         for (const [k, v] of Object.entries(want)) if (s[k as keyof Summary] !== v) fp(
           `summary ${k} ${s[k as keyof Summary]}, expected ${v}`);
+        if (code === 4) {
+          // (Nothing written; the criteria the withheld faces fail, counted over the parts, and parts with no mesh.)
+          if (fs.existsSync(out)) fp('exit 4 with the output written');
+          const crit = new Map<string, number>();
+          for (const m of stderr.text().matchAll(/faces? withheld, in error under the \w+ target \(([^)]*)\)/g)) {
+            for (const x of m[1]!.split(', ')) {
+              const [c, n] = x.split(' ');
+              crit.set(c!, (crit.get(c!) ?? 0) + Number(n));
+            }
+          }
+          const none = (stderr.text().match(/: tessellation failed: /g) ?? []).length;
+          r.failing.push([format, [...[...crit].sort().map(([c, n]) => `${c} ${n}`), ...(none ? [`no mesh ${none}`]
+            : [])].join(', ')]);
+          continue;
+        }
         const tt = r.totals[format];
         tt.import += s.import; tt.tessellate += s.tessellate; tt.export += s.export; tt.wall += wall / 1000;
         const sidecar = path.join(dir, 'model.bin');
@@ -305,6 +342,8 @@ if (import.meta.main) {
   const problems: string[] = [];
   const tooLarge: string[] = [];
   const slowest: [number, string, Format][] = [];
+  const exits = new Map<string, number>();
+  const failing: string[] = [];
   const t0 = Date.now();
   await runFiles(import.meta.url, check, files.map((f) => ({ path: f, job: { sample: sample.has(f) } })),
     process.argv.slice(2), (f, out) => {
@@ -324,6 +363,8 @@ if (import.meta.main) {
       for (const [k, n] of r.issues) issues.set(k, (issues.get(k) ?? 0) + n);
       for (const x of r.tooLarge) tooLarge.push(`${name} ${x}`);
       for (const [ms, x] of r.runs) slowest.push([ms, name, x]);
+      for (const [x, code] of r.exits) exits.set(`${x} ${code}`, (exits.get(`${x} ${code}`) ?? 0) + 1);
+      for (const [x, why] of r.failing) failing.push(`${name} ${x}: ${why}`);
     });
 
   const s1 = (x: number) => `${x.toFixed(1)} s`;
@@ -345,6 +386,11 @@ if (import.meta.main) {
   for (const [ms, name, format] of slowest.sort((a, b) => b[0] - a[0]).slice(0, 6)) console.log(
     `  ${s1(ms / 1000)}  ${format}  ${name}`);
   if (tooLarge.length) console.log(`too large to read back: ${tooLarge.join(', ')}`);
+  console.log(`exits: ${FORMATS.map((x) => `${x} ${[...exits].filter(([k]) => k.startsWith(`${x} `))
+    .map(([k, n]) => `${k.split(' ')[1]}: ${n}`).sort().join(', ')}`).join('; ')}`);
+  console.log(`runs exiting 4, a file in a format (its default target failed: the withheld faces by criterion, over `
+    + `the parts, and the parts without a mesh): ${failing.length} of ${counts.files * FORMATS.length}`);
+  for (const x of failing.sort()) console.log(`  ${x}`);
   console.log(`problems ${counts.problems}`);
   for (const p of problems) console.log(`  ${p}`);
 }
