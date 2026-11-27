@@ -10,6 +10,7 @@
 
 import type { BrepData } from 'cad-brep';
 import { edgeUsers, openEdges, openEdgesCount, openEdgesMessage } from './open-edges.ts';
+import { recordSewn } from './records.ts';
 import type { Diagnostic } from './scene.ts';
 import type { TessellationResult } from './tessellator.ts';
 
@@ -380,14 +381,17 @@ export function joinedMessage(n: number): string {
 /**
  * joinEdges on a result whose diagnostics say it's open along edges (openEdgesCount), its diagnostics made to say what
  * is left: the open-edge errors replaced by one for the edges still open, and a note of those joined. Others as they
- * are.
+ * are. Its triage records (TessellationResult.records), where it has them, get each face's edges still open (a.2:
+ * recordSewn); their other values stay the backend's mesh's, as shipped.
  */
 export function joinResult(d: BrepData, r: TessellationResult, deflection: number): TessellationResult {
-  if (!openEdgesCount(r.diagnostics)) return r;
+  const sewn = (x: TessellationResult, open: readonly number[]): TessellationResult => (x.records
+    ? { ...x, records: recordSewn(x.records, d, open, !!(x.edges && x.edgePositions)) } : x);
+  if (!openEdgesCount(r.diagnostics)) return sewn(r, []);
   const j = joinEdges(d, r, deflection);
-  if (!j.joined.length) return r;
+  if (!j.joined.length) return sewn(r, j.open);
   const diagnostics: Diagnostic[] = [{ severity: 'info', message: joinedMessage(j.joined.length) },
     ...r.diagnostics.filter((x) => !openEdgesCount([x]))];
   if (j.open.length) diagnostics.push({ severity: 'error', message: openEdgesMessage(j.open.length) });
-  return { ...j.result, diagnostics };
+  return sewn({ ...j.result, diagnostics }, j.open);
 }

@@ -58,6 +58,58 @@ export interface TessellationRequest {
    * oracle's areas (`oracle`), where it trusts them.
    */
   measures?: boolean;
+  /**
+   * Also return each face's triage record (`records`, records.ts), measured where the request runs (tess-workers'
+   * worker); with `measures` so (b) has the area oracle's areas. Default false.
+   */
+  records?: boolean;
+}
+
+/**
+ * Each face's triage record (docs/triage.md's criteria), a row per source face id, columns per value (so a worker
+ * transfers them). Counts and lengths in the payload's units, angles in radians; NaN or -1 where absent.
+ */
+export interface FaceRecords {
+  entityId: Float64Array;
+  /** (g)'s reference: the part's size (tess-cadio's partSize), NaN where unknown. */
+  partSize: number;
+  /** (k) and (h): its triangles, degenerate ones included. */
+  triangles: Uint32Array;
+  /** (l): triangles with two corners at one position. */
+  degenerate: Uint32Array;
+  /**
+   * (a.1), its mesh edges welded by position, degenerate triangles left out: edges used three times or more, or twice
+   * the same way; edges used once (its boundary, or holes); of those, the ones on no B-rep edge's polyline (a hole;
+   * -1 where the result has no edges).
+   */
+  nonManifoldEdges: Uint32Array;
+  openEdges: Uint32Array;
+  holeEdges: Int32Array;
+  /** (b): its mesh's area, the area oracle's (times its shells' uses; NaN where it trusts none), records.ts's AREA. */
+  area: Float64Array;
+  oracleArea: Float64Array;
+  areaClass: Uint8Array;
+  /** (c) and (d): the backend's own values where it reports them, as records.ts's CHECK says. */
+  deviation: Float64Array;
+  deviationCheck: Uint8Array;
+  normalAngle: Float64Array;
+  normalCheck: Uint8Array;
+  /** (e): facets against the mean of their corners' shipped normals (-1: no normals). */
+  turned: Int32Array;
+  /** (f): its smallest angle, and its triangles under the request's minAngle. */
+  minAngle: Float64Array;
+  belowMinAngle: Uint32Array;
+  /** (g): its longest edge. */
+  longestEdge: Float64Array;
+  /** (h): its expected triangles and where the count came from (records.ts's EXPECTED). */
+  expected: Float64Array;
+  expectedSource: Uint8Array;
+  /**
+   * (a.2): its mesh edges on a model edge not shared exactly with that edge's other uses once joined (-1: not
+   * joined); (j): records.ts's ORIENTATION, written where the result is joined and oriented.
+   */
+  unsewnEdges: Int32Array;
+  orientation: Uint8Array;
 }
 
 export interface TessellationResult {
@@ -90,6 +142,15 @@ export interface TessellationResult {
    * replace it where that one is better (fallback.ts). A face here has its triangles.
    */
   defects?: { entityId: number; pastLimits: boolean; what: string }[];
+  /**
+   * What the backend measured of its own faces' meshes (tess-cadio's), for their triage records (records.ts): its
+   * deviation (c) and normal (d) checks, each records.ts's CHECK with its value (NaN where none), and the expected
+   * count its point cap meshed the face to (0: none).
+   */
+  reported?: { entityId: number; deviationCheck: number; deviation: number; normalCheck: number; normalAngle: number;
+    expected: number }[];
+  /** Each face's triage record, with TessellationRequest.records. */
+  records?: FaceRecords;
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {

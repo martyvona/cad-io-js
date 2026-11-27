@@ -4253,3 +4253,39 @@ TEST_CASE("maxEdge: a pole's edges held to it where a ring's crossing is taken t
     CHECK(past == 0);
   }
 }
+
+TEST_CASE("PartOptions::expectedOnly: each face's first meshing's point cap count, no triangles, nothing after (a "
+  "fan's cap, a creased roof, the cube, a pinched lune)") {
+  for (const char* name : {"cap", "roof", "cube", "lunePinch", "wholeSphereVertex"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o;
+    o.d.linear = 0.01, o.d.angular = 0.26;
+    // (The full run's first meshing: no split rounds, no stretch retries. expectedOnly with them on, as it's used:
+    // nothing after the first meshing runs, so none meshes a face again at another stretch.)
+    PartOptions e = o;
+    e.expectedOnly = true;
+    // (Each face meshed once: progress comes at each meshing's start.)
+    std::vector<int> meshed(m.faces(), 0);
+    e.progress = [&](const PartProgress& p) {
+      if (p.phase == PartProgress::meshing && p.row >= 0 && p.row < m.faces()) meshed[p.row]++;
+    };
+    o.maxSplitRounds = 0, o.retryStretch = 0;
+    PartMesher full(m, o);
+    PartMesher only(m, e);
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh &a = full.face(f), &b = only.face(f);
+      if (a.capExpected != b.capExpected || !b.triangles.empty())
+        std::printf("  %s face %d: expected %.17g (full) %.17g (expectedOnly), %zu triangles, cause %s\n", name, f,
+          a.capExpected, b.capExpected, b.triangles.size() / 3, b.cause.c_str());
+      CHECK(a.capExpected == b.capExpected);
+      CHECK(b.triangles.empty());
+      CHECK(meshed[f] <= 1);
+      if (b.capExpected > 0) {
+        CHECK(!a.triangles.empty());
+        CHECK(b.cause == "expected count only (PartOptions::expectedOnly)");
+      }
+    }
+    CHECK(only.rounds() == 0);
+  }
+}
