@@ -45,6 +45,9 @@ constexpr int kSplit = 2;
 constexpr size_t kMaxPieces = 64;
 /** How near a fixed segment a mesher point crowds it (SizeField::crowds), as a share of the refinement floor. */
 constexpr double kCrowdFloor = 0.1;
+/** How thin a triangle is for its output's facet not to show which way it faces (unresolved), in float32 steps at
+ * its corners' distance from the output's origin. */
+constexpr double kUnresolvedSteps = 4;
 
 Metric2 scaled(Metric2 m, double s) { return {m.a * s, m.b * s, m.c * s}; }
 double length2(Metric2 m, double x, double y) { return m.a * x * x + 2 * m.b * x * y + m.c * y * y; }
@@ -230,15 +233,16 @@ public:
     // where its corners as shipped round to float32 (LMP1 #172440's face 1042389, 143 mm from the part's origin), and
     // splitting only makes more such triangles, to the point cap; the part's check of its output (failTurnedOver)
     // judges what's shipped, a few such triangles kept with the defect said (keepDefects). Every check applies above
-    // the floor, near an apex too (a pole's fans, poles.h, are judged by the deviation alone; acceptFan still refuses
-    // a fan's turned facet below the floor).
+    // the floor (but a facet's side on a needle too thin for float32 to show it, unresolved), near an apex too (a
+    // pole's fans, poles.h, are judged by the deviation alone; acceptFan still refuses a fan's turned facet below the
+    // floor).
     Vec3 p[3];
     const bool evaluated = corners(t, p);
     Vec3 q[3];
     const bool own = output(t, p, q);
     if (belowFloor(t, p, evaluated)) return true;
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnedAsOutput(t, p, q));
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, false) && !(own && turnRefused(t, p, q, false));
   }
 
   bool acceptFan(const Vec2 t[3]) const override {
@@ -248,7 +252,7 @@ public:
     const bool own = output(t, p, q);
     if (belowFloor(t, p, evaluated)) return !turnedOver(t, p);
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
-    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnedAsOutput(t, p, q));
+    return deviationOk(t, p, longest3) && normalsWithin(t, p, true) && !(own && turnRefused(t, p, q, true));
   }
 
   int refusalKind(const Vec2 t[3]) const override { return static_cast<int>(refusal(t, true, false)); }
@@ -282,7 +286,7 @@ public:
     double longest3 = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     Refusal r = deviationRefusal(t, p, longest3);
     if (r == Refusal::none && normals) r = normalsRefusal(t, p, fan);
-    if (r == Refusal::none && normals && own && turnedAsOutput(t, p, q)) r = Refusal::normalFacet;
+    if (r == Refusal::none && normals && own && turnRefused(t, p, q, fan)) r = Refusal::normalFacet;
     sampledAny_ = sampled;  // (a diagnosis, not a judgement: the face's sampled flag as accept() left it)
     return r;
   }
@@ -549,8 +553,9 @@ private:
   /**
    * (A triangle thinner than the refinement floor, twice its area over its longest side, has its facet held only to
    * the side its corners' normals face, not to the angle: a needle's facet normal is rounding that refinement can't
-   * mend, ec_turbine-A's fold beside its u = 0 side. Not a smooth pole's fan (`fan`), held to the angle however thin,
-   * as the pole's ring was sized for.)
+   * mend, ec_turbine-A's fold beside its u = 0 side; one too thin for float32 to show its facet's side (unresolved)
+   * isn't held to that either. Not a smooth pole's fan (`fan`), held to the angle however thin, as the pole's ring was
+   * sized for.)
    */
   Refusal normalsRefusal(const Vec2 t[3], const Vec3 p[3], bool fan) const {
     const Refusal r = cornerNormalsRefusal(t, p, fan);
@@ -564,9 +569,10 @@ private:
     double gl = norm(g), c = d_.angular > 0 ? std::cos(d_.angular) : 0;
     double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
     bool facet = gl > 1e-9 * longest * longest, thin = !fan && gl / longest <= floor_;
+    const bool deep = !fan && unresolved(t, p);
     for (int i = 0; i < 3; i++) {
       if (!has[i]) continue;
-      if (facet && (facetAgainst(g, n[i]) || (!thin && dot(g, n[i]) < c * gl))) return Refusal::normalFacet;
+      if (facet && ((!deep && facetAgainst(g, n[i])) || (!thin && dot(g, n[i]) < c * gl))) return Refusal::normalFacet;
       for (int j = i + 1; j < 3; j++)
         if (d_.angular > 0 && has[j] && dot(n[i], n[j]) < c) return Refusal::normalSpread;
     }
@@ -1005,6 +1011,33 @@ private:
       if (cornerNormal(t, i, n) == Status::ok) sum = sum + n;
     }
     return facetAgainst(g, sum) && !foldSliver(t, p);
+  }
+  /** Refused for its turn as output (turnedAsOutput): not where too thin to show it (unresolved), except in a smooth
+   * pole's fan (`fan`). */
+  bool turnRefused(const Vec2 t[3], const Vec3 p[3], const Vec3 q[3], bool fan) const {
+    return (fan || !unresolved(t, p)) && turnedAsOutput(t, p, q);
+  }
+  /**
+   * Too thin for the output to show which way it faces: at most kUnresolvedSteps float32 steps high (twice its area
+   * over its longest side) at its corners' largest coordinate from the output's origin, with a corner the mesher
+   * placed (not the boundary's, setBoundaryPoints). Such a facet faces as its corners round, and splitting it makes
+   * thinner needles that round no better, without end where the surface's normal vanishes along a curve inside the
+   * face (wgehaeuse #59513's fold, OCC8228 #64818's collapsed row). A triangle with every corner on the boundary is
+   * still refined: splitting adds a mesher point, which mends it (on small cones a sliver along the boundary, left
+   * turned, loses the face area). The needle gate (crowds) still judges such a needle: a point that would make one
+   * splits the segment instead.
+   */
+  bool unresolved(const Vec2 t[3], const Vec3 p[3]) const {
+    const double longest = std::max({norm(p[1] - p[0]), norm(p[2] - p[1]), norm(p[0] - p[2])});
+    if (!(longest > 0)) return false;
+    const double o[3] = {shipped_ ? origin_[0] : 0, shipped_ ? origin_[1] : 0, shipped_ ? origin_[2] : 0};
+    double reach = 0;
+    for (int i = 0; i < 3; i++)
+      reach = std::max({reach, std::fabs(p[i].x - o[0]), std::fabs(p[i].y - o[1]), std::fabs(p[i].z - o[2])});
+    if (norm(cross(p[1] - p[0], p[2] - p[0])) / longest > kUnresolvedSteps * reach * 0x1p-23) return false;
+    for (int i = 0; i < 3; i++)
+      if (boundary_.find({bits(t[i].x), bits(t[i].y)}) == boundary_.end()) return true;
+    return false;
   }
   /** The output's origin (setOutputOrigin), and corners as shipped from it. */
   double origin_[3] = {0, 0, 0};

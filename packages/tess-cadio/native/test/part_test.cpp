@@ -446,15 +446,22 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   CHECK(c->accept(t));
   // Judged as shipped (setOutputOrigin): corners 6e-8, 5.8e-8 and 5.91e-8 up in v (y), the last above the chord of
   // the first two in double, below it as float32 minus an origin 1 below them (1 + 6e-8 rounds up a unit in the last
-  // place, the others down to 1): the facet turned as shipped, refused, though accepted in double.
+  // place, the others down to 1): the facet turned as shipped, refused, though accepted in double, its corners the
+  // boundary's (their own points the surface's; with a corner the mesher's, too thin to judge, the next case).
   {
     auto c2 = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
     REQUIRE(c2);
     const Vec2 flip[3] = {{0, 6e-8}, {3, 5.8e-8}, {1.5, 5.91e-8}};
+    c2->setBoundaryPoints({{flip[0], Vec3{0, 6e-8, 0}}, {flip[1], Vec3{3, 5.8e-8, 0}},
+      {flip[2], Vec3{1.5, 5.91e-8, 0}}});
     CHECK(c2->accept(flip));
     const double origin[3] = {0, -1, 0};
     c2->setOutputOrigin(origin);
     CHECK(!c2->accept(flip));
+    c2->setBoundaryPoints({{flip[0], Vec3{0, 6e-8, 0}}, {flip[1], Vec3{3, 5.8e-8, 0}}});
+    CHECK(c2->accept(flip));
+    c2->setBoundaryPoints({{flip[0], Vec3{0, 6e-8, 0}}, {flip[1], Vec3{3, 5.8e-8, 0}},
+      {flip[2], Vec3{1.5, 5.91e-8, 0}}});
     const double none[3] = {NAN, NAN, NAN};
     c2->setOutputOrigin(none);
     CHECK(c2->accept(flip));
@@ -478,6 +485,67 @@ TEST_CASE("the criteria's facet tests on the boundary's own points (setBoundaryP
   const Vec2 thin[3] = {{0, 0}, {3, 0}, {0, 0.5}};
   c->setBoundaryPoints({{thin[0], Vec3{0, 0, 0.25}}});
   CHECK(c->accept(thin));
+}
+
+TEST_CASE("a needle too thin for float32 to show its facet's side (at most 4 float32 steps high at its corners' "
+  "largest coordinate from the output's origin) with a corner the mesher placed isn't refused for its facet's turn; "
+  "with every corner the boundary's, or as a smooth pole's fan, it is") {
+  // (pcurveNear's plane, its normal +z, at d 0.1: the floor 0.01. Needles 3 long along x from (0, 0), their apex at
+  // v = k x 2^-23, exact in float32: at the origin a reach of 3, so 4 steps are 12 x 2^-23; 11 within, 13 past.)
+  cadgeom::Model m = load("pcurveNear");
+  REQUIRE(m.ok());
+  cadgeom::Status st;
+  auto s = cadgeom::makeSurface(m, m.faceSurface(0), st);
+  const double step = 0x1p-23, zero[3] = {0, 0, 0};
+  auto make = [&]() {
+    auto c = makeCriteria(m, 0, *s, cadgeom::Box2{{-3, 3}, {-3, 3}}, Deflections{0.1, 0.26}, st);
+    REQUIRE(c);
+    c->setOutputOrigin(zero);
+    return c;
+  };
+  // Turned in double (clockwise in (u, v), facing -z).
+  const Vec2 in[3] = {{0, 0}, {1.5, 11 * step}, {3, 0}}, past[3] = {{0, 0}, {1.5, 13 * step}, {3, 0}};
+  {
+    auto c = make();
+    CHECK(c->accept(in));
+    CHECK(c->refusal(in) == Refusal::none);
+    CHECK(!c->accept(past));
+    CHECK(c->refusal(past) == Refusal::normalFacet);
+    // As a fan: refused however thin.
+    CHECK(!c->acceptFan(in));
+    CHECK(c->refusal(in, true, true) == Refusal::normalFacet);
+    // Two corners the boundary's (their own points the surface's), the apex the mesher's: still not refused.
+    c->setBoundaryPoints({{in[0], Vec3{0, 0, 0}}, {in[2], Vec3{3, 0, 0}}});
+    CHECK(c->accept(in));
+    // Every corner the boundary's: refused (splitting adds a mesher point).
+    c->setBoundaryPoints({{in[0], Vec3{0, 0, 0}}, {in[1], Vec3{1.5, 11 * step, 0}}, {in[2], Vec3{3, 0, 0}}});
+    CHECK(!c->accept(in));
+    CHECK(c->refusal(in) == Refusal::normalFacet);
+  }
+  // The steps at the corners' coordinates from the output's origin: 1,000 below them in x or z, 13 x 2^-23 is within
+  // (a reach of 1,003 or 1,000); with no origin known, as at 0.
+  {
+    auto c = make();
+    const double far[3] = {-1000, 0, 0}, below[3] = {0, 0, -1000}, none[3] = {NAN, NAN, NAN};
+    c->setOutputOrigin(far);
+    CHECK(c->accept(past));
+    c->setOutputOrigin(below);
+    CHECK(c->accept(past));
+    c->setOutputOrigin(none);
+    CHECK(!c->accept(past));
+  }
+  // Facing +z on the surface's points, turned as output by a boundary corner's own point (on the plane, 3 x 11 steps
+  // up in y; turnedAsOutput): not refused, the other two corners the mesher's; as a fan, refused.
+  {
+    auto c = make();
+    const Vec2 up[3] = {{0, 0}, {3, 0}, {1.5, 11 * step}};
+    CHECK(c->accept(up));
+    c->setBoundaryPoints({{up[0], Vec3{0, 33 * step, 0}}});
+    CHECK(c->accept(up));
+    CHECK(c->refusal(up) == Refusal::none);
+    CHECK(!c->acceptFan(up));
+    CHECK(c->refusal(up, true, true) == Refusal::normalFacet);
+  }
 }
 
 TEST_CASE("a point crowds a fixed segment (crowds) within a tenth of the floor of it, along it and past its ends, "
@@ -3150,9 +3218,9 @@ TEST_CASE("verdicts reused across meshings (reuseVerdicts): the same meshes bit 
 
 TEST_CASE("verdicts reused (reuseVerdicts) shipped far from the origin: the same meshes as asking again, positions "
   "the output would weld kept apart alike (SizeField::shippedAt)") {
-  // (spheres at d 0.01 shipped from an origin 1e8 away, float32 there 8 apart: points refinement would put at
+  // (seamCylinder at d 0.01 shipped from an origin 1e8 away, float32 there 8 apart: points refinement would put at
   // one position.)
-  cadgeom::Model m = load("spheres");
+  cadgeom::Model m = load("seamCylinder");
   REQUIRE(m.ok());
   PartOptions o = options(0.01, 0.26), fresh = o;
   o.outputOrigin[0] = fresh.outputOrigin[0] = 1e8;
