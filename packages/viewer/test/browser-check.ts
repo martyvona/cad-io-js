@@ -863,7 +863,8 @@ if (fs.existsSync(vwGlb)) await check('edges off the page', async () => {
     viewer.display.traverse((o) => {
       if (!o.isMesh || o.userData.faceRanges === undefined) return;
       parts++;
-      const e = o.children.find((c) => c.name === 'edges');
+      // (Found edges: the line object beside the B-rep edges, which a GLB without edges has none of.)
+      const e = o.children.find((c) => c.name === 'detectedEdges');
       if (e) { withEdges++; segments += e.geometry.getAttribute('position').count / 2; }
     });
     return { ms, longest: Math.max(0, ...tasks), tasks: tasks.length, parts, withEdges, segments,
