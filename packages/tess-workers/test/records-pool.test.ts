@@ -15,8 +15,8 @@ const model = cube().finish();
 const req = { format: 'cad-brep' as const, data: new Uint8Array(model.buffer), linearDeflection: 0.01,
   angularDeflection: 0.26, edges: true, measures: true };
 
-test('a foreign backend\'s results: each face\'s record, its part size and expected count tess-cadio\'s first '
-  + 'meshing\'s', { skip }, async () => {
+test('a foreign backend\'s results: each face\'s record, its part size, and its expected count unmeasured, or with '
+  + 'recordExpected tess-cadio\'s first meshing\'s', { skip }, async () => {
   const local = new CadioTessellator();
   await local.init();
   const counts = local.expectedCounts(req), size = local.partSize(req.data);
@@ -25,8 +25,12 @@ test('a foreign backend\'s results: each face\'s record, its part size and expec
   await pool.init();
   try {
     assert.equal((await pool.tessellate(req)).records, undefined);
+    const plain = (await pool.tessellate({ ...req, records: true })).records!;
+    assert.equal(plain.partSize, size);
+    assert.deepEqual([...plain.expected], [0, 1, 2, 3, 4, 5].map(() => NaN));
+    assert.deepEqual([...plain.expectedSource], [0, 1, 2, 3, 4, 5].map(() => EXPECTED.none));
     for (let k = 0; k < 2; k++) {
-      const r = await pool.tessellate({ ...req, records: true });
+      const r = await pool.tessellate({ ...req, records: true, recordExpected: true });
       const rec = r.records!;
       assert.deepEqual([...rec.entityId], [21, 22, 23, 24, 25, 26]);
       assert.ok(rec.entityId instanceof Float64Array && rec.triangles instanceof Uint32Array);
@@ -41,7 +45,7 @@ test('a foreign backend\'s results: each face\'s record, its part size and expec
     const cyl = { ...req, data: new Uint8Array(seamCylinder().finish().buffer) };
     for (const linearDeflection of [0.01, 1e-3]) {
       const counted = local.expectedCounts({ ...cyl, linearDeflection });
-      const rec = (await pool.tessellate({ ...cyl, linearDeflection, records: true })).records!;
+      const rec = (await pool.tessellate({ ...cyl, linearDeflection, records: true, recordExpected: true })).records!;
       assert.deepEqual([...rec.expected], [...rec.entityId].map((id) => counted.get(id)));
     }
     assert.notDeepEqual([...local.expectedCounts(cyl).values()],

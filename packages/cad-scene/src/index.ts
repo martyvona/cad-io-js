@@ -17,7 +17,7 @@ export { notManifoldCount, notManifoldDiagnostic, notManifoldMessage, reported, 
 export { composeResults } from './compose.ts';
 export { failedMessage, FILL_WIDTH, filledMessage, fillFaces, fillResult, type Filled } from './fill.ts';
 export { AREA, CHECK, RECORDS_VERSION, composeRecords, DEFAULT_MIN_ANGLE, EXPECTED, faceRecords, ORIENTATION, type RecordInputs,
-  recordOriented, recordsFromJson, recordSewn, recordsJson } from './records.ts';
+  recordOriented, recordsFromJson, recordSewn, recordsJson, shareExpected } from './records.ts';
 export { JOIN_CORNER, JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
 export { againstHealedMessage, orientResult, shellsOriented, type Turned, turnedMessage, wrongShells }
   from './orient.ts';

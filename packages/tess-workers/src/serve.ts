@@ -87,14 +87,15 @@ async function withRecords(tess: Tessellator, req: TessellationRequest, r: Tesse
   const model = openBrep(data.buffer);
   const hex = async (u: Uint8Array) => Array.from(await sha256(new Uint8Array(u)), (x) => x.toString(16)
     .padStart(2, '0')).join('');
-  const key = `${isHelper(tess) ? 'own' : 'helper'}:${req.linearDeflection},${req.angularDeflection},`
-    + `${req.minAngle ?? ''}:${await hex(data)}:${req.analysis ? await hex(req.analysis) : ''}`;
+  const key = `${isHelper(tess) ? 'own' : 'helper'}:${req.recordExpected ? 1 : 0}:${req.linearDeflection},`
+    + `${req.angularDeflection},${req.minAngle ?? ''}:${await hex(data)}:${req.analysis ? await hex(req.analysis) : ''}`;
   let inputs = inputsCache.get(key);
   if (!inputs) {
     try {
-      // (tess-cadio's own results: (h) the counts it capped by, which it reports; the part's size alone here.)
+      // (tess-cadio's own results: (h) the counts it capped by, which it reports; another backend's only where the
+      // request pays for tess-cadio's first meshing, recordExpected, else unmeasured here.)
       const h = await recordHelper(tess);
-      inputs = isHelper(tess) ? { partSize: h.partSize(req.data) }
+      inputs = isHelper(tess) || !req.recordExpected ? { partSize: h.partSize(req.data) }
         : { partSize: h.partSize(req.data), expected: h.expectedCounts(req) };
     } catch (e) {
       r.diagnostics.push({ severity: 'warning', message: `triage records without part size and expected counts: `

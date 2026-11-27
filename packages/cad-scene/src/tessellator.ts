@@ -63,6 +63,12 @@ export interface TessellationRequest {
    * worker); with `measures` so (b) has the area oracle's areas. Default false.
    */
   records?: boolean;
+  /**
+   * With `records`, a foreign backend's faces' (h) counted by tess-cadio's first meshing (`CadioTessellator.
+   * expectedCounts`), at about one tess-cadio edge phase a part (docs/triage.md); without, (h) is a tess-cadio
+   * meshing's of the same part where FallbackTessellator has one, else unmeasured. Default false.
+   */
+  recordExpected?: boolean;
 }
 
 /**

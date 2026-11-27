@@ -28,10 +28,12 @@ export const AREA = { pass: 0, short: 1, over: 2, unverified: 3 } as const;
 export const CHECK = { unchecked: 0, measured: 1, lowerBound: 2, passed: 3, failedUnmeasured: 4 } as const;
 
 /**
- * (h)'s expected count: none (the face failed before tess-cadio's count, or no count was asked); tess-cadio's first
- * meshing's (tc_expected_counts: every foreign backend's); the backend's own cap's (tess-cadio's results).
+ * (h)'s expected count: none (unmeasured: no count asked, or the face failed before tess-cadio's count); tess-cadio's
+ * first meshing's (tc_expected_counts, with TessellationRequest.recordExpected); the backend's own cap's (tess-cadio's
+ * results); another backend's cap on its meshing of the same part (a foreign backend's face, where FallbackTessellator
+ * has tess-cadio's mesh of the part: shareExpected).
  */
-export const EXPECTED = { none: 0, firstMeshing: 1, backend: 2 } as const;
+export const EXPECTED = { none: 0, firstMeshing: 1, backend: 2, otherCap: 3 } as const;
 
 /** (j): as the backend shipped it (judged right, or not judged: orient.ts's wrongShells), or turned by orientResult. */
 export const ORIENTATION = { asShipped: 0, turned: 1 } as const;
@@ -278,5 +280,24 @@ export function recordsFromJson(j: unknown): FaceRecords | undefined {
     out[name] = new C(v.map((x) => (x === null ? NaN : Number(x))));
   }
   return out as unknown as FaceRecords;
+}
+
+/**
+ * `records` with (h) taken from `from`, another backend's records of the same part, where `from` has its own cap's
+ * count (EXPECTED.backend: tess-cadio's) and `records` doesn't: its source EXPECTED.otherCap. `records` itself where
+ * nothing is taken.
+ */
+export function shareExpected(records: FaceRecords, from: FaceRecords): FaceRecords {
+  const rowOf = new Map<number, number>();
+  from.entityId.forEach((id, k) => rowOf.set(id, k));
+  let expected: Float64Array | undefined, source: Uint8Array | undefined;
+  records.entityId.forEach((id, k) => {
+    const j = rowOf.get(id);
+    if (j === undefined || from.expectedSource[j] !== EXPECTED.backend
+      || records.expectedSource[k] === EXPECTED.backend) return;
+    expected ??= records.expected.slice(), source ??= records.expectedSource.slice();
+    expected[k] = from.expected[j]!, source[k] = EXPECTED.otherCap;
+  });
+  return expected ? { ...records, expected, expectedSource: source! } : records;
 }
 

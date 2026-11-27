@@ -8,6 +8,7 @@ import { deviationJudge } from './deviation.ts';
 import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
+import { shareExpected } from './records.ts';
 import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
 import { orientResult, shellsOriented } from './orient.ts';
@@ -220,12 +221,18 @@ export class FallbackTessellator implements Tessellator {
     };
     const run = (t: Tessellator) => t.tessellate(ask, onProgress).then((r) => tidy(r, t)).catch((e: unknown) =>
       e instanceof Error ? e : new Error(String(e)));
-    const a = await run(this.primary);
+    let a = await run(this.primary);
     // (The oracle's areas from the results, computed beside the meshing: ours are cached with them.)
     const va = judgeResult(a, model, req.linearDeflection, undefined, req.analysis);
     if (va.ok) return this.finish(a as TessellationResult, this.primary, req, []);
     const p = this.primary.info.name, f = this.fallback.info.name;
-    const b = await (held.fallback = run(this.fallback));
+    let b = await (held.fallback = run(this.fallback));
+    // (Triage records: each side's faces' expected counts the other's cap where it has one, tess-cadio's.)
+    if (!(a instanceof Error) && !(b instanceof Error) && a.records && b.records) {
+      const ra = a.records, rb = b.records;
+      a = { ...a, records: shareExpected(ra, rb) };
+      b = { ...b, records: shareExpected(rb, ra) };
+    }
     const vb0 = judgeResult(b, model, req.linearDeflection, undefined, req.analysis);
     const why = va.problems.join('; ');
     const D = req.linearDeflection;

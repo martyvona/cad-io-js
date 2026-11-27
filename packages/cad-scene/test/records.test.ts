@@ -3,9 +3,9 @@ import { test } from 'node:test';
 import { BrepBuilder } from 'cad-brep';
 import { cube } from '../../cad-brep/test/models.ts';
 import { quads } from './meshes.ts';
-import { AREA, CHECK, composeRecords, edgeUsers, EXPECTED, faceRecords, joinResult, oracleMeasures, ORIENTATION,
-  orientResult, recordsFromJson, recordSewn, recordsJson, type FaceRecords, type TessellationResult } from
-  '../src/index.ts';
+import { AREA, CHECK, composeRecords, edgeUsers, EXPECTED, FallbackTessellator, faceRecords, joinResult,
+  oracleMeasures, ORIENTATION, orientResult, recordsFromJson, recordSewn, recordsJson, shareExpected,
+  type FaceRecords, type TessellationRequest, type TessellationResult, type Tessellator } from '../src/index.ts';
 
 const model = cube().finish();
 const FACES = [21, 22, 23, 24, 25, 26];
@@ -220,3 +220,54 @@ test('records compose as their meshes do, and survive JSON (NaN as null)', () =>
   assert.deepEqual(back, a);
   assert.equal(recordsFromJson({ entityId: [1], triangles: [] }), undefined);
 });
+
+test('(h) shared: a face without a count of its own takes the other backend\'s cap where it has one, as the '
+  + 'fallback composes the part', async () => {
+  const reported = (expected: number) => FACES.map((entityId) => ({ entityId, deviationCheck: CHECK.passed,
+    deviation: NaN, normalCheck: CHECK.passed, normalAngle: NaN, expected }));
+  const own = faceRecords(req, { ...sound(), reported: reported(7) }, model);
+  const foreign = faceRecords(req, sound(), model, { expected: new Map([[21, 3]]) });
+  const s = shareExpected(foreign, own);
+  assert.deepEqual([...s.expected], FACES.map(() => 7));
+  assert.deepEqual([...s.expectedSource], FACES.map(() => EXPECTED.otherCap));
+  assert.equal(shareExpected(own, foreign), own, 'its own cap kept');
+  const other = faceRecords(req, { ...sound(), reported: reported(9) }, model);
+  assert.deepEqual([...shareExpected(own, other).expected], FACES.map(() => 7), 'its own cap, not the other\'s');
+  assert.equal(shareExpected(foreign, foreign), foreign, 'nothing to take');
+  // Through FallbackTessellator: the primary (its own caps reported) leaves face 23 without triangles, the fallback's
+  // mesh of it taken with the primary's count.
+  const backend = (name: string, answer: () => TessellationResult): Tessellator => ({
+    info: { name, version: '1', license: 'A', formats: ['cad-brep'], supportsFaceIds: true, supportsEdges: true,
+      supportsCurves: false },
+    init: async () => {}, dispose: () => {},
+    tessellate: async (q: TessellationRequest) => {
+      const r = answer();
+      return q.records ? { ...r, records: faceRecords(q, r, model) } : r;
+    } });
+  const primary = () => {
+    const r = sound();
+    return { ...r, faces: r.faces.map((f) => (f.entityId === 23 ? { ...f, count: 0 } : f)), reported: reported(7) };
+  };
+  const t = new FallbackTessellator(backend('a', primary), backend('b', sound));
+  await t.init();
+  const r = await t.tessellate({ format: 'cad-brep', data: new Uint8Array(model.buffer), linearDeflection: D,
+    angularDeflection: 0.5, records: true });
+  assert.match(r.backend!, /with 1 face by b/);
+  assert.equal(of(r.records!, 23).triangles, 2);
+  assert.deepEqual([of(r.records!, 23).expected, of(r.records!, 23).expectedSource], [7, EXPECTED.otherCap]);
+  assert.deepEqual([of(r.records!, 21).expected, of(r.records!, 21).expectedSource], [7, EXPECTED.backend]);
+  // The other way round: a foreign primary, its faces the fallback's caps.
+  const foreignFirst = () => {
+    const x = sound();
+    return { ...x, faces: x.faces.map((f) => (f.entityId === 23 ? { ...f, count: 0 } : f)) };
+  };
+  const u = new FallbackTessellator(backend('a', foreignFirst), backend('b', () => ({ ...sound(),
+    reported: reported(5) })));
+  await u.init();
+  const ru = await u.tessellate({ format: 'cad-brep', data: new Uint8Array(model.buffer), linearDeflection: D,
+    angularDeflection: 0.5, records: true });
+  assert.match(ru.backend!, /with 1 face by b/);
+  assert.deepEqual([of(ru.records!, 21).expected, of(ru.records!, 21).expectedSource], [5, EXPECTED.otherCap]);
+  assert.deepEqual([of(ru.records!, 23).expected, of(ru.records!, 23).expectedSource], [5, EXPECTED.backend]);
+});
+
