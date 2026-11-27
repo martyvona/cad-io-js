@@ -994,7 +994,7 @@ await check('hide others and transparency', async () => {
 // and replayed in a fresh page with the same overrides.
 // The tree's context menu ends with Selection's actions: what's before them (else the whole menu, so it doesn't match).
 const SELECT_ITEMS = ['Select parent', 'Select children', 'Select none', 'Select all', 'Invert selection',
-  'Select by ID...'];
+  'Select by ID...', 'Hide selected', 'Show selected'];
 // (A node's problems item, last where it has any, healing's warnings among them, left out too.)
 const ownItems = (all: string[]) => {
   const items = /^\d+ Errors?, \d+ Warnings?\.\.\.$/.test(all.at(-1) ?? '') ? all.slice(0, -1) : all;
@@ -1134,7 +1134,7 @@ await check('override appearance', async () => {
   const j = JSON.stringify({ ...a, rec: undefined });
   type Read = { title: string; visibility: string; opacity: string; edges: string; options: string[];
     disabled: boolean; value: string; buttons: string[] };
-  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Override Appearance..."]' && !!a.closed,
+  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' && !!a.closed,
     `the menu: ${j}`);
   const first = a.first as Read;
   expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
@@ -1162,7 +1162,7 @@ await check('override appearance', async () => {
   expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
   // (The child has an override of its own by then.)
   expect(JSON.stringify(ownItems(a.pressed as string[])) ===
-    '["Hide","Show","Override Appearance...","Remove Appearance Override"]',
+    '["Hide","Show","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override"]',
     `a long press: ${j}`);
   // Recorded once each change was made (the box's input not, its change yes), Hide and Show selected as buttons.
   expect(a.rec.events.filter((e) => e.type === 'appearance').length === 7, `recorded: ${JSON.stringify(
@@ -1186,6 +1186,100 @@ await check('override appearance', async () => {
 // rest of it kept), the open panel following; Remove only for a node with an override; on the whole selection when
 // the node right-clicked is in it with others (Override Appearance... still on that node alone); the focus moved to the
 // row right-clicked; recorded and replayed.
+// The tree's context menu's Hide others, Show others and Show all (after Show) do what Selection's buttons do (Hide
+// and Show others on the node right-clicked, or the selection it's in), and Hide selected and Show selected (last of
+// the selection's actions) on the selection, whatever was right-clicked; recorded, replayed with the same overrides.
+await check('tree menu others and selected', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const m = ui.panel().model;
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    ui.panel().setExpanded(m.nodes.filter((n) => n.kind === 'assembly').map((n) => n.id));
+    await frame();
+    const [p1, p2, p3] = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    const menu = async (id, choose) => {
+      ui.panel().scrollToRow(id, 0);
+      await frame();
+      const row = [...document.querySelectorAll('#tree .tree-row')].find((x) => +x.dataset.id === id);
+      const b = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.left + 20,
+        clientY: b.top + 5 }));
+      const items = [...document.querySelectorAll('.cv-menu button')].map((x) => x.textContent);
+      [...document.querySelectorAll('.cv-menu button')].find((x) => x.textContent === choose).click();
+      await frame();
+      const st = cadViewer.state();
+      return { items, hidden: [...st.hidden].sort(), shown: [...st.shown].sort() };
+    };
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // What Selection's buttons do from no overrides, with those ids selected.
+    const button = (ids, name) => {
+      control('Show all').$button.click();
+      ui.select(ids);
+      control(name).$button.click();
+      const st = cadViewer.state();
+      return { hidden: [...st.hidden].sort(), shown: [...st.shown].sort() };
+    };
+    cadViewer.record(true);
+    // (Through the interface, which replay makes again.)
+    cadViewer.select([p1, p2].map((p) => m.pathOf(p)));
+    const out = {};
+    out.othersSel = await menu(p1, 'Hide others');
+    out.showOthers = await menu(p2, 'Show others');
+    out.all = await menu(p1, 'Show all');
+    // Outside the selection: the node right-clicked alone.
+    out.othersOne = await menu(p3, 'Hide others');
+    await menu(p3, 'Show all');
+    // Hide selected and Show selected: the selection's, not p3's.
+    out.hideSel = await menu(p3, 'Hide selected');
+    out.showSel = await menu(p3, 'Show selected');
+    // Hide others then Show others, with no Show all after it (so the overrides Show others removes must be recorded),
+    // then Hide others on a sibling (which hides p3, not itself: a replay without either recording differs).
+    const sib = m.children(m.nodes[p3].parent).find((c) => c !== p3 && m.nodes[c].kind === 'part');
+    await menu(p3, 'Hide others');
+    await menu(p3, 'Show others');
+    await menu(sib, 'Hide others');
+    out.sib = sib !== undefined;
+    out.final = cadViewer.state();
+    out.rec = cadViewer.record(false);
+    // The buttons' (after the recording).
+    out.want = { othersSel: button([p1, p2], 'Hide others'), othersOne: button([p3], 'Hide others'),
+      hideSel: button([p1, p2], 'Hide selected') };
+    button([p1, p2], 'Hide others');
+    control('Show others').$button.click();
+    out.want.showOthers = { hidden: [...cadViewer.state().hidden].sort(), shown: [...cadViewer.state().shown].sort() };
+    out.paths = [p1, p2, p3].map((p) => m.pathOf(p));
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined });
+  const same = (x: { hidden: string[]; shown: string[] }, y: { hidden: string[]; shown: string[] }) =>
+    JSON.stringify([x.hidden, x.shown]) === JSON.stringify([y.hidden, y.shown]);
+  const items = a.othersSel.items as string[];
+  expect(JSON.stringify(items.slice(0, 5)) === '["Hide 2","Show 2","Hide others","Show others","Show all"]' &&
+    JSON.stringify(items.slice(-2)) === '["Hide selected","Show selected"]' && items.at(-3) === 'Select by ID...',
+  `the items: ${j}`);
+  expect(same(a.othersSel, a.want.othersSel) && a.othersSel.hidden.length > 0 &&
+    !a.othersSel.hidden.some((p: string) => a.paths.slice(0, 2).includes(p)), `Hide others on the selection: ${j}`);
+  expect(same(a.showOthers, a.want.showOthers), `Show others: ${j}`);
+  expect(a.all.hidden.length === 0 && a.all.shown.length === 0, `Show all: ${j}`);
+  expect(same(a.othersOne, a.want.othersOne) && a.othersOne.hidden.includes(a.paths[0]) &&
+    !a.othersOne.hidden.includes(a.paths[2]), `Hide others outside the selection: that node's: ${j}`);
+  expect(same(a.hideSel, a.want.hideSel) && a.hideSel.hidden.includes(a.paths[0]) &&
+    !a.hideSel.hidden.includes(a.paths[2]), `Hide selected: the selection's: ${j}`);
+  // (Nothing above them hidden: their hiding cleared, no shown override needed.)
+  expect(!a.showSel.hidden.some((p: string) => a.paths.slice(0, 2).some((q: string) => q.startsWith(p))),
+  `Show selected: the selection's: ${j}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    const st = cadViewer.state();
+    return { divergences: report.divergences, hidden: [...st.hidden].sort(), shown: [...st.shown].sort() };
+  })()`) as { after: { divergences: string[]; hidden: string[]; shown: string[] } };
+  const b = replayed.after;
+  expect(a.sib && b.divergences.length === 0 && JSON.stringify([b.hidden, b.shown]) === JSON.stringify([
+    [...a.final.hidden].sort(), [...a.final.shown].sort()]), `replayed: ${JSON.stringify(b)}`);
+  return undefined;
+});
 await check('tree menu hide and show', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&record`, `(async () => {
     const m = ui.panel().model;
@@ -1240,22 +1334,22 @@ await check('tree menu hide and show', async () => {
     drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] }; multi: unknown } };
   const a = r.after;
   const j = JSON.stringify({ ...a, rec: undefined });
-  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Override Appearance..."]' && !a.plain!.open &&
+  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' && !a.plain!.open &&
     JSON.stringify(a.plain!.own) === '{"hidden":true}' && a.plain!.hidden && !a.plain!.drawn, `Hide: ${j}`);
   expect(JSON.stringify(ownItems(a.shown!.items)) ===
-    '["Hide","Show","Override Appearance...","Remove Appearance Override"]' &&
+    '["Hide","Show","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override"]' &&
     JSON.stringify(a.shown!.own) === '{"hidden":false}' && !a.shown!.hidden && a.shown!.drawn, `Show: ${j}`);
   expect(JSON.stringify(a.hidden!.own) === '{"transparent":true,"alpha":0.5,"triangleEdges":true,"hidden":true}' &&
     a.hidden!.panel === 'hide', `Hide keeping the rest, the panel following: ${j}`);
   expect(a.removed!.own === null && !a.removed!.hidden && a.removed!.drawn && a.removed!.panel === 'inherit',
     `removed: ${j}`);
-  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Override Appearance..."]',
+  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]',
     `no Remove without: ${j}`);
   type Several = { items: string[]; open: boolean; owns: unknown[]; selected: number[]; focused: number };
   const mu = a.multi as unknown as { hide: Several; show: Several; remove: Several; outside: Several; opened: Several;
     panel: string; name: string; p: number[] };
   // (How many, on several: Remove's those with an override, one of the two at first.)
-  const all = '["Hide 2","Show 2","Override Appearance...","Remove Appearance Override 1"]';
+  const all = '["Hide 2","Show 2","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override 1"]';
   const both = JSON.stringify(mu.p.slice(0, 2));
   expect(JSON.stringify(ownItems(mu.hide.items)) === all && JSON.stringify(mu.hide.owns) ===
     '[{"hidden":true},{"transparent":true,"alpha":0.5,"hidden":true},null]' && JSON.stringify(mu.hide.selected) ===
@@ -1263,10 +1357,10 @@ await check('tree menu hide and show', async () => {
   expect(JSON.stringify(mu.show.owns) === '[{"hidden":false},{"transparent":true,"alpha":0.5,"hidden":false},null]',
     `Show on the selection: ${j}`);
   expect(mu.panel === `Override Appearance: ${mu.name}`, `Override Appearance... on the one clicked: ${j}`);
-  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Override Appearance...",' +
+  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Hide others","Show others","Show all","Override Appearance...",' +
     '"Remove Appearance Override 2"]' && JSON.stringify(mu.remove.owns) === '[null,null,null]',
     `Remove on the selection: ${j}`);
-  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Override Appearance..."]' &&
+  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' &&
     JSON.stringify(mu.outside.owns) === '[null,null,{"hidden":true}]' && JSON.stringify(mu.outside.selected) === both,
     `outside the selection, that one alone: ${j}`);
   // The focus (the outlined row) moved to each row right-clicked, the selection kept.
@@ -5156,8 +5250,9 @@ await check('control folders', async () => {
       shown: string } } };
   const a = r.after, t = r.then, j = JSON.stringify({ a, t });
   expect(a.file.join() === 'Open file...,Load URL...,Save original...,Export...,Screenshot...,Link to this view...,'
-    + 'Enter fullscreen,Theme,About...', `File: ${j}`);
-  expect(a.view.join() === 'Zoom all,Zoom selected,Axes', `View: its zooms and Axes (and the views' folder): ${j}`);
+    + 'Enter fullscreen,About...,Theme', `File: ${j}`);
+  expect(a.view.join() === 'Zoom all,Zoom selected,Axes,Look and fit',
+    `View: its zooms, Axes and Look and fit (and the views' folder): ${j}`);
   expect(a.selection.slice(-9).join() === 'Details,Hide selected,Show selected,Hide others,Show others,Show all,'
     + 'Opacity,Make transparent,Restore opacity' && a.selection[0] === 'Pick', `Selection: ${j}`);
   expect(a.rendering.join() === 'Custom background,Background', `Rendering ends with the background: ${j}`);

@@ -727,10 +727,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const first = setTheme(theme.choice);
   // Auto follows the system as it changes.
   onSystemTheme(() => { if (theme.choice === 'auto') setTheme('auto'); });
-  file.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
-    .onChange((c: ThemeChoice) => setTheme(c));
   fullscreen();
   file.add({ about: () => about() }, 'about').name('About...');
+  // Last in File.
+  file.add(theme, 'choice', { Auto: 'auto', Light: 'light', Dark: 'dark' }).name('Theme')
+    .onChange((c: ThemeChoice) => setTheme(c));
   // Filled once what they drive exists (below).
   const treeFolder = gui.addFolder('Tree');
   const selFolder = gui.addFolder('Selection');
@@ -1011,11 +1012,32 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     describe();
   };
   // A node's context menu, from a right-click or long press on its row in the tree or on it in the view. Hide and Show
-  // set each node's own override's visibility, as Override Appearance... would, keeping the rest of it; Remove
-  // Appearance Override (when one has an override) clears them. Each on the node, or on the whole selection when the
-  // node is in it with others; Override Appearance... on the node alone. At once, recorded node by node, the open panel
-  // following. Then Selection's actions: Select parent and Select children on the same nodes as Hide, the rest as
-  // their buttons.
+  // set each node's own override's visibility, as Override Appearance... would, keeping the rest of it; Hide others and
+  // Show others hide and show what those of Selection do (NodeModel.others); Remove Appearance Override (when one has
+  // an override) clears them. Each on the node, or on the whole selection when the node is in it with others; Show all
+  // as its button; Override Appearance... on the node alone. At once, recorded node by node (Hide and Show others as
+  // the overrides they changed), the open panel following. Then Selection's actions: Select parent and Select children
+  // on the same nodes as Hide, the rest (Hide selected and Show selected last) as their buttons.
+  // Hide others or Show others of `ids` (NodeModel.others, by setHidden's rules), recorded as the overrides that
+  // changed, node by node (a removed one as none), so a replay sets exactly those.
+  const othersRecorded = (hidden: boolean, ids: readonly number[]) => {
+    const nodes = viewer.nodes;
+    if (!nodes) return;
+    const text = (o: object) => JSON.stringify(o);
+    const before = new Map(nodes.overrides().map(({ path, ...o }) => [path, text(o)]));
+    hide(hidden, nodes.others(ids));
+    const changed: [string, AppearanceOverride][] = [];
+    const after = new Set<string>();
+    for (const { path, ...o } of nodes.overrides()) {
+      after.add(path);
+      if (before.get(path) !== text(o)) changed.push([path, o]);
+    }
+    for (const path of before.keys()) if (!after.has(path)) changed.push([path, {}]);
+    for (const [path, override] of changed) {
+      const t = nodes.find(path);
+      if (t !== undefined) hooks.onEvent?.({ type: 'appearance', id: t, override });
+    }
+  };
   // A node's menu (the tree's row's, or the view's for what was clicked: `header` then, the node as its row shows it).
   const nodeMenu = (id: number, x: number, y: number, header = false) => {
     const nodes = viewer.nodes, graph = viewer.graph;
@@ -1040,6 +1062,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     showMenu(x, y, [
       { label: many('Hide', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: true })) },
       { label: many('Show', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: false })) },
+      { label: 'Hide others', action: () => othersRecorded(true, targets) },
+      { label: 'Show others', action: () => othersRecorded(false, targets) },
+      { label: 'Show all', action: () => press(showAllControl) },
       { label: 'Override Appearance...', action: () => editAppearance(id) },
       ...(overridden ? [{ label: many('Remove Appearance Override', overridden),
         action: () => each(() => ({})) }] : []),
@@ -1049,6 +1074,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Select all', action: () => ui.selectAll() },
       { label: 'Invert selection', action: () => ui.invertSelection() },
       { label: 'Select by ID...', action: () => void selectById() },
+      { label: 'Hide selected', action: () => press(hideControl) },
+      { label: 'Show selected', action: () => press(showControl) },
       ...(errors + warnings ? [{ label: `${count(errors, 'Error')}, ${count(warnings, 'Warning')}...`,
         divider: true, action: () => void showProblems(name, mine, nodes.nodes[id]!.face ? name
           : `${name} and everything in it`) }] : []),
@@ -1402,7 +1429,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const showControl = selFolder.add(ui, 'showSelected').name('Show selected');
   selFolder.add(ui, 'hideOthers').name('Hide others');
   selFolder.add(ui, 'showOthers').name('Show others');
-  selFolder.add(ui, 'showAll').name('Show all');
+  const showAllControl = selFolder.add(ui, 'showAll').name('Show all');
   // Transparency: the selection at this opacity, or back to the file's.
   selFolder.add(transparency, 'opacity', 0.05, 1, 0.05).name('Opacity');
   selFolder.add({ make: () => ui.setOpacity(transparency.opacity) }, 'make').name('Make transparent');
