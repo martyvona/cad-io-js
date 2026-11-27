@@ -21,8 +21,8 @@ export interface CacheStore {
 }
 
 /** Changes whenever the key's contents or the encoding change, so old entries are never read. */
-const FORMAT = 4;
-const MAGIC = 0x34524354; // "TCR4", little-endian
+const FORMAT = 5;
+const MAGIC = 0x35524354; // "TCR5", little-endian
 /**
  * The start of every key of this format. Keys of earlier formats never start so (those before 4 are lower case), so a
  * store holding any key without it holds old entries, and is cleared (CachedTessellator).
@@ -77,7 +77,7 @@ export type CacheEntry =
   | { at: number; thrown: { message: string; timeoutMs?: number } };
 
 type Header = Partial<Pick<TessellationResult, 'origin' | 'faces' | 'edges' | 'curves' | 'pointIds'
-  | 'outlines' | 'measures' | 'oracle' | 'diagnostics'>> & {
+  | 'outlines' | 'measures' | 'oracle' | 'defects' | 'backend' | 'diagnostics'>> & {
   at: number;
   /** What a result's request asked for. */
   asked?: { edges: boolean; measures: boolean };
@@ -104,7 +104,8 @@ export function encodeEntry(e: CacheEntry): Uint8Array {
       r.edges ? { edges: r.edges } : {});
     Object.assign(header, r.curves ? { curves: r.curves } : {}, r.pointIds ? { pointIds: r.pointIds } : {},
       r.outlines ? { outlines: r.outlines } : {}, r.measures ? { measures: r.measures } : {},
-      r.oracle ? { oracle: r.oracle } : {});
+      r.oracle ? { oracle: r.oracle } : {}, r.defects ? { defects: r.defects } : {},
+      r.backend !== undefined ? { backend: r.backend } : {});
   }
   else if ('thrown' in e) header.thrown = e.thrown;
   const json = new TextEncoder().encode(JSON.stringify(header));
@@ -160,6 +161,8 @@ export function decodeEntry(bytes: Uint8Array): CacheEntry {
   if (header.outlines) r.outlines = header.outlines;
   if (header.measures) r.measures = header.measures;
   if (header.oracle) r.oracle = header.oracle;
+  if (header.defects) r.defects = header.defects;
+  if (header.backend !== undefined) r.backend = header.backend;
   return { at: header.at, result: r, edges: header.asked!.edges, measures: header.asked!.measures };
 }
 

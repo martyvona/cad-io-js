@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { TessellationError, type Diagnostic, type TessellationRequest, type TessellationResult, type Tessellator,
-  type TessellatorInfo } from 'cad-scene';
+import { FallbackTessellator, oracleMeasures, TessellationError, type Diagnostic, type TessellationRequest,
+  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { cube } from '../../cad-brep/test/models.ts';
+import { quads } from '../../cad-scene/test/meshes.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,6 +34,9 @@ const result = (full: boolean, diagnostics: Diagnostic[] = []): TessellationResu
     r.oracle = [{ entityId: 12, area: 0.5, perimeter: 3.4142135623730951 }];
     r.outlinePositions = new Float32Array([2, 2, 2, 3, 3, 3]);
     r.outlines = [{ entityId: 13, start: 0, count: 2 }];
+    // A face kept with a defect (tess-cadio's keepDefects), and the backend a chooser named.
+    r.defects = [{ entityId: 12, pastLimits: true, what: '3 triangles turned' }];
+    r.backend = 'a 1, with 1 face by b 1';
   }
   return r;
 };
@@ -50,6 +55,7 @@ test('a result survives encoding, with or without normals, edges, curves and poi
     assert.equal('curves' in resultOf(back) && 'points' in resultOf(back), full);
     assert.equal('outlines' in resultOf(back) && 'outlinePositions' in resultOf(back), full);
     assert.equal('oracle' in resultOf(back), full);
+    assert.equal('defects' in resultOf(back) && 'backend' in resultOf(back), full);
     resultOf(back).positions[0] = 99;
     assert.equal(resultOf(decodeEntry(bytes)).positions[0], 0);
     // Decoding works on a view into a larger buffer, at any offset.
@@ -61,8 +67,8 @@ test('a result survives encoding, with or without normals, edges, curves and poi
 
 test("an older format's entry doesn't decode", () => {
   const bytes = encodeEntry({ at: 1, result: result(true), edges: true, measures: true });
-  // Format 3's magic number, "TCR3".
-  new DataView(bytes.buffer).setUint32(0, 0x33524354, true);
+  // Format 4's magic number, "TCR4" (its entries have no defects: read, they'd say a face had none).
+  new DataView(bytes.buffer).setUint32(0, 0x34524354, true);
   assert.throws(() => decodeEntry(bytes), /not a cache entry/);
 });
 
@@ -96,22 +102,22 @@ test('keys are the same where crypto.subtle is missing (insecure contexts), and 
     assert.equal(await cacheKey(info, req), k);
     assert.deepEqual(await keyPrefix(info), p);
   } finally { Object.defineProperty(globalThis, 'crypto', own); }
-  const prefix = createHash('sha256').update(JSON.stringify([4, 'fake', '1'])).digest('hex').slice(0, 12);
-  assert.equal(p.version, `F4_fake_${prefix}_`);
-  assert.equal(FORMAT_TAG, 'F4_');
+  const prefix = createHash('sha256').update(JSON.stringify([5, 'fake', '1'])).digest('hex').slice(0, 12);
+  assert.equal(p.version, `F5_fake_${prefix}_`);
+  assert.equal(FORMAT_TAG, 'F5_');
 });
 
 test('the key changes with the backend, every request option and the payload, and only with them', async () => {
   const k = await cacheKey(info, req);
-  assert.match(k, /^F4_fake_[0-9a-f]{12}_[0-9a-f]{64}$/);
+  assert.match(k, /^F5_fake_[0-9a-f]{12}_[0-9a-f]{64}$/);
   const p = await keyPrefix(info);
-  assert.equal(p.backend, 'F4_fake_');
+  assert.equal(p.backend, 'F5_fake_');
   assert.ok(k.startsWith(p.version) && p.version.startsWith(p.backend));
-  assert.equal((await keyPrefix({ ...info, version: '2' })).backend, 'F4_fake_');
+  assert.equal((await keyPrefix({ ...info, version: '2' })).backend, 'F5_fake_');
   assert.notEqual((await keyPrefix({ ...info, version: '2' })).version, p.version);
-  assert.equal((await keyPrefix({ ...info, name: 'OCCT 8.1 (x)_y' })).backend, 'F4_occt-8-1-x-y_');
-  assert.equal((await keyPrefix({ ...info, name: '' })).backend, 'F4_-_');
-  assert.equal((await keyPrefix({ ...info, name: 'a'.repeat(40) })).backend, `F4_${'a'.repeat(32)}_`);
+  assert.equal((await keyPrefix({ ...info, name: 'OCCT 8.1 (x)_y' })).backend, 'F5_occt-8-1-x-y_');
+  assert.equal((await keyPrefix({ ...info, name: '' })).backend, 'F5_-_');
+  assert.equal((await keyPrefix({ ...info, name: 'a'.repeat(40) })).backend, `F5_${'a'.repeat(32)}_`);
   assert.equal(await cacheKey({ ...info }, { ...req, data: new Uint8Array([1, 2, 3]) }), k);
   // Nor do edges and measures (an entry records whether its request asked for them).
   assert.equal(await cacheKey(info, { ...req, measures: true }), k);
@@ -525,4 +531,28 @@ test('the memory store evicts the least recently used beyond maxBytes, and skips
   assert.equal(await s.size(), 0);
   assert.equal(await s.get('d'), undefined);
   assert.equal(new MemoryStore().maxBytes, 256 * 2 ** 20);
+});
+
+test('a cache hit answers as the miss did, defects included: the fallback chooses the same', async () => {
+  const model = cube().finish();
+  const sound = (): TessellationResult => ({ ...quads(model), oracle: oracleMeasures(model) });
+  // The primary kept face 23 past its limits: the per-face fallback takes the fallback's mesh of it.
+  const kept = (): TessellationResult => ({ ...sound(),
+    defects: [{ entityId: 23, pastLimits: true, what: '20 triangles turned' }] });
+  const backend = (name: string, answer: () => TessellationResult) => {
+    const t = { calls: 0, info: { ...info, name }, init: async () => {}, dispose: () => {},
+      tessellate: async () => (t.calls++, answer()) };
+    return t;
+  };
+  const a = backend('a', kept), b = backend('b', sound);
+  const t = new FallbackTessellator(new CachedTessellator(a, new MemoryStore()), b);
+  await t.init();
+  const req: TessellationRequest = { format: 'cad-brep', data: new Uint8Array(model.buffer), linearDeflection: 0.01,
+    angularDeflection: 0.5 };
+  const miss = await t.tessellate(req), hit = await t.tessellate(req);
+  assert.equal(a.calls, 1);
+  assert.match(miss.backend!, /with 1 face by b/);
+  assert.equal(hit.backend, miss.backend);
+  assert.deepEqual(hit.faces, miss.faces);
+  assert.deepEqual(hit.diagnostics, miss.diagnostics);
 });
