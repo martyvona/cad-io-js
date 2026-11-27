@@ -7400,14 +7400,14 @@ await check('axes gnomon', async () => {
     const out = {};
     await frames();
     out.iso = { ...axes(), screen: screen() };
-    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 50
+    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 47
     // pixels in from #gnomon's left and 44 up from its bottom, an axis 34 pixels, a label 0.3 of one beyond its tip,
     // its box 14 pixels; each letter's colour inside its box.
     {
       const e = viewer.camera.matrixWorld.elements, g = document.getElementById('gnomon').getBoundingClientRect();
       const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
       const c = proj([1 / 3, 1 / 3, 1 / 3]);
-      const at = (v, k) => { const p = proj(v); return [50 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
+      const at = (v, k) => { const p = proj(v); return [47 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
       const want = [...[[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => at(v, 1.3)), at([0, 0, 0], 1)];
       const got = viewer.gnomon.layout;
       out.labelsPlaced = want.every((w, i) => Math.abs(w[0] - got[i].x) < 0.5 && Math.abs(w[1] - got[i].y) < 0.5);
@@ -7644,7 +7644,7 @@ await check('axes gnomon in flight', async () => {
       const e = viewer.camera.matrixWorld.elements;
       const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
       const c = proj([1 / 3, 1 / 3, 1 / 3]), p = proj([0, 1, 2].map((i) => i === k ? 1.3 : 0));
-      return [50 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
+      return [47 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
     };
     const frames = [];
     viewer.setView('front');
@@ -7992,7 +7992,13 @@ await check('view cube', async () => {
         return true;
       };
       let on = 0;
-      for (const l of g.layout.slice(0, 3)) {
+      for (const [k, l] of g.layout.slice(0, 3).entries()) {
+        // (A label hidden for the cube: not drawn, so not on it.)
+        if (g.hiddenLabels[k]) {
+          out.hidden[g.showCube ? 'on' : 'off']++;
+          if (g.labels[k].visible) out.hidden.drawn++;
+          continue;
+        }
         for (let i = 1; i < 7; i++) for (let k = 1; k < 7; k++) {
           if (inside({ x: l.x - 7 + i * 2, y: l.y - 7 + k * 2 })) on++;
         }
@@ -8002,6 +8008,7 @@ await check('view cube', async () => {
     const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoX', 'isoY', 'isoZ'];
     const looks = [[1, 1, 1], [-1, -1, -1], [1, -1, -1], [-1, 1, 0], [0, 1, -1]];
     out.onCube = { on: 0, off: 0 };
+    out.hidden = { on: 0, off: 0, drawn: 0 };
     for (const cubeOn of [true, false]) {
       g.showCube = cubeOn;
       for (const v of [...views, ...looks]) {
@@ -8047,6 +8054,11 @@ await check('view cube', async () => {
     await start();
     await click([0.5, 0, 0.95]);
     out.horizontal = { cam: cam(), back: back() };
+    // Just outside the cube, below its bottom front edge (seen: its front face is): that edge's (corners' and edges'
+    // reaches are either side of them).
+    await start();
+    await click([0.5, 0, -0.08]);
+    out.outside = back();
     // The cube's corner by the origin's box: the cube's (the corner away from every axis's tip), not Iso Z.
     await start();
     await click([0.03, 0, 0.03]);
@@ -8108,6 +8120,7 @@ await check('view cube', async () => {
   expect(a.cubeOn && a.disabledWithoutAxes && a.enabledWithAxes, `the control: ${j}`);
   expect(a.glbFront?.letter === 'F' && a.glbFront.upright > 0.99, `a Y-up file's front: ${j}`);
   expect(a.onCube.on === 0 && a.onCube.off > 0, `the labels off the cube: ${j}`);
+  expect(a.hidden.on > 0 && a.hidden.off === 0 && a.hidden.drawn === 0, `labels hidden for the cube: ${j}`);
   const letters = { front: 'F', back: 'K', left: 'L', right: 'R', top: 'T', bottom: 'M' } as Record<string, string>;
   expect(Object.entries(letters).every(([v, l]) => a.letters[v]?.letter === l && a.letters[v].upright > 0.99),
     `the letters, upright: ${j}`);
@@ -8122,6 +8135,7 @@ await check('view cube', async () => {
   const s3 = 1 / Math.sqrt(3), s2 = Math.SQRT1_2;
   expect(near(a.corner.back, [s3, -s3, s3]) && same(a.corner.cam, a.isoButton), `a corner: ${j}`);
   expect(near(a.originCorner, [-s3, -s3, -s3]), `the corner by the origin: ${j}`);
+  expect(near(a.outside, [0, -s2, -s2]), `just outside an edge, the edge: ${j}`);
   expect(near(a.vertical.back, [s2, -s2, 0]) && near(a.vertical.cam.up, [0, 0, 1]), `a vertical edge: ${j}`);
   expect(near(a.horizontal.back, [0, -s2, s2]) && near(a.horizontal.cam.up, [0, s2, s2]),
     `an edge across: its faces above and below: ${j}`);
@@ -8132,8 +8146,41 @@ await check('view cube', async () => {
   expect(a.stored.after.cube === '0' && a.stored.after.axes === a.stored.before.axes, `Cube remembered: ${j}`);
   const events = (a.rec.events as { type: string; path?: string; shift?: boolean }[]);
   expect(events.some((e) => e.type === 'control' && e.path === 'View/Look Along an Axis/Front') &&
-    events.filter((e) => e.type === 'look').length === 5 && events.filter((e) => e.type === 'look' && e.shift)
+    events.filter((e) => e.type === 'look').length === 6 && events.filter((e) => e.type === 'look' && e.shift)
     .length === 1, `recorded: ${JSON.stringify(events.filter((e) => e.type === 'look' || e.type === 'control'))}`);
+  // Edges between faces in sight drawn whole over them at a pixel ratio of 2 (the faces' polygon offset: without it
+  // they fight for depth and the lines come out dashed): their pixels darker than the faces' all along them, from
+  // oblique views (SMAA off).
+  const edges = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1&cube=1`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    ui.setRender({ smaa: false });
+    const g = viewer.gnomon, canvas = viewer.renderer.domElement, gl = viewer.renderer.getContext();
+    const V = viewer.camera.position.constructor;
+    const out = [];
+    for (const d of [[1, -0.3, 0.45], [0.6, -1, 0.35], [1, -1, 1]]) {
+      const l = Math.hypot(...d), dir = d.map((x) => x / l), up = [0, 0, 1].map((x, i) => x - dir[2] * dir[i]);
+      viewer.setView({ dir, up }, { instant: true });
+      await cadViewer.idle();
+      viewer.draw();
+      const n = g.cube.children[0].geometry.parameters.width, box = viewer.gnomonDrawn, k = canvas.width /
+        canvas.clientWidth;
+      // The vertical edge between the front and right faces (both in sight from these), 40 points along it.
+      let dark = 0;
+      const face = new Uint8Array(4);
+      const project = (q) => { const p = g.cube.localToWorld(new V(...q.map((x) => x * n))).project(g.camera);
+        return [Math.round((box.x + (p.x + 1) / 2 * box.width) * k), Math.round((box.y + (p.y + 1) / 2 *
+        box.height) * k)]; };
+      gl.readPixels(...project([0.7, 0, 0.3]), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, face);
+      for (let i = 0; i < 40; i++) {
+        const px = new Uint8Array(4);
+        gl.readPixels(...project([1, 0, 0.15 + 0.7 * i / 39]), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        if (px[0] + px[1] + px[2] < face[0] + face[1] + face[2] - 60) dark++;
+      }
+      out.push(dark);
+    }
+    return out;
+  })()`, { scale: 2 }) as { after: number[] };
+  expect(edges.after.every((d) => d >= 38), `edges drawn whole over their faces: ${JSON.stringify(edges.after)}`);
   const replayed = await page('?check', `(async () => {
     await cadViewer.ready;
     // (The looks counted: the camera events after them set the same camera.)
@@ -8145,7 +8192,7 @@ await check('view cube', async () => {
       applied: report.applied, looks };
   })()`) as { after: { divergences: string[]; camera: any; steps: number; applied: number; looks: number } };
   const b = replayed.after;
-  expect(b.divergences.length === 0 && b.steps === b.applied && b.looks === 5 && same(b.camera, a.final),
+  expect(b.divergences.length === 0 && b.steps === b.applied && b.looks === 6 && same(b.camera, a.final),
     `replayed: ${JSON.stringify(b)} ${JSON.stringify(a.final)}`);
   return undefined;
 });
