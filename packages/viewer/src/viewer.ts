@@ -39,6 +39,8 @@ import { dotPixels, setDotSize, vertexDiameter, type DiscMaterial } from './vert
 import { LONG_PRESS_MS } from './context-menu.ts';
 import { matte, scaledCanvas, type Circle, type Rect } from './screenshot.ts';
 import type { FromModelWorker, ToModelWorker } from './model-worker.ts';
+import { DEFAULT_DETECTION, type EdgeDetection } from './edges.ts';
+import type { EdgeAnswer, EdgeRequest } from './edge-worker.ts';
 import type { Meshing, ModelEvent, ModelInput } from './model-load.ts';
 import { partModelBuffers, type PartModel } from './part-model.ts';
 import type { Exported } from './export-model.ts';
@@ -1226,6 +1228,68 @@ export class Viewer {
     this.redraw();
   }
 
+  /**
+   * How edges are detected from the triangles of meshes without edges of their own, as every load and Mesh again
+   * finds them (Mesh edge detection..., remembered in the browser: ui.ts).
+   */
+  edgeDetection: EdgeDetection = { ...DEFAULT_DETECTION };
+  /** The edge worker (edge-worker.ts), started when first asked; its requests waiting, by id. */
+  private edgeWorker?: Worker;
+  private readonly edgeRequests = new Map<number, (a: EdgeAnswer) => void>();
+  private edgeIds = 0;
+  /** Counts detectEdges' runs, so a later one (or another model) stops the last. */
+  private edgeRun = 0;
+
+  /** A mesh's edges detected in the edge worker (copies of its positions and indices go). */
+  private edgesIn(mesh: Mesh, d: EdgeDetection): Promise<Float32Array> {
+    if (!this.edgeWorker) {
+      const w = new Worker(new URL('./edge-worker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<EdgeAnswer>) => {
+        const f = this.edgeRequests.get(e.data.id);
+        this.edgeRequests.delete(e.data.id);
+        f?.(e.data);
+      };
+      this.edgeWorker = w;
+    }
+    const id = ++this.edgeIds;
+    const req: EdgeRequest = { id, positions: mesh.positions.slice(), indices: mesh.indices.slice(),
+      detection: { ...d } };
+    return new Promise((resolve, reject) => {
+      this.edgeRequests.set(id, (a) => a.positions ? resolve(a.positions) : reject(new Error(a.error ?? 'failed')));
+      this.edgeWorker!.postMessage(req, [req.positions.buffer as ArrayBuffer, req.indices.buffer as ArrayBuffer]);
+    });
+  }
+
+  /**
+   * Edges detected again from the triangles of these parts (scene indices; every part with triangles if none given)
+   * as `d` says, in the edge worker, part by part: each part's in place of any detected before, beside its B-rep
+   * edges (the tree's detected mesh edges). `onProgress` after each part. Stops (`stopped`) once another run starts
+   * or another model is shown; a part meshed again meanwhile is skipped (its new mesh's edges are as it came).
+   */
+  async detectEdges(parts: readonly number[] | undefined, d: EdgeDetection,
+    onProgress?: (done: number, total: number) => void): Promise<{ parts: number; segments: number;
+      stopped?: boolean }> {
+    const graph = this.graph;
+    const run = ++this.edgeRun;
+    if (!graph) return { parts: 0, segments: 0 };
+    const list = [...new Set(parts ?? graph.meshes.keys())].filter((p) =>
+      (graph.meshes.get(p)?.indices.length ?? 0) > 0 && graph.placements.has(p));
+    let done = 0, segments = 0;
+    for (const p of list) {
+      const mesh = graph.meshes.get(p)!;
+      const found = await this.edgesIn(mesh, d);
+      if (run !== this.edgeRun || graph !== this.graph) return { parts: done, segments, stopped: true };
+      if (graph.meshes.get(p) !== mesh) continue;
+      graph.setFoundEdges(p, found);
+      this.partChanged(graph, p);
+      done++;
+      segments += found.length / 6;
+      onProgress?.(done, list.length);
+      this.redraw();
+    }
+    return { parts: done, segments };
+  }
+
   /** The model worker, started when first needed and kept for later files. */
   private modelWorker(): Worker {
     if (!this.worker) {
@@ -1298,7 +1362,7 @@ export class Viewer {
     this.meshing = true;
     try {
       const msg: ToModelWorker = { type: 'load', load: gen, input, settings: { ...this.settings,
-        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device) };
+        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), edges: { ...this.edgeDetection } };
       for await (const ev of this.events(gen, msg, [input.bytes.buffer as ArrayBuffer,
         ...Object.values(input.resources ?? {}).map((r) => r.buffer as ArrayBuffer)])) {
         if (gen !== this.generation) return;
@@ -1442,7 +1506,8 @@ export class Viewer {
       this.modelsFor(gen, graph);
       const models = graph.lendModels();
       const msg: ToModelWorker = { type: 'remesh', load: gen, settings: { ...this.settings,
-        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), models };
+        capCeiling: capCeilingOf(this.device) }, workers: workerCount(this.device), models,
+        edges: { ...this.edgeDetection } };
       for await (const ev of this.events(gen, msg, models.flatMap(([, b]) => partModelBuffers(b)))) {
         if (gen !== this.generation) return true;
         if (ev.type === 'importing') {

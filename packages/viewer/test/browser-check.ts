@@ -4539,6 +4539,231 @@ await check('multi-select', async () => {
     `off: the row, the span, the pick alone: ${j}`);
   return undefined;
 });
+// Mesh edge detection... (Rendering): a panel that doesn't block the page, starting from the defaults; Selection only
+// with nothing selected said; with a part selected, only that part's placements get detected edges, beside their
+// B-rep edges (kept), the tree's "detected mesh edges" right after the edges group; unchecked, every part; a smaller
+// angle (5 degrees, remembered in the browser as it's changed) more segments (as1's cylinders' facets meet at under
+// 10); a later GLB without edges detected with the remembered values (more segments than with the defaults);
+// Defaults back to them; Escape closes it.
+await check('mesh edge detection', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    localStorage.removeItem('cad-viewer.edgeDetection');
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const control = ui.gui.controllersRecursive().find((c) => c._name === 'Mesh edge detection...');
+    const folder = control?.parent._title;
+    control.$button.click();
+    await frame();
+    const d = document.querySelector('dialog.edge-detection');
+    const input = (n) => d.querySelector('input[name=' + n + ']');
+    const detect = [...d.querySelectorAll('button')].find((b) => b.textContent === 'Detect');
+    const defaults = [...d.querySelectorAll('button')].find((b) => b.textContent === 'Defaults');
+    const result = () => d.querySelector('p.result').textContent;
+    const run = async () => {
+      detect.click();
+      for (let t = 0; t < 200 && (detect.disabled || result() === 'Detecting...'); t++) await frame();
+      await frame();
+      return result();
+    };
+    const detectedObjects = () => { let n = 0, segs = 0; viewer.display.traverse((o) => {
+      if (o.name === 'detectedEdges') { n++; segs += o.geometry.index.count / 2; } }); return { n, segs }; };
+    const brepEdges = () => { let n = 0; viewer.display.traverse((o) => { if (o.name === 'edges') n++; }); return n; };
+    const out = { folder, open: d.open, modal: d.matches(':modal'), angle: input('angle').value,
+      grid: input('grid').value, brep: brepEdges() };
+    // (The tree's detail made before any run: a run makes it again.)
+    ui.panel().model.setDetail(true);
+    ui.panel().model.children(ui.panel().model.nodes.find((n) => n.kind === 'part').id);
+    input('selection').checked = true;
+    ui.select([]);
+    out.none = await run();
+    const m = ui.panel().model;
+    const part = m.nodes.find((n) => n.kind === 'part' && n.object.userData.cad === 'part');
+    const placements = m.nodes.filter((n) => n.kind === 'part' && n.object.userData.part === part.object.userData.part)
+      .length;
+    ui.select([part.id]);
+    out.one = { text: await run(), objects: detectedObjects().n, placements, brep: brepEdges() };
+    // The tree: right after the edges group.
+    const kids = m.children(part.id).map((k) => m.nodes[k].name);
+    out.kids = kids;
+    // An assembly selected: every part below it.
+    ui.select([m.roots[0]]);
+    out.assembly = await run();
+    input('selection').checked = false;
+    // A run started while another goes: the first stopped.
+    const first = viewer.detectEdges(undefined, { angle: 10, grid: 0.001 });
+    const second = viewer.detectEdges([part.object.userData.part], { angle: 10, grid: 0.001 });
+    out.superseded = [await first, await second];
+    out.all = { text: await run(), ...detectedObjects(), brep: brepEdges() };
+    input('angle').value = '5';
+    input('angle').dispatchEvent(new Event('change'));
+    out.stored = localStorage.getItem('cad-viewer.edgeDetection');
+    out.wide = { text: await run(), ...detectedObjects() };
+    // Not a number: said, not remembered.
+    input('grid').value = '-1';
+    input('grid').dispatchEvent(new Event('change'));
+    out.bad = { said: result(), stored: localStorage.getItem('cad-viewer.edgeDetection') };
+    input('grid').value = '0.001';
+    input('grid').dispatchEvent(new Event('change'));
+    return out;
+  })()`, { asIs: true, then: async (sessionId) => {
+    const evaluate = async (expression: string) => ((await send('Runtime.evaluate', { expression,
+      returnByValue: true, awaitPromise: true }, sessionId)) as { result: { value: unknown } }).result.value;
+    // The GLB without edges in this page (the values remembered), then with the defaults.
+    const glb = (reset: boolean) => evaluate(`(async () => {
+      ${reset ? `document.querySelector('dialog.edge-detection button:not(.close):not(.primary)').click();` : ''}
+      await ui.openUrl('/content/as1-noedges.glb');
+      await cadViewer.idle();
+      await new Promise((r) => setTimeout(r, 300));
+      await cadViewer.idle();
+      return { segments: viewer.stats().segments, stored: localStorage.getItem('cad-viewer.edgeDetection') };
+    })()`);
+    const remembered = await glb(false), reset = await glb(true);
+    const closed = await evaluate(`(async () => {
+      const d = document.querySelector('dialog.edge-detection');
+      const v = [d.querySelector('input[name=angle]').value, d.querySelector('input[name=grid]').value];
+      d.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 50));
+      localStorage.removeItem('cad-viewer.edgeDetection');
+      return { values: v, gone: !document.querySelector('dialog.edge-detection') };
+    })()`);
+    return { remembered, reset, closed };
+  } }) as { after: Record<string, unknown> & { one: { text: string; objects: number; placements: number;
+    brep: number }; all: { text: string; n: number; segs: number; brep: number }; wide: { text: string; n: number;
+    segs: number }; bad: { said: string; stored: string | null } }; then: { remembered: { segments: number;
+    stored: string | null }; reset: { segments: number; stored: string | null }; closed: { values: string[];
+    gone: boolean } } };
+  const a = r.after, t = r.then, j = JSON.stringify({ a, t });
+  expect(a.folder === 'Rendering' && a.open === true && a.modal === false && a.angle === '10' && a.grid === '0.001',
+    `the panel, not modal, from the defaults: ${j}`);
+  expect(a.none === 'Nothing selected.', `selection only, nothing selected: ${j}`);
+  expect(/^Detected [\d,]+ edge segments on 1 part\.$/.test(a.one.text) && a.one.objects === a.one.placements
+    && a.one.brep === a.brep, `selection only: that part's placements, B-rep edges kept: ${j}`);
+  const kids = a.kids as string[];
+  expect(kids.indexOf('detected mesh edges') === kids.indexOf('edges') + 1 && kids.indexOf('edges') >= 0,
+    `the tree: after the edges group: ${j}`);
+  expect(/on [2-9]\d* parts\.$/.test(a.all.text) && a.all.n > a.one.objects && a.all.brep === a.brep,
+    `every part: ${j}`);
+  const sup = a.superseded as { parts: number; stopped?: boolean }[];
+  expect(sup[0]!.stopped === true && !sup[1]!.stopped && sup[1]!.parts === 1, `a run stopped by a later one: ${j}`);
+  expect(String(a.assembly).endsWith(a.all.text.slice(a.all.text.indexOf(' on '))), `an assembly: its parts: ${j}`);
+  expect(JSON.parse(String(a.stored)).angle === 5 && a.wide.segs > a.all.segs && a.wide.n === a.all.n,
+    `a smaller angle remembered, more segments: ${j}`);
+  expect(/^Not remembered: the weld tolerance/.test(a.bad.said) && JSON.parse(String(a.bad.stored)).grid === 0.001,
+    `a bad value said, not remembered: ${j}`);
+  expect(t.reset.segments > 0 && t.remembered.segments > t.reset.segments
+    && JSON.parse(String(t.reset.stored)).angle === 10, `a later load detects with the remembered values: ${j}`);
+  expect(t.closed.values.join() === '10,0.001' && t.closed.gone, `Defaults, then Escape: ${j}`);
+  // A new page: the values read back from the browser at start, its load detecting with them.
+  const segmentsWith = async (stored?: string) => ((await page(`?url=${encodeURIComponent('/content/as1-noedges.glb')}`
+    + '&check', `cadViewer.idle().then(() => ({ s: viewer.stats().segments, d: viewer.edgeDetection }))`,
+  { asIs: true, first: stored ? `localStorage.setItem('cad-viewer.edgeDetection', '${stored}');`
+    : `localStorage.removeItem('cad-viewer.edgeDetection');` })) as { after: { s: number; d: unknown } }).after;
+  const stored = await segmentsWith('{"angle":5,"grid":0.001}'), plain = await segmentsWith();
+  expect(JSON.stringify(stored.d) === '{"angle":5,"grid":0.001}' && stored.s > plain.s && plain.s > 0,
+    `a new page: the values remembered, used: ${JSON.stringify({ stored, plain })}`);
+  await page('?check', `(localStorage.removeItem('cad-viewer.edgeDetection'), 0)`);
+  return undefined;
+});
+// Mesh edge detection recorded and replayed: the values set (each change, Defaults) and each Detect (its values,
+// Selection only, and what it said once done), the states' values; replayed in another page whose browser remembers
+// other values: the first state's set before the load (a GLB without edges detected as recorded), each run made
+// again with the same outcome, the panel showing them, the end's values the same; a run that said otherwise, and
+// values at the end otherwise, reported.
+await check('mesh edge detection recorded', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1-noedges.glb')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const detected = () => { let segs = 0; viewer.display.traverse((o) => {
+      if (o.name === 'detectedEdges') segs += o.geometry.index.count / 2; }); return segs; };
+    const out = { loaded: detected() };
+    // The model as it loaded, alone.
+    cadViewer.record(true);
+    out.rec0 = cadViewer.record(false);
+    cadViewer.record(true);
+    ui.gui.controllersRecursive().find((c) => c._name === 'Mesh edge detection...').$button.click();
+    await frame();
+    const d = document.querySelector('dialog.edge-detection');
+    const input = (n) => d.querySelector('input[name=' + n + ']');
+    const button = (t) => [...d.querySelectorAll('button')].find((b) => b.textContent === t);
+    const result = () => d.querySelector('p.result').textContent;
+    const run = async () => {
+      button('Detect').click();
+      for (let t = 0; t < 200 && (button('Detect').disabled || result() === 'Detecting...'); t++) await frame();
+      await frame();
+      return result();
+    };
+    const set = (n, v) => {
+      input(n).value = v;
+      input(n).dispatchEvent(new Event('change'));
+    };
+    set('angle', '20');
+    out.all = await run();
+    cadViewer.select([cadViewer.nodes().find((n) => n.kind === 'part').path]);
+    input('selection').checked = true;
+    set('angle', '5');
+    out.one = await run();
+    out.segments = detected();
+    button('Defaults').click();
+    out.rec = cadViewer.record(false);
+    localStorage.removeItem('cad-viewer.edgeDetection');
+    return out;
+  })()`, { asIs: true, first: `localStorage.setItem('cad-viewer.edgeDetection', '{"angle":5,"grid":0.001}');` }) as
+    { after: { loaded: number; one: string; all: string; segments: number; rec0: { events: Record<string,
+      unknown>[] }; rec: { events: Record<string, unknown>[] } } };
+  const a = r.after;
+  const ours = a.rec.events.filter((e) => e.type === 'detection' || e.type === 'detect')
+    .map(({ t: _, ...e }) => e);
+  const want = [{ type: 'detection', detection: { angle: 20, grid: 0.001 } },
+    { type: 'detect', detection: { angle: 20, grid: 0.001 }, selectionOnly: false, result: a.all },
+    { type: 'detection', detection: { angle: 5, grid: 0.001 } },
+    { type: 'detect', detection: { angle: 5, grid: 0.001 }, selectionOnly: true, result: a.one },
+    { type: 'detection', detection: { angle: 10, grid: 0.001 } }];
+  const states = a.rec.events.filter((e) => e.type === 'state').map((e) => (e.state as { edgeDetection: unknown })
+    .edgeDetection);
+  expect(JSON.stringify(ours) === JSON.stringify(want) && /on 1 part\.$/.test(a.one) && /on [2-9]\d* parts\.$/
+    .test(a.all) && JSON.stringify(states) === '[{"angle":5,"grid":0.001},{"angle":10,"grid":0.001}]',
+  `recorded: ${JSON.stringify({ ours, want, states })}`);
+  const tampered = structuredClone(a.rec);
+  const last = tampered.events.findLast((e) => e.type === 'detect')!;
+  last.result = 'Detected 1 edge segments on 1 part.';
+  // The end's values otherwise: the last change left out.
+  const ended = structuredClone(a.rec);
+  ended.events.splice(ended.events.findLastIndex((e) => e.type === 'detection'), 1);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const detected = () => { let segs = 0; viewer.display.traverse((o) => {
+      if (o.name === 'detectedEdges') segs += o.geometry.index.count / 2; }); return segs; };
+    const first = await cadViewer.replay(${JSON.stringify(a.rec0)});
+    const loaded = { divergences: first.divergences, segments: detected(), d: viewer.edgeDetection };
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    const d = document.querySelector('dialog.edge-detection');
+    const out = { loaded, divergences: report.divergences, steps: report.steps, applied: report.applied,
+      segments: detected(), stored: localStorage.getItem('cad-viewer.edgeDetection'),
+      panel: d && { angle: d.querySelector('input[name=angle]').value, said: d.querySelector('p.result').textContent,
+        only: d.querySelector('input[name=selection]').checked } };
+    out.tampered = (await cadViewer.replay(${JSON.stringify(tampered)})).divergences;
+    out.ended = (await cadViewer.replay(${JSON.stringify(ended)})).divergences;
+    localStorage.removeItem('cad-viewer.edgeDetection');
+    return out;
+  })()`, { asIs: true, first: `localStorage.setItem('cad-viewer.edgeDetection', '{"angle":30,"grid":0.001}');` }) as
+    { after: { loaded: { divergences: string[]; segments: number; d: unknown }; divergences: string[];
+      steps: number; applied: number; segments: number; stored: string | null; panel: { angle: string; said: string;
+      only: boolean } | null; tampered: string[]; ended: string[] } };
+  const b = replayed.after, j = JSON.stringify({ b, a: { loaded: a.loaded, one: a.one, all: a.all,
+    segments: a.segments } });
+  expect(b.loaded.divergences.length === 0 && b.loaded.segments === a.loaded && a.loaded > 0
+    && JSON.stringify(b.loaded.d) === '{"angle":5,"grid":0.001}', `the first state's values before the load: ${j}`);
+  expect(b.divergences.length === 0 && b.applied === b.steps && b.segments === a.segments
+    && b.stored === '{"angle":10,"grid":0.001}', `replayed as recorded, the values remembered: ${j}`);
+  expect(b.panel?.angle === '10' && b.panel.said === a.one && b.panel.only === true, `the panel follows: ${j}`);
+  expect(b.tampered.length === 1 && b.tampered[0]!.includes(`${a.one}, recorded Detected 1 edge segments`),
+    `a run that said otherwise: ${j}`);
+  expect(b.ended.length === 1 && b.ended[0]!.startsWith('the end: edgeDetection is {"angle":5'),
+    `the end's values otherwise: ${j}`);
+  return undefined;
+});
 await check('keyboard shortcuts', async () => {
   // (Other checks' keys forgotten first, before the page's scripts: they're in the same browser, and the hints must
   // show here for the mouse alone.)

@@ -5,6 +5,7 @@ import { identity, multiply, type Mesh } from 'cad-scene';
 import { detailOf, plate, scene, translation, wire } from './fixtures.ts';
 import { DEFAULT_COLOR, polylineSegments, SceneGraph } from '../src/scene-graph.ts';
 import { EDGES } from '../src/style.ts';
+import { DETECTED_EDGES } from '../src/items.ts';
 import { capCeilingOf, defaultSettings, fallbackOf, workerCount } from '../src/tessellation.ts';
 
 const close = (a: ArrayLike<number>, b: ArrayLike<number>) => Array.from(a).every((x, i) => Math.abs(x - b[i]!) < 1e-9);
@@ -119,7 +120,7 @@ test('meshes: wireframes as curves and points in the instance colour; no faces, 
   assert.equal(g.addMesh(5, wire()).length, 0);
 });
 
-test('edges found later (setFoundEdges) for every placement of a part without B-rep edges; B-rep edges at once', () => {
+test('edges detected later (setFoundEdges) for every placement, beside any B-rep edges; B-rep edges at once', () => {
   const g = new SceneGraph(scene(), 'model');
   const bare = plate();
   delete bare.edges;
@@ -130,14 +131,24 @@ test('edges found later (setFoundEdges) for every placement of a part without B-
   const segments = Float32Array.of(0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0);
   assert.deepEqual(g.setFoundEdges(0, segments), made);
   for (const m of made) {
-    const e = m.children.filter((c) => c.name === 'edges') as THREE.LineSegments[];
+    assert.ok(!m.children.some((c) => c.name === 'edges'));
+    const e = m.children.filter((c) => c.name === DETECTED_EDGES) as THREE.LineSegments[];
     assert.equal(e.length, 1);
     assert.equal(e[0]!.layers.mask, 1 << EDGES);
     assert.equal(e[0]!.geometry.getAttribute('position').count, 4);
   }
   // Again: in place of the first, not beside it.
   g.setFoundEdges(0, segments);
-  assert.ok(made.every((m) => m.children.filter((c) => c.name === 'edges').length === 1));
+  assert.ok(made.every((m) => m.children.filter((c) => c.name === DETECTED_EDGES).length === 1));
+  // A part with B-rep edges: detected ones beside them, the B-rep edges kept.
+  const withEdges = new SceneGraph(scene(), 'model');
+  const objs = withEdges.addMesh(0, plate());
+  const brep = objs.map((m) => m.children.find((c) => c.name === 'edges'));
+  assert.ok(brep.every((x) => x));
+  withEdges.setFoundEdges(0, segments);
+  withEdges.setFoundEdges(0, segments);
+  assert.ok(objs.every((m, k) => m.children.find((c) => c.name === 'edges') === brep[k]
+    && m.children.filter((c) => c.name === DETECTED_EDGES).length === 1));
   // A part with no mesh: nothing.
   assert.deepEqual(new SceneGraph(scene(), 'model').setFoundEdges(0, segments), []);
   // Only seams: the B-rep has edges, none to draw.

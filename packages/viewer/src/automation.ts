@@ -27,6 +27,7 @@ import { backendsFromQuery, deflectionFromQuery, deflectionQuery, fromQuery, hea
   type CameraState, type ViewState } from
   './view-state.ts';
 import type { TessellationSettings } from './tessellation.ts';
+import type { EdgeDetection } from './edges.ts';
 import type { MeshedWith, Viewer } from './viewer.ts';
 
 export interface NodeInfo { path: string; kind: string; name: string; hidden: boolean }
@@ -41,6 +42,8 @@ export interface FullState extends Required<Pick<ViewState, 'camera' | 'caps' | 
   device: { detected: string; used: string; profile: string };
   /** The meshing settings (B-Rep Meshing's), for the next model meshed. */
   meshing: TessellationSettings;
+  /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
+  edgeDetection: EdgeDetection;
   /**
    * The model: its file's name and URL (if it came from one), counts, sphere and parts (STEP), and (STEP) the
    * meshing settings it was meshed with.
@@ -150,6 +153,7 @@ export function buildAutomation(viewer: Viewer, ui: Ui, location: Location): Cad
       render: { ...viewer.render }, tree: ui.tree(),
       device: { detected: viewer.detectedDevice, used: viewer.device, profile: viewer.settings.profile },
       meshing: { ...viewer.settings },
+      edgeDetection: ui.edgeDetection(),
       pick: ui.selection.level, instances: ui.selection.instances,
       // The appearance overrides (model.ts), detail nodes' whether or not their nodes exist yet (made on demand).
       ...appearance(),

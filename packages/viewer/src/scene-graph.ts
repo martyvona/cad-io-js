@@ -25,7 +25,7 @@ import type { Looks, PlacementLook } from './model.ts';
 import type { PartModel } from './part-model.ts';
 import type { DetailSources } from './details.ts';
 import { geometryOf, type Geometry } from './geometry-info.ts';
-import { setItems, type Item } from './items.ts';
+import { DETECTED_EDGES, setItems, type Item } from './items.ts';
 import { faceIndexAttribute, PICK_INDEX } from './pick-ids.ts';
 import { DEFAULT_RENDER, EDGES, VERTICES } from './style.ts';
 import { DiscMaterial } from './vertex-points.ts';
@@ -313,9 +313,10 @@ export class SceneGraph implements Looks {
   }
 
   /**
-   * A part's edges found from its mesh's triangles (edges.ts, in the model worker: model-load.ts), as segments in
-   * the mesh's coordinates, added to each placement of its mesh (in place of any found before). Nothing if the part
-   * has no mesh with triangles now. Returns the objects they were added to.
+   * A part's edges detected from its mesh's triangles (edges.ts: in the model worker for a mesh without edges of its
+   * own, model-load.ts; or asked for, Viewer.detectEdges), as segments in the mesh's coordinates, added to each
+   * placement of its mesh as a line object of their own (DETECTED_EDGES, beside any B-rep edges), in place of any
+   * detected before. Nothing if the part has no mesh with triangles now. Returns the objects they were added to.
    */
   setFoundEdges(part: number, positions: Float32Array): THREE.Object3D[] {
     const meshed = this.meshed.get(part);
@@ -325,8 +326,8 @@ export class SceneGraph implements Looks {
     const n = positions.length / 3;
     g.setIndex(new THREE.BufferAttribute(Uint32Array.from({ length: n }, (_, i) => i), 1));
     for (const { obj } of meshed.objects) {
-      for (const old of obj.children.filter((c) => c.name === 'edges')) obj.remove(old);
-      const e = Object.assign(new THREE.LineSegments(g, this.lineMaterial), { name: 'edges' });
+      for (const old of obj.children.filter((c) => c.name === DETECTED_EDGES)) obj.remove(old);
+      const e = Object.assign(new THREE.LineSegments(g, this.lineMaterial), { name: DETECTED_EDGES });
       e.layers.set(EDGES);
       // (One item, all of them: they're no B-rep edges.)
       e.userData.found = true;

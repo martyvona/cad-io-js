@@ -18,7 +18,7 @@ import { importStep, type ImportOptions, type ImportProgress } from 'step-import
 import { importThreejs } from 'threejs-import';
 import type { Format } from './formats.ts';
 import { partModelBuffers, type PartModel } from './part-model.ts';
-import { EDGE_ANGLE, EDGE_GRID_MM, findEdges } from './edges.ts';
+import { DEFAULT_DETECTION, findEdges, type EdgeDetection } from './edges.ts';
 import type { CacheStats } from 'tess-cache/browser';
 import { deflectionsOf, healingOf, minAngleOf, wantedOf, type Tessellation, type TessellationSettings }
   from './tessellation.ts';
@@ -53,7 +53,8 @@ export async function importModel(input: ModelInput, gltf: GltfImportOptions = {
 }
 
 /** A load's file, taken out (`input` cleared) as the import begins: only the import needs it. */
-export interface ModelSource { input?: ModelInput }
+/** What a load reads (its input, taken), and how edges are found for meshes without their own (else the defaults). */
+export interface ModelSource { input?: ModelInput; edges?: EdgeDetection }
 
 /**
  * importModel on a source's input, taken out of the source. In a function of its own, which returns at once: a
@@ -187,8 +188,9 @@ export function ownBuffers(scene: Scene): void {
 /** A mesh with triangles and no edges of its own (as the scene graph draws them): its edges are to be found. */
 export const needsEdges = (mesh: Mesh) => mesh.indices.length > 0 && !mesh.edges?.length;
 
-/** A mesh's edges found on a grid of EDGE_GRID_MM (meshes and placements are millimetres, placements rigid). */
-export const edgesOf = (mesh: Mesh) => findEdges(mesh.positions, mesh.indices, EDGE_ANGLE, 1 / EDGE_GRID_MM);
+/** A mesh's edges found as `d` says (meshes and placements are millimetres, placements rigid: its grid in mm). */
+export const edgesOf = (mesh: Mesh, d: EdgeDetection = DEFAULT_DETECTION) => findEdges(mesh.positions, mesh.indices,
+  d.angle, 1 / d.grid);
 
 /** The parts placed somewhere in the tree. */
 function placedParts(scene: Scene): Set<number> {
@@ -265,7 +267,7 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
       for (const { part, mesh } of jobs) {
         await new Promise((r) => setTimeout(r, 0));
         if (cancelled()) return;
-        const positions = edgesOf(mesh);
+        const positions = edgesOf(mesh, source.edges);
         emit({ type: 'edges', part, positions }, [positions.buffer as ArrayBuffer]);
       }
     } finally {
@@ -275,17 +277,17 @@ export async function loadModelIn(source: ModelSource, settings: TessellationSet
       for (const b of kept) structuredClone(b, { transfer: [b] });
     }
   })();
-  await meshModelIn(scene, settings, workers, tessellation, emit, cancelled, edges);
+  await meshModelIn(scene, settings, workers, tessellation, emit, cancelled, edges, source.edges);
 }
 
 /**
  * Meshes a scene's placed brep parts (a load's, or the last load's again: Mesh again), telling `emit` each part's mesh
  * as it comes, then the end; stops early, quietly, once `cancelled` says so. `before` is waited for before the end
- * (the load's edges found for its file levels).
+ * (the load's edges found for its file levels); `edges`, how edges are found for meshes without their own.
  */
 export async function meshModelIn(scene: Scene, settings: TessellationSettings, workers: number,
   tessellation: Pick<Tessellation, 'get' | 'describe'>, emit: (e: ModelEvent, transfer?: ArrayBuffer[]) => void,
-  cancelled: () => boolean, before: Promise<unknown> = Promise.resolve()): Promise<void> {
+  cancelled: () => boolean, before: Promise<unknown> = Promise.resolve(), edges?: EdgeDetection): Promise<void> {
   const brep = meshable(scene);
   needModels(scene, brep);
   if (!brep.length) {
@@ -305,7 +307,7 @@ export async function meshModelIn(scene: Scene, settings: TessellationSettings, 
       if (cancelled()) return;
       const measures = scene.parts[part]!.measures;
       // (A backend that gives no edges, truck: found here, with the mesh.)
-      const found = mesh && needsEdges(mesh) ? edgesOf(mesh) : undefined;
+      const found = mesh && needsEdges(mesh) ? edgesOf(mesh, edges) : undefined;
       // (Meshing's last use of the part's model and analysis is over: they go to the page with the mesh.)
       const held = handOver(scene, part);
       emit({ type: 'mesh', part, mesh, ...(measures ? { measures } : {}), ...(found ? { foundEdges: found } : {}),

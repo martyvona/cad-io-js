@@ -7,6 +7,12 @@
 import * as THREE from 'three';
 import { itemIndexAttribute, PICK_INDEX } from './pick-ids.ts';
 
+/**
+ * The name of a placement's line object of edges detected from its triangles (scene-graph.ts's setFoundEdges): one
+ * item, the tree's "detected mesh edges" beside the edges group (model.ts).
+ */
+export const DETECTED_EDGES = 'detectedEdges';
+
 /** An item: its source id (null: none known), and its range of the object's full index. */
 export interface Item { source: number | null; start: number; count: number }
 

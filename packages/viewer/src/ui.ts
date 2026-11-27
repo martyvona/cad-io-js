@@ -37,6 +37,8 @@ import { visibleBox, WorkerLost, type Viewer } from './viewer.ts';
 import { isLineKind, type AppearanceOverride, type NodeModel, type PathOverride, type Slot } from './model.ts';
 import type { Pick } from './pick.ts';
 import { appearanceOpen, closeAppearance, refreshAppearance, showAppearance } from './appearance-dialog.ts';
+import { edgeRunShown, edgeValuesShown, showEdgeDetection, type EdgeRun } from './edge-dialog.ts';
+import { detectionFrom, type EdgeDetection } from './edges.ts';
 import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
 import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
@@ -119,6 +121,15 @@ export interface Ui {
   setOverride(id: number, o: AppearanceOverride): void;
   /** The tree panel's state. */
   tree(): { open: boolean; detail: boolean };
+  /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
+  edgeDetection(): EdgeDetection;
+  /** Mesh edge detection's values set, remembered in this browser (valid ones: edges.ts's detectionProblem). */
+  setEdgeDetection(d: EdgeDetection): void;
+  /**
+   * Mesh edge detection's Detect: edges detected again on every part with triangles, or (`selectionOnly`) the
+   * selection's parts; what it did, or why it didn't.
+   */
+  detectEdges(d: EdgeDetection, selectionOnly: boolean): Promise<EdgeRun>;
   /** No model to open at start: says how to open one. */
   empty(): void;
   /** Says something in the status line. */
@@ -154,7 +165,11 @@ export type UiEvent =
   | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean }
-  | { type: 'appearance'; id: number; override: AppearanceOverride };
+  | { type: 'appearance'; id: number; override: AppearanceOverride }
+  /** Mesh edge detection's values set. */
+  | { type: 'detection'; detection: EdgeDetection }
+  /** A run of Mesh edge detection, as it begins; `done` with what it did. */
+  | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; done: Promise<EdgeRun> };
 
 /** How long the status line, and the details while nothing is selected, stay after they last changed. */
 const HIDE_AFTER = 5000;
@@ -177,6 +192,8 @@ const GNOMON_KEY = 'cad-viewer.gnomon';
 const KEYBOARD_KEY = 'cad-viewer.keyboard';
 /** Link to this view...'s Include device defaults, as remembered in this browser ('1' on; else off). */
 const LINK_DEFAULTS_KEY = 'cad-viewer.linkDeviceDefaults';
+/** Mesh edge detection's values (edge-dialog.ts), as JSON: every load's detection too. */
+const EDGE_DETECTION_KEY = 'cad-viewer.edgeDetection';
 /** The remembered choice (off where storage can't be read). */
 function linkDefaultsRemembered(): boolean {
   try {
@@ -766,6 +783,55 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
+  // Mesh edge detection... (edge-dialog.ts): its values remembered in this browser, every load's detection too.
+  try {
+    viewer.edgeDetection = detectionFrom(localStorage.getItem(EDGE_DETECTION_KEY));
+  } catch { /* the defaults */ }
+  // The scene parts a selection covers: a selected node's part, every part below a selected assembly.
+  const partsOf = (ids: readonly number[]) => {
+    const m = viewer.nodes, out = new Set<number>();
+    if (!m) return [];
+    const walk = (id: number) => {
+      const n = m.nodes[id]!;
+      if (n.kind === 'assembly') return (n.children ?? []).forEach(walk);
+      const p = m.nodes[m.partOf(id)]!;
+      if (p.kind === 'part') out.add(p.object!.userData.part as number);
+    };
+    ids.forEach(walk);
+    return [...out];
+  };
+  const setEdgeDetection = (d: EdgeDetection) => {
+    viewer.edgeDetection = { ...d };
+    try {
+      localStorage.setItem(EDGE_DETECTION_KEY, JSON.stringify(d));
+    } catch { /* not remembered; it still applies now */ }
+    edgeValuesShown(d);
+    hooks.onEvent?.({ type: 'detection', detection: { ...d } });
+  };
+  const runDetection = async (d: EdgeDetection, selectionOnly: boolean): Promise<EdgeRun> => {
+    if (!viewer.model) return { text: 'No model open.', error: true };
+    if (viewer.loading) return { text: 'Still loading: detect once it\'s meshed.', error: true };
+    const parts = selectionOnly ? partsOf(selected) : undefined;
+    if (parts && !parts.length) return { text: 'Nothing selected.', error: true };
+    const r = await viewer.detectEdges(parts, d, (k, n) => say(`detecting edges: ${k} of ${n} parts`));
+    if (r.stopped) return { text: `Stopped after ${r.parts} parts (another run, or another model).` };
+    const text = `Detected ${r.segments.toLocaleString()} edge segments on ${r.parts.toLocaleString()} ` +
+      `${r.parts === 1 ? 'part' : 'parts'}.`;
+    say(text.toLowerCase().replace(/\.$/, ''));
+    return { text };
+  };
+  // (Shown in the panel and recorded as it begins, so what's selected meanwhile comes after it in a recording.)
+  const detectEdges = (d: EdgeDetection, selectionOnly: boolean) => {
+    const done = runDetection({ ...d }, selectionOnly);
+    edgeRunShown(d, selectionOnly, done);
+    hooks.onEvent?.({ type: 'detect', detection: { ...d }, selectionOnly, done });
+    return done;
+  };
+  rendering.add({ detect: () => showEdgeDetection({
+    values: () => ({ ...viewer.edgeDetection }),
+    remember: setEdgeDetection,
+    run: detectEdges,
+  }) }, 'detect').name('Mesh edge detection...');
   const lights = [rendering.add(look, 'shininess', 0, 100, 1).name('Shininess').onChange(restyle),
     rendering.add(look, 'specular', 0, 1, 0.05).name('Specular').onChange(restyle),
     rendering.add(look, 'ambient', 0, 5, 0.05).name('Ambient light').onChange(restyle),
@@ -1276,6 +1342,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       return missing;
     },
     tree: () => ({ open: tree.open, detail: tree.detail }),
+    edgeDetection: () => ({ ...viewer.edgeDetection }),
+    setEdgeDetection,
+    detectEdges,
     empty: () => {
       say('Open a file (or drop one here), or load one by URL');
       report({ empty: true });

@@ -15,6 +15,35 @@ export const EDGE_GRID_MM = 0.001;
 export const EDGE_ANGLE = 10;
 
 /**
+ * How edges are found (Mesh edge detection..., remembered in the browser; every load's own finding too): the angle
+ * the faces meet at past which an edge is kept (degrees), and the weld tolerance (world millimetres: positions on the
+ * same grid point of that step are one vertex).
+ */
+export interface EdgeDetection { angle: number; grid: number }
+
+/** The defaults: EDGE_ANGLE, EDGE_GRID_MM. */
+export const DEFAULT_DETECTION: EdgeDetection = { angle: EDGE_ANGLE, grid: EDGE_GRID_MM };
+
+/** Why a detection's values can't be used ('' if they can): an angle in [0, 180], a positive, finite tolerance. */
+export function detectionProblem(d: EdgeDetection): string {
+  if (!Number.isFinite(d.angle) || d.angle < 0 || d.angle > 180) return 'the angle must be between 0 and 180 degrees';
+  if (!Number.isFinite(d.grid) || d.grid <= 0) return 'the weld tolerance must be more than 0 mm';
+  return '';
+}
+
+/** A stored detection (JSON), or the defaults where it's missing, malformed or unusable. */
+export function detectionFrom(stored: string | null | undefined): EdgeDetection {
+  if (!stored) return { ...DEFAULT_DETECTION };
+  try {
+    const j = JSON.parse(stored) as Partial<EdgeDetection>;
+    const d = { angle: Number(j.angle), grid: Number(j.grid) };
+    return detectionProblem(d) ? { ...DEFAULT_DETECTION } : d;
+  } catch {
+    return { ...DEFAULT_DETECTION };
+  }
+}
+
+/**
  * The edges of a triangle mesh (indexed, or every three positions a triangle) as line segments, pairs of positions
  * in the mesh's coordinates: `scale` grid steps a mesh unit (1 / the grid in the mesh's units; three.js's 10^4).
  */
