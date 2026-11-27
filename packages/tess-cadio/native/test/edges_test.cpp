@@ -7,6 +7,7 @@
 #include <tess_cadio/edges.h>
 #include <cstring>
 #include <tess_cadio/mesh2d.h>
+#include <tess_cadio/part.h>
 
 #include <cad_geom/curve.h>
 #include <cad_geom/surface.h>
@@ -1743,3 +1744,76 @@ TEST_CASE("an edge ending just past a pole on the far meridian (poleDipFar, pole
   }
 }
 
+
+TEST_CASE("a vertex merging an end's two corners (mergedCornerStrip, Top): each use's ends at its own projection's") {
+  // A strip 1.5 wide under an uncertainty of 1, each end's two corners one vertex, at the bottom or (Top) the top:
+  // the projected uses' ends at the other corners are 1.5 from the vertex's one foot, so they keep their own and meet
+  // as their curves do; the loop the rectangle (snapped to the foot, the far corners all at it, the sides crossed).
+  for (const char* name : {"mergedCornerStrip", "mergedCornerStripTop"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    for (int c = 0; c < 4; c++) CHECK(em.coedge(c).projected);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 1u);
+    double area = 0, out = 0;
+    const auto& L = fb.loops[0];
+    for (size_t k = 0; k < L.size(); k++) {
+      Vec2 a = L[k].uv, b = L[(k + 1) % L.size()].uv;
+      area += 0.5 * (a.x * b.y - b.x * a.y);
+      out = std::fmax(out, std::fmax(std::fmax(-a.x, a.x - 40), std::fmax(-a.y, a.y - 1.5)));
+  }
+  if (!(std::fabs(area - 60) < 1e-9) || !(out < 1e-9))
+    std::printf("  %s: (u, v) area %.12g, farthest outside the rectangle %g\n", name, area, out);
+  CHECK(std::fabs(area - 60) < 1e-9);
+  CHECK(out < 1e-9);
+  PartOptions po;
+  po.d.linear = 0.1, po.d.angular = 0.26;
+  PartMesher pm(m, po);
+  CHECK(pm.face(0).status == cadgeom::Status::ok);
+  }
+}
+
+TEST_CASE("a junction's uses at their vertex's foot unless their curves meet away from it (offCorner*)") {
+  // The square's corner at the origin a vertex its sides' curves miss, under a tolerance of 0.2: curves ending 0.36
+  // apart at 0.42-0.5 from the vertex (Apart) or meeting within the tolerance of it (Near) meet at its foot; curves
+  // meeting 0.71 from it (Met), at their own ends; ends 1 and 0.91 from it, 0.0996 apart (Uneven: a tenth of the
+  // nearer's distance the measure), at its foot.
+  const struct { const char* name; Vec2 corner; } cases[] = {
+    {"offCornerApart", {0, 0}}, {"offCornerNear", {0, 0}}, {"offCornerMet", {0.5, 0.5}}, {"offCornerUneven", {0, 0}}};
+  for (const auto& k : cases) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    for (int c = 0; c < 4; c++) CHECK(em.coedge(c).projected);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 1u);
+    // The loop's points near the corner: exactly one, at the expected (u, v).
+    int near = 0, at = 0;
+    for (const auto& p : fb.loops[0])
+      if (norm(p.uv) < 1) near++, at += norm(p.uv - k.corner) < 1e-9;
+    if (near != 1 || at != 1) std::printf("  %s: %d points near the corner, %d at it\n", k.name, near, at);
+    CHECK(near == 1);
+    CHECK(at == 1);
+  }
+}
+
+TEST_CASE("an internal use's end at its vertex's foot, no other use at its junction (slitOffCorner)") {
+  cadgeom::Model m = load("slitOffCorner");
+  REQUIRE(m.ok());
+  EdgeOptions o;
+  o.deflection = 0.1;
+  EdgeMesh em(m, o);
+  const CoedgeSamples& s = em.coedge(4);
+  REQUIRE(s.projected);
+  REQUIRE(s.uv.size() >= 2u);
+  const Vec2 end = s.index.front() == 0 ? s.uv.front() : s.uv.back();
+  if (!(norm(end) < 1e-9)) std::printf("  slitOffCorner: the slit's end at (%g, %g)\n", end.x, end.y);
+  CHECK(norm(end) < 1e-9);
+}
