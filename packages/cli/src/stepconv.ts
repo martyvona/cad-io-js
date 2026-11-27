@@ -234,14 +234,15 @@ ${PROFILE_LINES}
                            these fixes on or off (comma-separated), healing on: strayPole, pcurveMissingOnPlane,
                            pcurveMissingOnElementary, pcurveMissingOnFreeForm, pcurveReparam, pcurveReplace,
                            pcurveEnds, edgeTolerance, vertexTolerance, orientShells, pcurveTight,
-                           coincidentEdges, trimOvershoot, vertexOnEdge (all on by default but the pcurveMissing
-                           ones, which make a p-curve for every bare use on planes, on cylinders, cones, spheres
-                           and tori, and on other surfaces; pcurveMissing: the last two; orientShells turns a
-                           solid's shell facing into its material; pcurveTight fits p-curves tightly where the
-                           loose projections collapse a face; coincidentEdges merges consecutive edges within
-                           their tolerance of each other, removing a face left with no area; trimOvershoot trims
-                           two edges crossing near their vertex at the crossing; vertexOnEdge gives two loops of a
-                           face meeting at a point a shared vertex there)
+                           coincidentEdges, trimOvershoot, vertexOnEdge, vertexSplit (all on by default but the
+                           pcurveMissing ones, which make a p-curve for every bare use on planes, on cylinders,
+                           cones, spheres and tori, and on other surfaces; pcurveMissing: the last two;
+                           orientShells turns a solid's shell facing into its material; pcurveTight fits p-curves
+                           tightly where the loose projections collapse a face; coincidentEdges merges consecutive
+                           edges within their tolerance of each other, removing a face left with no area;
+                           trimOvershoot trims two edges crossing near their vertex at the crossing; vertexOnEdge
+                           gives two loops of a face meeting at a point a shared vertex there; vertexSplit gives a
+                           vertex whose uses meet at points apart a vertex per point)
       --heal-fit <mm>      the tolerance a p-curve healing makes for a bare use is fitted within, where tighter
                            than its edge's (default ${PCURVE_FIT_TOLERANCE}: as fine as the fine profile meshes)
   -j, --workers <n>        parts tessellated (and healed) at once, each in a worker (default ${defaultWorkers()}); 0: one at a time

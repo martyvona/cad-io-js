@@ -2,9 +2,10 @@
 // flags) need, importable without cad-geom's module.
 
 /**
- * The fixes, in the order the pass runs them but for `pcurveTight` (added last for the bit order), which runs with
- * the curves' fixes: a face whose bare uses' projections at the face API's tolerance collapse its loop in (u, v)
- * where their exact feet don't gets those uses p-curves fitted tightly enough to keep it (fix/tight.ts).
+ * The fixes, in the order the pass runs them but for `pcurveTight` and `vertexSplit` (added last for the bit order;
+ * vertexSplit runs before the curves' fixes, below), pcurveTight with the curves' fixes: a face whose bare uses'
+ * projections at the face API's tolerance collapse its loop in (u, v) where their exact feet don't gets those uses
+ * p-curves fitted tightly enough to keep it (fix/tight.ts).
  * `strayPole` moves a 3D B-spline's pole thrown far out of the part within a negligible span onto its neighbours
  * (fix/poles.ts's narrow rule). Curves on surfaces (T3 lane 1): the
  * pcurveMissing fixes (each off by default, each independent) make a p-curve for every use without one, by the kind
@@ -26,12 +27,13 @@
  * consecutive edges of a loop in trouble whose curves cross within the part's uncertainty near their vertex and run on
  * past it trimmed at the crossing, the vertex moved there (fix/overshoot.ts). `vertexOnEdge` runs after trimOvershoot:
  * two loops of one face meeting at a point to rounding without a shared vertex there made to share one, the edge split
- * at the other loop's vertex, or two coincident vertices merged (fix/touch.ts). (The order is also the healing row's
- * bit order: a fix added goes last.)
+ * at the other loop's vertex, or two coincident vertices merged (fix/touch.ts). `vertexSplit` runs after strayPole,
+ * before the curves' fixes: a vertex whose uses' joints each agree but meet at points apart given a vertex per point
+ * (fix/split.ts). (The order is also the healing row's bit order: a fix added goes last.)
  */
 export const HEAL_FIXES = ['strayPole', 'pcurveMissingOnPlane', 'pcurveMissingOnElementary', 'pcurveMissingOnFreeForm',
   'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance', 'vertexTolerance', 'orientShells', 'pcurveTight',
-  'coincidentEdges', 'trimOvershoot', 'vertexOnEdge'] as const;
+  'coincidentEdges', 'trimOvershoot', 'vertexOnEdge', 'vertexSplit'] as const;
 export type HealFix = (typeof HEAL_FIXES)[number];
 
 /**
@@ -90,7 +92,7 @@ export const PCURVE_FIT_TOLERANCE = 0.0025;
  * The version of what healing makes: bumped when the same model and options heal to other bytes, so a model healed by
  * another version is healed again from its source's values rather than taken as healed (the analysis's healing row).
  */
-export const HEAL_VERSION = 8;
+export const HEAL_VERSION = 9;
 
 /** The fixes as the analysis's healing row holds them: a bit per fix, in HEAL_FIXES order. */
 export function fixesMask(fixes: Iterable<HealFix>): number {
