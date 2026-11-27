@@ -7762,9 +7762,12 @@ await check('address follows the model', async () => {
     `a local file: no model=, the view gone, its name kept: ${j}`);
   expect(afterLocal.search === '?check' && afterLocal.model === undefined && afterLocal.kept === null
     && afterLocal.status.includes('local.glb was open from this computer'), `reloaded: no model, said: ${j}`);
-  expect(url.search === '?model=as1.stp&check' && url.hash === '' && url.kept === null && url.model === 'as1.stp',
+  // (Named by its path in the content root, content/ beside the page: in a build, served at /viewer/, /content/ isn't
+  // in it, so its path on the server.)
+  const named = `?model=${process.env.BUILD ? encodeURIComponent('/content/as1.stp') : 'as1.stp'}&check`;
+  expect(url.search === named && url.hash === '' && url.kept === null && url.model === 'as1.stp',
     `a URL's model: model=, the local file's name dropped: ${j}`);
-  expect(afterUrl.model === 'as1.stp' && afterUrl.search.includes('model=as1.stp') && afterUrl.search.includes('check')
+  expect(afterUrl.model === 'as1.stp' && afterUrl.search === named
     && JSON.stringify(afterUrl.hidden) === JSON.stringify(url.hidden) && url.hidden!.length === 1
     && Math.abs(url.camera![2]! - start.camera![2]!) > 1
     && afterUrl.camera!.every((v, k) => Math.abs(v - url.camera![k]!) < 1e-4), `reloaded: the model, its view: ${j}`);
