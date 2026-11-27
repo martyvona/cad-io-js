@@ -5,7 +5,7 @@ import { BrepBuilder } from 'cad-brep';
 import { rangeOf } from '../src/items.ts';
 import { NodeModel } from '../src/model.ts';
 import { SceneGraph } from '../src/scene-graph.ts';
-import { VERTICES } from '../src/style.ts';
+import { REVEAL, VERTICES } from '../src/style.ts';
 import { TriangleEdges } from '../src/triangle-edges.ts';
 import { plate, scene, wire } from './fixtures.ts';
 
@@ -586,4 +586,77 @@ test('detected mesh edges: a node of their own beside the edges group, shown and
   const freshPart = fresh.model.children(fresh.model.children(fresh.model.roots[0]!)[0]!)[0]!;
   assert.deepEqual(fresh.model.setOverrides([{ path: `${fresh.model.pathOf(freshPart)}/detected`, hidden: true }],
     ['hidden']), []);
+});
+
+test("reveal: inherited, a face's own; while something's revealed, what isn't a ghost: its faces drawn by a twin at "
+  + 'Reveal alpha, its lines not; none revealed, no ghosts', () => {
+  const { graph, model } = stepModel();
+  const meshes = graph.addMesh(0, plate()) as THREE.Mesh[];
+  graph.addMesh(1, wire());
+  model.setDetail(true);
+  const [left, sub] = model.children(model.roots[0]!) as [number, number];
+  const [leftPlate, leftWire] = model.children(left) as [number, number];
+  const [subPlate, subWire] = model.children(sub) as [number, number];
+  const curves = (part: number) => model.nodes[part]!.object!.getObjectByName('curves')!;
+  const twinOf = (mesh: THREE.Mesh) => {
+    graph.placeTwins();
+    mesh.updateWorldMatrix(true, false);
+    return graph.twins.children.find((t) => t.matrix.equals(mesh.matrixWorld)) as THREE.Mesh | undefined;
+  };
+  // (Each face's material in a mesh: visible, and its opacity.)
+  // (A twin's faces as its mesh's: `of`.)
+  const faces = (m: THREE.Mesh, of = m) => drawn(Object.assign(Object.create(m) as THREE.Mesh,
+    { userData: of.userData })).map(([s, v, a]) => `${s}:${v ? a : '-'}`).join(' ');
+  const before = [faces(meshes[0]!), faces(meshes[1]!)];
+  assert.ok(!model.revealing && !graph.twins.children.length && curves(subWire).visible);
+  model.setOverride(left, { reveal: true });
+  assert.ok(model.revealing && model.look(leftPlate).reveal === true && model.look(subPlate).reveal === undefined);
+  assert.deepEqual([model.ghost(leftPlate), model.ghost(subPlate), model.ghost(sub)], [false, true, true]);
+  // The revealed placement as it was, its lines drawn; the other's faces in its twin alone, at Reveal alpha, blended.
+  assert.deepEqual([faces(meshes[0]!), curves(leftWire).visible], [before[0], true]);
+  assert.equal(faces(meshes[1]!), '8:- 7:-');
+  assert.ok(meshes[1]!.userData.ghost && !meshes[0]!.userData.ghost && !curves(subWire).visible);
+  const twin = twinOf(meshes[1]!)!;
+  assert.ok(twin && twin.geometry === meshes[1]!.geometry && twin.layers.mask === 1 << REVEAL);
+  assert.deepEqual(faces(twin, meshes[1]), '8:0.1 7:0.1');
+  assert.ok((twin.material as THREE.Material[]).every((m) => m.transparent));
+  // (The file's hidden placement, not drawn: no twin drawn either.)
+  assert.equal(graph.twins.children.filter((t) => t.visible).length, 1);
+  // A face of the ghost revealed: drawn as it is, the other still the twin's.
+  const subFace7 = nodeIn(model, subPlate, 'face #7');
+  model.setOverride(subFace7, { reveal: true });
+  assert.equal(faces(meshes[1]!), `8:- ${before[1]!.split(' ')[1]}`);
+  assert.equal(faces(twinOf(meshes[1]!)!, meshes[1]), '8:0.1 7:-');
+  assert.ok(!meshes[1]!.userData.ghost);
+  // Not revealed within something revealed: a ghost (`reveal: false`).
+  const leftFace8 = nodeIn(model, leftPlate, 'face #8');
+  model.setOverride(leftFace8, { reveal: false });
+  assert.equal(faces(twinOf(meshes[0]!)!, meshes[0]), '8:0.1 7:-');
+  // Reveal alpha; the two draws' depth settings.
+  graph.setRevealAlpha(0.3);
+  const ghostMaterial = (twinOf(meshes[0]!)!.material as THREE.Material[])[0]!;
+  assert.equal(ghostMaterial.opacity, 0.3);
+  graph.ghostPass(true);
+  assert.deepEqual([ghostMaterial.colorWrite, ghostMaterial.depthWrite, ghostMaterial.depthFunc],
+    [false, true, THREE.LessDepth]);
+  graph.ghostPass(false);
+  assert.deepEqual([ghostMaterial.colorWrite, ghostMaterial.depthWrite, ghostMaterial.depthFunc],
+    [true, false, THREE.EqualDepth]);
+  // A ghost hidden: its twin not drawn.
+  model.setHidden([sub], true);
+  graph.placeTwins();
+  assert.equal(graph.twins.children.filter((t) => t.visible).length, 1);
+  model.setHidden([sub], false);
+  // Every reveal cleared: no ghosts, each drawn as before, every line again.
+  model.clearReveal();
+  graph.placeTwins();
+  assert.ok(!model.revealing && !graph.twins.children.length && curves(subWire).visible);
+  assert.deepEqual([faces(meshes[0]!), faces(meshes[1]!)], before);
+  // In the overrides and in a state's: exactly these.
+  model.setOverride(left, { reveal: true });
+  assert.deepEqual(model.overrides().filter((o) => o.reveal !== undefined).map((o) => [o.path, o.reveal]),
+    [['asm/left', true]]);
+  model.setOverrides([{ path: 'asm/left/plate', reveal: false }], ['reveal']);
+  assert.ok(!model.revealing && model.ownOverride(left) === undefined);
+  assert.equal(faces(meshes[1]!), before[1]);
 });

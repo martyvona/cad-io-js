@@ -3,10 +3,11 @@
 // brute force over every object (hitsAlong: where a zoom gesture turns about; three-mesh-bvh is a backlog item). What
 // isn't drawn isn't hit: hidden objects (or with a hidden ancestor), parts' own drawings hidden by their layer (the
 // raycaster's layers), hidden faces (their geometry group's material), and what the section planes cut away
-// (`clipped`). Lines and points are hit within a few pixels.
+// (`clipped`). Lines and points are hit within a few pixels. A hit along a ray as a pick: pickOfHit (Pick...'s list:
+// ui.ts).
 
 import * as THREE from 'three';
-import { rangeOf } from './items.ts';
+import { itemAt, rangeOf } from './items.ts';
 import type { IdTarget } from './pick-ids.ts';
 
 export interface Pick {
@@ -192,4 +193,17 @@ export function hitsAlong(camera: THREE.Camera, root: THREE.Object3D, ndc: THREE
   kept.push(...(extra?.(raycaster.ray) ?? []) as THREE.Intersection[]);
   kept.sort((a, b) => a.distance - b.distance);
   return { hits: kept, ray: raycaster.ray.clone() };
+}
+
+/**
+ * A hit along a ray (hitsAlong's) as a pick: a mesh's triangle, a line's or point object's item (by the index it gave:
+ * items.ts's itemAt), a cap's plane.
+ */
+export function pickOfHit(h: THREE.Intersection & { cap?: 'x' | 'y' | 'z' }): Pick {
+  const o = h.object;
+  const lines = (o as THREE.Line).isLine || (o as THREE.Points).isPoints;
+  const item = lines && h.index !== undefined ? itemAt(o, h.index) : undefined;
+  return { object: o, point: h.point, distance: h.distance, ...(h.cap ? { cap: h.cap } : {}),
+    ...(!lines && !h.cap && h.faceIndex !== undefined && h.faceIndex !== null ? { faceIndex: h.faceIndex } : {}),
+    ...(item !== undefined ? { item } : {}) };
 }

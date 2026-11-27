@@ -11,6 +11,9 @@ test("overrideOf: the dialog's choices as an override, inherit leaving a slot ou
   assert.deepEqual(overrideOf('inherit', 'transparent', -1), { transparent: true, alpha: 0 });
   assert.deepEqual(overrideOf('inherit', 'inherit', 0.3, 'on'), { triangleEdges: true });
   assert.deepEqual(overrideOf('hide', 'inherit', 0.3, 'off'), { hidden: true, triangleEdges: false });
+  assert.deepEqual(overrideOf('inherit', 'inherit', 0.3, 'inherit', 'reveal'), { reveal: true });
+  assert.deepEqual(overrideOf('show', 'inherit', 0.3, 'inherit', 'none'), { hidden: false, reveal: false });
+  assert.deepEqual(overrideOf('inherit', 'inherit', 0.3, 'inherit', 'inherit'), {});
 });
 
 test("overrideText: a row's title", () => {
@@ -18,4 +21,6 @@ test("overrideText: a row's title", () => {
   assert.equal(overrideText({ hidden: false, transparent: false }), "shown; the file's opacity");
   assert.equal(overrideText({ transparent: true, alpha: 0 }), 'opacity 0');
   assert.equal(overrideText({ triangleEdges: false }), 'triangle edges off');
+  assert.equal(overrideText({ hidden: false, reveal: true }), 'shown; revealed');
+  assert.equal(overrideText({ reveal: false }), 'not revealed');
 });

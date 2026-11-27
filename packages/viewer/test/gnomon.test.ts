@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { axisSymbol, axisView, backingColour, besideSide, Gnomon, GNOMON_EXTENT, gnomonShown, LABEL_BOX, layoutLabels,
-  NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn, stepNudges, SYMBOL }
-  from '../src/gnomon.ts';
+import { axisSymbol, axisView, backingColour, bandSpan, besideSide, CUBE_GAP, CUBE_SIZE, cubeFaces, cubePart, Gnomon,
+  GNOMON_EXTENT, gnomonShown, hull, LABEL_BOX, layoutLabels, NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn,
+  stepNudges, SYMBOL } from '../src/gnomon.ts';
 
 const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) < 1e-12, `${what}: ${a} vs ${b}`);
 
@@ -64,6 +64,50 @@ test('the gnomon starts shown, unless remembered hidden; off in check and shot p
   assert.equal(gnomonShown('?controls=1', null), true);
   assert.equal(gnomonShown('?check&gnomon=1', '0'), true);
   assert.equal(gnomonShown('?gnomon=0', '1'), false);
+  // The view cube's the same way, by ?cube.
+  assert.equal(gnomonShown('', null, 'cube'), true);
+  assert.equal(gnomonShown('', '0', 'cube'), false);
+  assert.equal(gnomonShown('?check', null, 'cube'), false);
+  assert.equal(gnomonShown('?check&cube=1&gnomon=0', null, 'cube'), true);
+  assert.equal(gnomonShown('?cube=0', '1', 'cube'), false);
+});
+
+test("the view cube's parts: a face's middle, CUBE_ZONE of it from each border its edges', its corners", () => {
+  assert.deepEqual(cubePart([0.5, 0, 0.5]), [0, -1, 0]);
+  assert.deepEqual(cubePart([0.26, 1, 0.74]), [0, 1, 0]);
+  assert.deepEqual(cubePart([0.24, 1, 0.5]), [-1, 1, 0]);
+  assert.deepEqual(cubePart([0.5, 0, 0.76]), [0, -1, 1]);
+  assert.deepEqual(cubePart([0.9, 0, 0.9]), [1, -1, 1]);
+  assert.deepEqual(cubePart([0, 0.1, 1]), [-1, -1, 1]);
+});
+
+test("the view cube's faces: each lettered for the world's view facing it, upright as that view has it", () => {
+  const key = (m: Map<string, { view: string; up: THREE.Vector3 }>) => Object.fromEntries([...m].map(([k, v]) =>
+    [k, `${v.view} ${v.up.toArray().map((x) => Math.round(x) || 0).join(',')}`]));
+  // The world's axes: front looks along +Y, so its face is -Y; top and bottom have Y up and down.
+  assert.deepEqual(key(cubeFaces(new THREE.Matrix4())), { '1-': 'front 0,0,1', '1+': 'back 0,0,1',
+    '0-': 'left 0,0,1', '0+': 'right 0,0,1', '2+': 'top 0,1,0', '2-': 'bottom 0,-1,0' });
+  // A Y-up file (X -> X, Y -> Z, Z -> -Y): the world's -Y its +Z, the world's up its +Y.
+  const yUp = new THREE.Matrix4().fromArray([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(key(cubeFaces(yUp)), { '2+': 'front 0,1,0', '2-': 'back 0,1,0', '0-': 'left 0,1,0',
+    '0+': 'right 0,1,0', '1+': 'top 0,0,-1', '1-': 'bottom 0,0,1' });
+  const g = new Gnomon();
+  g.set(yUp.toArray(), new THREE.Matrix4());
+  assert.equal(g.cubeView([0, 0, 1]), 'front');
+  assert.equal(g.cubeView([0, -1, 0]), 'bottom');
+  assert.equal(g.cubeView([1, 0, 1]), undefined);
+  assert.equal(g.cubeView([1, 1, 1]), undefined);
+  g.set(undefined, new THREE.Matrix4());
+  assert.equal(g.cubeView([0, -1, 0]), 'front');
+  assert.equal(g.cubeView([0, 0, -1]), 'bottom');
+});
+
+test('the view cube lies within the sphere the gnomon turns about (so within GNOMON_EXTENT)', () => {
+  const centre = new THREE.Vector3(1, 1, 1).divideScalar(3);
+  for (const c of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    const p = new THREE.Vector3(c & 1, c >> 1 & 1, c >> 2 & 1).multiplyScalar(CUBE_SIZE).addScalar(CUBE_GAP);
+    assert.ok(p.distanceTo(centre) <= Math.sqrt(6) / 3, `corner ${c}`);
+  }
 });
 
 /**
@@ -91,13 +135,26 @@ function sampledTurns(): THREE.Matrix4[] {
   return turns.flatMap((t) => [t, t.clone().multiply(new THREE.Matrix4().makeScale(-1, 1, 1))]);
 }
 
-test('the labels: no two boxes overlap, the origin\'s never moved, every layout inside GNOMON_EXTENT', () => {
+test('the labels: no two boxes overlap, nor the view cube, the origin\'s never moved, every layout inside '
+  + 'GNOMON_EXTENT', () => {
   const reach = { left: 0, right: 0, down: 0, up: 0 };
-  let overlap = 0, rose = 0;
-  for (const t of sampledTurns()) {
-    const { tips, placements, origin } = project(t);
-    const labels = layoutLabels(placements, origin, LABEL_BOX);
+  let overlap = 0, rose = 0, onCube = 0;
+  for (const t of sampledTurns()) for (const withCube of [false, true]) {
+    const { tips, placements, origin, cube } = project(t);
+    const labels = layoutLabels(placements, origin, LABEL_BOX, undefined, withCube ? cube : undefined);
     const all = [...labels, origin];
+    if (withCube) {
+      for (const l of labels) {
+        const span = bandSpan(cube, l.y - LABEL_BOX / 2, l.y + LABEL_BOX / 2);
+        if (span) onCube = Math.max(onCube, Math.min(l.x + LABEL_BOX / 2 - span.lo, span.hi - (l.x - LABEL_BOX / 2)));
+      }
+      for (const p of cube) {
+        reach.left = Math.max(reach.left, -p.x);
+        reach.right = Math.max(reach.right, p.x);
+        reach.down = Math.max(reach.down, -p.y);
+        reach.up = Math.max(reach.up, p.y);
+      }
+    }
     for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
       overlap = Math.max(overlap, Math.min(LABEL_BOX - Math.abs(all[i]!.x - all[j]!.x),
         LABEL_BOX - Math.abs(all[i]!.y - all[j]!.y)));
@@ -115,6 +172,7 @@ test('the labels: no two boxes overlap, the origin\'s never moved, every layout 
   }
   console.log('reach', reach);
   assert.ok(overlap <= 1e-6, `boxes overlap by ${overlap}`);
+  assert.ok(onCube <= 1e-6, `a label overlaps the cube by ${onCube}`);
   assert.equal(rose, 0, 'labels moved up or down');
   for (const k of ['left', 'right', 'down', 'up'] as const) {
     assert.ok(reach[k] <= GNOMON_EXTENT[k], `${k}: ${reach[k]} past ${GNOMON_EXTENT[k]}`);
@@ -354,4 +412,25 @@ test('an axis along the line of sight: a ringed dot at the viewer, a cross away,
   assert.deepEqual(g.symbol, { axis: 1, head: false, opacity: 1 });
   g.advance(ISO, { now: 0 });
   assert.equal(g.symbol, undefined);
+});
+
+test("an obstacle (the view cube's outline): its hull, its span between two heights, labels pushed off it sideways",
+  () => {
+  // A diamond, its hull in order (the inner point dropped).
+  const diamond = hull([{ x: 0, y: -10 }, { x: 10, y: 0 }, { x: 0, y: 10 }, { x: -10, y: 0 }, { x: 1, y: 1 }]);
+  assert.equal(diamond.length, 4);
+  assert.ok(!diamond.some((p) => p.x === 1 && p.y === 1));
+  assert.deepEqual(bandSpan(diamond, -1, 1), { lo: -10, hi: 10 });
+  assert.deepEqual(bandSpan(diamond, 5, 20), { lo: -5, hi: 5 });
+  assert.equal(bandSpan(diamond, 11, 20), undefined);
+  // A label on it goes to the side its point lies; one clear of it stays.
+  const far = { x: 500, y: 500 };
+  const [a, b, c] = layoutLabels([{ x: 1, y: 5 }, { x: -1, y: -5 }, { x: 40, y: 0 }], far, 14, undefined, diamond);
+  assert.deepEqual([a!.x, b!.x, c!.x], [10 + 7, -10 - 7, 40]);
+  // Level with the origin's box, the side it clears that box to, though its point lies the other side of the middle.
+  const [d] = layoutLabels([{ x: -1, y: 0 }, far, { x: 600, y: 600 }], { x: -30, y: 0 }, 14, undefined, diamond);
+  assert.equal(d!.x, 10 + 7);
+  // A pair, one against it: the other moves the whole way.
+  const [e, f] = layoutLabels([{ x: 18, y: 0 }, { x: 20, y: 0 }, far], far, 14, undefined, diamond);
+  assert.deepEqual([e!.x, f!.x], [18, 32]);
 });

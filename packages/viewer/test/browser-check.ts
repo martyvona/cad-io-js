@@ -1135,7 +1135,8 @@ await check('override appearance', async () => {
   const j = JSON.stringify({ ...a, rec: undefined });
   type Read = { title: string; visibility: string; opacity: string; edges: string; options: string[];
     disabled: boolean; value: string; buttons: string[] };
-  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' && !!a.closed,
+  expect(JSON.stringify(ownItems(a.items as string[])) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]' && !!a.closed,
     `the menu: ${j}`);
   const first = a.first as Read;
   expect(first.visibility === 'inherit' && first.opacity === 'inherit' && first.edges === 'inherit' &&
@@ -1163,7 +1164,8 @@ await check('override appearance', async () => {
   expect(!!a.xClosed && !!a.escClosed, `closed: ${j}`);
   // (The child has an override of its own by then.)
   expect(JSON.stringify(ownItems(a.pressed as string[])) ===
-    '["Hide","Show","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override"]',
+    '["Hide","Show","Reveal","Hide others",' +
+        '"Show others","Show all","Override Appearance...","Remove Appearance Override"]',
     `a long press: ${j}`);
   // Recorded once each change was made (the box's input not, its change yes), Hide and Show selected as buttons.
   expect(a.rec.events.filter((e) => e.type === 'appearance').length === 7, `recorded: ${JSON.stringify(
@@ -1256,7 +1258,8 @@ await check('tree menu others and selected', async () => {
   const same = (x: { hidden: string[]; shown: string[] }, y: { hidden: string[]; shown: string[] }) =>
     JSON.stringify([x.hidden, x.shown]) === JSON.stringify([y.hidden, y.shown]);
   const items = a.othersSel.items as string[];
-  expect(JSON.stringify(items.slice(0, 5)) === '["Hide 2","Show 2","Hide others","Show others","Show all"]' &&
+  expect(JSON.stringify(items.slice(0, 6)) === '["Hide 2","Show 2","Reveal 2","Hide others",' +
+      '"Show others","Show all"]' &&
     JSON.stringify(items.slice(-2)) === '["Hide selected","Show selected"]' && items.at(-3) === 'Select by ID...',
   `the items: ${j}`);
   expect(same(a.othersSel, a.want.othersSel) && a.othersSel.hidden.length > 0 &&
@@ -1279,6 +1282,184 @@ await check('tree menu others and selected', async () => {
   const b = replayed.after;
   expect(a.sib && b.divergences.length === 0 && JSON.stringify([b.hidden, b.shown]) === JSON.stringify([
     [...a.final.hidden].sort(), [...a.final.shown].sort()]), `replayed: ${JSON.stringify(b)}`);
+  return undefined;
+});
+// Reveal (model.ts): the tree's and the view's menus' Reveal (after Show), greyed where it would change nothing (Hide
+// on what's hidden, itself or inherited; Show on what's shown; Reveal on what's revealed); Hide taking a reveal away
+// first; Hide others, Show others and Show all taking every reveal away. Drawn: what's revealed as it is, the rest
+// (ghosts) blending only their nearest layer at Reveal alpha: at 0.5, each pixel the even mix (in linear colour) of the
+// revealed drawn alone (the rest hidden) and the nearest ghost drawn opaque (Reveal alpha 1), with ambient occlusion
+// and without; no caps for a ghost. Override Appearance's Reveal pulldown; Reveal alpha in Rendering; in a link;
+// recorded and replayed.
+await check('reveal', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    const m = ui.panel().model;
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    ui.panel().setExpanded(m.nodes.filter((n) => n.kind === 'assembly').map((n) => n.id));
+    await frame();
+    const rod = m.nodes.find((n) => n.name.startsWith('rod')).id;
+    const parts = m.nodes.filter((n) => n.kind === 'part').map((n) => n.id);
+    const others = parts.filter((p) => p !== rod && m.nodes[p].parent !== rod);
+    // A node's menu (the tree's): its items, greyed or not; one chosen.
+    const menu = async (id, choose) => {
+      ui.panel().onContextMenu(id, 100, 100);
+      const items = [...document.querySelectorAll('.cv-menu button')].map((b) => (b.disabled ? '-' : '') +
+        b.textContent);
+      if (choose) [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === choose).click();
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await frame();
+      await cadViewer.idle();
+      return items.slice(0, 4);
+    };
+    const out = { alpha: control('Reveal alpha')?.getValue() };
+    cadViewer.record(true);
+    out.plain = await menu(rod);
+    out.revealIt = await menu(rod, 'Reveal');
+    out.revealed = { revealing: m.revealing, own: m.ownOverride(rod) ?? null };
+    out.again = await menu(rod);
+    // Inherited: a part of the rod's assembly (if it is one) revealed through it; a part hidden through its parent.
+    const child = m.children(rod).find((c) => m.nodes[c].kind === 'part');
+    out.child = child === undefined ? null : await menu(child);
+    // Drawn: pixels at Reveal alpha 0.5, the revealed alone, and the ghosts opaque.
+    const canvas = viewer.renderer.domElement, gl = viewer.renderer.getContext();
+    const grab = () => {
+      viewer.draw();
+      const px = new Uint8Array(4 * canvas.width * canvas.height);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const srgb = (c) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+    out.mix = [];
+    // (Where the revealed is nearest, without AO: the frame drawn as usual, nothing revealed, the same as it alone.)
+    let front;
+    for (const ao of [false, true]) {
+      ui.setRender({ ao, smaa: false, revealAlpha: 0.5 });
+      ui.setOverride(rod, {});
+      await cadViewer.idle();
+      const N = grab();
+      ui.setOverride(rod, { reveal: true });
+      await cadViewer.idle();
+      const M = grab();
+      ui.setRender({ revealAlpha: 1 });
+      const G = grab();
+      for (const p of others) ui.setOverride(p, { ...m.ownOverride(p), hidden: true });
+      await cadViewer.idle();
+      const R = grab();
+      for (const p of others) { const { hidden, ...o } = m.ownOverride(p) ?? {}; ui.setOverride(p, o); }
+      ui.setRender({ revealAlpha: 0.5 });
+      await cadViewer.idle();
+      const same = (P, Q, i) => [0, 1, 2].every((c) => Math.abs(P[i + c] - Q[Q.length === 4 ? c : i + c]) <= 1);
+      if (!ao) {
+        front = new Uint8Array(M.length / 4);
+        for (let i = 0; i < M.length; i += 4) front[i / 4] = same(N, R, i) ? 1 : 0;
+      }
+      let ghosted = 0, wrong = 0, worst = 0, unlike = 0, covered = 0, fronts = 0, shift = 0;
+      for (let i = 0; i < M.length; i += 4) {
+        // The revealed where it's nearest: the ghosts change nothing there.
+        // (The revealed's own pixels: not the background's, the first pixel's.)
+        const rodPixel = front[i / 4] && !same(R, R.subarray(0, 4), i);
+        if (rodPixel) fronts++;
+        // (Its colour as the frame drawn as usual has it, but for AO from what's hidden: the same on average.)
+        if (rodPixel) shift += [0, 1, 2].reduce((t, c) => t + Math.abs(R[i + c] - N[i + c]), 0) / 3;
+        if (rodPixel && !same(G, R, i)) covered++;
+        if ([0, 1, 2].every((c) => G[i + c] === R[i + c])) continue;
+        ghosted++;
+        const d = Math.max(...[0, 1, 2].map((c) => Math.abs(M[i + c] - srgb((lin(R[i + c]) + lin(G[i + c])) / 2))));
+        worst = Math.max(worst, d);
+        if (d > 3) wrong++;
+        // Without AO, opaque ghosts are what's drawn as usual where a ghost is nearest (lit alike; their edges not).
+        if (!ao && !same(G, N, i)) unlike++;
+      }
+      out.mix.push({ ao, ghosted, wrong, worst: Math.round(worst), unlike, covered, fronts,
+        shift: Math.round(shift / fronts * 100) / 100 });
+    }
+    ui.setRender({ ao: true, smaa: true, revealAlpha: 0.1 });
+    // Caps: none for a ghost.
+    const capped = () => { viewer.sections.invalidate(); viewer.draw(); return viewer.sections.caps.length; };
+    ui.setSections({ ...viewer.sections.get(), z: { on: true, at: 20, flip: false } });
+    out.caps = { revealed: capped() };
+    ui.setOverride(rod, {});
+    out.caps.plain = capped();
+    ui.setOverride(rod, { reveal: true });
+    ui.setSections({ ...viewer.sections.get(), z: { on: false, at: 20, flip: false } });
+    // The link carries it; a page opened with it reveals the same.
+    out.link = cadViewer.link();
+    // Override Appearance...: its Reveal pulldown.
+    await menu(others[0], 'Override Appearance...');
+    const panel = document.querySelector('dialog.cv-dialog.floating');
+    const select = [...panel.querySelectorAll('label')].find((l) => l.textContent.startsWith('Reveal'))
+      ?.querySelector('select');
+    out.pulldown = select ? [...select.options].map((o) => o.textContent) : null;
+    select.value = 'none';
+    select.dispatchEvent(new Event('change'));
+    out.none = m.ownOverride(others[0]) ?? null;
+    select.value = 'reveal';
+    select.dispatchEvent(new Event('change'));
+    out.revealPulldown = m.ownOverride(others[0]) ?? null;
+    panel.querySelector('button.close').click();
+    // Hide takes the reveal away; Show greyed then not; Hide greyed once hidden.
+    out.hideMenu = await menu(others[0], 'Hide');
+    out.hidden = m.ownOverride(others[0]) ?? null;
+    out.hiddenMenu = await menu(others[0]);
+    // Show all, Hide others, Show others: every reveal gone.
+    const clears = {};
+    for (const item of ['Show all', 'Hide others', 'Show others']) {
+      ui.setOverride(rod, { reveal: true });
+      await menu(others[1], item);
+      clears[item] = m.revealing;
+    }
+    out.clears = clears;
+    ui.setOverride(rod, { reveal: true });
+    control('Reveal alpha').setValue(0.3);
+    control('Reveal alpha')._callOnFinishChange();
+    out.final = cadViewer.state();
+    out.rec = cadViewer.record(false);
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined, final: undefined });
+  expect(a.alpha === 0.1, `Reveal alpha, 0.1 at first: ${j}`);
+  expect(JSON.stringify(a.plain) === '["Hide","-Show","Reveal","Hide others"]' &&
+    JSON.stringify(a.again) === '["Hide","-Show","-Reveal","Hide others"]' && a.revealed.revealing &&
+    a.revealed.own?.reveal === true, `the menu's Reveal, greyed once revealed: ${j}`);
+  expect(a.child === null || JSON.stringify(a.child) === '["Hide","-Show","-Reveal","Hide others"]',
+    `revealed through its parent: ${j}`);
+  for (const x of a.mix) {
+    expect(x.ghosted > 1000 && x.wrong === 0, `one ghost layer blended (ao ${x.ao}): ${JSON.stringify(x)}`);
+    expect(x.ao || x.unlike < x.ghosted * 0.1, `ghosts at alpha 1 drawn as usual: ${JSON.stringify(x)}`);
+    // (With AO, what's hidden darkens it a little when drawn as usual: about 4 in 255 on average; twice over the gamma
+    // correction, about 30.)
+    expect(x.shift < 10, `the revealed's colours as usual (ao ${x.ao}): ${JSON.stringify(x)}`);
+    // (A few pixels where the rod meets a bracket's hole, at nearly one depth, either way.)
+    expect(x.fronts > 200 && x.covered <= x.fronts * 0.01, `nothing over the revealed where it's nearest (ao ${
+      x.ao}): ${JSON.stringify(x)}`);
+  }
+  expect(a.caps.revealed > 0 && a.caps.revealed < a.caps.plain, `no caps for ghosts: ${j}`);
+  expect(/[?&#]reveal=/.test(a.link), `in the link: ${a.link}`);
+  expect(JSON.stringify(a.pulldown) === '["Inherit","Reveal","None"]' && a.none?.reveal === false &&
+    a.revealPulldown?.reveal === true, `Override Appearance's Reveal: ${j}`);
+  expect(JSON.stringify(a.hideMenu) === '["Hide","-Show","-Reveal","Hide others"]' && a.hidden?.hidden === true &&
+    a.hidden.reveal === undefined && JSON.stringify(a.hiddenMenu) === '["-Hide","Show","Reveal","Hide others"]',
+  `Hide takes the reveal away; then greyed, Show not: ${j}`);
+  expect(Object.values(a.clears).every((x) => x === false), `every reveal gone: ${j}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    const st = cadViewer.state();
+    return { divergences: report.divergences, revealed: st.revealed, alpha: st.render.revealAlpha,
+      revealing: viewer.nodes.revealing };
+  })()`) as { after: { divergences: string[]; revealed: string[]; alpha: number; revealing: boolean } };
+  const b = replayed.after;
+  expect(b.divergences.length === 0 && JSON.stringify(b.revealed) === JSON.stringify(a.final.revealed) &&
+    b.alpha === 0.3 && b.revealing, `replayed: ${JSON.stringify(b)}`);
+  const u = new URL(a.link);
+  const linked = await page(`${u.search}&check${u.hash}`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    return { revealing: viewer.nodes?.revealing, revealed: cadViewer.state().revealed };
+  })()`) as { after: { revealing: boolean; revealed: string[] } };
+  expect(linked.after.revealing && linked.after.revealed.length > 0, `a link's: ${JSON.stringify(linked.after)}`);
   return undefined;
 });
 await check('tree menu hide and show', async () => {
@@ -1335,22 +1516,26 @@ await check('tree menu hide and show', async () => {
     drawn: boolean; panel?: string }> & { overrides: unknown; rec: { events: { type: string }[] }; multi: unknown } };
   const a = r.after;
   const j = JSON.stringify({ ...a, rec: undefined });
-  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' && !a.plain!.open &&
+  expect(JSON.stringify(ownItems(a.plain!.items)) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]' && !a.plain!.open &&
     JSON.stringify(a.plain!.own) === '{"hidden":true}' && a.plain!.hidden && !a.plain!.drawn, `Hide: ${j}`);
   expect(JSON.stringify(ownItems(a.shown!.items)) ===
-    '["Hide","Show","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override"]' &&
+    '["Hide","Show","Reveal","Hide others",' +
+        '"Show others","Show all","Override Appearance...","Remove Appearance Override"]' &&
     JSON.stringify(a.shown!.own) === '{"hidden":false}' && !a.shown!.hidden && a.shown!.drawn, `Show: ${j}`);
   expect(JSON.stringify(a.hidden!.own) === '{"transparent":true,"alpha":0.5,"triangleEdges":true,"hidden":true}' &&
     a.hidden!.panel === 'hide', `Hide keeping the rest, the panel following: ${j}`);
   expect(a.removed!.own === null && !a.removed!.hidden && a.removed!.drawn && a.removed!.panel === 'inherit',
     `removed: ${j}`);
-  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]',
+  expect(JSON.stringify(ownItems(a.after!.items)) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]',
     `no Remove without: ${j}`);
   type Several = { items: string[]; open: boolean; owns: unknown[]; selected: number[]; focused: number };
   const mu = a.multi as unknown as { hide: Several; show: Several; remove: Several; outside: Several; opened: Several;
     panel: string; name: string; p: number[] };
   // (How many, on several: Remove's those with an override, one of the two at first.)
-  const all = '["Hide 2","Show 2","Hide others","Show others","Show all","Override Appearance...","Remove Appearance Override 1"]';
+  const all = '["Hide 2","Show 2","Reveal 2","Hide others",' +
+      '"Show others","Show all","Override Appearance...","Remove Appearance Override 1"]';
   const both = JSON.stringify(mu.p.slice(0, 2));
   expect(JSON.stringify(ownItems(mu.hide.items)) === all && JSON.stringify(mu.hide.owns) ===
     '[{"hidden":true},{"transparent":true,"alpha":0.5,"hidden":true},null]' && JSON.stringify(mu.hide.selected) ===
@@ -1358,10 +1543,12 @@ await check('tree menu hide and show', async () => {
   expect(JSON.stringify(mu.show.owns) === '[{"hidden":false},{"transparent":true,"alpha":0.5,"hidden":false},null]',
     `Show on the selection: ${j}`);
   expect(mu.panel === `Override Appearance: ${mu.name}`, `Override Appearance... on the one clicked: ${j}`);
-  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Hide others","Show others","Show all","Override Appearance...",' +
+  expect(JSON.stringify(ownItems(mu.remove.items)) === '["Hide 2","Show 2","Reveal 2","Hide others",' +
+      '"Show others","Show all","Override Appearance...",' +
     '"Remove Appearance Override 2"]' && JSON.stringify(mu.remove.owns) === '[null,null,null]',
     `Remove on the selection: ${j}`);
-  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Hide others","Show others","Show all","Override Appearance..."]' &&
+  expect(JSON.stringify(ownItems(mu.outside.items)) === '["Hide","Show","Reveal","Hide others",' +
+      '"Show others","Show all","Override Appearance..."]' &&
     JSON.stringify(mu.outside.owns) === '[null,null,{"hidden":true}]' && JSON.stringify(mu.outside.selected) === both,
     `outside the selection, that one alone: ${j}`);
   // The focus (the outlined row) moved to each row right-clicked, the selection kept.
@@ -1481,6 +1668,226 @@ await check('view context menu', async () => {
     a.leftEmpty.focused === null && a.leftEmpty.selected.length === 0, `left clicks: ${j}`);
   expect(a.detail.menu[0] === 'Hide' && ['face', 'edge', 'curve', 'vertex', 'point'].includes(a.detailKind as string) &&
     a.detail.selected.length === 0, `at the detail level: ${j}`);
+  return undefined;
+});
+// The view's menu's Pick... (above Select parent, starting its group; not in the tree's menu) opens a movable modal
+// listing everything along the line of sight at the point right-clicked, nearest first: as many as hiding the nearest
+// part and picking again peels off there (the ids' pick sees only the nearest), the rows as the tree's (icon, name).
+// The cursor on the first row from the start, outlined and in the alert colour, its node alerted in the view; the
+// arrows move it (clamped at the ends), a click moves it there. The mouse over a row marks it hovered and highlights
+// its node as the tree's row does. Clicks, shift-clicks and Space select as the tree's rows do, the rows drawn
+// selected, the tree following; recorded and replayed as those selections. Closed by Escape: no alert, no highlight.
+// Long lists: only the rows in view drawn (200,000, through the module, on the dev server).
+await check('pick list', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    ui.selection.multi = false;
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, rect = canvas.getBoundingClientRect();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const send = (type, x, y, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: x, clientY: y, ...o }));
+    // What's along the line of sight at a point (fractions of the view), by hiding the nearest and picking again.
+    const peel = async (fx, fy) => {
+      const ids = [];
+      for (let k = 0; k < 20; k++) {
+        await frame();
+        const path = cadViewer.pickAt(fx, fy)?.path;
+        if (!path) break;
+        const id = m.find(path);
+        if (ids.includes(id)) break;
+        ids.push(id);
+        ui.setOverride(id, { hidden: true });
+      }
+      for (const id of ids) ui.setOverride(id, {});
+      await cadViewer.idle();
+      await frame();
+      return ids;
+    };
+    let spot;
+    for (const [fx, fy] of [[0.5, 0.5], [0.45, 0.5], [0.55, 0.5], [0.5, 0.45], [0.5, 0.55], [0.4, 0.4], [0.6, 0.6],
+      [0.4, 0.6], [0.6, 0.4], [0.35, 0.5], [0.65, 0.5]]) {
+      const ids = await peel(fx, fy);
+      if (!spot || ids.length > spot.ids.length) spot = { fx, fy, ids, x: rect.left + fx * rect.width,
+        y: rect.top + fy * rect.height };
+      if (spot.ids.length >= 3) break;
+    }
+    const out = { peeled: spot.ids };
+    const items = () => [...document.querySelectorAll('.cv-menu button')].map((b) => ({ text: b.textContent,
+      divider: b.classList.contains('divider') }));
+    // The tree's menu: no Pick....
+    ui.panel().onContextMenu(spot.ids[0], 100, 100);
+    out.treeMenu = items().map((i) => i.text);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // The colours the list's rows take: Rendering's (not the page's defaults).
+    ui.setRender({ highlightColor: '#1f3fff', alertColor: '#20a040' });
+    await frame();
+    cadViewer.record(true);
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointerup', spot.x, spot.y, { button: 2, buttons: 0 });
+    await frame();
+    out.viewMenu = items();
+    [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === 'Pick...').click();
+    await frame();
+    await frame();
+    const dialog = document.querySelector('dialog.cv-dialog[open]');
+    const scroller = dialog.querySelector('.pick-list .tree-scroller');
+    const rows = () => [...dialog.querySelectorAll('.tree-row')].filter((x) => x.style.display !== 'none')
+      .sort((a, b) => +a.dataset.index - +b.dataset.index);
+    const state = () => {
+      const all = rows();
+      const cls = (c) => all.filter((x) => x.classList.contains(c)).map((x) => +x.dataset.index);
+      const h = viewer.highlights.highlight;
+      return { focused: cls('focused'), alert: cls('alert'), hovered: cls('hovered'), selected: cls('selected'),
+        alerted: [...viewer.alerted], picked: [...ui.selected()], outline: h.outline.length + h.marks.length,
+        treeSelected: [...document.querySelectorAll('#tree .tree-row.selected')].map((x) => +x.dataset.id),
+        cursorBg: all.find((x) => x.classList.contains('alert')) && getComputedStyle(all.find((x) =>
+          x.classList.contains('alert'))).backgroundColor, active: document.activeElement === scroller };
+    };
+    out.title = dialog.querySelector('h2 span').textContent;
+    out.modal = dialog.matches(':modal');
+    out.backdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+    out.drag = dialog.querySelector('h2').classList.contains('drag');
+    out.rows = rows().map((x) => ({ id: +x.dataset.id, name: x.querySelector('.tree-name').textContent,
+      icon: x.querySelector('.tree-icon')?.outerHTML }));
+    out.names = out.rows.map((x) => m.nodes[x.id].name);
+    // The tree's own rows' icons, for the same nodes.
+    out.treeIcons = [];
+    for (const x of out.rows) {
+      ui.panel().setFocus(x.id);
+      await frame();
+      out.treeIcons.push(document.querySelector('#tree .tree-row[data-id="' + x.id + '"] .tree-icon')?.outerHTML);
+    }
+    out.start = state();
+    const key = (k, o = {}) => scroller.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true,
+      cancelable: true, ...o }));
+    const n = out.rows.length;
+    key('ArrowDown');
+    await frame();
+    out.down = state();
+    for (let i = 0; i < n + 2; i++) key('ArrowDown');
+    await frame();
+    out.bottom = state();
+    for (let i = 0; i < n + 2; i++) key('ArrowUp');
+    await frame();
+    out.top = state();
+    const rowAt = (i) => rows().find((x) => +x.dataset.index === i);
+    const over = async (i) => {
+      const b = rowAt(i).getBoundingClientRect();
+      scroller.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: b.left + 30,
+        clientY: b.top + b.height / 2, pointerType: 'mouse' }));
+      await frame();
+    };
+    await over(1);
+    out.hover = state();
+    out.hoverBg = getComputedStyle(rowAt(1)).backgroundColor;
+    const click = async (i, o = {}) => {
+      rowAt(i).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...o }));
+      await frame();
+    };
+    await click(1);
+    out.click = state();
+    await click(n - 1, { shiftKey: true });
+    out.shiftClick = state();
+    key('ArrowUp');
+    await frame();
+    key(' ');
+    await frame();
+    out.space = state();
+    key('ArrowUp');
+    await frame();
+    key(' ', { shiftKey: true });
+    await frame();
+    out.shiftSpace = state();
+    await click(0, { ctrlKey: true });
+    out.ctrlClick = state();
+    scroller.dispatchEvent(new PointerEvent('pointerleave', { clientX: 0, clientY: 0, pointerType: 'mouse' }));
+    await frame();
+    out.left = state();
+    out.final = [...ui.selected()];
+    // Closed with the mouse over a row: its highlight gone.
+    await over(1);
+    out.hoverBeforeClose = state().outline;
+    dialog.close();
+    await frame();
+    out.closed = { open: !!document.querySelector('dialog.cv-dialog[open]'), alerted: [...viewer.alerted],
+      outline: viewer.highlights.highlight.outline.length + viewer.highlights.highlight.marks.length };
+    out.rec = cadViewer.record(false);
+    if (${!process.env.BUILD}) {
+      // A long list, through the module: only the rows in view drawn, the last reached by scrolling.
+      const { showPickList } = await import('${base}src/pick-list.ts');
+      const parts = m.nodes.filter((x) => x.kind === 'part').map((x) => x.id);
+      const ids = Array.from({ length: 200000 }, (_, i) => parts[i % parts.length]);
+      const t0 = performance.now();
+      let cursor;
+      showPickList({ model: m, ids, selected: () => [], multi: () => false, onSelect: () => {}, onHover: () => {},
+        onCursor: (c) => { cursor = c; }, onClose: () => {} });
+      await frame();
+      const big = document.querySelector('dialog.cv-dialog[open]');
+      const sc = big.querySelector('.tree-scroller');
+      out.big = { ms: Math.round(performance.now() - t0), rows: big.querySelectorAll('.tree-row').length,
+        height: sc.scrollHeight };
+      sc.scrollTop = sc.scrollHeight;
+      await frame();
+      await frame();
+      const shown = [...big.querySelectorAll('.tree-row')].filter((x) => x.style.display !== 'none')
+        .map((x) => +x.dataset.index);
+      out.big.last = Math.max(...shown);
+      out.big.drawn = shown.length;
+      out.big.cursor = cursor;
+      big.close();
+      await frame();
+    }
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined });
+  const ids = (x: number[]) => JSON.stringify(x);
+  const menu = a.viewMenu as { text: string; divider: boolean }[];
+  const at = menu.findIndex((i) => i.text === 'Pick...');
+  expect(at > 0 && menu[at + 1]?.text === 'Select parent' && menu[at]!.divider && !menu[at + 1]!.divider &&
+    !(a.treeMenu as string[]).includes('Pick...'), `the menus: ${j}`);
+  const rows = a.rows as { id: number; name: string; icon: string }[];
+  const n = rows.length;
+  expect(a.peeled.length >= 3 && ids(rows.map((x) => x.id)) === ids(a.peeled), `the rows, nearest first: ${j}`);
+  expect(a.title === `Pick: ${n} items` && a.modal && a.drag && a.backdrop === 'rgba(0, 0, 0, 0)' &&
+    rows.every((x, i) => x.name === a.names[i] && !!x.icon && x.icon === a.treeIcons[i]), `the dialog, the rows as the tree's: ${j}`);
+  const green = 'rgb(32, 160, 64)';
+  const s = (o: any, cursor: number) => ids(o.focused) === ids([cursor]) && ids(o.alert) === ids([cursor]) &&
+    ids(o.alerted) === ids([rows[cursor]!.id]);
+  expect(s(a.start, 0) && a.start.cursorBg === green && a.start.active && a.start.selected.length === 0,
+    `the cursor at first: ${j}`);
+  expect(s(a.down, 1) && s(a.bottom, n - 1) && s(a.top, 0), `the arrows: ${j}`);
+  expect(ids(a.hover.hovered) === '[1]' && a.hover.outline > 0 && a.hoverBg === 'rgb(31, 63, 255)' && s(a.hover, 0),
+    `hovered: ${j}`);
+  const sel = (from: number, to: number) => ids(rows.slice(from, to + 1).map((x) => x.id));
+  expect(s(a.click, 1) && ids(a.click.picked) === sel(1, 1) && ids(a.click.selected) === '[1]' &&
+    ids(a.click.treeSelected) === sel(1, 1), `a click: ${j}`);
+  expect(s(a.shiftClick, n - 1) && ids([...a.shiftClick.picked].sort()) === ids(rows.slice(1).map((x) => x.id)
+    .sort()), `a shift-click: ${j}`);
+  // (Space on a selected row: it comes out; shift-space there: the span from the anchor, row 1, comes out.)
+  const cur = n - 2;
+  expect(s(a.space, cur) && !a.space.picked.includes(rows[cur]!.id) && a.space.picked.length === n - 2,
+    `space: ${j}`);
+  // (Up a row, shift-space: the rows from there to the anchor, the row Space clicked, in place of the selection.)
+  const spanned = rows.slice(cur - 1, cur + 1).map((x) => x.id);
+  expect(s(a.shiftSpace, cur - 1) && ids([...a.shiftSpace.picked].sort()) === ids([...spanned].sort()),
+    `shift-space: ${j}`);
+  const toggled = spanned.includes(rows[0]!.id) ? spanned.filter((x) => x !== rows[0]!.id) : [...spanned, rows[0]!.id];
+  expect(s(a.ctrlClick, 0) && ids([...a.ctrlClick.picked].sort()) === ids(toggled.sort()), `a ctrl-click: ${j}`);
+  expect(a.left.hovered.length === 0, `the mouse gone: ${j}`);
+  expect(!a.closed.open && a.closed.alerted.length === 0 && a.hoverBeforeClose > 0 && a.closed.outline === 0,
+    `closed: ${j}`);
+  if (!process.env.BUILD) {
+    expect(a.big.rows < 80 && a.big.last === 199999 && a.big.drawn < 80 && a.big.height >= 199999 * 18 &&
+      a.big.ms < 1000, `a long list: ${JSON.stringify(a.big)}`);
+  }
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    return { divergences: report.divergences, selected: [...ui.selected()] };
+  })()`) as { after: { divergences: string[]; selected: number[] } };
+  expect(replayed.after.divergences.length === 0 && ids(replayed.after.selected) === ids(a.final),
+    `replayed: ${JSON.stringify(replayed.after)} ${j}`);
   return undefined;
 });
 // The tree's arrow keys move its focus through the structure: up and down to the previous and next sibling, past
@@ -4958,7 +5365,7 @@ await check('look along an axis and fit', async () => {
     f = await fly(() => press('Back', true));
     out.onShifted = { said: f.said, kept: far(f.end.target, before.target) < 1e-9 * before.height &&
       f.end.height === before.height };
-    // All at once: turning and zooming together, to the same end.
+    // Simultaneous: turning and zooming together, to the same end.
     ctl('Look and fit').setValue('together');
     ui.select([part.id]);
     viewer.setCamera({ ...cam(), height: cam().height / 20 });
@@ -4975,7 +5382,7 @@ await check('look along an axis and fit', async () => {
     await cadViewer.idle();
     // (As the user changes it: setValue isn't a finished change, which recordings keep.)
     const select = ctl('Look and fit').$select;
-    select.selectedIndex = [...select.options].findIndex((o) => o.textContent === 'All at once');
+    select.selectedIndex = [...select.options].findIndex((o) => o.textContent === 'Simultaneous');
     select.dispatchEvent(new Event('change'));
     press('Top');
     await cadViewer.idle();
@@ -5000,7 +5407,7 @@ await check('look along an axis and fit', async () => {
   const near = (x: number[], y: number[]) => x.every((v, i) => Math.abs(v - y[i]!) < 1e-9);
   const s3 = 1 / Math.sqrt(3);
   expect(a.order.join() === 'Fit,Front,Back,Left,Right,Top,Bottom,Iso X,Iso Y,Iso Z' && a.fit === true &&
-    a.motion === 'steps' && a.motionIn === 'View' && a.options.join() === 'Zoom out, turn, zoom in,All at once',
+    a.motion === 'steps' && a.motionIn === 'View' && a.options.join() === 'Sequential,Simultaneous',
   `the controls: ${j}`);
   expect(a.steps.said === 'zoz' && a.steps.outKept && a.steps.outFrames > 1 && a.steps.fitted && a.steps.gnomonStill &&
     near(a.steps.dir, [0, -1, 0]), `three steps: out, orbit, in, ending as zoom selected: ${j}`);
@@ -5126,6 +5533,16 @@ await check('keyboard shortcuts', async () => {
     ui.select([]);
     for (let i = 0; i < 2; i++) { key('g'); out.g.push(edges()); }
     out.control = control('Triangle edges').getValue();
+    // e: picking faces, edges, curves and vertices, the tree's detail and Vertices on; again, parts, both off; from
+    // the assembly level, the detail level again.
+    const detail = () => [ui.selection.level, control('Faces, edges, curves, vertices').getValue(),
+      viewer.render.vertices, ui.tree().detail].join(' ');
+    out.e = [detail()];
+    for (let i = 0; i < 2; i++) { key('e'); out.e.push(detail()); }
+    ui.setPickLevel('assembly');
+    key('e');
+    out.e.push(detail());
+    key('e');
     // Left alone: a text field's, modified, shifted, repeated.
     const input = document.createElement('input');
     document.body.append(input);
@@ -5141,6 +5558,8 @@ await check('keyboard shortcuts', async () => {
     key('t');
     key('g');
     key('g');
+    key('e');
+    key('e');
     const rec = cadViewer.record(false);
     out.recorded = rec.events.filter((e) => e.type === 'control').map((e) => e.path + (e.value === undefined ? ''
       : '=' + e.value) + (e.shift ? ' shift' : ''));
@@ -5154,7 +5573,7 @@ await check('keyboard shortcuts', async () => {
     return out;
   })()`, { first: `localStorage.removeItem('cad-viewer.keyboard');` }) as { after: { f: [boolean, string[]];
     fSelected: [boolean, string[]]; views: boolean[]; viewCalls: string[]; shifted: boolean[];
-    shiftedCalls: string[];
+    shiftedCalls: string[]; e: string[];
     h: [boolean, boolean]; s: [boolean, boolean]; escape: [boolean, number]; tree: boolean[]; g: string[];
     control: string; ignored: boolean[];
     ignoredCalls: string[]; recorded: string[]; hints: [string, string, boolean, boolean, boolean][] } };
@@ -5171,14 +5590,19 @@ await check('keyboard shortcuts', async () => {
   expect(a.tree[0] !== a.tree[1] && a.tree[0] === a.tree[2], `t: the tree shown or not: ${j}`);
   expect(a.g.join() === 'off,selected,off,all,off' && a.control === 'off',
     `g: off to selected with a selection, to all without; back to off: ${j}`);
+  expect(a.e.join() === 'part false false false,detail true true true,part false false false,detail true true true',
+    `e: the detail level, the tree's detail and Vertices, or back to parts: ${j}`);
   expect(a.ignored.every((x) => !x) && a.ignoredCalls.length === 0,
     `none in a text field, with a modifier, repeated, or unbound: ${j}`);
   expect(a.hints.map((h) => h.slice(0, 2).join(' ')).join() === 'Zoom all f,Zoom selected f,Front 1,Back 2,Left 3,'
-    + 'Right 4,Top 5,Bottom 6,Iso X 7,Iso Y 8,Iso Z 9,Show the tree t,Select none Esc,Hide selected h,Show selected s,Triangle edges g'
+    + 'Right 4,Top 5,Bottom 6,Iso X 7,Iso Y 8,Iso Z 9,Show the tree t,Faces, edges, curves, vertices e,Pick e,'
+    + 'Select none Esc,Hide selected h,Show selected s,Vertices e,Triangle edges g'
     && a.hints.every((h) => h[2] && h[3] && h[4]), `each control's key shown, greyed, after its name (whole): ${j}`);
   expect(a.recorded.join('|') === 'View/Look Along an Axis/Front|View/Look Along an Axis/Front shift|'
     + 'Tree/Show the tree=false|Tree/Show the tree=true|'
-    + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off', `recorded as their controls: ${j}`);
+    + 'Rendering/Triangle edges=all|Rendering/Triangle edges=off|Selection/Pick=detail|'
+    + 'Tree/Faces, edges, curves, vertices=true|Rendering/Vertices=true|Selection/Pick=part|'
+    + 'Tree/Faces, edges, curves, vertices=false|Rendering/Vertices=false', `recorded as their controls: ${j}`);
   return undefined;
 });
 // The keys' hints on a touch screen with no mouse or trackpad (an emulated phone): hidden, until a key is pressed
@@ -5252,8 +5676,8 @@ await check('control folders', async () => {
   const a = r.after, t = r.then, j = JSON.stringify({ a, t });
   expect(a.file.join() === 'Open file...,Load URL...,Save original...,Export...,Screenshot...,Link to this view...,'
     + 'Enter fullscreen,About...,Theme', `File: ${j}`);
-  expect(a.view.join() === 'Zoom all,Zoom selected,Axes,Look and fit',
-    `View: its zooms, Axes and Look and fit (and the views' folder): ${j}`);
+  expect(a.view.join() === 'Zoom all,Zoom selected,Axes,Cube,Look and fit',
+    `View: its zooms, Axes, Cube and Look and fit (and the views' folder): ${j}`);
   expect(a.selection.slice(-9).join() === 'Details,Hide selected,Show selected,Hide others,Show others,Show all,'
     + 'Opacity,Make transparent,Restore opacity' && a.selection[0] === 'Pick', `Selection: ${j}`);
   expect(a.rendering.join() === 'Custom background,Background', `Rendering ends with the background: ${j}`);
@@ -5532,7 +5956,9 @@ await check('about', async () => {
     ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
     const d = await new Promise((res) => { const f = () => { const e = document.querySelector('dialog.cv-dialog[open]');
       if (e) res(e); else setTimeout(f, 50); }; f(); });
-    const links = [...d.querySelectorAll('a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel }));
+    // (Links that act in the page, as Client details, apart.)
+    const links = [...d.querySelectorAll('a')].filter((a) => a.getAttribute('href') !== '#').map((a) => ({
+      href: a.href, target: a.target, rel: a.rel }));
     const licenses = links.find((l) => /licenses\.md$/.test(l.href));
     const status = licenses ? (await fetch(licenses.href)).status : undefined;
     const pdfs = links.filter((l) => /\.pdf$/.test(l.href));
@@ -5566,6 +5992,69 @@ await check('about', async () => {
     JSON.stringify(a.pdf?.map((p) => p.name)) === '["README.pdf","step_tutorial.pdf"]' &&
     a.pdf!.every((p) => p.status === 200 && p.magic === '%PDF-'), `the PDFs (a build's only): ${j}`);
   expect(a.closed, `closed: ${j}`);
+  return undefined;
+});
+// Client details (About's link, client-info.ts): this browser, device and GPU as text to copy, what a recording carries
+// too (its `client`): the device class, the browser read from the user agent, the screen and window, input, WebGL's
+// version, GPU and limits, features; nothing identifying (no language, time zone or address); Copy copies it (the
+// clipboard stubbed).
+await check('client details', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    cadViewer.record(true);
+    const rec = cadViewer.record(false);
+    const frame = () => new Promise((res) => setTimeout(res, 50));
+    const open = async () => { for (let t = 0; t < 100; t++) { const all = document.querySelectorAll(
+      'dialog.cv-dialog[open]'); if (all.length) return all[all.length - 1]; await frame(); } };
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    const about = await open();
+    [...about.querySelectorAll('a')].find((a) => a.textContent === 'Client details').click();
+    await frame();
+    const d = await open();
+    const area = d.querySelector('textarea.client-info');
+    const copy = [...d.querySelectorAll('button')].find((b) => b.textContent === 'Copy');
+    // (The clipboard stubbed: a headless page has no gesture to grant it.)
+    let copied;
+    navigator.clipboard.writeText = async (t) => { copied = t; };
+    copy.click();
+    for (let t = 0; t < 40 && copy.textContent !== 'Copied'; t++) await frame();
+    const out = { title: d.querySelector('h2 span')?.textContent, text: area?.value, readOnly: area?.readOnly,
+      copied: copy.textContent, copiedText: copied, client: rec.client, language: navigator.language,
+      zone: Intl.DateTimeFormat().resolvedOptions().timeZone, ua: navigator.userAgent, dpr: devicePixelRatio,
+      threads: navigator.hardwareConcurrency, device: viewer.detectedDevice,
+      gl2: viewer.renderer.getContext() instanceof WebGL2RenderingContext, page: location.href };
+    d.querySelector('button.close').click();
+    await frame();
+    about.querySelector('.buttons button').click();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, text: undefined });
+  const lines = new Map((a.text as string).split('\n').filter((l) => !l.startsWith('  ')).map((l) => {
+    const k = l.indexOf(': ');
+    return [l.slice(0, k), l.slice(k + 2)] as const;
+  }));
+  const want: Record<string, string> = { 'device.detected': a.device, 'device.inUse': a.device,
+    'browser.name': 'Chrome', 'browser.engine': 'Blink', 'browser.userAgent': a.ua, 'screen.pixelRatio': String(a.dpr),
+    'hardware.threads': String(a.threads), 'webgl.version': a.gl2 ? 'WebGL 2.0' : 'WebGL 1.0',
+    'features.webAssembly': 'true' };
+  const wrong = Object.entries(want).filter(([k, v]) => !(lines.get(k) ?? '').startsWith(v));
+  expect(a.title === 'Client details' && a.readOnly && wrong.length === 0 && /^webgl\.limits\.maxTextureSize: \d+$/m
+    .test(a.text) && /^webgl\.extensions: \(\d+\)$/m.test(a.text) && /^webgl\.renderer: \S/m.test(a.text) &&
+    /^webgl\.gpu: \S/m.test(a.text) &&
+    /^screen\.width: \d+$/m.test(a.text) && /^input\.pointer: /m.test(a.text), `the dialog: ${JSON.stringify(wrong)} ${
+    a.text}`);
+  expect(a.copied === 'Copied' && a.copiedText === a.text, `copied: ${j}`);
+  // The recording's: the same fields.
+  const c = a.client;
+  expect(!!c && c.device?.detected === a.device && c.browser?.name === 'Chrome' && c.webgl?.version ===
+    lines.get('webgl.version') && c.webgl?.renderer === lines.get('webgl.renderer') && c.hardware?.threads ===
+    a.threads && Array.isArray(c.webgl?.extensions) && c.webgl.extensions.length > 0, `the recording's: ${j}`);
+  // Nothing identifying: no language, time zone or address, in either.
+  const json = JSON.stringify(c);
+  const keyed = /"(languages?|timeZone|timezone|locale)"/i.test(json) || /(^|\.)(languages?|timeZone|locale): /im
+    .test(a.text);
+  expect(!keyed && !json.includes(a.zone) && !a.text.includes(a.zone) && !json.includes(a.page) && !/[?&]/.test(json),
+    `nothing identifying: ${j}`);
   return undefined;
 });
 // Model Details (About's details link): the author after the file's name (a placeholder not), the file's metadata
@@ -6909,14 +7398,14 @@ await check('axes gnomon', async () => {
     const out = {};
     await frames();
     out.iso = { ...axes(), screen: screen() };
-    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 44
-    // pixels in from #gnomon's lower left, an axis 34 pixels, a label 0.3 of one beyond its tip, its box 14 pixels;
-    // each letter's colour inside its box.
+    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 50
+    // pixels in from #gnomon's left and 44 up from its bottom, an axis 34 pixels, a label 0.3 of one beyond its tip,
+    // its box 14 pixels; each letter's colour inside its box.
     {
       const e = viewer.camera.matrixWorld.elements, g = document.getElementById('gnomon').getBoundingClientRect();
       const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
       const c = proj([1 / 3, 1 / 3, 1 / 3]);
-      const at = (v, k) => { const p = proj(v); return [44 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
+      const at = (v, k) => { const p = proj(v); return [50 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
       const want = [...[[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => at(v, 1.3)), at([0, 0, 0], 1)];
       const got = viewer.gnomon.layout;
       out.labelsPlaced = want.every((w, i) => Math.abs(w[0] - got[i].x) < 0.5 && Math.abs(w[1] - got[i].y) < 0.5);
@@ -7153,7 +7642,7 @@ await check('axes gnomon in flight', async () => {
       const e = viewer.camera.matrixWorld.elements;
       const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
       const c = proj([1 / 3, 1 / 3, 1 / 3]), p = proj([0, 1, 2].map((i) => i === k ? 1.3 : 0));
-      return [44 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
+      return [50 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
     };
     const frames = [];
     viewer.setView('front');
@@ -7402,6 +7891,262 @@ await check('axes gnomon beside the phone tree', async () => {
     `following the panel's width: ${j}`);
   return undefined;
 });
+// The view cube (View's Cube, after Axes, on by default and only while the axes show; off on check pages unless
+// ?cube=1, remembered as its own): drawn in the gnomon, its fill the labels' backing's colour, the labels clear of it
+// (in views where they'd fall on it without it); each face lettered for the face view facing it, upright and not
+// mirrored as that view shows it, a Y-up file's too (the cube made again for its axes); a face's
+// tooltip its view's name and key (the key as the controls show theirs), none over an edge or corner; a click on a face
+// presses that view's button (the same camera; recorded as the control), on a corner or an edge looks along it from
+// the cube's centre, the file's up axis up (a corner's camera Iso Z's where they agree; an edge's two faces symmetric),
+// fitting as the buttons do (shift the other way), the corner by the origin's box the cube's; recorded and replayed;
+// with Cube off, not drawn or clicked.
+await check('view cube', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1&cube=1`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const g = viewer.gnomon, canvas = viewer.renderer.domElement;
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // A view from a direction (the world's, the file's here), Z up as seen.
+    const cubeLookOf = (d) => {
+      const n = Math.hypot(...d), dir = d.map((x) => x / n), up = [0, 0, 1].map((x, i) => x - dir[2] * dir[i]);
+      const m = Math.hypot(...up);
+      return { dir, up: up.map((x) => x / m) };
+    };
+    const out = { cubeOn: control('Cube').getValue() };
+    control('Axes').setValue(false);
+    out.disabledWithoutAxes = control('Cube')._disabled;
+    control('Axes').setValue(true);
+    out.enabledWithAxes = !control('Cube')._disabled;
+    // A point of the cube (its own coordinates, [0, 1] each) on the page, as last drawn.
+    const at = (q) => {
+      const cube = g.cube, n = cube.children[0].geometry.parameters.width;
+      const p = cube.localToWorld(new viewer.camera.position.constructor(q[0] * n, q[1] * n, q[2] * n))
+        .project(g.camera);
+      const box = viewer.gnomonDrawn, c = canvas.getBoundingClientRect();
+      return { x: c.left + box.x + (p.x + 1) / 2 * box.width, y: c.bottom - box.y - (p.y + 1) / 2 * box.height };
+    };
+    const send = (type, p, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: p.x, clientY: p.y, ...o }));
+    const click = async (q, o = {}) => {
+      await frame();
+      const p = at(q);
+      send('pointerdown', p, { button: 0, buttons: 1, ...o });
+      send('pointerup', p, { button: 0, buttons: 0, ...o });
+      await cadViewer.idle();
+      await frame();
+    };
+    const tip = async (q) => {
+      await frame();
+      send('pointermove', at(q), { button: -1, buttons: 0 });
+      const t = document.querySelector('.cv-tip');
+      return t && !t.hidden ? { text: t.firstChild.textContent, key: t.querySelector('.cv-key')?.textContent,
+        keyOpacity: getComputedStyle(t.querySelector('.cv-key')).opacity } : null;
+    };
+    const cam = () => viewer.cameraState();
+    const back = () => viewer.camera.getWorldDirection(new viewer.camera.position.constructor()).negate().toArray();
+    // The face facing the viewer: its letter, and its letter's up on the screen.
+    const facing = () => {
+      viewer.draw();
+      const b = viewer.camera.getWorldDirection(new viewer.camera.position.constructor()).negate();
+      const kids = g.cube.children;
+      for (let i = 0; i < kids.length; i++) {
+        const f = kids[i];
+        if (!f.userData.fill) continue;
+        const n = new viewer.camera.position.constructor(0, 0, 1).transformDirection(f.matrixWorld);
+        if (n.dot(b) < 0.99) continue;
+        const letter = kids[i + 1];
+        const V = viewer.camera.position.constructor, q = viewer.camera.quaternion;
+        const up = new V(0, 1, 0).transformDirection(letter.matrixWorld);
+        const right = new V(1, 0, 0).transformDirection(letter.matrixWorld);
+        // (Upright, and not mirrored: its right the screen's.)
+        return { letter: letter.material.userData.letter, upright: Math.min(up.dot(new V(0, 1, 0).applyQuaternion(q)),
+          right.dot(new V(1, 0, 0).applyQuaternion(q))) };
+      }
+      return null;
+    };
+    out.letters = {};
+    for (const v of ['front', 'back', 'left', 'right', 'top', 'bottom']) {
+      viewer.setView(v, { instant: true });
+      await cadViewer.idle();
+      out.letters[v] = facing();
+    }
+    // The labels clear the cube's outline (sampled across each box), in views where they'd fall on it without it.
+    const labelsOnCube = () => {
+      viewer.draw();
+      const box = viewer.gnomonDrawn, n = g.cube.children[0].geometry.parameters.width;
+      const pts = [0, 1, 2, 3, 4, 5, 6, 7].map((c) => {
+        const p = g.cube.localToWorld(new viewer.camera.position.constructor((c & 1) * n, (c >> 1 & 1) * n,
+          (c >> 2 & 1) * n)).project(g.camera);
+        return { x: (p.x + 1) / 2 * box.width, y: (p.y + 1) / 2 * box.height };
+      });
+      // (Inside the hull: on the inner side of every edge between hull points, found by brute force.)
+      const inside = (q) => {
+        for (const a of pts) for (const b of pts) {
+          if (a === b) continue;
+          const side = (p) => (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+          if (pts.every((p) => side(p) >= -1e-6) && side(q) < -1e-6) return false;
+        }
+        return true;
+      };
+      let on = 0;
+      for (const l of g.layout.slice(0, 3)) {
+        for (let i = 1; i < 7; i++) for (let k = 1; k < 7; k++) {
+          if (inside({ x: l.x - 7 + i * 2, y: l.y - 7 + k * 2 })) on++;
+        }
+      }
+      return on;
+    };
+    const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoX', 'isoY', 'isoZ'];
+    const looks = [[1, 1, 1], [-1, -1, -1], [1, -1, -1], [-1, 1, 0], [0, 1, -1]];
+    out.onCube = { on: 0, off: 0 };
+    for (const cubeOn of [true, false]) {
+      g.showCube = cubeOn;
+      for (const v of [...views, ...looks]) {
+        viewer.setView(typeof v === 'string' ? v : cubeLookOf(v), { instant: true });
+        await cadViewer.idle();
+        // (The labels glide to their places: settled.)
+        for (let t = 0; t < 60 && g.moving; t++) await frame();
+        out.onCube[cubeOn ? 'on' : 'off'] += labelsOnCube();
+      }
+    }
+    g.showCube = true;
+    // Iso Z: F, R and T in sight.
+    // (Through the interface, which a replay makes again.)
+    const start = () => { cadViewer.view('isoZ'); return cadViewer.idle(); };
+    await start();
+    out.tips = { front: await tip([0.5, 0, 0.5]), right: await tip([1, 0.5, 0.5]), top: await tip([0.5, 0.5, 1]),
+      corner: await tip([0.95, 0, 0.95]), edge: await tip([0.5, 0, 0.95]) };
+    send('pointerleave', at([0.5, 0, 0.5]));
+    out.tipGone = document.querySelector('.cv-tip')?.hidden ?? true;
+    // A face's click: Front's button's camera.
+    cadViewer.record(true);
+    await click([0.5, 0, 0.5]);
+    out.faceClick = cam();
+    await start();
+    control('Front').$button.click();
+    await cadViewer.idle();
+    out.frontButton = cam();
+    // A corner: Iso Z's.
+    await start();
+    cadViewer.view('front');
+    await cadViewer.idle();
+    await click([0.95, 0, 0.95]);
+    out.corner = { cam: cam(), back: back() };
+    cadViewer.view('front');
+    await cadViewer.idle();
+    control('Iso Z').$button.click();
+    await cadViewer.idle();
+    out.isoButton = cam();
+    // Edges: the vertical front-right one, the front-top one.
+    await start();
+    await click([0.95, 0, 0.5]);
+    out.vertical = { cam: cam(), back: back() };
+    await start();
+    await click([0.5, 0, 0.95]);
+    out.horizontal = { cam: cam(), back: back() };
+    // The cube's corner by the origin's box: the cube's (the corner away from every axis's tip), not Iso Z.
+    await start();
+    await click([0.03, 0, 0.03]);
+    out.originCorner = back();
+    // Shift: not fitted (Fit on), the zoom kept.
+    await start();
+    cadViewer.apply({ camera: { ...cam(), height: cam().height * 3 } });
+    await cadViewer.idle();
+    out.before = cam();
+    await click([0.95, 0, 0.95], { shiftKey: true });
+    out.shifted = cam();
+    out.final = cam();
+    out.rec = cadViewer.record(false);
+    // Cube off: no click on it.
+    await start();
+    const pixels = () => {
+      viewer.draw();
+      const gl = viewer.renderer.getContext(), box = viewer.gnomonDrawn, k = canvas.width / canvas.clientWidth;
+      const w = Math.round(box.width * k), h = Math.round(box.height * k), px = new Uint8Array(4 * w * h);
+      gl.readPixels(Math.round(box.x * k), Math.round(box.y * k), w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const withCube = pixels();
+    const centre = at([0.5, 0, 0.5]);
+    // A face's fill, away from its letter: the labels' backing's colour (a shade off the background).
+    {
+      const box = viewer.gnomonDrawn, k = canvas.width / canvas.clientWidth, c = canvas.getBoundingClientRect();
+      const p = at([0.12, 0, 0.5]), w = Math.round(box.width * k);
+      const x = Math.round((p.x - c.left - box.x) * k), y = Math.round((c.bottom - p.y - box.y) * k);
+      const bg = viewer.scene.background.clone(), dark = bg.getHSL({}, 'srgb').l < 0.5;
+      const want = bg.lerp(new bg.constructor(dark ? 0xffffff : 0x000000), 0.15).getHexString();
+      out.fill = { got: [0, 1, 2].map((i) => withCube[4 * (y * w + x) + i]), want: [0, 2, 4].map((i) =>
+        parseInt(want.slice(i, i + 2), 16)) };
+    }
+    const stored = () => ({ cube: localStorage.getItem('cad-viewer.cube'),
+      axes: localStorage.getItem('cad-viewer.gnomon') });
+    const storedBefore = stored();
+    control('Cube').setValue(false);
+    out.stored = { before: storedBefore, after: stored() };
+    const without = pixels();
+    let differ = 0;
+    for (let i = 0; i < withCube.length; i += 4) if (Math.abs(withCube[i] - without[i]) > 16) differ++;
+    out.drawnPixels = differ;
+    const was = cam();
+    send('pointerdown', centre, { button: 0, buttons: 1 });
+    send('pointerup', centre, { button: 0, buttons: 0 });
+    await cadViewer.idle();
+    out.offClick = JSON.stringify(cam()) === JSON.stringify(was);
+    control('Cube').setValue(true);
+    // Another model, a Y-up file: the cube made again for its axes, F still facing the front view.
+    await cadViewer.load('/content/as1.glb');
+    await cadViewer.idle();
+    viewer.setView('front', { instant: true });
+    await cadViewer.idle();
+    out.glbFront = facing();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined, shots: undefined });
+  expect(a.cubeOn && a.disabledWithoutAxes && a.enabledWithAxes, `the control: ${j}`);
+  expect(a.glbFront?.letter === 'F' && a.glbFront.upright > 0.99, `a Y-up file's front: ${j}`);
+  expect(a.onCube.on === 0 && a.onCube.off > 0, `the labels off the cube: ${j}`);
+  const letters = { front: 'F', back: 'K', left: 'L', right: 'R', top: 'T', bottom: 'M' } as Record<string, string>;
+  expect(Object.entries(letters).every(([v, l]) => a.letters[v]?.letter === l && a.letters[v].upright > 0.99),
+    `the letters, upright: ${j}`);
+  const t = a.tips;
+  expect(t.front?.text === 'Front' && t.front.key === '1' && t.right?.text === 'Right' && t.right.key === '4' &&
+    t.top?.text === 'Top' && t.top.key === '5' && t.front.keyOpacity === '0.45' && t.corner === null &&
+    t.edge === null && a.tipGone, `the tooltips: ${j}`);
+  const near = (p: number[], q: number[], e = 1e-6) => p.every((x, i) => Math.abs(x - q[i]!) < e);
+  const same = (p: any, q: any) => near(p.position, q.position, 1e-6 * Math.max(1, ...p.position.map(Math.abs)))
+    && near(p.target, q.target, 1e-3) && near(p.up, q.up) && Math.abs(p.height - q.height) < 1e-6 * p.height;
+  expect(same(a.faceClick, a.frontButton), `a face: its button: ${j}`);
+  const s3 = 1 / Math.sqrt(3), s2 = Math.SQRT1_2;
+  expect(near(a.corner.back, [s3, -s3, s3]) && same(a.corner.cam, a.isoButton), `a corner: ${j}`);
+  expect(near(a.originCorner, [-s3, -s3, -s3]), `the corner by the origin: ${j}`);
+  expect(near(a.vertical.back, [s2, -s2, 0]) && near(a.vertical.cam.up, [0, 0, 1]), `a vertical edge: ${j}`);
+  expect(near(a.horizontal.back, [0, -s2, s2]) && near(a.horizontal.cam.up, [0, s2, s2]),
+    `an edge across: its faces above and below: ${j}`);
+  expect(Math.abs(a.shifted.height - a.before.height) < 1e-6 * a.before.height &&
+    near(a.shifted.target, a.before.target, 1e-3), `shifted: not fitted: ${j}`);
+  expect(a.drawnPixels > 100 && a.offClick, `Cube off: not drawn, not clicked: ${j}`);
+  expect(a.fill.got.every((v: number, i: number) => Math.abs(v - a.fill.want[i]) <= 3), `a face's fill: ${j}`);
+  expect(a.stored.after.cube === '0' && a.stored.after.axes === a.stored.before.axes, `Cube remembered: ${j}`);
+  const events = (a.rec.events as { type: string; path?: string; shift?: boolean }[]);
+  expect(events.some((e) => e.type === 'control' && e.path === 'View/Look Along an Axis/Front') &&
+    events.filter((e) => e.type === 'look').length === 5 && events.filter((e) => e.type === 'look' && e.shift)
+    .length === 1, `recorded: ${JSON.stringify(events.filter((e) => e.type === 'look' || e.type === 'control'))}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    // (The looks counted: the camera events after them set the same camera.)
+    let looks = 0;
+    const look = ui.lookToward;
+    ui.lookToward = (...x) => { looks++; return look(...x); };
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    return { divergences: report.divergences, camera: viewer.cameraState(), steps: report.steps,
+      applied: report.applied, looks };
+  })()`) as { after: { divergences: string[]; camera: any; steps: number; applied: number; looks: number } };
+  const b = replayed.after;
+  expect(b.divergences.length === 0 && b.steps === b.applied && b.looks === 5 && same(b.camera, a.final),
+    `replayed: ${JSON.stringify(b)} ${JSON.stringify(a.final)}`);
+  return undefined;
+});
 // The lights and specular (Rendering): the ambient light's and the headlight's intensities and every Phong face's
 // specular follow the settings; a model loaded after takes them too. (The address as it is: rendering settings in it
 // would be applied again after the load, and hide what the meshes were made with.)
@@ -7461,6 +8206,85 @@ await check('lights and specular', async () => {
     JSON.stringify(reset.speculars) === JSON.stringify(a.before!.speculars) && reset.shininess === 30 &&
     reset.edgeWidth === 3 && JSON.stringify(reset.shown) === JSON.stringify([30, 0.2, 1, 2.5]),
     `Reset lighting to defaults: ${JSON.stringify(reset)}`);
+  return undefined;
+});
+// Caps tinted with the selection: a part selected, its caps drawn with as much of the selection's colour added as its
+// faces get (each pixel's linear colour up by 0.55 of it, kept within 1), the rest's not; a face of it selected alone,
+// not; nothing selected, as before.
+await check('caps tinted with the selection', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    ui.setRender({ ao: false, smaa: false });
+    ui.setSections({ ...viewer.sections.get(), z: { on: true, at: 10, flip: false } });
+    await cadViewer.idle();
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, gl = viewer.renderer.getContext();
+    // A cap's point, and its part.
+    let spot;
+    for (let i = 2; i < 18 && !spot; i++) for (let j = 2; j < 18 && !spot; j++) {
+      const p = cadViewer.pickAt(i / 20, j / 20);
+      if (p?.cap) spot = { x: i / 20, y: j / 20, id: m.find(p.path) };
+    }
+    if (!spot) return { spot: null };
+    const k = canvas.width / canvas.clientWidth;
+    const px = (x, y) => [Math.round(x * canvas.clientWidth * k), Math.round((1 - y) * canvas.clientHeight * k)];
+    const [x, y] = px(spot.x, spot.y);
+    // A 5 x 5 block of pixels round the point, as drawn now.
+    const grab = async () => {
+      await cadViewer.idle();
+      viewer.draw();
+      const out = new Uint8Array(4 * 25);
+      gl.readPixels(x - 2, y - 2, 5, 5, gl.RGBA, gl.UNSIGNED_BYTE, out);
+      return [...out];
+    };
+    const out = { selection: viewer.render.selectionColor };
+    out.before = await grab();
+    ui.select([spot.id]);
+    out.selected = await grab();
+    // A dark selection colour too: no channel kept within 1.
+    ui.setRender({ selectionColor: '#204060' });
+    out.dark = await grab();
+    ui.setRender({ selectionColor: out.selection });
+    ui.select([]);
+    out.after = await grab();
+    ui.setPickLevel('detail');
+    ui.setTree({ detail: true });
+    const face = m.children(m.children(spot.id).find((g) => m.nodes[g].kind === 'faces'))[0];
+    ui.select([face]);
+    out.face = await grab();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, before: undefined, selected: undefined, after: undefined,
+    face: undefined, dark: undefined });
+  expect(a.spot !== null, `a cap found: ${j}`);
+  const lin = (c: number) => { const x = c / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  const srgb = (c: number) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+  // Each of a block's pixels as tinted by a colour (the check's comment).
+  const tinted = (selected: number[], colour: string) => {
+    const sel = [1, 3, 5].map((i) => lin(parseInt(colour.slice(i, i + 2), 16)));
+    // (A pixel mixes the cap's ground and its lines' ink, each tinted and kept within 1 apart: exact only in a channel
+    // where the block's brightest, the ground, stays within 1 tinted; elsewhere the tint only adds. The cap's own
+    // pixels: those the selection changes; the rest, another part's or the background, not.)
+    const own = (i: number) => [0, 1, 2].some((c) => selected[i - i % 4 + c] !== a.before[i - i % 4 + c]);
+    let wrong = 0, worst = 0, exact = 0;
+    for (let c = 0; c < 3; c++) {
+      const brightest = Math.max(...a.before.filter((_: number, i: number) => i % 4 === c && own(i)));
+      for (let i = c; i < a.before.length; i += 4) {
+        if (!own(i)) continue;
+        if (selected[i]! < a.before[i]) wrong++;
+        if (lin(brightest) + 0.55 * sel[c]! > 0.99) continue;
+        exact++;
+        const d = Math.abs(selected[i]! - srgb(lin(a.before[i]) + 0.55 * sel[c]!));
+        worst = Math.max(worst, d);
+        if (d > 2) wrong++;
+      }
+    }
+    return { wrong, worst: Math.round(worst * 100) / 100, exact };
+  };
+  const orange = tinted(a.selected, a.selection), dark = tinted(a.dark, '#204060');
+  expect(orange.wrong === 0 && orange.exact >= 20 && dark.wrong === 0 && dark.exact >= 40,
+    `tinted: ${JSON.stringify({ orange, dark })} ${j}`);
+  expect(JSON.stringify(a.after) === JSON.stringify(a.before), `untinted again: ${j}`);
+  expect(JSON.stringify(a.face) === JSON.stringify(a.before), `a face selected alone: the cap as it was: ${j}`);
   return undefined;
 });
 // Cap hatching, at a pixel ratio of 2: the lines fixed on the model (twice as far apart on the screen zoomed in

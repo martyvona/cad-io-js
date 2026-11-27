@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { AXIS_VIEWS, type LookMotion, type ViewName } from './camera.ts';
+import { AXIS_VIEWS, type Look, type LookMotion, type ViewName } from './camera.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { askDemo } from './demo.ts';
@@ -16,8 +16,8 @@ import { askUrl, showBusy, showDialog } from './dialog.ts';
 import { formatIds, modelIds, nodesWithIds, parseIds, partsWithFaces, stepIdsOf } from './step-ids.ts';
 import { count, faceCausesOf, itemDiagnostics, problemCounts, showProblems } from './problems.ts';
 import { AXES, DEFAULT_SECTIONS, type SectionSettings } from './section.ts';
-import { highlightForNode, highlightForPick, Highlighter, instancesOf, nodeForPick, piecesOf, sphereOf, type PickLevel }
-  from './selection.ts';
+import { highlightForNode, highlightForPick, Highlighter, instancesOf, nodeForPick, nodesAlong, piecesOf, sphereOf,
+  type PickLevel } from './selection.ts';
 import { addSideHandle } from './side-handle.ts';
 import { DEFAULT_RENDER, type RenderSettings } from './style.ts';
 import { DEVICE_PROFILES, setDeviceOverride, type DeviceClass } from './device.ts';
@@ -26,6 +26,8 @@ import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSetti
   from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { nodeLabel, TreePanel } from './tree-panel.ts';
+import { showPickList } from './pick-list.ts';
+import { clientInfo, showClientInfo } from './client-info.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
 import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
@@ -125,6 +127,11 @@ export interface Ui {
   views(): { fit: boolean; motion: LookMotion };
   /** Sets them (the controls follow). */
   setViews(v: Partial<{ fit: boolean; motion: LookMotion }>): void;
+  /**
+   * Looks along a direction with an up (the world's), as a click on the view cube's corner or edge does: fitting as
+   * Fit says, the other way with `shift`; recorded.
+   */
+  lookToward(dir: readonly number[], up: readonly number[], shift: boolean): void;
   /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
   edgeDetection(): EdgeDetection;
   /** Mesh edge detection's values set, remembered in this browser (valid ones: edges.ts's detectionProblem). */
@@ -166,12 +173,14 @@ export interface Ui {
 export type UiEvent =
   | { type: 'load'; url?: string; files?: File[] }
   | { type: 'loaded'; report: Record<string, unknown> }
-  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; ids: readonly number[] }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id' | 'list'; ids: readonly number[] }
   | { type: 'pick'; clientX: number; clientY: number; add: boolean; id?: number; point?: number[] }
   | { type: 'status'; text: string; error: boolean }
   | { type: 'appearance'; id: number; override: AppearanceOverride }
   /** Mesh edge detection's values set. */
   | { type: 'detection'; detection: EdgeDetection }
+  /** A view along a corner or an edge of the view cube (Viewer.onCubeLook), shift-clicked or not. */
+  | { type: 'look'; dir: number[]; up: number[]; shift: boolean }
   /** A run of Mesh edge detection, as it begins; `done` with what it did. */
   | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; done: Promise<EdgeRun> };
 
@@ -192,6 +201,8 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 }
 
 const GNOMON_KEY = 'cad-viewer.gnomon';
+/** View's Cube, as remembered in this browser ('0' hidden). */
+const CUBE_KEY = 'cad-viewer.cube';
 /** '1' once a physical keyboard has been seen in this browser (shortcuts.ts's fromKeyboard): the keys' hints shown. */
 const KEYBOARD_KEY = 'cad-viewer.keyboard';
 /** Link to this view...'s Include device defaults, as remembered in this browser ('1' on; else off). */
@@ -207,10 +218,10 @@ function linkDefaultsRemembered(): boolean {
   }
 }
 
-/** What this browser remembers of View's Axes, if anything. */
-function gnomonRemembered(): string | null {
+/** What this browser remembers of View's Axes (or `key`'s: Cube), if anything. */
+function gnomonRemembered(key = GNOMON_KEY): string | null {
   try {
-    return localStorage.getItem(GNOMON_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -407,7 +418,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
       ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched,
     problems: () => void showProblems(m.name, m.diagnostics ?? []) } : undefined,
-    updates, () => void loadDemo(), () => ui.reload ? ui.reload() : location.reload());
+    updates, () => void loadDemo(), () => ui.reload ? ui.reload() : location.reload(),
+    () => void showClientInfo(clientInfo(viewer.renderer, viewer.device)));
   };
   const loadDemo = async () => {
     const p = await askDemo();
@@ -436,7 +448,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       const target = await saveTarget(name, { description: f.label, mime: f.mime, ext: f.ext });
       if (!target) return;
       say(`exporting ${name}...`);
-      const edits = shown ? shownEdits(graph.scene, nodes, graph) : undefined;
+      const edits = shown ? shownEdits(graph.scene, nodes, graph, viewer.render.revealAlpha) : undefined;
       // (The page blocked meanwhile: its meshes are lent to the model worker, Viewer.exportModel.)
       const done = showBusy(`Exporting ${name}`, 'The view is paused until the file is made.');
       let r;
@@ -669,16 +681,29 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
   const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
   viewer.showGnomon = axes.on;
+  // The view cube in the gnomon (gnomon.ts), the same way; only while the axes are shown.
+  const cube = { on: gnomonShown(location.search, gnomonRemembered(CUBE_KEY), 'cube') };
+  viewer.gnomon.showCube = cube.on;
+  let cubeControl: { enable(on: boolean): unknown } | undefined;
   view.add(axes, 'on').name('Axes').onChange((on: boolean) => {
     viewer.showGnomon = on;
+    cubeControl?.enable(on);
     try {
       localStorage.setItem(GNOMON_KEY, on ? '1' : '0');
     } catch { /* not remembered */ }
     viewer.redraw();
   });
+  cubeControl = view.add(cube, 'on').name('Cube').onChange((on: boolean) => {
+    viewer.gnomon.showCube = on;
+    try {
+      localStorage.setItem(CUBE_KEY, on ? '1' : '0');
+    } catch { /* not remembered */ }
+    viewer.redraw();
+  });
+  cubeControl.enable(axes.on);
   // How a view that fits moves (Viewer.lookAlong): zooming out to the whole model, orbiting, zooming in; or at once.
   const looking: { fit: boolean; motion: LookMotion } = { fit: true, motion: 'steps' };
-  const motionControl = view.add(looking, 'motion', { 'Zoom out, turn, zoom in': 'steps', 'All at once': 'together' })
+  const motionControl = view.add(looking, 'motion', { Sequential: 'steps', Simultaneous: 'together' })
     .name('Look and fit');
   const views = view.addFolder('Look Along an Axis');
   // Fit: each view fits the selection (else the model) as it turns; a shift-click (or shift with the key) the other
@@ -687,7 +712,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // (Whether the button's click is shifted: seen on the way down to it, before lil-gui's own handler calls it.)
   let shifted = false;
   views.domElement.addEventListener('click', (e) => { shifted = e.shiftKey; }, { capture: true });
-  const lookAlong = (v: ViewName) => {
+  const lookAlong = (v: Look) => {
     const fit = looking.fit !== shifted;
     shifted = false;
     if (!fit) return viewer.setView(v);
@@ -705,6 +730,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     { bubbles: true, cancelable: true, shiftKey }));
   // A click on the gnomon presses the view's button, as the user would (recorded as that control).
   viewer.onGnomonView = pressView;
+  // A click on a corner or an edge of the view cube: a view along it, as a button's (Fit, shift the other way).
+  viewer.onCubeLook = (look, shift) => {
+    hooks.onEvent?.({ type: 'look', dir: [...look.dir], up: [...look.up], shift });
+    shifted = shift;
+    lookAlong(look);
+  };
   const setTheme = (c: ThemeChoice) => {
     const t = applyTheme(c);
     viewer.setTheme(t);
@@ -775,13 +806,17 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   const look = viewer.render;
   // (The selection's colour is the Highlighter's, made below.)
   let recolour = () => {};
-  // The tree's row under the mouse in the highlight's colour, its text dark or light to stand out on it.
-  const hoverColours = () => {
-    const c = parseInt(look.highlightColor.slice(1), 16);
-    const luma = 0.299 * (c >> 16) + 0.587 * (c >> 8 & 255) + 0.114 * (c & 255);
-    treeElement.style.setProperty('--row-hovered', look.highlightColor);
-    treeElement.style.setProperty('--row-hovered-fg', luma > 140 ? '#111' : '#fff');
+  // A row under the mouse (the tree's, Pick...'s list's) in the highlight's colour, the list's cursor's row in the
+  // alert colour, their text dark or light to stand out on it.
+  const rowColours = (el: HTMLElement) => {
+    for (const [name, colour] of [['hovered', look.highlightColor], ['alert', look.alertColor]] as const) {
+      const c = parseInt(colour.slice(1), 16);
+      const luma = 0.299 * (c >> 16) + 0.587 * (c >> 8 & 255) + 0.114 * (c & 255);
+      el.style.setProperty(`--row-${name}`, colour);
+      el.style.setProperty(`--row-${name}-fg`, luma > 140 ? '#111' : '#fff');
+    }
   };
+  const hoverColours = () => rowColours(treeElement);
   hoverColours();
   const restyle = () => {
     recolour();
@@ -805,9 +840,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   edgeStyle.domElement.parentElement!.insertBefore(edgeStyle.domElement, edgeWidth.domElement);
   edgeWidth.show(look.edgeStyle === 'fat');
   // The B-rep vertices, in the edges' colour, a little wider than them (vertex-points.ts).
-  rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
+  const verticesControl = rendering.add(look, 'vertices').name('Vertices').onChange(restyle);
   const triangleEdges = rendering.add(look, 'triangleEdges', { Off: 'off', Selected: 'selected', All: 'all' })
     .name('Triangle edges').onChange(restyle);
+  // What isn't revealed while something is (model.ts's Reveal): its opacity, whatever its own.
+  rendering.add(look, 'revealAlpha', 0, 1, 0.01).name('Reveal alpha').onChange(restyle);
   // Mesh edge detection... (edge-dialog.ts): its values remembered in this browser, every load's detection too.
   try {
     viewer.edgeDetection = detectionFrom(localStorage.getItem(EDGE_DETECTION_KEY));
@@ -953,10 +990,14 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let openControl: { setValue(v: boolean): unknown } | undefined;
   // The selection: the tree's and the 3D view's, one; highlighted, described, zoomed to.
   let selected: readonly number[] = [];
-  /** The node of the tree's row under the mouse, if any (highlighted as the 3D view's hover is). */
+  /**
+   * The node of the tree's row under the mouse, or Pick...'s list's, if any (highlighted as the 3D view's hover is).
+   */
   let treeHovered: number | undefined;
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
+  // (The caps of a part tinted as its faces are.)
+  viewer.sections.tintOf = (mesh) => highlighter.tintOf(mesh);
   recolour = () => highlighter.setColor(parseInt(look.selectionColor.slice(1), 16));
   recolour();
   // Multi-select and Details on by default.
@@ -998,7 +1039,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     detailsElement.textContent = text;
   };
   /** Sets the selection; from the 3D view (or code), the tree follows. */
-  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' | 'id' = 'api', reveal = true) => {
+  const select = (ids: readonly number[], source: 'tree' | 'pick' | 'api' | 'id' | 'list' = 'api', reveal = true) => {
     selected = [...new Set(ids)];
     // A selection made while meshing again replaces the one being restored.
     if (source !== 'api' && restore) restore.selected = [];
@@ -1025,7 +1066,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes) return;
     const text = (o: object) => JSON.stringify(o);
     const before = new Map(nodes.overrides().map(({ path, ...o }) => [path, text(o)]));
-    hide(hidden, nodes.others(ids));
+    hideOthers(hidden, nodes.others(ids));
     const changed: [string, AppearanceOverride][] = [];
     const after = new Set<string>();
     for (const { path, ...o } of nodes.overrides()) {
@@ -1039,7 +1080,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     }
   };
   // A node's menu (the tree's row's, or the view's for what was clicked: `header` then, the node as its row shows it).
-  const nodeMenu = (id: number, x: number, y: number, header = false) => {
+  const nodeMenu = (id: number, x: number, y: number, header = false, pick?: () => void) => {
     const nodes = viewer.nodes, graph = viewer.graph;
     if (!nodes) return;
     // Its errors and warnings, and everything's in it (problems.ts's itemDiagnostics): an item only if there are any.
@@ -1059,16 +1100,26 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // (On several: how many, `Hide 5`; Remove's those with an override, which it changes.)
     const many = (label: string, n: number) => (targets.length > 1 ? `${label} ${compact(n)}` : label);
     const overridden = targets.filter((t) => nodes.ownOverride(t)).length;
+    // (Each greyed where it would change nothing: every node already hidden, shown or revealed, itself or inherited.)
+    const looks = targets.map((t) => nodes.look(t));
     showMenu(x, y, [
-      { label: many('Hide', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: true })) },
-      { label: many('Show', targets.length), action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: false })) },
+      // Hide takes away a reveal first (a node can't be both).
+      { label: many('Hide', targets.length), disabled: looks.every((l) => l.hidden), action: () => each((t) => {
+        const { reveal: _, ...own } = nodes.ownOverride(t) ?? {};
+        return { ...own, hidden: true };
+      }) },
+      { label: many('Show', targets.length), disabled: looks.every((l) => !l.hidden),
+        action: () => each((t) => ({ ...nodes.ownOverride(t), hidden: false })) },
+      { label: many('Reveal', targets.length), disabled: looks.every((l) => l.reveal === true),
+        action: () => each((t) => ({ ...nodes.ownOverride(t), reveal: true })) },
       { label: 'Hide others', action: () => othersRecorded(true, targets) },
       { label: 'Show others', action: () => othersRecorded(false, targets) },
       { label: 'Show all', action: () => press(showAllControl) },
       { label: 'Override Appearance...', action: () => editAppearance(id) },
       ...(overridden ? [{ label: many('Remove Appearance Override', overridden),
         action: () => each(() => ({})) }] : []),
-      { label: 'Select parent', divider: true, action: () => ui.selectParent(targets) },
+      ...(pick ? [{ label: 'Pick...', divider: true, action: pick }] : []),
+      { label: 'Select parent', divider: !pick, action: () => ui.selectParent(targets) },
       { label: 'Select children', action: () => ui.selectChildren(targets) },
       { label: 'Select none', action: selectNone },
       { label: 'Select all', action: () => ui.selectAll() },
@@ -1117,13 +1168,15 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let detailControl: { updateDisplay(): unknown; setValue(v: boolean): unknown } | undefined;
   /** The node picked at the pick level, or none (picking faces turns the tree's detail on). */
   const picked = (nodes: NodeModel, p: TreePanel, hit: Pick | undefined) => {
-    // Picking faces needs their nodes: the tree shows detail from then on.
-    if (selection.level === 'detail' && !nodes.hasDetail()) {
-      tree.detail = true;
-      p.setDetail(true);
-      detailControl?.updateDisplay();
-    }
+    detailToPick(nodes, p);
     return hit && nodeForPick(nodes, hit.object, hit.faceIndex, selection.level, hit.item);
+  };
+  /** Picking faces needs their nodes: the tree shows detail from then on. */
+  const detailToPick = (nodes: NodeModel, p: TreePanel) => {
+    if (selection.level !== 'detail' || nodes.hasDetail()) return;
+    tree.detail = true;
+    p.setDetail(true);
+    detailControl?.updateDisplay();
   };
   // What the pointer's over, highlighted at the pick level (the last kept, for a change of level); or the tree's row
   // under the mouse, its node.
@@ -1144,7 +1197,38 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!nodes || !panel) return;
     const id = picked(nodes, panel, hit);
     panel.setFocus(id);
-    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY, true);
+    if (id !== undefined) nodeMenu(id, at.clientX, at.clientY, true, () => pickList(at.clientX, at.clientY));
+  };
+  // Pick...: everything along the line of sight through the point the view's menu was asked for, at the pick level
+  // (pick-list.ts), the nodes there selected as the tree's rows are (recorded as the list's selections), the row
+  // under the mouse highlighted as the tree's is, its cursor's node drawn as an alert until it closes.
+  let pickListShown: { redraw(): void } | undefined;
+  const pickList = (clientX: number, clientY: number) => {
+    const nodes = viewer.nodes;
+    if (!nodes || !panel) return;
+    const picks = viewer.picksAt(clientX, clientY);
+    detailToPick(nodes, panel);
+    const ids = nodesAlong(nodes, picks, selection.level);
+    if (!ids.length) {
+      void showDialog({ title: 'Pick', body: ['Nothing is drawn along the line of sight there.'],
+        buttons: [{ label: 'OK', value: 'ok', primary: true }] });
+      return;
+    }
+    pickListShown = showPickList({ model: nodes, ids, selected: () => selected, multi: () => selection.multi,
+      style: rowColours,
+      onSelect: (s) => {
+        select(s, 'list', true);
+        pickListShown?.redraw();
+      },
+      onHover: (h) => {
+        treeHovered = h;
+        hover();
+      },
+      onCursor: (c) => viewer.alertNodes([c]),
+      onClose: () => {
+        pickListShown = undefined;
+        viewer.alertNodes([]);
+      } });
   };
   viewer.onPick = (hit, keys) => {
     const nodes = viewer.nodes;
@@ -1239,6 +1323,11 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     if (!fromPanel) refreshAppearance();
   };
   const hide = (hidden: boolean, ids: readonly number[] = selected) => appearance((m) => m.setHidden(ids, hidden));
+  // Hide others and Show others (Selection's, and the menu's): every reveal gone, then the others hidden or shown.
+  const hideOthers = (hidden: boolean, others: readonly number[]) => appearance((m) => {
+    m.clearReveal();
+    m.setHidden(others, hidden);
+  });
   /**
    * What a click could select at the pick level (Select all): every part or assembly shown, or every face and edges and
    * vertices group shown (a line or point picked is its group: selection.ts's nodeForPick).
@@ -1280,17 +1369,21 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     showSelected: () => hide(false),
     hideOthers: () => {
       const nodes = viewer.nodes;
-      if (nodes && selected.length) hide(true, nodes.others(selected));
+      if (nodes && selected.length) hideOthers(true, nodes.others(selected));
     },
     showOthers: () => {
       const nodes = viewer.nodes;
-      if (nodes && selected.length) hide(false, nodes.others(selected));
+      if (nodes && selected.length) hideOthers(false, nodes.others(selected));
     },
     // (Edges, curves and points aren't made transparent: a wireframe stays as it is.)
     setOpacity: (alpha) => {
       if (selected.length) appearance((m) => m.setOpacity(selected, alpha ?? 'default'));
     },
-    showAll: () => appearance((m) => m.showAll()),
+    // (Every reveal gone too, as with Hide others and Show others.)
+    showAll: () => appearance((m) => {
+      m.clearReveal();
+      m.showAll();
+    }),
     zoomSelected: () => {
       if (!viewer.nodes || !selected.length) return viewer.zoomAll();
       viewer.zoomTo(sphereOf(piecesOf(viewer.nodes, selected)));
@@ -1394,6 +1487,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     tree: () => ({ open: tree.open, detail: tree.detail }),
     views: () => ({ ...looking }),
+    lookToward: (dir, up, shift) => viewer.onCubeLook!({ dir: [dir[0]!, dir[1]!, dir[2]!],
+      up: [up[0]!, up[1]!, up[2]!] }, shift),
     setViews: (v) => {
       Object.assign(looking, v);
       fitControl.updateDisplay();
@@ -1414,7 +1509,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     pickAt: (clientX, clientY, add) => viewer.onPick?.(viewer.pickAt(clientX, clientY), { add, clientX, clientY }),
   };
   // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
-  selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
+  const pickControl = selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
     'Face, edge, curve, vertex': 'detail' }).name('Pick').onChange(hover);
   selFolder.add(selection, 'multi').name('Multi-select');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
@@ -1463,6 +1558,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   hint(openControl, 't');
   hint(triangleEdges, 'g');
   hint(noneControl, 'Esc');
+  for (const c of [pickControl, detailControl, verticesControl]) hint(c, 'e');
   // The hints show where there's a mouse or trackpad (index.html), and once a physical keyboard has been seen (a class
   // on the page, remembered in this browser): a tablet's keyboard alone isn't told to the page any other way.
   const keyboardSeen = () => document.documentElement.classList.add('cv-keyboard');
@@ -1485,6 +1581,13 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     else if (s.type === 'show') press(showControl);
     else if (s.type === 'tree') set(openControl!, !tree.open);
     else if (s.type === 'selectNone') press(noneControl);
+    else if (s.type === 'detail') {
+      // Faces, edges, curves and vertices picked, shown in the tree and drawn; or parts, and neither.
+      const on = selection.level !== 'detail';
+      set(pickControl, on ? 'detail' : 'part');
+      if (tree.detail !== on) set(detailControl!, on);
+      if (look.vertices !== on) set(verticesControl, on);
+    }
     else set(triangleEdges, nextTriangleEdges(look.triangleEdges, selected.length > 0));
   });
 

@@ -14,13 +14,13 @@ export const NOT_REPLAYED = new RegExp('^(File/|View/Copy link|View/Include devi
 
 /**
  * Whether replay acts on an event (ReplayReport's `steps`): loads, controls but those above, calls, selections in
- * the tree or by id, cameras, picks, states, appearance overrides set in the tree, Mesh edge detection's values and
- * runs. The rest are kept for reading:
+ * the tree, by id or in Pick...'s list, cameras, picks, states, appearance overrides set in the tree, Mesh edge
+ * detection's values and runs, views along the view cube's corners and edges. The rest are kept for reading:
  * pointer moves, the wheel, statuses, and the selections a pick or a control made, which replay makes again.
  */
 export const isStep = (e: RecordedEvent) => (e.type === 'control' ? !NOT_REPLAYED.test(e.path) : e.type === 'select'
-  ? e.source === 'tree' || e.source === 'id' : ['load', 'api', 'camera', 'pick', 'state', 'appearance', 'detection',
-  'detect'].includes(e.type));
+  ? e.source === 'tree' || e.source === 'id' || e.source === 'list' : ['load', 'api', 'camera', 'pick', 'state',
+  'appearance', 'detection', 'detect', 'look'].includes(e.type));
 
 /** A replay's outcome in words. */
 export function replayed(r: { steps: number; applied: number; aborted?: string }): string {

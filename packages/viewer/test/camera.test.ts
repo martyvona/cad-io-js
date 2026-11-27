@@ -51,7 +51,8 @@ test('interpolateCamera: the pan straight, none at either end none between', () 
 
 // The iso views in the file's axes; the legs of a move to a view that fits; the screw motion between two cameras.
 import * as THREE from 'three';
-import { centred, fitCamera, heightShowing, legCamera, lookLegs, screwCamera, upIso, viewAxes, viewCamera, VIEWS }
+import { centred, cubeLook, fitCamera, heightShowing, legCamera, lookLegs, screwCamera, upIso, viewAxes, viewCamera,
+  VIEWS }
   from '../src/camera.ts';
 
 // A Y-up file's axes in the world (glTF's, turned so its Y is the world's Z): x -> x, y -> z, z -> -y.
@@ -211,4 +212,36 @@ test('legCamera: an orbit along the screw (not the blend), a zoom the height alo
   const zoom = legCamera({ kind: 'zoom', from: a, to: { ...a, height: 200 }, ms: 0.5 })(0.5);
   assert.deepEqual({ ...zoom, height: 0 }, { ...a, height: 0 });
   assert.ok(Math.abs(zoom.height - 100) < 1e-9);
+});
+
+test("the view cube's corners and edges: looking from them, the file's up axis up as the screen shows it", () => {
+  const close = (a: readonly number[], b: readonly number[], what: string) =>
+    assert.ok(a.every((x, i) => Math.abs(x - b[i]!) < 1e-12), `${what}: ${a} vs ${b}`);
+  const s3 = 1 / Math.sqrt(3), s2 = Math.SQRT1_2, s6 = 1 / Math.sqrt(6);
+  // A corner: Iso Z's direction, Z up as a camera looking along it sees it (its three faces alike).
+  let l = cubeLook([1, -1, 1]);
+  close(l.dir, [s3, -s3, s3], 'corner');
+  close(l.up, [-s6, s6, 2 * s6], 'its up');
+  // Edges: upright, or across with Z tipped back (its two faces above and below).
+  l = cubeLook([1, 1, 0]);
+  close(l.dir, [s2, s2, 0], 'upright edge');
+  close(l.up, [0, 0, 1], 'its up');
+  l = cubeLook([0, -1, 1]);
+  close(l.dir, [0, -s2, s2], 'edge across');
+  close(l.up, [0, s2, s2], 'its up');
+  l = cubeLook([-1, 0, -1]);
+  close(l.dir, [-s2, 0, -s2], 'edge below');
+  close(l.up, [-s2, 0, s2], 'its up');
+  // A Y-up file (X -> X, Y -> Z, Z -> -Y): its corner (1, 1, 1) is the world's (1, -1, 1), its Y (the world's Z) up.
+  const yUp = new THREE.Matrix4().fromArray([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  l = cubeLook([1, 1, 1], yUp);
+  close(l.dir, [s3, -s3, s3], 'Y-up corner');
+  close(l.up, [-s6, s6, 2 * s6], 'its up');
+  // Along the up axis (a face's, not a corner's or edge's): the next axis up.
+  close(cubeLook([0, 0, 1]).up, [1, 0, 0], 'along the up axis');
+  // As a view: the camera there, the target and distance kept.
+  const s = { position: [0, -10, 0], target: [0, 0, 0], up: [0, 0, 1], height: 5 } as CameraState;
+  const c = viewCamera(s, cubeLook([1, -1, 1]));
+  close(c.position, [10 * s3, -10 * s3, 10 * s3], 'the camera');
+  close(c.up, [-s6, s6, 2 * s6], 'its up');
 });

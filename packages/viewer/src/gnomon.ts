@@ -20,6 +20,14 @@
 // smoothed twice. Rendering into a texture writes linear values, the canvas sRGB ones: there the colours are set as
 // their sRGB numbers taken as linear (raw), so they and their blending come out as on the canvas.
 //
+// The view cube (View's Cube): a cube of side CUBE_SIZE in the axes' frame, in the positive octant CUBE_GAP off each
+// axis, so the axes run beside three of its edges, inside the sphere the gnomon turns about; the labels clear its
+// outline on the screen as they clear each other (layoutLabels' `obstacle`). Its faces are lettered for the world's
+// views they face (F front, K back, L left, R right, T top, M bottom), each letter upright as that view shows it. A
+// click on it (after the labels, before the origin's box) hits a face, an edge or a corner (cubePart: CUBE_ZONE of a
+// face's side from its border is its edges' and corners'), as the signs of that place from the cube's centre in the
+// file's axes.
+//
 // Labels move smoothly: each rides its placement point (which turns with the view, as its tip does), its nudge changing
 // at most NUDGE_SPEED as the view turns freely, and during a flight (Viewer's eased moves to a view) blended from what
 // it was to the destination's layout as the camera's turn is, so each label ends the flight where it belongs.
@@ -45,11 +53,11 @@ export const LABEL_BOX = 14;
 /** How far from a target's centre a finger's tap hits it, CSS pixels (its drawn box's half for a mouse). */
 export const TOUCH_REACH = 20;
 /**
- * How far the gnomon (its lines and every label box however nudged) can reach from its sphere's centre, CSS pixels:
- * the most over every turn (gnomon.test.ts samples them), rounded up. The #gnomon box is this big, the centre placed
- * `left` and `down` from its lower left corner.
+ * How far the gnomon (its lines, its cube, and every label box however nudged) can reach from its sphere's centre, CSS
+ * pixels (wider than high: labels pushed sideways off the cube): the most over every turn (gnomon.test.ts samples
+ * them), rounded up. The #gnomon box is this big, the centre placed `left` and `down` from its lower left corner.
  */
-export const GNOMON_EXTENT = { left: 44, right: 44, down: 44, up: 44 };
+export const GNOMON_EXTENT = { left: 50, right: 50, down: 44, up: 44 };
 /** How fast a label's nudge may change while the view turns freely, CSS pixels a second. */
 export const NUDGE_SPEED = 120;
 /** The longest time between frames a nudge's change counts, seconds: after a pause, the next frame isn't a jump. */
@@ -57,8 +65,52 @@ const MAX_STEP = 0.05;
 /** The sphere's radius, the axes being of unit length. */
 const RADIUS = Math.sqrt(6) / 3;
 
-/** What a click on the gnomon hits: an axis's label, or the box at its origin. */
-export type GnomonTarget = 'x' | 'y' | 'z' | 'iso';
+/**
+ * What a click on the gnomon hits: an axis's label, the box at its origin, or a part of the view cube (`cube`: its
+ * place from the cube's centre in the file's axes, each -1, 0 or 1; one not 0 a face, two an edge, three a corner).
+ */
+export type GnomonTarget = 'x' | 'y' | 'z' | 'iso' | { cube: [number, number, number] };
+
+/** The view cube's side, in axis lengths. */
+export const CUBE_SIZE = 0.65;
+/** How far the view cube is from each axis (its corner nearest the origin at this in each), in axis lengths. */
+export const CUBE_GAP = 0.1;
+/** How far into a face, from its border, its edges' and corners' parts of the cube reach, in fractions of its side. */
+export const CUBE_ZONE = 0.25;
+/** The face views (camera.ts's VIEWS), each lettered on the cube's face that faces it. */
+export const CUBE_LETTERS: Partial<Record<ViewName, string>> = { front: 'F', back: 'K', left: 'L', right: 'R',
+  top: 'T', bottom: 'M' };
+
+/**
+ * The part of the view cube at a point on it, in the cube's own coordinates ([0, 1] across each axis): -1, 0 or 1 by
+ * axis, by whether the point is within CUBE_ZONE of the cube's low side, its high side, or neither.
+ */
+export function cubePart(q: readonly number[]): [number, number, number] {
+  const one = (t: number) => (t < CUBE_ZONE ? -1 : t > 1 - CUBE_ZONE ? 1 : 0);
+  return [one(q[0]!), one(q[1]!), one(q[2]!)];
+}
+
+/**
+ * Each face of the cube (its axis and side in the file's axes, as `${k}${sign}`: '0+' the +X face) and the face view
+ * it gets, the view whose direction is nearest the face's outward normal in the world, with that view's up in the
+ * file's axes (the nearest axis, signed): `axes` the file's axes in the world.
+ */
+export function cubeFaces(axes: THREE.Matrix4): Map<string, { view: ViewName; up: THREE.Vector3 }> {
+  const inverse = axes.clone().invert();
+  const out = new Map<string, { view: ViewName; up: THREE.Vector3 }>();
+  const snap = (v: THREE.Vector3) => {
+    const a = [Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)];
+    const k = a.indexOf(Math.max(...a));
+    return { k, sign: Math.sign(v.getComponent(k)) || 1 };
+  };
+  for (const view of Object.keys(CUBE_LETTERS) as ViewName[]) {
+    const n = snap(new THREE.Vector3(...VIEWS[view].dir).transformDirection(inverse));
+    const u = snap(new THREE.Vector3(...VIEWS[view].up).transformDirection(inverse));
+    const key = `${n.k}${n.sign > 0 ? '+' : '-'}`;
+    if (!out.has(key)) out.set(key, { view, up: new THREE.Vector3().setComponent(u.k, u.sign) });
+  }
+  return out;
+}
 
 export interface Point2 {
   x: number;
@@ -72,13 +124,35 @@ export interface Point2 {
  * label of the axis whose symbol is in the origin's box (axisSymbol), which parts from that box to the side farthest
  * from the other two labels (besideSide), however its placement point lies.
  */
-export function layoutLabels(points: readonly Point2[], origin: Point2, size: number, beside?: number): Point2[] {
+export function layoutLabels(points: readonly Point2[], origin: Point2, size: number, beside?: number,
+  obstacle?: readonly Point2[]): Point2[] {
   const start = [...points, origin];
   const at = start.map((p) => ({ x: p.x, y: p.y }));
   const fixed = start.length - 1;
   const side = beside === undefined ? 0 : besideSide(points, origin, size, beside);
+  const middle = obstacle?.length ? obstacle.reduce((m, p) => m + p.x, 0) / obstacle.length : 0;
+  // Whether a box moved by dx would overlap the obstacle.
+  const blocked = (p: Point2, dx: number) => {
+    const span = obstacle?.length ? bandSpan(obstacle, p.y - size / 2, p.y + size / 2) : undefined;
+    return !!span && p.x + dx + size / 2 > span.lo + 1e-9 && p.x + dx - size / 2 < span.hi - 1e-9;
+  };
   for (let pass = 0; pass < 200; pass++) {
     let moved = false;
+    // Off the obstacle, sideways: to the side its point lies; level with the origin's box, the side it clears that
+    // box to (else each would push it back onto the other).
+    if (obstacle?.length) {
+      for (let i = 0; i < fixed; i++) {
+        const a = at[i]!, span = bandSpan(obstacle, a.y - size / 2, a.y + size / 2);
+        if (!span || a.x + size / 2 <= span.lo || a.x - size / 2 >= span.hi) continue;
+        const level = Math.abs(a.y - origin.y) < size;
+        const s = (i === beside && side) || (level ? Math.sign(start[i]!.x - origin.x)
+          : Math.sign(start[i]!.x - middle)) || -1;
+        const to = s > 0 ? span.hi + size / 2 : span.lo - size / 2;
+        if (Math.abs(to - a.x) <= 1e-9) continue;
+        a.x = to;
+        moved = true;
+      }
+    }
     for (let i = 0; i < at.length; i++) {
       for (let j = i + 1; j < at.length; j++) {
         const a = at[i]!, b = at[j]!;
@@ -88,6 +162,9 @@ export function layoutLabels(points: readonly Point2[], origin: Point2, size: nu
         const need = size - s * (a.x - b.x);
         if (need <= 1e-9) continue;
         if (j === fixed) a.x += s * need;
+        // (One of them against the obstacle, the other moves the whole way.)
+        else if (blocked(a, s * need / 2) && !blocked(b, -s * need)) b.x -= s * need;
+        else if (blocked(b, -s * need / 2) && !blocked(a, s * need)) a.x += s * need;
         else {
           a.x += s * need / 2;
           b.x -= s * need / 2;
@@ -98,6 +175,43 @@ export function layoutLabels(points: readonly Point2[], origin: Point2, size: nu
     if (!moved) break;
   }
   return at.slice(0, fixed);
+}
+
+/**
+ * The x across a convex polygon (in order round it) between two heights, or none where it doesn't reach them: its
+ * corners between them and where its sides cross them.
+ */
+export function bandSpan(polygon: readonly Point2[], y0: number, y1: number): { lo: number; hi: number } | undefined {
+  let lo = Infinity, hi = -Infinity;
+  const take = (x: number) => {
+    lo = Math.min(lo, x);
+    hi = Math.max(hi, x);
+  };
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!, b = polygon[(i + 1) % polygon.length]!;
+    if (a.y >= y0 && a.y <= y1) take(a.x);
+    for (const y of [y0, y1]) {
+      if ((a.y - y) * (b.y - y) < 0) take(a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y));
+    }
+  }
+  return lo <= hi ? { lo, hi } : undefined;
+}
+
+/** The convex hull of points, in order round it (Andrew's monotone chain). */
+export function hull(points: readonly Point2[]): Point2[] {
+  const p = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (p.length < 3) return p;
+  const cross = (o: Point2, a: Point2, b: Point2) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const half = (list: Point2[]) => {
+    const h: Point2[] = [];
+    for (const q of list) {
+      while (h.length >= 2 && cross(h[h.length - 2]!, h[h.length - 1]!, q) <= 0) h.pop();
+      h.push(q);
+    }
+    h.pop();
+    return h;
+  };
+  return [...half(p), ...half(p.reverse())];
 }
 
 /**
@@ -115,8 +229,10 @@ export function besideSide(points: readonly Point2[], origin: Point2, size: numb
  * The labels' nudges (where layoutLabels puts them less their placement points) for a projection, `beside` the label of
  * the axis whose symbol shows in the origin's box, if one does.
  */
-export function nudgesOf(p: { placements: Point2[]; origin: Point2 }, beside?: number): Point2[] {
-  return layoutLabels(p.placements, p.origin, LABEL_BOX, beside).map((l, k) => ({ x: l.x - p.placements[k]!.x,
+export function nudgesOf(p: { placements: Point2[]; origin: Point2; cube?: Point2[] }, beside?: number,
+  cube = false): Point2[] {
+  return layoutLabels(p.placements, p.origin, LABEL_BOX, beside, cube ? p.cube : undefined).map((l, k) => ({
+    x: l.x - p.placements[k]!.x,
     y: l.y - p.placements[k]!.y }));
 }
 
@@ -136,13 +252,18 @@ export function stepNudges(shown: readonly Point2[], target: readonly Point2[], 
  * the camera's frame): the sphere's centre at (0, 0), CSS pixels, y up. `placements` the labels' points, `tips` the
  * lines' ends, `origin` where they meet.
  */
-export function project(axes: THREE.Matrix4): { tips: Point2[]; placements: Point2[]; origin: Point2 } {
+export function project(axes: THREE.Matrix4): { tips: Point2[]; placements: Point2[]; origin: Point2;
+  cube: Point2[] } {
   const e = axes.elements;
   const col = (k: number) => new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!);
   const centre = col(0).add(col(1)).add(col(2)).divideScalar(3);
   const px = (v: THREE.Vector3) => ({ x: (v.x - centre.x) * AXIS_PIXELS, y: (v.y - centre.y) * AXIS_PIXELS });
+  const corner = (c: number) => px(new THREE.Vector3().addScaledVector(col(0), CUBE_GAP + (c & 1) * CUBE_SIZE)
+    .addScaledVector(col(1), CUBE_GAP + (c >> 1 & 1) * CUBE_SIZE).addScaledVector(col(2), CUBE_GAP + (c >> 2 & 1)
+    * CUBE_SIZE));
   return { tips: [0, 1, 2].map((k) => px(col(k))), placements: [0, 1, 2].map((k) => px(col(k)
-    .multiplyScalar(1 + LABEL_GAP))), origin: px(new THREE.Vector3()) };
+    .multiplyScalar(1 + LABEL_GAP))), origin: px(new THREE.Vector3()), cube: hull([0, 1, 2, 3, 4, 5, 6, 7]
+    .map(corner)) };
 }
 
 /** How opaque a label's backing is: a little off the view's background (backingColour), veiling what's behind. */
@@ -237,17 +358,20 @@ export function axisSymbol(back: readonly number[]): { axis: number; head: boole
   return { axis: k, head: back[k]! > 0, opacity: Math.min(1, t) };
 }
 
-/** A letter's alpha map (as the backing's): white on transparent, its x-height centred. */
-function letterTexture(letter: string): THREE.CanvasTexture {
+/**
+ * A letter's alpha map (as the backing's): white on transparent, its x-height centred; `capital`, a capital's height
+ * centred and smaller (the cube's faces).
+ */
+function letterTexture(letter: string, capital = false): THREE.CanvasTexture {
   const n = 64;
   const canvas = Object.assign(document.createElement('canvas'), { width: n, height: n });
   const g = canvas.getContext('2d')!;
-  g.font = `600 ${Math.round(n * 0.8)}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  g.font = `600 ${Math.round(n * (capital ? 0.6 : 0.8))}px system-ui, -apple-system, "Segoe UI", sans-serif`;
   g.fillStyle = '#fff';
   g.textAlign = 'center';
   g.textBaseline = 'alphabetic';
-  const xHeight = g.measureText('x').actualBoundingBoxAscent;
-  g.fillText(letter, n / 2, n / 2 + xHeight / 2);
+  const height = g.measureText(capital ? 'H' : 'x').actualBoundingBoxAscent;
+  g.fillText(letter, n / 2, n / 2 + height / 2);
   return new THREE.CanvasTexture(canvas);
 }
 
@@ -277,6 +401,18 @@ export class Gnomon {
   private last = -Infinity;
   /** The labels are still on their way to the layout's places: more frames wanted. */
   moving = false;
+  /** Whether the view cube is drawn (and clicked). */
+  showCube = true;
+  /** The view cube (in `axes`, the file's axes), made at the first draw and for each new frame (`set`). */
+  private cube?: THREE.Group;
+  private cubeStale = true;
+  /** Its faces' fill, letters' and edges' materials, coloured from the view's background at each draw. */
+  private cubeMaterials?: { face: THREE.MeshBasicMaterial; letter: THREE.MeshBasicMaterial[];
+    edge: THREE.LineBasicMaterial };
+  /** Which face view each of the cube's faces gets (cubeFaces). */
+  private faces = cubeFaces(new THREE.Matrix4());
+  /** The box last drawn into, CSS pixels: for clicks on the cube. */
+  private drawnSize = { width: 0, height: 0 };
   /** The symbol of the axis along the line of sight, if one is (axisSymbol), as last laid out. */
   symbol?: { axis: number; head: boolean; opacity: number };
   private symbolMesh?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -322,6 +458,28 @@ export class Gnomon {
     this.axes.matrix.copy(this.frame).premultiply(new THREE.Matrix4().makeTranslation(centre.negate()));
     this.axes.matrixWorldNeedsUpdate = true;
     this.nudges = undefined;
+    this.faces = cubeFaces(this.frame);
+    this.cubeStale = true;
+  }
+
+  /** The face view a part of the cube stands for (a face's), if it's one. */
+  cubeView(signs: readonly number[]): ViewName | undefined {
+    const k = signs.findIndex((x) => x !== 0);
+    if (k < 0 || signs.filter((x) => x !== 0).length !== 1) return undefined;
+    return this.faces.get(`${k}${signs[k]! > 0 ? '+' : '-'}`)?.view;
+  }
+
+  /** The view cube's part under a point (CSS pixels from the viewport's lower left), as last drawn. */
+  private cubeAt(x: number, y: number): [number, number, number] | undefined {
+    if (!this.showCube || !this.cube || !this.drawnSize.width) return undefined;
+    const ndc = new THREE.Vector2(x / this.drawnSize.width * 2 - 1, y / this.drawnSize.height * 2 - 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, this.camera);
+    const fills = this.cube.children.filter((c) => c.userData.fill);
+    const hit = ray.intersectObjects(fills, false)[0];
+    if (!hit) return undefined;
+    const q = this.cube.worldToLocal(hit.point.clone()).divideScalar(CUBE_SIZE);
+    return cubePart(q.toArray());
   }
 
   /** The axes in the frame of a camera turned so (columns: each axis's right, up and back there). */
@@ -357,6 +515,11 @@ export class Gnomon {
       const d = Math.hypot(x - b.x, y - b.y);
       if (d < nearest) [best, nearest] = [k, d];
     }
+    // (The cube under the labels, over the origin's box: its corner there is the cube's.)
+    if (best === undefined || best === 3) {
+      const cube = this.cubeAt(x, y);
+      if (cube) return { cube };
+    }
     return best === undefined ? undefined : (['x', 'y', 'z', 'iso'] as const)[best];
   }
 
@@ -380,6 +543,9 @@ export class Gnomon {
     this.camera.updateProjectionMatrix();
     this.advance(this.camera.quaternion, motion);
     this.layOut(box);
+    this.drawnSize = { width: box.width, height: box.height };
+    this.makeCube();
+    this.cube!.visible = this.showCube;
     const pr = renderer.getPixelRatio(), canvas = renderer.getDrawingBufferSize(new THREE.Vector2());
     // (In device pixels as setViewport makes them: each rounded.)
     const px = { x: Math.round(box.x * pr), y: Math.round(box.y * pr), width: Math.round(box.width * pr),
@@ -420,13 +586,67 @@ export class Gnomon {
   /** The colours: as sRGB (the canvas's), or `raw`, their sRGB numbers taken as linear (drawSmoothed's texture). */
   private paint(background: THREE.Color, raw: boolean): void {
     const set = (c: THREE.Color, hex: number) => c.setHex(hex, raw ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace);
-    for (const [i, line] of this.axes.children.entries()) set((line as LineSegments2).material.color, AXIS_COLOURS[i]!);
+    for (const [i, line] of this.axes.children.slice(0, 3).entries()) {
+      set((line as LineSegments2).material.color, AXIS_COLOURS[i]!);
+    }
     for (const [i, label] of this.labels!.entries()) {
       set(((label.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial).color, AXIS_COLOURS[i]!);
     }
     set(this.backing!.color, backingColour(background).getHex());
     set(this.disc!.material.color, background.getHex());
     if (this.symbol) set(this.symbolMesh!.material.color, AXIS_COLOURS[this.symbol.axis]!);
+    const c = this.cubeMaterials!, dark = background.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l < 0.5;
+    set(c.face.color, backingColour(background).getHex());
+    for (const l of c.letter) set(l.color, dark ? 0xe0e0e0 : 0x303030);
+    set(c.edge.color, dark ? 0x909090 : 0x707070);
+  }
+
+  /**
+   * The view cube, made again for a new frame: a fill per face, its letter just outside it, upright as its view shows
+   * it, and its edges; CUBE_GAP off the axes.
+   */
+  private makeCube(): void {
+    if (!this.cubeStale && this.cube) return;
+    this.cubeStale = false;
+    if (this.cube) {
+      this.axes.remove(this.cube);
+      this.cube.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    if (!this.cubeMaterials) {
+      this.cubeMaterials = { face: new THREE.MeshBasicMaterial(), letter: [], edge: new THREE.LineBasicMaterial() };
+    }
+    const m = this.cubeMaterials;
+    const cube = new THREE.Group();
+    cube.name = 'cube';
+    cube.position.setScalar(CUBE_GAP);
+    const h = CUBE_SIZE / 2;
+    for (const [key, { view, up }] of this.faces) {
+      const k = Number(key[0]), sign = key[1] === '+' ? 1 : -1;
+      const normal = new THREE.Vector3().setComponent(k, sign);
+      const right = new THREE.Vector3().crossVectors(up, normal);
+      const basis = new THREE.Matrix4().makeBasis(right, up, normal)
+        .setPosition(new THREE.Vector3(h, h, h).addScaledVector(normal, h));
+      const plane = new THREE.PlaneGeometry(CUBE_SIZE, CUBE_SIZE);
+      const fill = new THREE.Mesh(plane, m.face);
+      fill.applyMatrix4(basis);
+      fill.userData.fill = key;
+      let material = m.letter.find((l) => l.userData.letter === CUBE_LETTERS[view]);
+      if (!material) {
+        material = new THREE.MeshBasicMaterial({ alphaMap: letterTexture(CUBE_LETTERS[view]!, true),
+          transparent: true, depthWrite: false });
+        material.userData.letter = CUBE_LETTERS[view];
+        m.letter.push(material);
+      }
+      const letter = new THREE.Mesh(plane, material);
+      letter.applyMatrix4(basis.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0, 0.002)));
+      letter.renderOrder = 1;
+      cube.add(fill, letter);
+    }
+    const box = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE).translate(h, h, h);
+    cube.add(new THREE.LineSegments(new THREE.EdgesGeometry(box), m.edge));
+    box.dispose();
+    this.axes.add(cube);
+    this.cube = cube;
   }
 
   /**
@@ -486,7 +706,7 @@ export class Gnomon {
     const turn = this.turnFor(q);
     const now = project(turn);
     this.symbol = axisSymbol([0, 1, 2].map((k) => turn.elements[k * 4 + 2]!));
-    const target = nudgesOf(now, this.symbol?.axis);
+    const target = nudgesOf(now, this.symbol?.axis, this.showCube);
     const dt = Math.min(MAX_STEP, Math.max(0, (motion.now - this.last) / 1000));
     this.last = motion.now;
     const f = motion.flight;
@@ -494,7 +714,7 @@ export class Gnomon {
     else if (f) {
       if (this.flight?.id !== f.id) {
         const to = this.turnFor(f.to);
-        this.flight = { id: f.id, from: this.nudges, to: nudgesOf(project(to), symbolAxis(to)) };
+        this.flight = { id: f.id, from: this.nudges, to: nudgesOf(project(to), symbolAxis(to), this.showCube) };
       }
       const { from, to } = this.flight;
       this.nudges = from.map((a, k) => ({ x: a.x + (to[k]!.x - a.x) * f.s, y: a.y + (to[k]!.y - a.y) * f.s }));
@@ -579,10 +799,11 @@ export function sameTurn(a: THREE.Quaternion, b: THREE.Quaternion): boolean {
 /**
  * Whether the gnomon starts shown, from the page's query and what this browser remembers ('0' hidden): ?gnomon=0 or 1
  * decides; else pages for checks and shots (?check, ?controls=0) start without it; else as remembered, shown at first.
+ * The view cube's the same by ?cube (`option`).
  */
-export function gnomonShown(search: string, remembered: string | null): boolean {
+export function gnomonShown(search: string, remembered: string | null, option = 'gnomon'): boolean {
   const q = new URLSearchParams(search);
-  const asked = q.get('gnomon');
+  const asked = q.get(option);
   if (asked !== null) return asked !== '0';
   if (q.has('check') || q.get('controls') === '0') return false;
   return remembered !== '0';

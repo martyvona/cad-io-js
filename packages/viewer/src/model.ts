@@ -29,6 +29,10 @@
 // (Looks), per placement; its line and point objects' items hidden by drawing the objects without them (items.ts).
 // Detail nodes' overrides are kept on their part by their path below it (`faces/face#12`), so they outlast the
 // detail nodes (made again when a mesh arrives) and can be set before the mesh is there.
+//
+// Reveal: while any node has `reveal: true` (`revealing`), what doesn't resolve to revealed is a ghost: its faces drawn
+// at Rendering's Reveal alpha, only their nearest layer (the scene graph's twins, render.ts's RevealPass), its edges,
+// curves and points not drawn; what's revealed draws as it would.
 
 import * as THREE from 'three';
 import type { Geometry, GeometryKind } from './geometry-info.ts';
@@ -111,6 +115,8 @@ export interface AppearanceOverride {
   transparent?: boolean;
   alpha?: number;
   triangleEdges?: boolean;
+  /** Revealed (true: drawn as it is while the rest is a ghost), or not (false). */
+  reveal?: boolean;
 }
 
 /** An override as states and links name it: the node's path and its slots. */
@@ -123,7 +129,9 @@ export interface PathOverride extends AppearanceOverride { path: string }
 export interface PlacementLook {
   hidden: boolean;
   alpha?: number;
-  faces?: ReadonlyMap<number, { hidden: boolean; alpha?: number }>;
+  /** Drawn as a ghost (Reveal: the file's comment). */
+  ghost?: boolean;
+  faces?: ReadonlyMap<number, { hidden: boolean; alpha?: number; ghost?: boolean }>;
 }
 
 /** What the scene graph does with a placement's look: its faces' materials (scene-graph.ts). */
@@ -137,7 +145,7 @@ export interface Looks {
  * What a node draws with, its overrides resolved: hidden or not, an opacity (absent: the file's), and its triangles'
  * edges on or off (absent: as Rendering's Triangle edges says).
  */
-export interface Look { hidden: boolean; alpha?: number; triangleEdges?: boolean }
+export interface Look { hidden: boolean; alpha?: number; triangleEdges?: boolean; reveal?: boolean }
 
 /**
  * Triangle edges a placement's overrides ask for (the triangle-edges.ts draws them): the placement's own resolved
@@ -146,11 +154,11 @@ export interface Look { hidden: boolean; alpha?: number; triangleEdges?: boolean
  */
 export interface TriangleEdgesLook { whole?: boolean; faces?: ReadonlyMap<number, boolean> }
 
-/** The slots a change or a state sets: hiding, opacity (`transparent` with its `alpha`), triangle edges. */
-export type Slot = 'hidden' | 'opacity' | 'triangleEdges';
+/** The slots a change or a state sets: hiding, opacity (`transparent` with its `alpha`), triangle edges, reveal. */
+export type Slot = 'hidden' | 'opacity' | 'triangleEdges' | 'reveal';
 /** An override's fields of a slot. */
 const FIELDS: Record<Slot, (keyof AppearanceOverride)[]> = { hidden: ['hidden'], opacity: ['transparent', 'alpha'],
-  triangleEdges: ['triangleEdges'] };
+  triangleEdges: ['triangleEdges'], reveal: ['reveal'] };
 /** An override without a slot's fields. */
 const without = (o: AppearanceOverride | undefined, slot: Slot): AppearanceOverride => {
   const out = { ...o };
@@ -234,6 +242,8 @@ export class NodeModel {
   loadingParts?: () => { parts: ReadonlySet<number>; version: number };
   /** The nodes `loading` says are, for one version of the parts. */
   private loadingNodes?: { version: number; ids: Set<number> };
+  /** Whether any node has `reveal: true` (kept by `apply`). */
+  private reveals = false;
 
   constructor(root: THREE.Object3D, looks?: Looks) {
     this.looks = looks;
@@ -547,14 +557,34 @@ export class NodeModel {
   /** What the node draws with: each slot its own, else its nearest ancestor's that sets it, else the file's. */
   look(id: number): Look {
     let hidden: boolean | undefined, alpha: number | undefined | null = null, edges: boolean | undefined;
+    let reveal: boolean | undefined;
     for (let n = this.nodes[id]; n; n = this.nodes[n.parent]) {
       const o = this.ownOverride(n.id);
       hidden ??= o?.hidden;
       edges ??= o?.triangleEdges;
+      reveal ??= o?.reveal;
       if (alpha === null) alpha = opacityOf(o);
     }
     return { hidden: hidden ?? false, ...(alpha === null || alpha === undefined ? {} : { alpha }),
-      ...(edges === undefined ? {} : { triangleEdges: edges }) };
+      ...(edges === undefined ? {} : { triangleEdges: edges }), ...(reveal === undefined ? {} : { reveal }) };
+  }
+
+  /** Whether any node is revealed (`reveal: true`), so what isn't draws as a ghost. */
+  get revealing(): boolean {
+    return this.reveals;
+  }
+
+  /** Whether a node draws as a ghost: something is revealed, and it isn't (itself or through an ancestor). */
+  ghost(id: number): boolean {
+    return this.reveals && this.look(id).reveal !== true;
+  }
+
+  /** Every reveal override cleared (Hide others, Show others, Show all). */
+  clearReveal(): void {
+    if (!this.nodes.some((n) => n.override?.reveal !== undefined ||
+      [...n.detailOverrides?.values() ?? []].some((o) => o.reveal !== undefined))) return;
+    this.clearAll('reveal');
+    this.applyAll();
   }
 
   /** Whether any node sets triangle edges (else Rendering's Triangle edges alone decides: triangle-edges.ts). */
@@ -652,7 +682,16 @@ export class NodeModel {
       this.put(id, { ...without(this.ownOverride(id), slot), ...value(id) });
       this.partsUnder(id, parts);
     }
-    for (const p of parts) this.applyPart(p);
+    this.apply(parts);
+  }
+
+  /** These parts drawn again; every part, if whether anything is revealed changed (every ghost changes). */
+  private apply(parts: Iterable<number>): void {
+    const was = this.reveals;
+    this.reveals = this.nodes.some((n) => n.override?.reveal === true ||
+      [...n.detailOverrides?.values() ?? []].some((o) => o.reveal === true));
+    if (was !== this.reveals) this.applyAll();
+    else for (const p of parts) this.applyPart(p);
   }
 
   /** One node's override exactly (Override Appearance...: each field as given, absent ones inherited). */
@@ -661,7 +700,7 @@ export class NodeModel {
     this.put(id, o);
     const parts = new Set<number>();
     this.partsUnder(id, parts);
-    for (const p of parts) this.applyPart(p);
+    this.apply(parts);
   }
 
   /** The parts at or below a node, or a detail node's part. */
@@ -697,7 +736,7 @@ export class NodeModel {
    * part's mesh or model (and so its detail nodes) arrives. Returns the paths that name nothing.
    */
   setOverrides(list: readonly PathOverride[],
-    slots: readonly Slot[] = ['hidden', 'opacity', 'triangleEdges']): string[] {
+    slots: readonly Slot[] = ['hidden', 'opacity', 'triangleEdges', 'reveal']): string[] {
     for (const slot of slots) this.clearAll(slot);
     const missing: string[] = [];
     for (const { path, ...o } of list) {
@@ -728,6 +767,8 @@ export class NodeModel {
   }
 
   private applyAll(): void {
+    this.reveals = this.nodes.some((n) => n.override?.reveal === true ||
+      [...n.detailOverrides?.values() ?? []].some((o) => o.reveal === true));
     for (const n of this.nodes) if (n.kind === 'part') this.applyPart(n.id);
   }
 
@@ -738,8 +779,9 @@ export class NodeModel {
   groupLook(part: number, g: Group): Look {
     const p = this.look(part), o = this.nodes[part]!.detailOverrides?.get(g);
     const own = opacityOf(o), alpha = own === null ? p.alpha : own, tri = o?.triangleEdges ?? p.triangleEdges;
+    const reveal = o?.reveal ?? p.reveal;
     return { hidden: o?.hidden ?? p.hidden, ...(alpha === undefined ? {} : { alpha }),
-      ...(tri === undefined ? {} : { triangleEdges: tri }) };
+      ...(tri === undefined ? {} : { triangleEdges: tri }), ...(reveal === undefined ? {} : { reveal }) };
   }
 
   /** A part's faces' own overrides, by source id, whether or not their nodes are made. */
@@ -762,15 +804,18 @@ export class NodeModel {
     const over = (rel: string) => n.detailOverrides?.get(rel);
     const alpha = (a: number | undefined) => (a === undefined ? {} : { alpha: a });
     const fl = this.groupLook(id, 'faces');
+    // (A ghost: something's revealed, and this isn't.)
+    const ghost = (reveal: boolean | undefined) => this.reveals && reveal !== true;
+    const ghosted = (g: boolean) => (g ? { ghost: true } : {});
     let shown = !fl.hidden;
-    const faces = new Map<number, { hidden: boolean; alpha?: number }>();
+    const faces = new Map<number, { hidden: boolean; alpha?: number; ghost?: boolean }>();
     const edges = new Map<number, boolean>();
     for (const [source, o] of this.faceOverrides(id)) {
       if (o.triangleEdges !== undefined) edges.set(source, o.triangleEdges);
-      if (o.hidden === undefined && o.transparent === undefined) continue;
+      if (o.hidden === undefined && o.transparent === undefined && o.reveal === undefined) continue;
       const hidden = o.hidden ?? fl.hidden;
       const own = opacityOf(o);
-      faces.set(source, { hidden, ...alpha(own === null ? fl.alpha : own) });
+      faces.set(source, { hidden, ...alpha(own === null ? fl.alpha : own), ...ghosted(ghost(o.reveal ?? fl.reveal)) });
       shown ||= !hidden;
     }
     const tri: TriangleEdgesLook = { ...(fl.triangleEdges === undefined ? {} : { whole: fl.triangleEdges }),
@@ -778,18 +823,22 @@ export class NodeModel {
     group.userData.triangleEdges = tri;
     const { groups, detected } = detailEntries(group);
     // The detected mesh edges: as their own override says, else as the part.
-    const partHidden = this.look(id).hidden;
+    const partLook = this.look(id), partHidden = partLook.hidden;
     for (const e of detected) {
       const m = e.item!.object;
-      m.visible = !(over(e.rel)?.hidden ?? partHidden);
+      m.visible = !(over(e.rel)?.hidden ?? partHidden) && !ghost(over(e.rel)?.reveal ?? partLook.reveal);
       hideItems(m as THREE.Object3D & { geometry: THREE.BufferGeometry }, new Set());
       shown ||= m.visible;
     }
     for (const { group: g, members, entries } of groups) {
       if (g === 'faces') continue;
-      const hidden = this.groupLook(id, g).hidden;
+      const gl = this.groupLook(id, g), hidden = gl.hidden;
       const out = new Map<THREE.Object3D, Set<number>>(members.map((m) => [m, new Set()]));
-      for (const e of entries) if (over(e.rel)?.hidden ?? hidden) out.get(e.item!.object)!.add(e.item!.k);
+      // (A ghost's lines aren't drawn: hidden as items, as the faces' alone show through.)
+      for (const e of entries) {
+        if ((over(e.rel)?.hidden ?? hidden) || ghost(over(e.rel)?.reveal ?? gl.reveal)) out.get(e.item!.object)!
+          .add(e.item!.k);
+      }
       for (const [m, set] of out) {
         m.visible = set.size < itemsOf(m).length;
         hideItems(m as THREE.Object3D & { geometry: THREE.BufferGeometry }, set);
@@ -797,6 +846,7 @@ export class NodeModel {
       }
     }
     group.visible = shown;
-    this.looks?.setLook(group, { hidden: fl.hidden, ...alpha(fl.alpha), ...(faces.size ? { faces } : {}) });
+    this.looks?.setLook(group, { hidden: fl.hidden, ...alpha(fl.alpha), ...ghosted(ghost(fl.reveal)),
+      ...(faces.size ? { faces } : {}) });
   }
 }

@@ -203,6 +203,20 @@ export function nodeForPick(model: NodeModel, object: THREE.Object3D, faceIndex:
 }
 
 /**
+ * The nodes a ray's picks (nearest first: pick.ts's hitsAlong and pickOfHit) stand for at a level, each once, at its
+ * nearest; picks of nothing in the model skipped.
+ */
+export function nodesAlong(model: NodeModel, picks: readonly { object: THREE.Object3D; faceIndex?: number;
+  item?: number }[], level: PickLevel): number[] {
+  const seen = new Set<number>();
+  for (const p of picks) {
+    const id = nodeForPick(model, p.object, p.faceIndex, level, p.item);
+    if (id !== undefined) seen.add(id);
+  }
+  return [...seen];
+}
+
+/**
  * What the pointer being over a pick highlights at a level (outline.ts): at the part or assembly level, the node's
  * pieces outlined; at the detail level, a face's ranges (every range of its source) outlined, an edge's, curve's,
  * vertex's or point's range marked, a failed face's outline marked; a cap, its part outlined. Detail needs no nodes
@@ -298,6 +312,8 @@ export class Highlighter {
   }
 
   private readonly swapped = new Map<Drawable, THREE.Material | THREE.Material[]>();
+  /** Which tint each swapped object has (0 the selection's, 1 other instances'). */
+  private readonly which = new Map<Drawable, number>();
   private readonly overlays: (THREE.Mesh | THREE.LineSegments | THREE.Points)[] = [];
   private readonly tints = [new Map<THREE.Material, THREE.Material>(), new Map<THREE.Material, THREE.Material>()];
   private readonly colors = [new THREE.Color(0xff9a2e), new THREE.Color(0x59c1ff)];
@@ -364,6 +380,7 @@ export class Highlighter {
         }
         if (this.swapped.has(object)) continue;
         this.swapped.set(object, object.material);
+        this.which.set(object, which);
         object.material = Array.isArray(object.material) ? object.material.map((m) => this.tint(m, which))
           : this.tint(object.material, which);
       }
@@ -371,9 +388,16 @@ export class Highlighter {
     this.changed();
   }
 
+  /** The tint's colour an object is drawn with whole, if any (a section cap's part's: section.ts). */
+  tintOf(object: THREE.Object3D): THREE.Color | undefined {
+    const which = this.which.get(object as Drawable);
+    return which === undefined ? undefined : this.colors[which];
+  }
+
   clear(): void {
     for (const [object, material] of this.swapped) object.material = material;
     this.swapped.clear();
+    this.which.clear();
     for (const o of this.overlays) {
       o.removeFromParent();
       o.geometry.dispose();

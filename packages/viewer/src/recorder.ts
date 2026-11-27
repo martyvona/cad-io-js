@@ -39,6 +39,7 @@
 
 import { sha256 } from 'cad-scene';
 import { AXIS_VIEWS, interpolateCamera, upIso } from './camera.ts';
+import { clientInfo, type ClientInfo } from './client-info.ts';
 import { formatOf } from './formats.ts';
 import { nodeForPick } from './selection.ts';
 import { setSideWidth, sideWidth } from './side-handle.ts';
@@ -57,12 +58,14 @@ export type RecordedEvent = { t: number } & (
     pointerType: string; button: number; buttons: number; mods: string }
   | { type: 'wheel'; x: number; y: number; deltaY: number; deltaMode: number }
   | { type: 'pick'; x: number; y: number; add: boolean; path: string | null; point?: number[] }
-  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id'; paths: string[] }
+  | { type: 'select'; source: 'tree' | 'pick' | 'api' | 'id' | 'list'; paths: string[] }
   /** A node's appearance override set exactly (the tree's Override Appearance...). */
   | { type: 'appearance'; path: string; override: AppearanceOverride }
   | { type: 'control'; path: string; value?: unknown; shift?: true }
   /** Mesh edge detection's values set (edge-dialog.ts). */
   | { type: 'detection'; detection: EdgeDetection }
+  /** A view along a corner or an edge of the view cube (its direction and up in the world), shift-clicked or not. */
+  | { type: 'look'; dir: number[]; up: number[]; shift?: true }
   /** A run of Mesh edge detection; `result`: what it did, in words, once done. */
   | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; result?: string; error?: boolean }
   /** Older recordings' answer to a question Mesh again no longer asks (it heals again in place): ignored. */
@@ -98,6 +101,8 @@ export interface Recording {
   view: { width: number; height: number };
   /** The tree panel's width as dragged (side-handle.ts); absent, the default. Replay sets it (the view as wide). */
   side?: number;
+  /** What it was recorded on (client-info.ts): device, browser, screen, GPU; absent in older recordings. */
+  client?: ClientInfo;
   events: RecordedEvent[];
 }
 
@@ -210,7 +215,8 @@ export class Recorder {
     this.rec = { format: RECORDING_FORMAT, version: 1, started: new Date().toISOString(),
       userAgent: navigator.userAgent, page: location.href,
       window: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
-      view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(), events: [] };
+      view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(),
+      client: clientInfo(this.viewer.renderer, this.viewer.device), events: [] };
     // The model already open, as a load, so replay opens it first.
     // (Its size and SHA-256 as it loaded: the page keeps no copy of the file.)
     const src = this.ui.source();
@@ -272,6 +278,9 @@ export class Recorder {
     } else if (e.type === 'appearance') {
       if (model) this.push({ type: 'appearance', path: model.pathOf(e.id), override: e.override });
     } else if (e.type === 'detection') this.push({ type: 'detection', detection: e.detection });
+    else if (e.type === 'look') {
+      this.push({ type: 'look', dir: e.dir, up: e.up, ...(e.shift ? { shift: true as const } : {}) });
+    }
     else if (e.type === 'detect') {
       // What it did, once done, into its event (already in its place).
       const ev: Untimed<Extract<RecordedEvent, { type: 'detect' }>> = { type: 'detect', detection: e.detection,
@@ -447,13 +456,17 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     } else if (e.type === 'detection') {
       ui.setEdgeDetection(e.detection);
       applied++;
+    } else if (e.type === 'look') {
+      ui.lookToward(e.dir, e.up, !!e.shift);
+      applied++;
     } else if (e.type === 'detect') {
       // Done before the next event, whatever the pace; what it did compared with what it did then.
       const r = await ui.detectEdges(e.detection, e.selectionOnly);
       if (e.result !== undefined && r.text !== e.result) divergences.push(`${at}: ${r.text}, recorded ${e.result}`);
       applied++;
-    } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id')) {
-      // Selections by pick and through the interface come back with their pick and api events.
+    } else if (e.type === 'select' && (e.source === 'tree' || e.source === 'id' || e.source === 'list')) {
+      // Selections by pick and through the interface come back with their pick and api events; Pick...'s list's
+      // (ui.ts) as the selections they made.
       ui.select(resolve(e.paths) as number[], e.source === 'id' ? 'id' : 'api');
       applied++;
     } else if (e.type === 'camera') {
@@ -491,12 +504,12 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
       const text = (key: string, v: unknown) => JSON.stringify((key === 'hidden' || key === 'shown') &&
         Array.isArray(v) ? [...v].sort() : v);
       for (const key of ['cut', 'caps', 'render', 'meshing', 'tree', 'pick', 'instances', 'hidden', 'shown',
-        'opacity', 'triangleEdges', 'edgeDetection', 'views', 'selected']) {
+        'opacity', 'triangleEdges', 'revealed', 'unrevealed', 'edgeDetection', 'views', 'selected']) {
         // (Recordings before 2026-10-27 have no meshing, those before 2026-10-31 no shown, opacity nor triangle
         // edges.)
-        // (Nor those before 2026-11-27 edge detection.)
-        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity', 'triangleEdges', 'edgeDetection', 'views']
-          .includes(key)) continue;
+        // (Nor those before 2026-11-27 edge detection, nor those before 2026-11-28 reveal.)
+        if (e.state[key] === undefined && ['meshing', 'shown', 'opacity', 'triangleEdges', 'edgeDetection', 'views',
+          'revealed', 'unrevealed'].includes(key)) continue;
         // (The meshing settings recorded only: those before 2026-10-28 have no timeout.)
         if (key === 'meshing') now[key] = Object.fromEntries(Object.keys(e.state[key] as object).map((k) =>
           [k, (now[key] as Record<string, unknown>)[k]]));
@@ -533,7 +546,7 @@ function legacyPath(path: string, viewer: Viewer): string {
 
 /** The events replay applies (and so waits for the viewer before). */
 const APPLIED = new Set<RecordedEvent['type']>(['load', 'control', 'api', 'select', 'camera', 'pick', 'state',
-  'detection', 'detect']);
+  'detection', 'detect', 'look']);
 
 /** What a replay in real time shows besides the events themselves: the pointer, and the camera turning in drags. */
 class Show {

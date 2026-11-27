@@ -377,3 +377,31 @@ test('capHits: inside the part\'s box but not its solid (a ring\'s hole), no hit
   assert.equal(s.capHits(ray(0)).length, 0);
   assert.equal(s.capHits(ray(10)).length, 1);
 });
+
+test("caps tinted as their part is (the selection's), at each update, without being made again", () => {
+  const { s } = sections();
+  const { root, solid } = model();
+  const set = DEFAULT_SECTIONS();
+  set.x = { on: true, at: 101, flip: false };
+  s.set(set);
+  let tint: THREE.Color | undefined;
+  s.tintOf = (m) => (m === solid ? tint : undefined);
+  s.update(root);
+  const cap = s.group.children[2] as THREE.Mesh;
+  const hatch = () => (cap.material as THREE.Material).userData.hatch as Hatch;
+  const plain = hatch();
+  assert.equal(plain.ground.getHex(), 0xff0000);
+  tint = new THREE.Color(0, 0, 1);
+  s.update(root);
+  // The same cap, its ground and lines with 0.55 of the tint added (the red ground's red kept within 1).
+  assert.equal(s.group.children[2], cap);
+  const t = hatch();
+  assert.deepEqual([t.ground.r, t.ground.g, t.ground.b], [1, 0, 0.55]);
+  assert.deepEqual([t.ink.r, t.ink.g, t.ink.b].map((x) => Math.round(x * 1000) / 1000),
+    [plain.ink.r, plain.ink.g, 0.55].map((x) => Math.round(x * 1000) / 1000));
+  assert.deepEqual([t.angle, t.spacing], [plain.angle, plain.spacing]);
+  // Untinted: its own again.
+  tint = undefined;
+  s.update(root);
+  assert.equal(hatch(), plain);
+});

@@ -6,6 +6,8 @@ export interface MenuItem {
   label: string;
   /** A line above it, starting a group. */
   divider?: boolean;
+  /** Shown greyed, not chosen (what it would do is done already). */
+  disabled?: boolean;
   action: () => void;
 }
 
@@ -50,6 +52,7 @@ export function showMenu(x: number, y: number, items: readonly MenuItem[], heade
     b.setAttribute('role', 'menuitem');
     b.textContent = item.label;
     if (item.divider) b.classList.add('divider');
+    b.disabled = !!item.disabled;
     b.addEventListener('click', () => {
       close();
       item.action();
@@ -66,7 +69,7 @@ export function showMenu(x: number, y: number, items: readonly MenuItem[], heade
   addEventListener('wheel', close, true);
   addEventListener('resize', close);
   open = handle;
-  menu.querySelector('button')?.focus();
+  menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
 }
 
 /** Closes the menu shown, if any. */

@@ -14,16 +14,17 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, describeStretched, meshDeflections, type Diagnostic, type Mesh, type Properties,
   type Vec3 } from 'cad-scene';
-import { clipTo, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect, smoothstep, turnOf, upIso,
-  viewCamera, VIEWS, type Leg, type LookMotion, type ViewName } from './camera.ts';
+import { AXIS_VIEWS, clipTo, cubeLook, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect,
+  smoothstep, turnOf, upIso, viewCamera, VIEWS, type Leg, type Look, type LookMotion, type ViewName }
+  from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
 import { NodeModel, type Looks } from './model.ts';
-import { hitsAlong, PICK_PIXELS, pickOfTarget, viewRay, type Pick } from './pick.ts';
+import { hitsAlong, PICK_PIXELS, pickOfHit, pickOfTarget, viewRay, type Pick } from './pick.ts';
 import { choose, IdPass, type IdTarget } from './pick-ids.ts';
 import { Highlights, type Highlight } from './outline.ts';
-import { Composer } from './render.ts';
+import { Composer, RevealPass } from './render.ts';
 import { Sections, type SectionSettings } from './section.ts';
 import { SceneGraph } from './scene-graph.ts';
 import { faceEdges } from './geometry-info.ts';
@@ -33,7 +34,7 @@ import { FatEdges } from './fat-edges.ts';
 import { LoadFit } from './load-fit.ts';
 import { biasFor, depthBias, dotBias, EDGE_BIAS_PIXELS } from './depth-bias.ts';
 import { modelInput, type Source } from './sources.ts';
-import { DEFAULT_RENDER, EDGES, VERTICES, type RenderSettings } from './style.ts';
+import { DEFAULT_RENDER, EDGES, REVEAL, VERTICES, type RenderSettings } from './style.ts';
 import { TriangleEdges } from './triangle-edges.ts';
 import { dotPixels, setDotSize, vertexDiameter, type DiscMaterial } from './vertex-points.ts';
 import { LONG_PRESS_MS } from './context-menu.ts';
@@ -288,6 +289,11 @@ export class Viewer {
   private gnomonDrawn?: { x: number; y: number; width: number; height: number };
   /** A click on the gnomon asks for a view (the View menu's own button, so recordings have it); else setView. */
   onGnomonView?: (view: ViewName, shift: boolean) => void;
+  /** A click on a corner or an edge of the view cube asks for a view along it (camera.ts's cubeLook); else setView. */
+  onCubeLook?: (look: { dir: readonly [number, number, number]; up: readonly [number, number, number] },
+    shift: boolean) => void;
+  /** The view cube's tooltip (cubeTip), made when first shown. */
+  private tip?: HTMLElement;
 
   /** The element that places the gnomon (its lower left corner; sized here to hold it). */
   get gnomonBox(): HTMLElement | undefined {
@@ -331,6 +337,10 @@ export class Viewer {
   /** Whether a world point is cut away (by the section planes): not pickable. */
   clipped?: (p: THREE.Vector3) => boolean;
 
+  /** The ghosts' pass (render.ts), and the twins in the scene now (showGhosts). */
+  private readonly revealPass: RevealPass;
+  private twinsShown?: THREE.Group;
+
   /** `pixelRatio`: fixed (deterministic screenshots: ?deterministic), else the screen's, at most 2. */
   constructor(container: HTMLElement, opts: { pixelRatio?: number } = {}) {
     this.container = container;
@@ -338,11 +348,16 @@ export class Viewer {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: true });
     this.renderer.setPixelRatio(opts.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
     this.composer = new Composer(this.renderer, this.scene, this.camera, 1, 1);
+    this.revealPass = new RevealPass(this.scene, this.camera, { place: () => this.graph?.placeTwins(),
+      pass: (depth) => this.graph?.ghostPass(depth) });
     this.sections = new Sections(this.renderer);
     this.clipped = (p) => this.sections.clipped(p);
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(VIEW_BACKGROUNDS.dark);
     this.scene.add(this.ambient);
+    // (The lights on the ghosts' layer too, which RevealPass draws alone: render.ts.)
+    this.ambient.layers.enable(REVEAL);
+    this.headlight.layers.enable(REVEAL);
     // A headlight: the light comes from over the viewer's shoulder, whatever the view: (1, 1, 2) in the camera's frame,
     // 35 degrees off the line of sight. Its target in the camera too: three.js's default target is the world's origin
     // (outside the scene), which turned the light along the line of sight wherever the camera is far from the origin,
@@ -452,6 +467,11 @@ export class Viewer {
         if (view) {
           if (this.onGnomonView) this.onGnomonView(view, e.shiftKey);
           else this.setView(view);
+        } else if (typeof target === 'object') {
+          // A corner or an edge of the view cube.
+          const look = cubeLook(target.cube, this.gnomon.axesInWorld);
+          if (this.onCubeLook) this.onCubeLook(look, e.shiftKey);
+          else this.setView(look);
         }
         return;
       }
@@ -462,11 +482,17 @@ export class Viewer {
       down.delete(e.pointerId);
       if (press?.id === e.pointerId) stopPress();
     });
-    // A hand over the gnomon's targets.
+    // A hand over the gnomon's targets; over a face of the view cube, its view's name and key in a tooltip.
     canvas.addEventListener('pointermove', (e) => {
-      if (e.buttons) return;
-      canvas.style.cursor = this.gnomonTarget(e.clientX, e.clientY) ? 'pointer' : '';
+      if (e.buttons) return this.cubeTip();
+      const target = this.gnomonTarget(e.clientX, e.clientY);
+      canvas.style.cursor = target ? 'pointer' : '';
+      const view = typeof target === 'object' ? this.gnomonView(target) : undefined;
+      this.cubeTip(e.pointerType === 'touch' ? undefined : view, e.clientX, e.clientY);
     });
+    for (const type of ['pointerleave', 'pointerdown', 'wheel'] as const) {
+      canvas.addEventListener(type, () => this.cubeTip(), { passive: true });
+    }
     // What a mouse (or pen) is over, while no button is down: nothing while dragging, nothing for touch.
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch' || e.buttons) return this.leaveHover();
@@ -741,6 +767,7 @@ export class Viewer {
     // picking.
     if (fat) this.camera.layers.disable(EDGES);
     try {
+      this.showGhosts();
       this.composer.render();
     } finally {
       if (fat) this.camera.layers.enable(EDGES);
@@ -786,6 +813,7 @@ export class Viewer {
    * the view is that already (iso) or there's none.
    */
   gnomonView(target: GnomonTarget): ViewName | undefined {
+    if (typeof target === 'object') return this.gnomon.cubeView(target.cube);
     if (target !== 'iso') return axisView('xyz'.indexOf(target), this.gnomon.axesInWorld, this.back());
     const iso = upIso(this.gnomon.axesInWorld);
     const to = viewCamera(this.cameraState(), iso, this.gnomon.axesInWorld);
@@ -793,6 +821,46 @@ export class Viewer {
       new THREE.Vector3().fromArray(to.position), new THREE.Vector3().fromArray(to.target),
       new THREE.Vector3().fromArray(to.up)));
     return sameTurn(turn, this.camera.quaternion) ? undefined : iso;
+  }
+
+  /**
+   * Shows the view cube's tooltip for a face's view near a point (client pixels): the view's name and its key, the key
+   * as the controls show theirs (.cv-key); no view, hidden.
+   */
+  private cubeTip(view?: ViewName, x = 0, y = 0): void {
+    const i = view === undefined ? -1 : AXIS_VIEWS.findIndex((v) => v.view === view);
+    if (i < 0) {
+      if (this.tip) this.tip.hidden = true;
+      return;
+    }
+    if (!this.tip) {
+      this.tip = Object.assign(document.createElement('div'), { className: 'cv-tip', hidden: true });
+      this.tip.setAttribute('role', 'tooltip');
+      document.body.append(this.tip);
+    }
+    const t = this.tip;
+    t.textContent = AXIS_VIEWS[i]!.name;
+    t.append(Object.assign(document.createElement('span'), { className: 'cv-key', textContent: String(i + 1) }));
+    t.hidden = false;
+    // (Above and right of the pointer, kept in the window.)
+    const r = t.getBoundingClientRect();
+    t.style.left = `${Math.max(0, Math.min(x + 12, innerWidth - r.width))}px`;
+    t.style.top = `${Math.max(0, y - r.height - 8)}px`;
+  }
+
+  /**
+   * The ghosts drawn while something is revealed (model.ts's Reveal): the model's twins in the scene (scene-graph.ts),
+   * at Reveal alpha, and RevealPass in the composer; else neither.
+   */
+  private showGhosts(): void {
+    const twins = this.graph?.twins;
+    if (twins !== this.twinsShown) {
+      if (this.twinsShown) this.scene.remove(this.twinsShown);
+      if (twins) this.scene.add(twins);
+      this.twinsShown = twins;
+    }
+    this.graph?.setRevealAlpha(this.render.revealAlpha);
+    this.composer.setReveal(this.nodes?.revealing ? this.revealPass : undefined);
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
@@ -1695,6 +1763,24 @@ export class Viewer {
     return t && this.pickOf(t, clientX, clientY);
   }
 
+  /**
+   * Everything drawn along the line of sight through a point of the page (client coordinates), nearest first, by
+   * rays (pick.ts's hitsAlong, not the ids: those see only the nearest): a triangle of each face, a segment or point
+   * of each line or point object, a cap, wherever the ray meets them (Pick...: ui.ts).
+   */
+  picksAt(clientX: number, clientY: number): Pick[] {
+    if (!this.root) return [];
+    const r = this.renderer.domElement.getBoundingClientRect();
+    if (!r.width || !r.height) return [];
+    const ndc = new THREE.Vector2((clientX - r.left) / r.width * 2 - 1, -((clientY - r.top) / r.height * 2 - 1));
+    this.display.updateWorldMatrix(true, true);
+    this.shift();
+    clipTo(this.camera, this.bounds);
+    const { hits } = hitsAlong(this.camera, this.display, ndc, this.pixelSize(), this.clipped,
+      (q) => this.sections.capHits(q));
+    return hits.map(pickOfHit);
+  }
+
   /** Fits a sphere (in the world) in the viewport, from the current direction; zoom all if it's empty. */
   zoomTo(sphere: THREE.Sphere): void {
     if (sphere.isEmpty()) return this.zoomAll();
@@ -1801,7 +1887,7 @@ export class Viewer {
    * Looks along a view's axis (camera.ts's VIEWS: the world's, or the file's for the iso views), turning about the
    * orbit centre (zoom and pan kept): flying there, or with `instant` (a link's or a recording's view) at once.
    */
-  setView(view: ViewName, opts: { instant?: boolean } = {}): void {
+  setView(view: Look, opts: { instant?: boolean } = {}): void {
     const to = viewCamera(this.cameraState(), view, this.gnomon.axesInWorld);
     if (!opts.instant) return this.fly(to);
     this.flight = undefined;
@@ -1815,7 +1901,7 @@ export class Viewer {
    * fit it (each step left out where the camera is there already); `together` all of it in one blend (camera.ts's
    * lookLegs). An empty sphere: setView's turn alone.
    */
-  lookAlong(view: ViewName, fit: THREE.Sphere, motion: LookMotion): void {
+  lookAlong(view: Look, fit: THREE.Sphere, motion: LookMotion): void {
     if (fit.isEmpty()) return this.setView(view);
     const from = this.cameraState();
     const to = fitCamera(viewCamera(from, view, this.gnomon.axesInWorld), fit, this.fitAspect());

@@ -53,6 +53,26 @@ export function rangeOf(o: THREE.Object3D, k: number): { start: number; count: n
 }
 
 /**
+ * The item (its place in the object's list) whose range drawn now holds a position of the object's index, as a ray's
+ * hit gives it (pick.ts's pickOfHit); none outside every one. The ranges drawn now are in order, hidden ones empty.
+ */
+export function itemAt(o: THREE.Object3D, i: number): number | undefined {
+  const now = kept.get(o)?.now;
+  if (!now) return undefined;
+  // (The last item starting at or before i.)
+  let lo = 0, hi = now.length - 1, k = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (now[mid]!.start <= i) {
+      k = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  const r = now[k];
+  return r && i < r.start + r.count ? k : undefined;
+}
+
+/**
  * Draws an object without these items (by their place in its list): its full geometry when none, else one of its own
  * with the rest (made again only when the set changes). With every one hidden the full geometry stays (the caller
  * hides the object), each item hidden as far as rangeOf goes.

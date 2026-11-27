@@ -10,6 +10,11 @@ import type { TriangleEdgesMode } from './triangle-edges.ts';
 export const EDGES = 1;
 /** The layer the B-rep vertices' dots are drawn on (vertex-points.ts), which the camera shows while Vertices is on. */
 export const VERTICES = 2;
+/**
+ * The layer of ghosts' twins (scene-graph.ts: what isn't revealed while something is), which the camera never shows:
+ * render.ts's RevealPass draws it, with the lights (on it too).
+ */
+export const REVEAL = 3;
 
 export interface RenderSettings {
   /** Ambient occlusion. */
@@ -52,10 +57,12 @@ export interface RenderSettings {
   selectionColor: string;
   /** Alerts' colour (alerts, Viewer.alerts: failed faces' outlines), `#rrggbb`. */
   alertColor: string;
+  /** The opacity of what isn't revealed while something is (model.ts's Reveal), whatever its own. */
+  revealAlpha: number;
 }
 
 export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadius: 32, aoQuality: 'High',
   smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, depthOffset: 0, triangleEdges: 'off',
   shininess: 30, specular: 0.2, ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH,
   highlightColor: '#ffe100', highlightWidth: 2.5, selectionColor: '#ff9a2e',
-  alertColor: '#ff0000' };
+  alertColor: '#ff0000', revealAlpha: 0.1 };
