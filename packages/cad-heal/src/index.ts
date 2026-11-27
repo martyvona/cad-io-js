@@ -31,6 +31,7 @@ import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
 import { MIN_FIT, type Tight, tightFaces } from './fix/tight.ts';
 import { type CoincidentResult, mergeCoincident } from './fix/coincident.ts';
 import { type TrimResult, trimOvershoots } from './fix/overshoot.ts';
+import { mendTouches, type RowsFrom, rowsFrom, type Touched, type TouchResult } from './fix/touch.ts';
 import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
   './fix/shells.ts';
 import { fixesMask, fixesOn, HEAL_VERSION, type HealOptions, PCURVE_FIT_TOLERANCE } from './options.ts';
@@ -131,6 +132,17 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
       curves = trimmedRecord(curves, trim);
       healed = trim.model;
     } else trim = undefined;
+  }
+  // Loops of one face meeting at a point to rounding made to share a vertex there, on the trimmed rows (rows change).
+  let touch: TouchResult | undefined;
+  if (fixes.has('vertexOnEdge')) {
+    progress('vertexOnEdge');
+    touch = mendTouches(geom, healed, curves.ranges);
+    if (touch) {
+      touchSaid(touch, diagnostics);
+      curves = mergedRecord(curves, healed, touch);
+      healed = touch.model;
+    }
   }
   // Shells facing into their material turned, last: the curves' fixes made on the faces as the source oriented them.
   let shells: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] } | undefined;
@@ -253,10 +265,10 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   progress('judging measures');
   const judged = await judgingMeasures(healed, progress);
   progress('the healed model and its analysis');
-  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!merge || !!trim || !!shells?.perm
-    || !!shells?.flipped.length || !!shells?.turnedFaces.length;
-  const out = await analysisOf(healed, givenRows(given, merge), curves, { fixes: fixesMask(fixes), fit, sourceCurves,
-    strayPoles: kept + moved }, judged, shells, merge || trim ? given : undefined);
+  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!merge || !!trim || !!touch
+    || !!shells?.perm || !!shells?.flipped.length || !!shells?.turnedFaces.length;
+  const out = await analysisOf(healed, givenRows(given, rowsFrom(merge, touch)), curves, { fixes: fixesMask(fixes),
+    fit, sourceCurves, strayPoles: kept + moved }, judged, shells, merge || trim || touch ? given : undefined);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
 }
@@ -432,7 +444,7 @@ async function analysisOf(healed: BrepData, source: GivenRows, curves: CurvesRec
 type GivenRows = Pick<BrepData, 'part'> & { vertex: Pick<BrepData['vertex'], 'point' | 'tolerance'>;
   edge: Pick<BrepData['edge'], 'tolerance' | 'range'>; coedge: Pick<BrepData['coedge'], 'pcurve' | 'range'> };
 
-function givenRows(given: BrepData, merge: CoincidentResult | undefined): GivenRows {
+function givenRows(given: BrepData, merge: RowsFrom | undefined): GivenRows {
   if (!merge) return given;
   const m = merge.model, pick = <T extends Float64Array | Int32Array>(xs: T, from: Int32Array, width: number,
     none: number, own?: T) => {
@@ -457,7 +469,7 @@ function givenRows(given: BrepData, merge: CoincidentResult | undefined): GivenR
  * The curves' record on the merged rows: each row's from the row it came from, but a use the merge left bare (its
  * p-curve dropped) has none, and a split edge's range is healing's.
  */
-function mergedRecord(r: CurvesRecord, before: BrepData, merge: CoincidentResult): CurvesRecord {
+function mergedRecord(r: CurvesRecord, before: BrepData, merge: RowsFrom): CurvesRecord {
   const m = merge.model, nc = rowCount(m, 'coedge'), ne = rowCount(m, 'edge');
   // (The maps are to the model the merge was given: the curves' rows.)
   const pcurveFrom = new Uint8Array(nc), deviation = new Float64Array(nc).fill(NaN);
@@ -506,6 +518,23 @@ function overshootSaid(r: TrimResult, diagnostics: Diagnostic[]): void {
   diagnostics.push({ severity: 'warning', message: `trimOvershoot: ${n} ${n === 1 ? 'pair' : 'pairs'} of consecutive `
     + `edges crossing near their vertex trimmed at the crossing, the vertex moved there, up to ${most.toPrecision(3)} `
     + `mm (${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${dropped}` });
+}
+
+/** vertexOnEdge's diagnostic: a warning with the edges split and the vertices merged, each with its gap. */
+function touchSaid(r: TouchResult, diagnostics: Diagnostic[]): void {
+  const split = r.touched.filter((t) => t.kind === 'split'), merged = r.touched.filter((t) => t.kind === 'merged');
+  const id = (x: number) => x ? `#${x}` : 'one without an id';
+  const list = (xs: Touched[], say: (t: Touched) => string) => `${xs.slice(0, 5).map((t) => `face #${t.face}'s `
+    + `${say(t)} (${t.gap.toPrecision(2)} mm)`).join('; ')}${xs.length > 5 ? `; ${xs.length - 5} more` : ''}`;
+  const parts: string[] = [];
+  if (split.length) parts.push(`${split.length} ${split.length === 1 ? 'edge' : 'edges'} split at a vertex of another `
+    + `loop of the face lying on it (${list(split, (t) => `${id(t.other)} at ${id(t.vertex)}`)})`);
+  if (merged.length) parts.push(`${merged.length} ${merged.length === 1 ? 'pair' : 'pairs'} of vertices of two loops `
+    + `of a face at one point merged (${list(merged, (t) => `${id(t.other)} into ${id(t.vertex)}`)})`);
+  const dropped = r.pcurvesDropped ? `; ${r.pcurvesDropped} split uses' p-curves dropped (not at their edge's `
+    + 'parameter)' : '';
+  diagnostics.push({ severity: 'warning', message: `vertexOnEdge: loops of one face meeting at a point to rounding `
+    + `made to share a vertex there: ${parts.join('; ')}${dropped}` });
 }
 
 /** coincidentEdges' diagnostic: a warning with the merges' count, the longest stretch and largest growth, the faces
