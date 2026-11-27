@@ -6,6 +6,7 @@
 // consistently (docs/own-tessellator.md, "Simulation of simplicity").
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -107,6 +108,12 @@ struct Domain2 {
    * toward maxPoints. One not finite, outside the domain or on a vertex is skipped.
    */
   std::vector<Vec2> seeds;
+  /**
+   * Positions other faces' vertices ship at (as SizeField::shippedAt gives them), beside the edges this domain shares
+   * with them: the mesher inserts no point at one, as at its own vertices' (the output would weld the two across the
+   * edge, its segments there used by four triangles).
+   */
+  std::vector<std::array<float, 3>> shippedNear;
 };
 
 /**
@@ -164,6 +171,12 @@ struct Mesh2 {
   std::vector<int32_t> triangles;
   /** Triangles the criteria still reject at the end (a fixed boundary too coarse for them), for diagnostics. */
   std::vector<int32_t> rejected;
+  /**
+   * Per entry of `rejected`, whether nothing but a weld with another face's vertex (Domain2::shippedNear) stood in the
+   * way of mending it: every point that would have was refused for shipping where a neighbour's vertex does. Such a
+   * triangle asks no split; it stays refused, so its face's checks still measure it.
+   */
+  std::vector<uint8_t> rejectedWeld;
   /**
    * The segments to split for refinement to finish, each once (a segment used twice by its first index), in
    * segment order. The boundary itself is never split; status stays ok.

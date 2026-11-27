@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "cad_geom/surface.h"
+#include "tess_cadio/expected_counts.h"
 #include "tess_cadio/part.h"
 #include "tess_cadio/part_size.h"
 
@@ -37,9 +38,19 @@ enum : uint32_t { kShared = 0, kSeam = 1, kFree = 2 };
 struct Result {
   std::vector<float> positions, normals, edgePositions, edgeAngles, curvePositions, points;
   std::vector<uint32_t> indices, faces, edges, curves, pointIds;
+  /**
+   * What the meshing measured of each meshed face, for its triage record (cad-scene's records.ts): face id, its
+   * deviation check (records.ts's CHECK) and value, its normal check and value, its point cap's expected count on its
+   * last meshing (FaceMesh::capExpected): 6 numbers each.
+   */
+  std::vector<double> reported;
   std::string diag;
 };
 Result result;
+/** tc_expected_counts' last answer: face id, expected count (0: none), 2 numbers each. */
+std::vector<double> expectedOut;
+/** records.ts's CHECK codes. */
+enum : int { kUnchecked = 0, kMeasured = 1, kLowerBound = 2, kPassed = 3, kFailedUnmeasured = 4 };
 bool project = true;
 // PartOptions::checkDeviation and maxPointsPerFace for the next calls.
 bool checkDeviation = PartOptions{}.checkDeviation;
@@ -69,6 +80,8 @@ bool countExpected = false;
 bool failCapped = true, failTurnedOver = true;
 // PartOptions::keepDefects for the next calls.
 bool keepDefects = PartOptions{}.keepDefects;
+// PartOptions::develop for the next calls.
+bool develop = PartOptions{}.develop;
 // PartOptions::failFoldedFans for the next calls.
 bool failFoldedFans = PartOptions{}.failFoldedFans;
 // PartOptions::consistentFans and apexCorners for the next calls.
@@ -82,6 +95,35 @@ void put(std::vector<float>& out, Vec3 p, const double* o) {
     static_cast<float>(p.z - o[2])});
 }
 
+/**
+ * The options the next calls mesh `m` with (the setters' values), at these deflections: tc_tessellate's and
+ * tc_expected_counts', so a face's expected count is the one its meshing caps it by. `partLength` the part's size
+ * where maxEdge needs it, else 0.
+ */
+PartOptions partOptions(const Model& m, double linear, double angular, double& partLength) {
+  PartOptions opts;
+  opts.d.linear = linear;
+  opts.d.angular = angular;
+  partLength = maxEdgeFraction > 0 ? partSize(m) : 0;
+  opts.d.maxEdge = maxEdgeFraction * partLength;
+  opts.projectMissingPcurves = project;
+  opts.checkDeviation = checkDeviation;
+  opts.maxPointsPerFace = maxPoints;
+  opts.capFloor = capFloor, opts.capMultiple = capMultiple, opts.capCeiling = capCeiling;
+  opts.minAngle = minAngle;
+  opts.countInsertions = countInsertions;
+  opts.countAngles = countAngles;
+  opts.countExpected = countExpected;
+  opts.failCapped = failCapped;
+  opts.failTurnedOver = failTurnedOver;
+  opts.keepDefects = keepDefects;
+  opts.develop = develop;
+  opts.failFoldedFans = failFoldedFans;
+  opts.consistentFans = consistentFans, opts.apexCorners = apexCorners;
+  opts.analysis = analysis, opts.analysisSize = analysisSize;
+  return opts;
+}
+
 std::string ids(const std::vector<uint32_t>& v) {
   std::string s = "[";
   for (size_t i = 0; i < v.size(); i++) s += (i ? "," : "") + std::to_string(v[i]);
@@ -93,7 +135,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 11; }
+int tc_api_version() { return 12; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -158,6 +200,8 @@ void tc_set_count_expected(int on) { countExpected = on != 0; }
  */
 void tc_set_fail_capped(int on) { failCapped = on != 0; }
 void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
+/** Whether the next calls mesh each face in its developed plane (PartOptions::develop); default 1. */
+void tc_set_develop(int on) { develop = on != 0; }
 /**
  * Whether the next calls keep a face whose defect is small rather than failing it (PartOptions::keepDefects: a few
  * turned triangles, a little past its deflection, at its point cap; its defect in the diagnostics' "kept"); default 1.
@@ -189,26 +233,9 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     return -1;
   }
   const double o[3] = {ox, oy, oz};
-  PartOptions opts;
-  opts.d.linear = linear;
-  opts.d.angular = angular;
-  const double partLength = maxEdgeFraction > 0 ? partSize(m) : 0;
-  opts.d.maxEdge = maxEdgeFraction * partLength;
-  opts.projectMissingPcurves = project;
-  opts.checkDeviation = checkDeviation;
-  opts.maxPointsPerFace = maxPoints;
-  opts.capFloor = capFloor, opts.capMultiple = capMultiple, opts.capCeiling = capCeiling;
-  opts.minAngle = minAngle;
-  opts.countInsertions = countInsertions;
-  opts.countAngles = countAngles;
-  opts.countExpected = countExpected;
+  double partLength = 0;
+  PartOptions opts = partOptions(m, linear, angular, partLength);
   for (int k = 0; k < 3; k++) opts.outputOrigin[k] = o[k];
-  opts.failCapped = failCapped;
-  opts.failTurnedOver = failTurnedOver;
-  opts.keepDefects = keepDefects;
-  opts.failFoldedFans = failFoldedFans;
-  opts.consistentFans = consistentFans, opts.apexCorners = apexCorners;
-  opts.analysis = analysis, opts.analysisSize = analysisSize;
   const uint32_t* faceId = m.u32(CBR_FACE_ID);
   opts.progress = [&](const PartProgress& p) {
     js_progress(p.phase, p.row >= 0 ? faceId[p.row] : 0, p.row, p.round, p.facesDone, p.facesTotal);
@@ -295,6 +322,26 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
                 norm(fm.points[fm.triangles[3 * t + k]] - g.point) <= tol);
           poleSlivers += pole;
         }
+      }
+      // (Its triage values: (c) passed where nothing it kept was refused for deviation, else its measured worst, a
+      // lower bound where past the check's limit, failed unmeasured where not measured; and where its edges lie off
+      // its surface past max(d, tol), at least that far (the mesh's points on them are); (d) passed where nothing
+      // was refused for its normals, else failed unmeasured: the mesher doesn't keep the angle.)
+      {
+        const int byDeviation = fm.refusedBy[static_cast<int>(Refusal::deviationClosedForm)]
+          + fm.refusedBy[static_cast<int>(Refusal::deviationSampled)]
+          + fm.refusedBy[static_cast<int>(Refusal::deviationBounded)]
+          + fm.refusedBy[static_cast<int>(Refusal::deviationNearPole)];
+        const int byNormal = fm.refusedBy[static_cast<int>(Refusal::normalFacet)]
+          + fm.refusedBy[static_cast<int>(Refusal::normalSpread)];
+        int dev = !byDeviation ? kPassed : fm.worstDeviation > 0 ? (fm.defectDeviation > 0 ? kLowerBound
+          : kMeasured) : kFailedUnmeasured;
+        double value = dev == kMeasured || dev == kLowerBound ? fm.worstDeviation : NAN;
+        if (fm.offSurfaceWithin > 0 && fm.offSurface > fm.offSurfaceWithin)
+          dev = kLowerBound, value = std::isnan(value) ? fm.offSurface : std::fmax(value, fm.offSurface);
+        result.reported.insert(result.reported.end(), {static_cast<double>(faceId[f]), static_cast<double>(dev),
+          value,
+          static_cast<double>(byNormal ? kFailedUnmeasured : kPassed), NAN, fm.capExpected});
       }
       if (fm.splitsWanted) unsplit.push_back(faceId[f]);
       if (fm.ringBlocked) ringBlocked.push_back(faceId[f]), ringBlockedRounds.push_back(fm.ringBlocked);
@@ -471,6 +518,27 @@ double tc_part_size(const uint8_t* data, int size) {
   const Model m(reinterpret_cast<const uint8_t*>(buf.data()), static_cast<size_t>(size));
   return m.ok() ? partSize(m) : -1;
 }
+
+/**
+ * Each face's expected triangles (expected_counts.h: its first meshing's point cap count, with the setters' options,
+ * the analysis among them, as tc_tessellate would mesh it), into tc_expected_out: 2 numbers a face, its id and the
+ * count (0: none). The number of faces, or -1 if the buffer isn't a model. tc_tessellate's result is kept.
+ */
+int tc_expected_counts(const uint8_t* data, int size, double linear, double angular) {
+  expectedOut.clear();
+  std::vector<uint64_t> buf((static_cast<size_t>(size) + 7) / 8);
+  std::memcpy(buf.data(), data, static_cast<size_t>(size));
+  const Model m(reinterpret_cast<const uint8_t*>(buf.data()), static_cast<size_t>(size));
+  if (!m.ok()) return -1;
+  double partLength = 0;
+  for (const auto& [id, n] : expectedCounts(m, partOptions(m, linear, angular, partLength)))
+    expectedOut.insert(expectedOut.end(), {static_cast<double>(id), n});
+  return static_cast<int>(expectedOut.size() / 2);
+}
+const double* tc_expected_out() { return expectedOut.data(); }
+
+int tc_num_reported() { return static_cast<int>(result.reported.size() / 6); }
+const double* tc_reported() { return result.reported.data(); }
 
 int tc_num_vertices() { return static_cast<int>(result.positions.size() / 3); }
 const float* tc_positions() { return result.positions.data(); }

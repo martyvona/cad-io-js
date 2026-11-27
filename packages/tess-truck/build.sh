@@ -8,6 +8,10 @@ set -e
 cd "$(dirname "$0")"
 [ -d ../../third_party/truck/truck-stepio ] || { echo "no truck checkout: run third_party/pull.sh" >&2; exit 1; }
 mkdir -p dist build
+# The sources' hash, taken before compiling and recorded beside the module once it is built, for
+# scripts/check-dist.ts (npm test refuses a module older than its sources).
+INPUTS=$(node ../../scripts/check-dist.ts --hash tess_truck.wasm)
+rm -f dist/tess_truck.wasm.inputs
 ROOT=$(cd ../.. && pwd)
 WASM_OPT=$ROOT/third_party/emsdk/upstream/bin/wasm-opt
 [ -x "$WASM_OPT" ] || { echo "no $WASM_OPT: run scripts/fetch-emsdk.sh" >&2; exit 1; }
@@ -19,3 +23,4 @@ WASM_OPT=$ROOT/third_party/emsdk/upstream/bin/wasm-opt
 OUT=build/target/wasm32-unknown-unknown/release/tess_truck.wasm
 "$WASM_OPT" -O "$OUT" -o dist/tess_truck.wasm
 ls -la dist/tess_truck.wasm
+echo "$INPUTS" > dist/tess_truck.wasm.inputs

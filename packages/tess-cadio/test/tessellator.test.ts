@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from 'cad-scene';
+import { CHECK, faceRecords, openEdges, oracleMeasures, type TessellationProgress, type TessellationResult } from
+  'cad-scene';
 import { MODELS } from '../../cad-brep/test/models.ts';
 import { type BrepData, BrepBuilder, curveEvaluator, openBrep } from '../../cad-brep/src/index.ts';
 import { CadioTessellator, EXPECTED_HEAD, INSERTED_HEAD, INSERTED_KINDS, POLES_HEAD, progressReporter, ROUNDS_HEAD,
@@ -360,6 +361,22 @@ test('a request\'s analysis read (info.readsAnalysis): an edge past repair met a
   assert.equal(failedCauses(healed).size, 0);
   assert.equal(keptDefects(healed).size, 0);
   assert.ok(healed.indices.length > 0 && healed.indices.length < plain.indices.length);
+});
+
+test('init({develop}): false meshes each face in (u, v), true (the default) in its developed plane where that is the '
+  + 'nearer isotropic frame', { skip }, async () => {
+  // (cylinderVast, radius 8000: u in radians, so its developed plane divides its metric's stretch by the radius.)
+  const data = new Uint8Array(TESS_MODELS.cylinderVast().finish().buffer);
+  const mesh = async (opts: { develop?: boolean }) => {
+    const t = new CadioTessellator();
+    await t.init(opts);
+    const r = await t.tessellate({ ...req('cube'), data, linearDeflection: 0.1, edges: false });
+    assert.equal(failedCauses(r).size, 0);
+    return [...r.positions].join(',') + '|' + [...r.indices].join(',');
+  };
+  const plain = await mesh({}), developed = await mesh({ develop: true }), uv = await mesh({ develop: false });
+  assert.equal(plain, developed);
+  assert.notEqual(uv, developed);
 });
 
 test('an edge off its face\'s surface past max(d, tol): the face kept, the edge and its distance said, past the '
@@ -857,3 +874,44 @@ test('init({capFloor, capMultiple, capCeiling}): a face past max(floor, multiple
   assert.equal(failedCauses(await run({})).size, 0);
   assert.equal(failedCauses(await run({ capFloor: 1000, capMultiple: 1, capCeiling: 500 })).size, 1);
 });
+
+test('reported: each meshed face\'s deviation and normal checks and point cap count, as its triage record takes '
+  + 'them; its turned triangles as the record measures them', { skip }, async () => {
+  // (Ids for the fixtures' faces, which have none: records are by id.)
+  const withIds = (d: BrepData) => {
+    d.face.id.forEach((_, k) => { d.face.id[k] = 100 + k; });
+    return d;
+  };
+  // torusOuterHalf at a cap of 4 points: kept, its triangles past the deflection and some turned.
+  const torus = withIds(torusOuterHalf().finish());
+  const t = new CadioTessellator();
+  await t.init({ maxPointsPerFace: 4, failCapped: false });
+  const tr = { ...req('cube'), data: new Uint8Array(torus.buffer), linearDeflection: 0.1 };
+  const r = await t.tessellate(tr);
+  const [x] = r.reported!;
+  assert.equal(x!.deviationCheck, CHECK.lowerBound);
+  // (The kept defect's "at least k x the larger of d and tol": its deviation over d.)
+  const what = r.defects![0]!.what;
+  const k = Number(/at least ([\d.]+) x/.exec(what)![1]);
+  assert.ok(Math.abs(x!.deviation / 0.1 - k) < 1e-3, `${x!.deviation} ${what}`);
+  assert.equal(x!.normalCheck, CHECK.failedUnmeasured);
+  const rec = faceRecords(tr, r, torus);
+  assert.equal(rec.turned[0], Number(/^(\d+) triangles turned/.exec(what)![1]), what);
+  assert.equal(rec.deviationCheck[0], CHECK.lowerBound);
+  // An edge off its face's surface (0.5 mm): at least its distance.
+  const bulge = withIds(TESS_MODELS.edgeBulge().finish());
+  const u = await tessellator();
+  const b = (await u.tessellate({ ...req('cube'), data: new Uint8Array(bulge.buffer), linearDeflection: 0.01 }))
+    .reported![0]!;
+  assert.deepEqual([b.deviationCheck, Math.round(b.deviation * 1e4) / 1e4], [CHECK.lowerBound, 0.5]);
+  // The cube's planes: every check passed, each face's count its first meshing's (no split rounds on planes).
+  const cube = await u.tessellate(req('cube'));
+  const counts = u.expectedCounts(req('cube'));
+  assert.equal(cube.reported!.length, 6);
+  for (const y of cube.reported!) {
+    assert.deepEqual([y.deviationCheck, y.normalCheck], [CHECK.passed, CHECK.passed]);
+    assert.ok(y.expected > 0);
+    assert.equal(y.expected, counts.get(y.entityId));
+  }
+});
+

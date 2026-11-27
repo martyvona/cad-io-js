@@ -11,12 +11,12 @@
 #[cfg(not(target_endian = "little"))]
 compile_error!("cad-brep buffers are little-endian");
 
-pub const MAGIC: &[u8; 4] = b"CBA7";
-pub const HEADER_BYTES: usize = 584;
-pub const COLUMN_COUNT: usize = 72;
+pub const MAGIC: &[u8; 4] = b"CBA8";
+pub const HEADER_BYTES: usize = 592;
+pub const COLUMN_COUNT: usize = 73;
 
 /// Each column's element type, in buffer order: b u8, i i32, u u32, f f64.
-const TYPES: &[u8; COLUMN_COUNT] = b"uffbfifiibfbfbfiibfbffbfiibifibfffbibffbbbfbbuffffbbbffiiiiibfffbbbufuuu";
+const TYPES: &[u8; COLUMN_COUNT] = b"uffbfifiibfbfbfiibfbffbfiibifibfffbibffbbbfbbuffffbbbffiiiiibfffbbbufuuub";
 
 const fn bytes(k: usize) -> usize {
     match TYPES[k] {
@@ -345,4 +345,7 @@ impl Analysis {
 
     /// `healing.strayPoles`: 1 per row.
     pub fn healing_stray_poles(&self) -> &[u32] { self.slice(71) }
+
+    /// `source.model`: 1 per row.
+    pub fn source_model(&self) -> &[u8] { self.slice(72) }
 }

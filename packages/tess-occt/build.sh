@@ -14,6 +14,10 @@ B=${B:-build/occt-Os}
 [ -d "$B/include/opencascade" ] || { echo "no OCCT build at $B: run build-occt.sh" >&2; exit 1; }
 LIBS=("$B"/lin32/clang/lib/lib*.a)
 mkdir -p dist build
+# The sources' hash, taken before compiling and recorded beside the module once it is built, for
+# scripts/check-dist.ts (npm test refuses a module older than its sources).
+INPUTS=$(node ../../scripts/check-dist.ts --hash occt_tess.wasm)
+rm -f dist/occt_tess.wasm.inputs
 EXPORTS='["_occt_tessellate","_occt_positions","_occt_normals","_occt_num_vertices","_occt_indices",'\
 '"_occt_num_indices","_occt_faces","_occt_num_faces","_occt_diag","_occt_free","_occt_set_mesh_options",'\
 '"_occt_edge_positions","_occt_num_edge_points","_occt_edges","_occt_edge_angles","_occt_num_edges",'\
@@ -37,3 +41,4 @@ em++ -Os -fwasm-exceptions build/occt_tess.o build/occt_build.o -Wl,--start-grou
   -sEXPORTED_FUNCTIONS="$EXPORTS" \
   -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","HEAPU32","HEAPF64","UTF8ToString"]'
 ls -la dist/occt_tess.wasm dist/occt_tess.mjs
+echo "$INPUTS" > dist/occt_tess.wasm.inputs

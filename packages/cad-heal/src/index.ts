@@ -16,7 +16,7 @@
 // WebAssembly module, `init`).
 
 import { analysisFor, analysisRowCount, type BrepAnalysis, type BrepData, FACING, FACING_FROM, faceOutlines, LOOP_KIND,
-  MEASURE_TRUST, modelHash, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
+  MEASURE_TRUST, modelHash, openBrep, PROVENANCE, rowCount, writeAnalysis } from 'cad-brep';
 import { Geometry, type GeomModule, init } from 'cad-geom';
 import { type Estimate, FLAGS, type FaceMeasure, init as initOracle, JUDGE_PROJECT, JUDGE_REL_TOL, METHOD, Oracle,
   shellBox, solidShells, STATUS } from 'cad-oracle';
@@ -29,6 +29,9 @@ import { tolerances } from './measure.ts';
 import { isError } from './fix/growth.ts';
 import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
 import { MIN_FIT, type Tight, tightFaces } from './fix/tight.ts';
+import { type CoincidentResult, mergeCoincident } from './fix/coincident.ts';
+import { type TrimResult, trimOvershoots } from './fix/overshoot.ts';
+import { mendTouches, type RowsFrom, rowsFrom, type Touched, type TouchResult } from './fix/touch.ts';
 import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
   './fix/shells.ts';
 import { fixesMask, fixesOn, HEAL_VERSION, type HealOptions, PCURVE_FIT_TOLERANCE } from './options.ts';
@@ -69,29 +72,31 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   if (before && before.fixes === fixesMask(fixes) && Object.is(before.fit, fit) && before.version === HEAL_VERSION) {
     return { model, changed: false, analysis: before.analysis, diagnostics: [] };
   }
-  const given = before?.restorable ? restored(model, before.analysis, before.sourceCurves) : model;
+  const given = before?.source ? before.source
+    : before?.restorable ? restored(model, before.analysis, before.sourceCurves) : model;
   // Healing off on a healed model: the source's values back, and an analysis of its healing row alone (no fixes; the
   // poles strayPole moved still counted, so healing again says they're kept).
   if (!fixes.size) {
-    const diagnostics: Diagnostic[] = before!.strayPoles ? [keptPoles(before!.strayPoles, source)] : [];
+    const poles = before!.source ? 0 : before!.strayPoles;
+    const diagnostics: Diagnostic[] = poles ? [keptPoles(poles, source)] : [];
     const out = writeAnalysis({ analysis: { model: await modelHash(given), uncertainty: [tolerances(given).part],
       measureRelTol: [NaN], measureProject: [0] },
-      healing: { fixes: [0], pcurveFitTolerance: [fit], version: [HEAL_VERSION], sourceCurves: [before!.sourceCurves],
-        strayPoles: [before!.strayPoles] } });
+      healing: { fixes: [0], pcurveFitTolerance: [fit], version: [HEAL_VERSION],
+        sourceCurves: [rowCount(given, 'curve')], strayPoles: [poles] } });
     const changed = !sameBytes(given, model);
     return { model: changed ? given : model, changed, analysis: out, diagnostics };
   }
-  const sourceCurves = before?.sourceCurves ?? rowCount(model, 'curve');
+  const sourceCurves = before?.source ? rowCount(given, 'curve') : before?.sourceCurves ?? rowCount(model, 'curve');
   const diagnostics: Diagnostic[] = [];
   // The curves' own fixes first, into a model of their own, so the face API measures the curves as fixed.
   const progress = opts.progress ?? (() => {}), pre = new ModelEdit(given);
   progress('strayPole');
-  const kept = before?.strayPoles ?? 0;
+  const kept = before?.source ? 0 : before?.strayPoles ?? 0;
   if (kept) diagnostics.push(keptPoles(kept));
   const moved = fixes.has('strayPole') ? movePoles(given, pre, diagnostics) : 0;
   const fixed = pre.finish(), edit = new ModelEdit(fixed);
   const geom = module ?? await init(), g = new Geometry(geom, new Uint8Array(fixed.buffer));
-  let curves;
+  let curves: CurvesRecord;
   try {
     // pcurveTight's faces first, on the projections the curves' fixes then reuse.
     let tight: Tight | undefined;
@@ -105,6 +110,40 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
     g.dispose();
   }
   let healed = compactCurves(edit.finish(), sourceCurves);
+  // Edges coincident within their tolerance merged, on the curves as fixed (their ranges as the curves' fixes derived
+  // them): rows change from here, so the curves' record is taken onto the merged rows.
+  let merge: CoincidentResult | undefined;
+  if (fixes.has('coincidentEdges')) {
+    progress('coincidentEdges');
+    merge = mergeCoincident(geom, healed, curves.ranges);
+    if (merge) {
+      coincidentSaid(merge, tolerances(healed).part, diagnostics);
+      curves = mergedRecord(curves, healed, merge);
+      healed = merge.model;
+    }
+  }
+  // Edges overshooting each other's crossing near their vertex trimmed there, on the merged rows (no rows change).
+  let trim: TrimResult | undefined;
+  if (fixes.has('trimOvershoot')) {
+    progress('trimOvershoot');
+    trim = trimOvershoots(geom, healed, curves.ranges);
+    if (trim?.trimmed.length) {
+      overshootSaid(trim, diagnostics);
+      curves = trimmedRecord(curves, trim);
+      healed = trim.model;
+    } else trim = undefined;
+  }
+  // Loops of one face meeting at a point to rounding made to share a vertex there, on the trimmed rows (rows change).
+  let touch: TouchResult | undefined;
+  if (fixes.has('vertexOnEdge')) {
+    progress('vertexOnEdge');
+    touch = mendTouches(geom, healed, curves.ranges);
+    if (touch) {
+      touchSaid(touch, diagnostics);
+      curves = mergedRecord(curves, healed, touch);
+      healed = touch.model;
+    }
+  }
   // Shells facing into their material turned, last: the curves' fixes made on the faces as the source oriented them.
   let shells: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] } | undefined;
   if (fixes.has('orientShells')) {
@@ -226,10 +265,10 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   progress('judging measures');
   const judged = await judgingMeasures(healed, progress);
   progress('the healed model and its analysis');
-  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!shells?.perm
-    || !!shells?.flipped.length || !!shells?.turnedFaces.length;
-  const out = await analysisOf(healed, given, edit, curves, { fixes: fixesMask(fixes), fit, sourceCurves,
-    strayPoles: kept + moved }, judged, shells);
+  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!merge || !!trim || !!touch
+    || !!shells?.perm || !!shells?.flipped.length || !!shells?.turnedFaces.length;
+  const out = await analysisOf(healed, givenRows(given, rowsFrom(merge, touch)), curves, { fixes: fixesMask(fixes),
+    fit, sourceCurves, strayPoles: kept + moved }, judged, shells, merge || trim || touch ? given : undefined);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
 }
@@ -263,14 +302,16 @@ function keptPoles(n: number, source?: SourceId): Diagnostic {
 /**
  * What a model's analysis says of how it was healed (its healing row), or nothing where it's not a healed one:
  * `restorable` where it keeps the source's values (its vertex, edge and coedge rows; healing off's analysis has none,
- * its model the source's but for moved poles).
+ * its model the source's but for moved poles); `source` the source model itself where healing changed its topology.
  */
 async function healedBy(model: BrepData, analysis: BrepAnalysis) {
   const a = await analysisFor(model, analysis);
   if (analysisRowCount(a, 'healing') !== 1) return;
   const restorable = (['vertex', 'edge', 'coedge'] as const)
     .every((t) => analysisRowCount(a, t) === rowCount(model, t));
-  return { analysis: a, restorable, fixes: a.healing.fixes[0]!, fit: a.healing.pcurveFitTolerance[0]!,
+  // (Where healing changed the topology, the source itself: the given values are of the healed rows.)
+  const source = analysisRowCount(a, 'source') ? openBrep(a.source.model.slice()) : undefined;
+  return { analysis: a, restorable, source, fixes: a.healing.fixes[0]!, fit: a.healing.pcurveFitTolerance[0]!,
     version: a.healing.version[0]!, sourceCurves: a.healing.sourceCurves[0]!, strayPoles: a.healing.strayPoles[0]! };
 }
 
@@ -330,10 +371,10 @@ function movePoles(model: BrepData, edit: ModelEdit, diagnostics: Diagnostic[]):
 
 /** The healed model's analysis: provenance of p-curves and tolerances, the source's tolerances, the deviations
  * measured; the rest not computed (NaN, none). */
-async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, curves: CurvesRecord,
+async function analysisOf(healed: BrepData, source: GivenRows, curves: CurvesRecord,
   how: { fixes: number; fit: number; sourceCurves: number; strayPoles: number }, judged: JudgedRows,
-  shells?: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] }):
-  Promise<BrepAnalysis> {
+  shells?: { verdicts: ShellVerdict[]; perm?: Int32Array; flipped: number[]; turnedFaces: number[] },
+  sourceModel?: BrepData): Promise<BrepAnalysis> {
   const nv = rowCount(healed, 'vertex'), ne = rowCount(healed, 'edge'), nc = rowCount(healed, 'coedge');
   // What's indexed by coedge, in the healed model's rows: turned shells' loops' rows are reversed (perm, new to old,
   // its own inverse).
@@ -348,7 +389,7 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
   const from = (table: 'vertex' | 'edge', n: number) => {
     const out = zero(n);
     for (let i = 0; i < n; i++) {
-      const given = source[table].tolerance[i]!, now = edit.get(table, 'tolerance', i);
+      const given = source[table].tolerance[i]!, now = healed[table].tolerance[i]!;
       out[i] = Object.is(given, now) ? Number.isNaN(given) ? PROVENANCE.none : PROVENANCE.given : PROVENANCE.healed;
     }
     return out;
@@ -391,7 +432,128 @@ async function analysisOf(healed: BrepData, source: BrepData, edit: ModelEdit, c
     face: { ...faceRows(healed, shells?.flipped ?? [], shells?.turnedFaces ?? []), ...judged },
     healing: { fixes: [how.fixes], pcurveFitTolerance: [how.fit], version: [HEAL_VERSION],
       sourceCurves: [how.sourceCurves], strayPoles: [how.strayPoles] },
+    ...(sourceModel ? { source: { model: new Uint8Array(sourceModel.buffer) } } : {}),
   });
+}
+
+/**
+ * What analysisOf takes of the model healing started from, on the healed model's rows: the given model's own where no
+ * fix changed the topology, else each row's from the given row it came from (NaN, -1 or the new vertex's point where
+ * a fix made it).
+ */
+type GivenRows = Pick<BrepData, 'part'> & { vertex: Pick<BrepData['vertex'], 'point' | 'tolerance'>;
+  edge: Pick<BrepData['edge'], 'tolerance' | 'range'>; coedge: Pick<BrepData['coedge'], 'pcurve' | 'range'> };
+
+function givenRows(given: BrepData, merge: RowsFrom | undefined): GivenRows {
+  if (!merge) return given;
+  const m = merge.model, pick = <T extends Float64Array | Int32Array>(xs: T, from: Int32Array, width: number,
+    none: number, own?: T) => {
+    const out = new (xs.constructor as new (n: number) => T)(from.length * width);
+    for (let i = 0; i < from.length; i++) {
+      for (let k = 0; k < width; k++) {
+        out[i * width + k] = from[i]! >= 0 ? xs[from[i]! * width + k]! : own ? own[i * width + k]! : none;
+      }
+    }
+    return out;
+  };
+  return { part: given.part,
+    vertex: { point: pick(given.vertex.point, merge.vertexFrom, 3, NaN, m.vertex.point),
+      tolerance: pick(given.vertex.tolerance, merge.vertexFrom, 1, NaN) },
+    edge: { tolerance: pick(given.edge.tolerance, merge.edgeFrom, 1, NaN),
+      range: pick(given.edge.range, merge.edgeFrom, 2, NaN) },
+    coedge: { pcurve: pick(given.coedge.pcurve, merge.coedgeFrom, 1, -1),
+      range: pick(given.coedge.range, merge.coedgeFrom, 2, NaN) } };
+}
+
+/**
+ * The curves' record on the merged rows: each row's from the row it came from, but a use the merge left bare (its
+ * p-curve dropped) has none, and a split edge's range is healing's.
+ */
+function mergedRecord(r: CurvesRecord, before: BrepData, merge: RowsFrom): CurvesRecord {
+  const m = merge.model, nc = rowCount(m, 'coedge'), ne = rowCount(m, 'edge');
+  // (The maps are to the model the merge was given: the curves' rows.)
+  const pcurveFrom = new Uint8Array(nc), deviation = new Float64Array(nc).fill(NaN);
+  for (let c = 0; c < nc; c++) {
+    const k = merge.coedgeFrom[c]!;
+    if (k < 0 || (m.coedge.pcurve[c]! < 0 && before.coedge.pcurve[k]! >= 0)) continue;
+    pcurveFrom[c] = r.pcurveFrom[k]!, deviation[c] = r.deviation[k]!;
+  }
+  const edgeRangeFrom = new Uint8Array(ne), ranges = new Float64Array(2 * ne).fill(NaN);
+  for (let e = 0; e < ne; e++) {
+    const k = merge.edgeFrom[e]!;
+    if (k < 0) continue;
+    const same = Object.is(m.edge.range[2 * e], before.edge.range[2 * k])
+      && Object.is(m.edge.range[2 * e + 1], before.edge.range[2 * k + 1]);
+    edgeRangeFrom[e] = same ? r.edgeRangeFrom[k]! : PROVENANCE.healed;
+    if (same) ranges[2 * e] = r.ranges[2 * k]!, ranges[2 * e + 1] = r.ranges[2 * k + 1]!;
+  }
+  // A trace's row for each use of its coedge that kept its p-curve.
+  const byFrom = new Map<number, number[]>();
+  for (let c = 0; c < nc; c++) {
+    const k = merge.coedgeFrom[c]!;
+    if (k >= 0 && m.coedge.pcurve[c]! >= 0) (byFrom.get(k) ?? byFrom.set(k, []).get(k)!).push(c);
+  }
+  const traces = r.traces.flatMap((t) => (byFrom.get(t.coedge) ?? []).map((c) => ({ ...t, coedge: c })));
+  return { pcurveFrom, deviation, edgeRangeFrom, ranges, traces };
+}
+
+/** The curves' record once trimOvershoot trimmed edges: their ranges healing's, the uses it left bare without p-curves'
+ * records. */
+function trimmedRecord(r: CurvesRecord, trim: TrimResult): CurvesRecord {
+  const edgeRangeFrom = r.edgeRangeFrom.slice(), ranges = r.ranges.slice();
+  for (const e of trim.edges) edgeRangeFrom[e] = PROVENANCE.healed, ranges[2 * e] = ranges[2 * e + 1] = NaN;
+  const pcurveFrom = r.pcurveFrom.slice(), deviation = r.deviation.slice(), bare = new Set(trim.dropped);
+  for (const c of bare) pcurveFrom[c] = 0, deviation[c] = NaN;
+  return { pcurveFrom, deviation, edgeRangeFrom, ranges, traces: r.traces.filter((t) => !bare.has(t.coedge)) };
+}
+
+/** trimOvershoot's diagnostic: a warning with the trims' count, the largest move and the tolerances it left. */
+function overshootSaid(r: TrimResult, diagnostics: Diagnostic[]): void {
+  const n = r.trimmed.length, most = Math.max(...r.trimmed.map((t) => t.moved));
+  const ex = r.trimmed.slice(0, 5).map((t) => `face #${t.face}'s #${t.edges[0]} and #${t.edges[1]} at #${t.vertex} `
+    + `(moved ${t.moved.toPrecision(3)} mm, tails ${t.tails[0].toPrecision(2)} and ${t.tails[1].toPrecision(2)}, `
+    + `tolerance ${t.tolBefore.toPrecision(3)} -> ${t.tolAfter.toPrecision(3)})`);
+  const dropped = r.dropped.length ? `; ${r.dropped.length} trimmed uses' p-curves dropped (not at their edge's `
+    + 'parameter and not trimmable)' : '';
+  diagnostics.push({ severity: 'warning', message: `trimOvershoot: ${n} ${n === 1 ? 'pair' : 'pairs'} of consecutive `
+    + `edges crossing near their vertex trimmed at the crossing, the vertex moved there, up to ${most.toPrecision(3)} `
+    + `mm (${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${dropped}` });
+}
+
+/** vertexOnEdge's diagnostic: a warning with the edges split and the vertices merged, each with its gap. */
+function touchSaid(r: TouchResult, diagnostics: Diagnostic[]): void {
+  const split = r.touched.filter((t) => t.kind === 'split'), merged = r.touched.filter((t) => t.kind === 'merged');
+  const id = (x: number) => x ? `#${x}` : 'one without an id';
+  const list = (xs: Touched[], say: (t: Touched) => string) => `${xs.slice(0, 5).map((t) => `face #${t.face}'s `
+    + `${say(t)} (${t.gap.toPrecision(2)} mm)`).join('; ')}${xs.length > 5 ? `; ${xs.length - 5} more` : ''}`;
+  const parts: string[] = [];
+  if (split.length) parts.push(`${split.length} ${split.length === 1 ? 'edge' : 'edges'} split at a vertex of another `
+    + `loop of the face lying on it (${list(split, (t) => `${id(t.other)} at ${id(t.vertex)}`)})`);
+  if (merged.length) parts.push(`${merged.length} ${merged.length === 1 ? 'pair' : 'pairs'} of vertices of two loops `
+    + `of a face at one point merged (${list(merged, (t) => `${id(t.other)} into ${id(t.vertex)}`)})`);
+  const dropped = r.pcurvesDropped ? `; ${r.pcurvesDropped} split uses' p-curves dropped (not at their edge's `
+    + 'parameter)' : '';
+  diagnostics.push({ severity: 'warning', message: `vertexOnEdge: loops of one face meeting at a point to rounding `
+    + `made to share a vertex there: ${parts.join('; ')}${dropped}` });
+}
+
+/** coincidentEdges' diagnostic: a warning with the merges' count, the longest stretch and largest growth, the faces
+ * removed. */
+function coincidentSaid(r: CoincidentResult, part: number, diagnostics: Diagnostic[]): void {
+  const n = r.merged.length, longest = Math.max(...r.merged.map((m) => m.length));
+  const grown = r.merged.filter((m) => Number.isFinite(m.grown)), most = Math.max(0, ...grown.map((m) => m.grown));
+  const ex = r.merged.slice(0, 5).map((m) => `face #${m.face}'s #${m.edges[0]} and #${m.edges[1]} `
+    + `(${m.length.toPrecision(3)} mm, within ${m.distance.toPrecision(2)} of ${m.tolerance.toPrecision(2)})`);
+  const removed = r.removed.length ? `; ${r.removed.length} ${r.removed.length === 1 ? 'face' : 'faces'} left with no `
+    + `area removed: ${r.removed.slice(0, 10).map((f) => f ? `#${f}` : 'one without an id').join(', ')}`
+    + `${r.removed.length > 10 ? ', ...' : ''}` : '';
+  const growth = grown.length ? `; ${grown.length} merged ${grown.length === 1 ? 'edge\'s' : 'edges\''} tolerance `
+    + `grown, up to ${most.toPrecision(3)} mm (the part's ${part.toPrecision(3)})` : '';
+  const dropped = r.pcurvesDropped ? `; ${r.pcurvesDropped} split uses' p-curves dropped (not at their edge's `
+    + 'parameter)' : '';
+  diagnostics.push({ severity: 'warning', message: `coincidentEdges: ${n} ${n === 1 ? 'stretch' : 'stretches'} of `
+    + `consecutive edges within their tolerance of each other merged, up to ${longest.toPrecision(3)} mm long `
+    + `(${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${growth}${removed}${dropped}` });
 }
 
 /**

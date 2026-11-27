@@ -19,6 +19,7 @@
 #include "cad_geom/creases.h"
 #include "cad_geom/surface.h"
 #include "mesh2d_impl.h"
+#include "develop.h"
 #include "flip.h"
 #include "poles.h"
 
@@ -139,6 +140,82 @@ private:
   mutable std::unordered_map<PointKey, Metric2, PointHash> curMetric_, oldMetric_;
 };
 
+/** A face's field over its developed plane (develop.h, PartOptions::develop), the wrapped field's over (u, v). */
+class DevelopedField final : public SizeField {
+public:
+  DevelopedField(const SizeField& field, const Development& dev) : field_(field), dev_(dev) {}
+  Metric2 metric(Vec2 p) const override {
+    const Vec2 uv = dev_.back(p);
+    return dev_.metric(uv, field_.metric(uv));
+  }
+  bool accept(const Vec2 t[3]) const override {
+    Vec2 o[3];
+    back3(t, o);
+    return field_.accept(o);
+  }
+  bool belowFloor(const Vec2 t[3]) const override {
+    Vec2 o[3];
+    back3(t, o);
+    return field_.belowFloor(o);
+  }
+  int refusalKind(const Vec2 t[3]) const override {
+    Vec2 o[3];
+    back3(t, o);
+    return field_.refusalKind(o);
+  }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override {
+    Vec2 o[3];
+    back3(t, o);
+    if (!field_.worstPoint(o, at)) return false;
+    at = dev_.fwd(at);
+    return true;
+  }
+  bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override {
+    return field_.crowds(dev_.back(a), dev_.back(b), dev_.back(q), frozen);
+  }
+  bool shippedAt(Vec2 p, float out[3]) const override { return field_.shippedAt(dev_.back(p), out); }
+
+private:
+  void back3(const Vec2 t[3], Vec2 o[3]) const {
+    for (int i = 0; i < 3; i++) o[i] = dev_.back(t[i]);
+  }
+  const SizeField& field_;
+  const Development& dev_;
+};
+
+/**
+ * A lantern's field (PartOptions::retryRatio): the face's own, refusing as well each triangle whose 3D area (on the
+ * surface's points at its corners) is past 1 + `ratio` x its patch's ((u, v) area times |S_u x S_v| at its
+ * centroid): a facet standing across a thin, curved band, which the criteria pass where it is thinner than the
+ * refinement floor. Refinement then splits its long edges, the mesher's own and, as split requests, the boundary's.
+ */
+class LanternField final : public SizeField {
+public:
+  LanternField(const SizeField& field, const Surface& s, double ratio) : field_(field), s_(s), ratio_(ratio) {}
+  Metric2 metric(Vec2 p) const override { return field_.metric(p); }
+  bool accept(const Vec2 t[3]) const override { return field_.accept(t) && (!over(t) || field_.belowFloor(t)); }
+  bool belowFloor(const Vec2 t[3]) const override { return field_.belowFloor(t); }
+  int refusalKind(const Vec2 t[3]) const override { return field_.refusalKind(t); }
+  bool worstPoint(const Vec2 t[3], Vec2& at) const override { return field_.worstPoint(t, at); }
+  bool crowds(Vec2 a, Vec2 b, Vec2 q, bool frozen) const override { return field_.crowds(a, b, q, frozen); }
+  bool shippedAt(Vec2 p, float out[3]) const override { return field_.shippedAt(p, out); }
+
+private:
+  bool over(const Vec2 t[3]) const {
+    SurfacePoint q[3], g;
+    for (int i = 0; i < 3; i++)
+      if (s_.eval(t[i].x, t[i].y, 0, q[i]) != Status::ok) return false;
+    if (s_.eval((t[0].x + t[1].x + t[2].x) / 3, (t[0].y + t[1].y + t[2].y) / 3, 1, g) != Status::ok) return false;
+    const double a3 = 0.5 * norm(cross(q[1].p - q[0].p, q[2].p - q[0].p));
+    const double ap = 0.5 * std::fabs((t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y)) *
+      norm(cross(g.du, g.dv));
+    return a3 > (1 + ratio_) * ap;
+  }
+  const SizeField& field_;
+  const Surface& s_;
+  const double ratio_;
+};
+
 } // namespace
 
 struct PartMesher::Impl {
@@ -154,6 +231,8 @@ struct PartMesher::Impl {
   std::vector<std::vector<SurfaceCriteria::Crease>> creaseLines;
   std::vector<Box2> critBox;
   std::vector<char> retried, retriedKept, sliver;
+  /** Per face, whether it is meshed on its LanternField (retryFace). */
+  std::vector<char> lantern;
   /**
    * Per face, the pairs its last refused meshing named (SIZE_MAX: none yet) and how many refusals in a row they've
    * grown past kCrossingGrowth x the last's: no crossing splits once that is kCrossingRuns.
@@ -1626,6 +1705,92 @@ struct PartMesher::Impl {
     sliver[f] = ap < off * perim;
   }
 
+  /**
+   * Face f's developed plane (PartOptions::develop) for domain d: a cone's exact development (developCone), its apex
+   * in the face or not; else the upper Cholesky factor of the mean first fundamental form over a 9 x 9 grid of the
+   * domain's box, scaled so v keeps its unit; none where that form is degenerate or the identity, or the face has a
+   * pole's ring (the form vanishing towards it, one map for the face far off near it), or where the face's metric is
+   * no nearer isotropic in that plane than in (u, v) (nearerIsotropic).
+   */
+  Development developedMap(int f, const Domain2& d) const {
+    const Development dev = developedCandidate(f, d);
+    return dev.active() && nearerIsotropic(f, d, dev) ? dev : Development{};
+  }
+
+  /**
+   * Whether face f's criteria's metric over domain d is nearer isotropic through `dev` than in (u, v): its largest
+   * log stretch (half the log of its eigenvalues' ratio) over a 9 x 9 grid of the domain's box the lower. The first
+   * triangulation is Delaunay in its frame, and refinement builds the metric's anisotropy from it by thinness: a cone
+   * towards its apex, sized across by the angle (0.51 |R| at medium), is uniform in (u, v), stretch 14, but 21 to 319
+   * in its plane (nist_ctc_02 #20640: 37 triangles in (u, v), 736 and slivers developed); a band of a wide cone,
+   * |R| 95, the reverse (firetherm #168383's #223558: 2,450 in (u, v) with u in radians, 28 developed). The largest,
+   * not the mean: a grid even over the box weights an apex cone's rim, where its plane is near isotropic, as much as
+   * its ring, where the slivers come (#20640's means 2.69 and 2.68, its largest 2.79 and 5.77).
+   */
+  bool nearerIsotropic(int f, const Domain2& d, const Development& dev) const {
+    if (!criteria[f]) return true;
+    double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+    for (Vec2 q : d.points)
+      ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
+    auto stretch = [](const Metric2& M) {
+      const double h = 0.5 * (M.a + M.c), r = std::sqrt(std::max(0.0, h * h - (M.a * M.c - M.b * M.b)));
+      return h - r > 0 ? 0.5 * std::log((h + r) / (h - r)) : NAN;
+    };
+    double inUv = 0, inPlane = 0;
+    for (int i = 0; i <= 8; i++)
+      for (int j = 0; j <= 8; j++) {
+        const Vec2 uv{ulo + (uhi - ulo) * i / 8, vlo + (vhi - vlo) * j / 8};
+        const Metric2 M = criteria[f]->metric(uv);
+        const double a = stretch(M), b = stretch(dev.metric(uv, M));
+        if (!std::isfinite(a) || !std::isfinite(b)) continue;
+        inUv = std::max(inUv, a), inPlane = std::max(inPlane, b);
+      }
+    return inPlane < inUv || (inUv == 0 && inPlane == 0);
+  }
+
+  /** Face f's developed plane as developedMap describes it, before the isotropy test (nearerIsotropic). */
+  Development developedCandidate(int f, const Domain2& d) const {
+    if (!surfaces[f]) return {};
+    if (m.surfaceKind(m.faceSurface(f)) == CBR_SURFACE_CONE) {
+      ConeMap cone;
+      if (developCone(f, d, cone)) return Development(cone);
+    }
+    if (!rings[f].empty()) return {};
+    double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+    for (Vec2 q : d.points)
+      ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
+    double E = 0, F = 0, G = 0;
+    int k = 0;
+    for (int i = 0; i <= 8; i++)
+      for (int j = 0; j <= 8; j++) {
+        SurfacePoint q;
+        if (surfaces[f]->eval(ulo + (uhi - ulo) * i / 8, vlo + (vhi - vlo) * j / 8, 1, q) != Status::ok) continue;
+        const double e = dot(q.du, q.du), ff = dot(q.du, q.dv), g = dot(q.dv, q.dv);
+        if (!std::isfinite(e + ff + g)) continue;
+        E += e, F += ff, G += g, k++;
+      }
+    if (!(k > 0 && E > 0 && G * E - F * F > 1e-12 * (E + G) * (E + G))) return {};
+    const double a = std::sqrt(E), cc = std::sqrt(G - F * F / E);
+    const AffineMap map{a / cc, F / a / cc, 1};
+    return map.s == 1 && map.b == 0 ? Development{} : Development(map);
+  }
+
+  /**
+   * Face f's cone developed (develop.h's coneFromSamples) over domain d: |S_u| = |R| at the box's middle u and its
+   * lowest and highest v, |S_v| for the ruling's speed. False where the samples give no slope.
+   */
+  bool developCone(int f, const Domain2& d, ConeMap& out) const {
+    double ulo = INFINITY, uhi = -INFINITY, vlo = INFINITY, vhi = -INFINITY;
+    for (Vec2 q : d.points)
+      ulo = std::min(ulo, q.x), uhi = std::max(uhi, q.x), vlo = std::min(vlo, q.y), vhi = std::max(vhi, q.y);
+    if (!(vhi > vlo) || !(uhi >= ulo)) return false;
+    const double um = 0.5 * (ulo + uhi);
+    SurfacePoint a, b;
+    if (surfaces[f]->eval(um, vlo, 1, a) != Status::ok || surfaces[f]->eval(um, vhi, 1, b) != Status::ok) return false;
+    out = coneFromSamples(um, vlo, vhi, norm(a.du), norm(b.du), norm(a.dv));
+    return out.slope != 0;
+  }
+
   /** Whether face f is one to retry (PartOptions::retryStretch): ok but far over its patch, or its meshing failed. */
   bool toRetry(int f) const {
     if (!(o.retryStretch > 0) || !criteria[f] || !surfaces[f] || retried[f]) return false;
@@ -1640,7 +1805,8 @@ struct PartMesher::Impl {
   /**
    * Face f meshed again with its criteria made at the capped stretch, its first point cap kept; the retry kept where
    * it's the better mesh (ok, and where it was ok before, under its patch ratio then),
-   * else the face meshed again on its own criteria (each meshing a function of its boundary, so as it was).
+   * else the face meshed again on its own criteria (each meshing a function of its boundary, so as it was). Then, a
+   * lantern still, on its LanternField too.
    */
   void retryFace(int f) {
     Deflections d = o.d;
@@ -1659,15 +1825,82 @@ struct PartMesher::Impl {
     if (f < static_cast<int>(memos.size())) memos[f].reset();
     meshFace(f);
     const bool better = faces[f].status == Status::ok && (!okBefore || patchRatio[f] < ratioBefore);
-    if (better) return;
-    criteria[f] = std::move(own);
-    capKeep[f] = 0;
-    retriedKept[f] = 0;
-    if (f < static_cast<int>(memos.size())) memos[f].reset();
+    if (!better) {
+      criteria[f] = std::move(own);
+      capKeep[f] = 0;
+      retriedKept[f] = 0;
+      if (f < static_cast<int>(memos.size())) memos[f].reset();
+      meshFace(f);
+    }
+    // Still a lantern (ok, far over its patch, no sliver): meshed on its LanternField (meshFace), kept where ok and
+    // under its patch ratio before or asking splits (a band's triangles reach across it from one side's span to the
+    // other's, so only the boundary's splits, in the rounds, mend it), else meshed as before; on it in the rounds
+    // after.
+    if (faces[f].status != Status::ok || !(patchRatio[f] > 1 + o.retryRatio) || sliver[f]) return;
+    const double lanternBefore = patchRatio[f];
+    lantern[f] = 1;
+    meshFace(f);
+    if (lantern[f] && faces[f].status == Status::ok && (patchRatio[f] < lanternBefore || !wanted[f].empty())) return;
+    lantern[f] = 0;
     meshFace(f);
   }
 
+  /**
+   * Face f meshed (meshOnce); on its LanternField, a meshing that ends at its point cap leaves the triangles it
+   * refused, turned ones among them, so the face is off it from then and meshed again as before.
+   */
   void meshFace(int f) {
+    meshOnce(f);
+    if (!lantern[f] || !faces[f].capped) return;
+    lantern[f] = 0;
+    meshOnce(f);
+  }
+
+  /** Per model edge, the faces whose loops use it (shippedBeside's neighbours). */
+  std::vector<std::vector<int>> facesOfEdge;
+  /**
+   * Into `out`, as shipped (float32 minus PartOptions::outputOrigin where it's known, as the criteria's shippedAt):
+   * the corners of each neighbour's current triangles with a corner exactly on one of face f's boundary points, the
+   * neighbours (faces sharing a model edge with f) in order. A point of f's beside an edge can weld in the output only
+   * with a neighbour's within a float32 step of it, and those stand beside the same edge: the ring of triangles on its
+   * samples (a capped face's column of points refined towards the edge, conical-surface #77's beside cone #78).
+   */
+  void shippedBeside(int f, const std::vector<BoundaryPoint>& bp, std::vector<std::array<float, 3>>& out) const {
+    out.clear();
+    std::vector<int> near;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int k = 0; k < m.loopCount(l); k++)
+        for (int g : facesOfEdge[m.coedgeEdge(m.loopFirst(l) + k)])
+          if (g != f) near.push_back(g);
+    }
+    std::sort(near.begin(), near.end());
+    near.erase(std::unique(near.begin(), near.end()), near.end());
+    if (near.empty()) return;
+    std::set<std::tuple<double, double, double>> on;
+    for (const BoundaryPoint& p : bp) on.insert({p.point.x, p.point.y, p.point.z});
+    const double* O = o.outputOrigin;
+    const bool origin = std::isfinite(O[0]) && std::isfinite(O[1]) && std::isfinite(O[2]);
+    for (int g : near) {
+      const FaceMesh& G = faces[g];
+      for (size_t t = 0; t + 2 < G.triangles.size(); t += 3) {
+        bool beside = false;
+        for (int k = 0; k < 3 && !beside; k++) {
+          const Vec3& q = G.points[G.triangles[t + k]];
+          beside = on.count({q.x, q.y, q.z}) > 0;
+        }
+        if (!beside) continue;
+        for (int k = 0; k < 3; k++) {
+          const Vec3& q = G.points[G.triangles[t + k]];
+          out.push_back({static_cast<float>(q.x - (origin ? O[0] : 0)), static_cast<float>(q.y - (origin ? O[1] : 0)),
+            static_cast<float>(q.z - (origin ? O[2] : 0))});
+        }
+      }
+    }
+  }
+
+  void meshOnce(int f) {
     at.row = f;
     if (o.progress) o.progress(at);
     FaceMesh& out = faces[f];
@@ -1774,6 +2007,7 @@ struct PartMesher::Impl {
     std::vector<const BoundaryPoint*> pts;
     for (const BoundaryPoint& p : bp) d.points.push_back(p.uv), pts.push_back(&p);
     addCuts(f, pts);
+    shippedBeside(f, bp, d.shippedNear);
     // The segments the edges won't split (an edge's span whose chord is within the refinement floor, or an end
     // span too short to take a point past the edge's near-end drop, as EdgeMesh::split has them): frozen, so the
     // mesher inserts past them rather than asking.
@@ -1797,6 +2031,10 @@ struct PartMesher::Impl {
     out.capExpected = domainExpected(d, *criteria[f]);
     out.cap = std::min(o.capCeiling, std::max(o.capFloor, o.capMultiple * out.capExpected));
     if (capKeep[f] > 0) out.cap = std::min(out.cap, capKeep[f]);  // (a retry keeps its first cap)
+    if (o.expectedOnly) {
+      out.cause = "expected count only (PartOptions::expectedOnly)";
+      return;
+    }
     mo.maxPoints = o.maxPointsPerFace >= 0 ? o.maxPointsPerFace : static_cast<int>(std::min(out.cap / 2, 1e9));
     mo.minAngle = o.minAngle;
     mo.bisectLong = o.d.maxEdge > 0;
@@ -1818,6 +2056,11 @@ struct PartMesher::Impl {
       if (!memos[f]) memos[f] = std::make_unique<VerdictMemo>(*criteria[f], memoBytes, memoPeak, o.verdictBudget);
       meshedAt[f] = meshings++;
       field = memos[f].get();
+    }
+    std::unique_ptr<LanternField> lanternField;
+    if (lantern[f]) {
+      lanternField = std::make_unique<LanternField>(*field, *surfaces[f], o.retryRatio);
+      field = lanternField.get();
     }
     // (The boundary's own points for the criteria's facet tests: the output's, which the edges' curves give.)
     {
@@ -1885,13 +2128,38 @@ struct PartMesher::Impl {
         }
       }
     }
-    Mesh2 mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+    // (PartOptions::develop: the domain mapped to its developed plane, the result mapped back, the domain's points
+    // exactly as given, the splits it wants at their fraction.)
+    const Development developed = o.develop && !d.points.empty() ? developedMap(f, d) : Development{};
+    auto mesh2In = [&](const Domain2& dd) {
+      if (!developed.active()) return detailed ? mesh2Detailed(dd, *field, mo, &detail) : mesh2(dd, *field, mo);
+      Development dev = developed;
+      DevelopedField devField(*field, dev);
+      Domain2 dx = dd;
+      for (Vec2& q : dx.points) q = dev.own(q);
+      // (Two of the domain's points at one image: meshed in (u, v).)
+      if (dev.collided()) return detailed ? mesh2Detailed(dd, *field, mo, &detail) : mesh2(dd, *field, mo);
+      for (Vec2& q : dx.seeds) q = dev.fwd(q);
+      Mesh2 r = detailed ? mesh2Detailed(dx, devField, mo, &detail) : mesh2(dx, devField, mo);
+      for (size_t i = 0; i < r.points.size(); i++)
+        r.points[i] = i < dd.points.size() ? dd.points[i] : dev.back(r.points[i]);
+      for (SplitWanted& w : r.splitWanted) {
+        const Vec2 A = dd.points[w.a], B = dd.points[w.b];
+        w.point = {A.x + w.fraction * (B.x - A.x), A.y + w.fraction * (B.y - A.y)};
+      }
+      return r;
+    };
+    Mesh2 mesh = mesh2In(d);
     // (Meshing from the seeds failed, or left a triangle its criteria refuse, which a kept point can stand in the way
-    // of without the triangle asking a split: from the boundary alone, as the first time.)
+    // of without the triangle asking a split: from the boundary alone, as the first time. Not where each refused one
+    // was kept from mending only by a neighbour's vertex shipping where its point would, Mesh2::rejectedWeld: meshed
+    // again, the face would ask other splits beside it, round after round.)
+    const bool onlyWelds = mesh.rejectedWeld.size() == mesh.rejected.size() &&
+      std::all_of(mesh.rejectedWeld.begin(), mesh.rejectedWeld.end(), [](uint8_t w) { return w != 0; });
     if (!d.seeds.empty() && ((mesh.status != Status::ok && mesh.status != Status::noConvergence) ||
-      !mesh.rejected.empty())) {
+      (!mesh.rejected.empty() && !onlyWelds))) {
       d.seeds.clear();
-      mesh = detailed ? mesh2Detailed(d, *field, mo, &detail) : mesh2(d, *field, mo);
+      mesh = mesh2In(d);
     }
     {
       const int meshings = last[f].meshings + 1;
@@ -2214,7 +2482,7 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.surfaces.resize(nf);
   I.criteria.resize(nf);
   I.creaseLines.assign(nf, {}), I.critBox.assign(nf, {}), I.retried.assign(nf, 0), I.retriedKept.assign(nf, 0);
-  I.sliver.assign(nf, 0), I.crossingsBefore.assign(nf, SIZE_MAX), I.crossingRuns.assign(nf, 0);
+  I.lantern.assign(nf, 0), I.sliver.assign(nf, 0), I.crossingsBefore.assign(nf, SIZE_MAX), I.crossingRuns.assign(nf, 0);
   I.capKeep.assign(nf, 0), I.patchRatio.assign(nf, 0);
   I.memos.resize(nf);
   I.meshedAt.assign(nf, 0);
@@ -2222,6 +2490,16 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   I.criteriaWhy.assign(nf, "");
   I.faces.resize(nf);
   I.edgesOf.resize(nf);
+  I.facesOfEdge.assign(m.edges(), {});
+  for (int g = 0; g < nf; g++)
+    for (int i = 0; i < m.faceLoopCount(g); i++) {
+      const int l = m.faceFirstLoop(g) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int k = 0; k < m.loopCount(l); k++) {
+        std::vector<int>& fs = I.facesOfEdge[m.coedgeEdge(m.loopFirst(l) + k)];
+        if (fs.empty() || fs.back() != g) fs.push_back(g);
+      }
+    }
   I.wanted.resize(nf);
   I.rings.resize(nf);
   I.mesherTriangles.assign(nf, 0);
@@ -2294,7 +2572,12 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
   }
   if (I.o.creases) I.findFaceCreases();
   I.at = {PartProgress::meshing, 0, 0, 0, nf};
-  for (int f = 0; f < nf; f++, I.at.facesDone++) I.meshFace(f), I.capCheck(f);
+  for (int f = 0; f < nf; f++, I.at.facesDone++) {
+    I.meshFace(f);
+    if (!I.o.expectedOnly) I.capCheck(f);
+  }
+  // (PartOptions::expectedOnly: no triangles to check, retry or split; each face's first meshing's count is all.)
+  if (I.o.expectedOnly) return;
   // (PartOptions::retryStretch: faces far over their patches, or whose meshing failed, meshed again at the capped
   // stretch, now and once more after the rounds.)
   for (int f = 0; f < nf; f++)

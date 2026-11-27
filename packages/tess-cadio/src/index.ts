@@ -10,7 +10,7 @@ import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 11;
+const API_VERSION = 12;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -90,6 +90,7 @@ interface CadioExports {
   HEAPU8: Uint8Array;
   HEAPU32: Uint32Array;
   HEAPF32: Float32Array;
+  HEAPF64: Float64Array;
   UTF8ToString(p: number): string;
   _malloc(n: number): number;
   _free(p: number): void;
@@ -102,6 +103,7 @@ interface CadioExports {
   _tc_set_list_poles: Fn;
   _tc_set_count_expected: Fn;
   _tc_set_fail_capped: Fn;
+  _tc_set_develop: Fn;
   _tc_set_fail_turned_over: Fn;
   _tc_set_keep_defects: Fn;
   _tc_set_fail_folded_fans: Fn;
@@ -112,6 +114,10 @@ interface CadioExports {
   _tc_set_min_angle: Fn;
   _tc_set_max_edge: Fn;
   _tc_part_size: Fn;
+  _tc_expected_counts: Fn;
+  _tc_expected_out: Fn;
+  _tc_num_reported: Fn;
+  _tc_reported: Fn;
   /** Set for a call: tess_cadio_api.cpp's progress (js_progress, progressReporter's). */
   tcProgress?: ProgressHook;
   _tc_num_vertices: Fn;
@@ -187,6 +193,12 @@ export interface CadioInitOptions {
   failCapped?: boolean;
   failTurnedOver?: boolean;
   /**
+   * Mesh each face's first triangulation in the plane its domain develops to (part.h's PartOptions::develop: a
+   * cone's exact development, another face's mean first fundamental form); default true. False meshes in (u, v), for
+   * comparing the two, and tests.
+   */
+  develop?: boolean;
+  /**
    * Keep a face whose defect is small rather than fail it (part.h's PartOptions::keepDefects: a few triangles turned,
    * a little past its deflection, at its point cap), the defect said in a warning (KEPT_HEAD); default true.
    */
@@ -252,6 +264,7 @@ export class CadioTessellator implements Tessellator {
   private listPoles = false;
   private countExpected = false;
   private failCapped = true;
+  private develop = true;
   private failTurnedOver = true;
   private keepDefects = true;
   private failFoldedFans = true;
@@ -276,6 +289,7 @@ export class CadioTessellator implements Tessellator {
     this.listPoles = opts.listPoles ?? false;
     this.countExpected = opts.countExpected ?? false;
     this.failCapped = opts.failCapped ?? true;
+    this.develop = opts.develop ?? true;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.keepDefects = opts.keepDefects ?? true;
     this.failFoldedFans = opts.failFoldedFans ?? true;
@@ -326,30 +340,9 @@ export class CadioTessellator implements Tessellator {
     // (Pointers come back as signed 32-bit numbers: unsigned, as the module's memory may pass 2 GB.)
     const ptr = m._malloc(req.data.length) >>> 0;
     m.HEAPU8.set(req.data, ptr);
-    // (The part's analysis where healing gave one: its healed p-curves placed as projected, edges and vertices grown
-    // past repair judged at their starting tolerances. malloc's blocks are 8-byte aligned, as the analysis's columns
-    // need.)
-    const an = req.analysis?.length ? m._malloc(req.analysis.length) >>> 0 : 0;
-    if (an) m.HEAPU8.set(req.analysis!, an);
-    m._tc_set_analysis(an, an ? req.analysis!.length : 0);
+    const an = this.configure(req);
     let rc: number;
     m.tcProgress = onProgress ? progressReporter(onProgress) : undefined;
-    m._tc_set_project(this.project ? 1 : 0);
-    m._tc_set_check_deviation(this.checkDeviation ? 1 : 0);
-    m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
-    m._tc_set_count_angles(this.countAngles ? 1 : 0);
-    m._tc_set_list_poles(this.listPoles ? 1 : 0);
-    m._tc_set_count_expected(this.countExpected ? 1 : 0);
-    m._tc_set_fail_capped(this.failCapped ? 1 : 0);
-    m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
-    m._tc_set_keep_defects(this.keepDefects ? 1 : 0);
-    m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);
-    m._tc_set_fan_rules(...this.fanRules);
-    m._tc_set_max_points(this.maxPoints);
-    m._tc_set_cap(...this.cap);
-    // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)
-    m._tc_set_min_angle(req.minAngle ?? this.minAngle);
-    m._tc_set_max_edge(this.maxEdge);
     try {
       rc = m._tc_tessellate(ptr, req.data.length, req.linearDeflection, req.angularDeflection, origin[0], origin[1],
         origin[2], req.edges ? 1 : 0);
@@ -376,6 +369,14 @@ export class CadioTessellator implements Tessellator {
     const faces: TessellationResult['faces'] = [];
     for (let i = 0; i < fd.length; i += 3) faces.push({ entityId: id(fd[i]!), start: fd[i + 1]!, count: fd[i + 2]! });
     const result: TessellationResult = { origin, positions, normals, indices, faces, diagnostics };
+    // What the meshing measured of each meshed face, for its triage record (records.ts): 6 numbers each.
+    const nr = m._tc_num_reported();
+    if (nr) {
+      const at = (m._tc_reported() >>> 0) >>> 3, x = m.HEAPF64.slice(at, at + 6 * nr);
+      result.reported = [];
+      for (let i = 0; i < nr; i++) result.reported.push({ entityId: x[6 * i]!, deviationCheck: x[6 * i + 1]!,
+        deviation: x[6 * i + 2]!, normalCheck: x[6 * i + 3]!, normalAngle: x[6 * i + 4]!, expected: x[6 * i + 5]! });
+    }
     // With measures, the area oracle's areas (cad-scene's oracleMeasures; this backend measures none of its own).
     if (req.measures) result.oracle = oracleMeasures(req.data, req.analysis);
     if (req.edges) {
@@ -541,6 +542,64 @@ export class CadioTessellator implements Tessellator {
         + `${against.slice(0, 10).join(', ')}${against.length > 10 ? ', ...' : ''}` });
     }
     return result;
+  }
+
+  /**
+   * The module set to mesh as `req` asks (this tessellator's options, the request's minAngle and analysis), for
+   * tc_tessellate and tc_expected_counts alike: the analysis's copy in the module's memory (0: none), to free.
+   */
+  private configure(req: Pick<TessellationRequest, 'minAngle' | 'analysis'>): number {
+    const m = this.m!;
+    // (The part's analysis where healing gave one: its healed p-curves placed as projected, edges and vertices grown
+    // past repair judged at their starting tolerances. malloc's blocks are 8-byte aligned, as the analysis's columns
+    // need.)
+    const an = req.analysis?.length ? m._malloc(req.analysis.length) >>> 0 : 0;
+    if (an) m.HEAPU8.set(req.analysis!, an);
+    m._tc_set_analysis(an, an ? req.analysis!.length : 0);
+    m._tc_set_project(this.project ? 1 : 0);
+    m._tc_set_check_deviation(this.checkDeviation ? 1 : 0);
+    m._tc_set_count_insertions(this.countInsertions ? 1 : 0);
+    m._tc_set_count_angles(this.countAngles ? 1 : 0);
+    m._tc_set_list_poles(this.listPoles ? 1 : 0);
+    m._tc_set_count_expected(this.countExpected ? 1 : 0);
+    m._tc_set_fail_capped(this.failCapped ? 1 : 0);
+    m._tc_set_develop(this.develop ? 1 : 0);
+    m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
+    m._tc_set_keep_defects(this.keepDefects ? 1 : 0);
+    m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);
+    m._tc_set_fan_rules(...this.fanRules);
+    m._tc_set_max_points(this.maxPoints);
+    m._tc_set_cap(...this.cap);
+    // (A request's own minAngle first: cad-scene's TessellationRequest; else init's.)
+    m._tc_set_min_angle(req.minAngle ?? this.minAngle);
+    m._tc_set_max_edge(this.maxEdge);
+    return an;
+  }
+
+  /**
+   * Each face's expected triangles, by id, as tess-cadio would cap its first meshing of the part for `req` with this
+   * tessellator's options (expected_counts.h): the count triage judges any backend's mesh of the face by (its h).
+   * Faces that fail before the count (their boundary) are left out: no count, not 0.
+   */
+  expectedCounts(req: Pick<TessellationRequest, 'data' | 'linearDeflection' | 'angularDeflection' | 'minAngle'
+    | 'analysis'>): Map<number, number> {
+    const m = this.m;
+    if (!m) throw new Error('CadioTessellator: call init() first');
+    const ptr = m._malloc(req.data.length) >>> 0;
+    m.HEAPU8.set(req.data, ptr);
+    const an = this.configure(req);
+    try {
+      const n = m._tc_expected_counts(ptr, req.data.length, req.linearDeflection, req.angularDeflection);
+      if (n < 0) throw new Error('CadioTessellator.expectedCounts: not a cad-brep model');
+      const at = (m._tc_expected_out() >>> 0) >>> 3, x = m.HEAPF64.slice(at, at + 2 * n);
+      const out = new Map<number, number>();
+      for (let i = 0; i < n; i++) if (x[2 * i]! && x[2 * i + 1]! > 0) out.set(x[2 * i]!, x[2 * i + 1]!);
+      return out;
+    } finally {
+      m._free(ptr);
+      if (an) m._free(an);
+      m._tc_set_analysis(0, 0);
+    }
   }
 
   /**

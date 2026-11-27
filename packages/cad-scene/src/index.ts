@@ -16,6 +16,11 @@ export { notManifoldCount, notManifoldDiagnostic, notManifoldMessage, reported, 
   type ShellDefects } from './manifold.ts';
 export { composeResults } from './compose.ts';
 export { failedMessage, FILL_WIDTH, filledMessage, fillFaces, fillResult, type Filled } from './fill.ts';
+export { AREA, CHECK, RECORDS_VERSION, composeRecords, DEFAULT_MIN_ANGLE, EXPECTED, faceRecords, ORIENTATION, type RecordInputs,
+  recordOriented, recordsFromJson, recordSewn, recordsJson, shareExpected } from './records.ts';
+export { type ClassifyContext, classify, classifyAll, CRITERIA, type Criterion, type CriterionClass, describeTarget,
+  type FaceClass, type FaceClasses, H_FLOOR, H_MULTIPLE, type Level, type Target, TARGET_NAMES, type TargetName,
+  TARGETS } from './targets.ts';
 export { JOIN_CORNER, JOIN_SNAP, joinedMessage, joinEdges, joinResult, type Joined } from './join.ts';
 export { againstHealedMessage, orientResult, shellsOriented, type Turned, turnedMessage, wrongShells }
   from './orient.ts';
