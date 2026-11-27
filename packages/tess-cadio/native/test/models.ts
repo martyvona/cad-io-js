@@ -81,8 +81,12 @@ export function longPlate(): BrepBuilder {
  * cad-brep's seam cylinder with no p-curves: every use by inversion, the seam's two sides from their neighbours.
  * With `sense` false the face is turned and its loop isn't: the sides its neighbours give break the rule.
  */
-function seam(sense: boolean): BrepBuilder {
+function seam(sense: boolean, pcurves = false, shift = 0): BrepBuilder {
   const b = new BrepBuilder();
+  // (With `pcurves`, each use's: u = t + shift round the circles, the seam's at u = 2 pi + shift going up and shift
+  // coming down, v = z.)
+  const p = (u: number, v: number, du: number, dv: number) =>
+    pcurves ? { pcurve: b.addCurve(line2([u + shift, v], [du, dv])) } : {};
   const bottom = b.addCurve({ kind: 'circle', position: AXIS, radius: 2 });
   const top = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, 5] }, radius: 2 });
   const line = b.addCurve({ kind: 'line', point: [2, 0, 0], direction: [0, 0, 1], magnitude: 1 });
@@ -92,8 +96,10 @@ function seam(sense: boolean): BrepBuilder {
   const es = b.addEdge({ curve: line, start: v0, end: v1, sameSense: true });
   const face = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: 2 }), sameSense: sense,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
-      { edge: eb, orientation: 'forward' }, { edge: es, orientation: 'forward' },
-      { edge: et, orientation: 'reversed' }, { edge: es, orientation: 'reversed' }] }] });
+      { edge: eb, orientation: 'forward', ...p(0, 0, 1, 0) },
+      { edge: es, orientation: 'forward', ...p(2 * Math.PI, 0, 0, 1) },
+      { edge: et, orientation: 'reversed', ...p(0, 5, 1, 0) },
+      { edge: es, orientation: 'reversed', ...p(0, 0, 0, 1) }] }] });
   sheet(b, face);
   return b;
 }
@@ -418,6 +424,9 @@ export function cuspEdge(near = 0): BrepBuilder {
 export const nearCusp6 = (): BrepBuilder => cuspEdge(1e-6);
 export const seamByInversion = (): BrepBuilder => seam(true);
 export const seamFlipped = (): BrepBuilder => seam(false);
+/** seam with p-curves; Shifted, a period over (u from 2 pi). */
+export const seamPcurves = (): BrepBuilder => seam(true, true);
+export const seamPcurvesShifted = (): BrepBuilder => seam(true, true, 2 * Math.PI);
 
 /**
  * A triangle on z = 0: a polyline edge with a corner, (0, 0) to (1, 0) to (1, 1) (parameter 0 to 2), and a line
@@ -946,6 +955,32 @@ export function offCornerSquare(bottom: number[], left: number[]): BrepBuilder {
     .map((edge) => ({ edge, orientation: 'forward' as const }));
   sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true,
     loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] }));
+  return b;
+}
+
+/**
+ * A plane face (z = 0) bounded by a circle of radius 22 about (0, 4) with a hole, a circle of radius 16 about (0, 10)
+ * touching it from inside at (0, 26), the hole's vertex: the outer circle one closed edge (its vertex at the bottom)
+ * or, `split`, two arcs meeting at the hole's vertex; the hole with its p-curve (exact, `shift` up in v) or without,
+ * the arcs with theirs (`outerPcurves`) or without. ec_turbine-A #11's #384 (a B-spline hole touching its circle).
+ */
+export function tangentHole(split: boolean, pcurve: boolean, shift = 0, outerPcurves = false): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 1e-5 });
+  const outer = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 4, 0] }, radius: 22 });
+  const hole = b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 10, 0], xDir: [0, 1, 0] }, radius: 16 });
+  const top = b.addVertex({ point: [0, 26, 0] }), bottom = b.addVertex({ point: [0, -18, 0] });
+  const eh = b.addEdge({ curve: hole, start: top, end: top, sameSense: true });
+  const outerEdges = split
+    ? [b.addEdge({ curve: outer, start: bottom, end: top, sameSense: true, range: [1.5 * Math.PI, 2.5 * Math.PI] }),
+      b.addEdge({ curve: outer, start: top, end: bottom, sameSense: true, range: [0.5 * Math.PI, 1.5 * Math.PI] })]
+    : [b.addEdge({ curve: outer, start: bottom, end: bottom, sameSense: true })];
+  const p = pcurve ? { pcurve: b.addCurve({ kind: 'circle', position: { origin: [0, 10 + shift], xDir: [0, 1] },
+    radius: 16 }) } : {};
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [
+    { kind: 'edge', bound: 'outer', sense: true,
+      coedges: outerEdges.map((edge) => ({ edge, orientation: 'forward' as const, ...(outerPcurves ? { pcurve:
+        b.addCurve({ kind: 'circle', position: { origin: [0, 4], xDir: [1, 0] }, radius: 22 }) } : {}) })) },
+    { kind: 'edge', bound: 'inner', sense: true, coedges: [{ edge: eh, orientation: 'reversed' as const, ...p }] }] }));
   return b;
 }
 
@@ -2992,6 +3027,10 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   offCornerNear: () => offCornerSquare([0.1, 0.1], [0.1, 0.1]),
   offCornerMet: () => offCornerSquare([0.5, 0.5], [0.5, 0.5]),
   offCornerUneven: () => offCornerSquare([1, 0], [0.905, 0.03]), slitOffCorner,
+  tangentHole: () => tangentHole(false, false), tangentHoleSplit: () => tangentHole(true, false),
+  tangentHoleSplitPcurve: () => tangentHole(true, true), tangentHolePcurve: () => tangentHole(false, true),
+  tangentHoleSplitPcurveOff: () => tangentHole(true, true, 5e-5),
+  tangentHoleSplitPcurves: () => tangentHole(true, true, 0, true),
   luneTinyPoleEdge,
   cuspCrossing: cuspCrossing_, cuspCrossingMirrored, cuspCrossingTight, cuspCrossingTurned, cuspSeam: cuspSeam_,
   luneOnSeamPcurves, luneOnSeamPcurvesFar, luneOnSeamPcurvesShifted, luneSplitPcurves, luneSplitPcurvesDisagree,
@@ -3034,7 +3073,8 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   cylinderVast: () => halfCylinder(0, 'none', 8000, 22600), cylinderLong: () => halfCylinder(0, 'none', 2, 4000),
   cornerFoldTight, pcurveShortHair, pcurveShortFar, pcurveShortStart, bsplineTubeTinyArc, bsplineDome,
   offPoleArc: () => offPoleArc(), offPcurves, bandHoleAtVertex, bandHoleOnCut, halfCap, meridianHemisphere, band: band_,
-  bandByInversion, bore, nistBore, seamByInversion, torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
+  bandByInversion, bore, nistBore, seamByInversion, seamPcurves, seamPcurvesShifted,
+  torusWide, offVertex, pcurveOnly: () => pcurveOnly(),
   pcurveOnlyWest: () => pcurveOnly(true), luneQuarter, luneOnSeam, luneOffPole, luneOffPoleBack,
   luneOffPoleC, luneOffPoleCBack, cap, splineEdge,
   seamFlipped, polylineEdge, pcurveCircle, arcSegment, fold, twisted, wrongSense, zeroEdge, halfCylinderPcurves,

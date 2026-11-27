@@ -1817,3 +1817,74 @@ TEST_CASE("an internal use's end at its vertex's foot, no other use at its junct
   if (!(norm(end) < 1e-9)) std::printf("  slitOffCorner: the slit's end at (%g, %g)\n", end.x, end.y);
   CHECK(norm(end) < 1e-9);
 }
+
+TEST_CASE("a hole touching its outer loop at the hole's vertex (tangentHole*): the loops' points there one (u, v)") {
+  // The hole's p-curve's end there 4e-15 from the vertex's foot, the outer loop's projected arcs at the foot: given
+  // ends at a vertex the boundary touches itself at take the foot too, within the tolerance (SplitPcurve, Pcurves),
+  // not past it (PcurveOff, 5e-5 off at a tolerance of 1e-5, its own end). Unsplit, the outer circle's chord passes
+  // under the vertex: the boundary crosses itself (healing splits the circle there).
+  const struct { const char* name; bool meshes; double holeV; } cases[] = {{"tangentHoleSplit", true, 26},
+    {"tangentHoleSplitPcurve", true, 26}, {"tangentHoleSplitPcurves", true, 26},
+    {"tangentHoleSplitPcurveOff", false, 26 + 5e-5}, {"tangentHole", false, NAN}, {"tangentHolePcurve", false, NAN}};
+  for (const auto& k : cases) {
+    cadgeom::Model m = load(k.name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    FaceBoundary fb = em.face(0);
+    REQUIRE(fb.status == cadgeom::Status::ok);
+    REQUIRE(fb.loops.size() == 2u);
+    if (std::isfinite(k.holeV)) {
+      // Each loop's point nearest (0, 26): the outer's at the foot, the hole's there too (holeV 26) or at its own
+      // p-curve's end.
+      Vec2 at[2];
+      for (int l = 0; l < 2; l++) {
+        double best = INFINITY;
+        for (const auto& p : fb.loops[l])
+          if (norm(p.uv - Vec2{0, 26}) < best) best = norm(p.uv - Vec2{0, 26}), at[l] = p.uv;
+      }
+      if (!(at[0].x == 0 && at[0].y == 26 && norm(at[1] - Vec2{0, k.holeV}) < (k.holeV == 26 ? 1e-300 : 1e-12)))
+        std::printf("  %s: outer (%.17g, %.17g), hole (%.17g, %.17g)\n", k.name, at[0].x, at[0].y, at[1].x, at[1].y);
+      CHECK(at[0].x == 0);
+      CHECK(at[0].y == 26);
+      if (k.holeV == 26) {
+        CHECK(at[1].x == 0);
+        CHECK(at[1].y == 26);
+      } else {
+        CHECK(norm(at[1] - Vec2{0, k.holeV}) < 1e-12);
+      }
+    }
+    PartOptions po;
+    po.d.linear = 0.1, po.d.angular = 0.26;
+    PartMesher pm(m, po);
+    if ((pm.face(0).status == cadgeom::Status::ok) != k.meshes)
+      std::printf("  %s: status %d %s\n", k.name, int(pm.face(0).status), pm.face(0).cause.c_str());
+    CHECK((pm.face(0).status == cadgeom::Status::ok) == k.meshes);
+  }
+}
+
+TEST_CASE("a seam's vertices, each visited twice, keep their copies (seamPcurves, Shifted)") {
+  // The loop passes each seam vertex twice, on the seam's two sides: a given p-curve's end there takes the vertex's
+  // foot on its own side (u 0 or 2 pi, a period over where the p-curves are), not the other's.
+  for (const char* name : {"seamPcurves", "seamPcurvesShifted"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    EdgeOptions o;
+    o.deflection = 0.1;
+    EdgeMesh em(m, o);
+    const double shift = std::strcmp(name, "seamPcurves") ? 2 * M_PI : 0;
+    // The seam's uses: going up at u = 2 pi + shift, coming down at shift, each end too.
+    const double want[2] = {2 * M_PI + shift, shift};
+    for (int k = 0; k < 2; k++) {
+      const CoedgeSamples& s = em.coedge(k == 0 ? 1 : 3);
+      REQUIRE(s.fromPcurve);
+      double worst = 0;
+      for (const Vec2& p : s.uv) worst = std::fmax(worst, std::fabs(p.x - want[k]));
+      if (!(worst < 1e-9)) std::printf("  %s: use %d's u off %g by %g\n", name, k == 0 ? 1 : 3, want[k], worst);
+      CHECK(worst < 1e-9);
+    }
+    FaceBoundary fb = em.face(0);
+    CHECK(fb.status == cadgeom::Status::ok);
+  }
+}

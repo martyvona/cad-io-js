@@ -486,6 +486,8 @@ struct EdgeMesh::Impl {
   std::vector<Edge> edges;
   std::vector<Coedge> coedges;
   std::vector<int> prevUse, nextUse;  // by coedge: the bounding uses before and after it in its loop (-1: none)
+  /** (face row, vertex) where the face's boundary touches itself: its loops' junctions there two or more. */
+  std::set<std::pair<int, int>> pinches;
   std::vector<Face> faces;
   /** Each vertex's feet on each face it's used on, searched once (key (vertex << 32) | face row). */
   mutable EndSearchCache endFeet;
@@ -1161,6 +1163,22 @@ struct EdgeMesh::Impl {
             const double off = norm(surfaceAt(C.face, s.uv[i]) - P);
             C.givenMiss = std::fmax(C.givenMiss, off);
             if (off > tol && poleAt(C.face, P) < 0) s.uv[i] = localFoot(C.face, P, s.uv[i], miss);
+          }
+        // A given p-curve's ends at a vertex where the face's boundary touches itself (pinches) at the vertex's foot,
+        // where that's within the tolerance of them in 3D: the uses meeting there, projected ones at the foot, then
+        // one point in (u, v), as the mesher needs (a hole touching its outer loop at its vertex, ec_turbine-A #384's,
+        // its p-curve's end 4e-15 from the foot, the two loops' points two and their segments crossing). Not at a pole.
+        if (!C.projected && n >= 2 && !pinches.empty())
+          for (int i : {0, n - 1}) {
+            const int k = s.index[i] == 0 ? 0 : s.index[i] == n - 1 ? 1 : -1;
+            const int vertex = k == 0 ? E.start : k == 1 ? E.end : -1;
+            if (vertex < 0 || !pinches.count({C.face, vertex})) continue;
+            const Vec3 at = E.s.points[s.index[i]];
+            if (poleAt(C.face, at) >= 0) continue;
+            Vec2 foot;
+            if (!vertexFoot(vertex, C.face, E.s.points[s.index[i == 0 ? 1 : n - 2]], foot)) continue;
+            const Vec2 v{nearest(foot.x, s.uv[i].x, F.period[0]), nearest(foot.y, s.uv[i].y, F.period[1])};
+            if (norm(surfaceAt(C.face, v) - surfaceAt(C.face, s.uv[i])) <= tol) s.uv[i] = v;
           }
         // A projected use's vertices at their feet (the projection is within tol of them, not on them), the copy
         // its own: uses meeting there meet in (u, v), a closed edge's use closes. Not at a junction whose curves
@@ -2854,6 +2872,18 @@ EdgeMesh::EdgeMesh(const Model& model, const EdgeOptions& options, const std::ve
     const std::vector<int> cs = I.bounding(l);
     const int K = static_cast<int>(cs.size());
     for (int k = 0; k < K; k++) I.prevUse[cs[k]] = cs[(k + K - 1) % K], I.nextUse[cs[k]] = cs[(k + 1) % K];
+  }
+  for (int f = 0; f < m.faces(); f++) {
+    std::map<int, int> junctions;
+    for (int i = 0; i < m.faceLoopCount(f); i++) {
+      const int l = m.faceFirstLoop(f) + i;
+      if (m.loopKind(l) != CBR_LOOP_EDGE) continue;
+      for (int c : I.bounding(l)) {
+        const int e = m.coedgeEdge(c);
+        const int v = m.coedgeOrientation(c) == CBR_ORIENTATION_REVERSED ? m.edgeEnd(e) : m.edgeStart(e);
+        if (v >= 0 && ++junctions[v] == 2) I.pinches.insert({f, v});
+      }
+    }
   }
   if (cba_view v[CBA_COLUMN_COUNT]; options.analysis && cba_open(options.analysis, options.analysisSize, v) == 0)
     I.readAnalysis(v);
