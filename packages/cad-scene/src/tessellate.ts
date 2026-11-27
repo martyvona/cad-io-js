@@ -18,6 +18,7 @@ import { ORACLE_DISAGREE, ORACLE_REPLACE } from './area-oracle.ts';
 import { fillResult } from './fill.ts';
 import { joinResult } from './join.ts';
 import { faceRecords } from './records.ts';
+import { classifyAll, CRITERIA, type FaceClass, resolveTarget, type Target, type TargetName } from './targets.ts';
 import { orientResult, shellsOriented } from './orient.ts';
 import { describeWires, missingWires, noneMissing } from './wires.ts';
 
@@ -70,6 +71,15 @@ export interface TessellateOptions {
    * part's size or expected counts: tess-cadio isn't loaded on this thread). Default false.
    */
   records?: boolean;
+  /**
+   * The target (targets.ts, docs/triage.md) each part's mesh is for: its meshing limits sent in each request (its
+   * minAngle unless `minAngle` is given, its longest edge and elementary faces' stretch cap), records asked for
+   * (`records`), a tessellator choosing among backends choosing each face's mesh by it (FallbackTessellator), and
+   * each face classed by it (classifyAll) on the result: a face in error under it withheld (its triangles left out),
+   * with an error per part naming them, and a warning per part counting the faces warned of. The level keeps the
+   * target's name (Lod.target) and the faces withheld. Default none: nothing classed or withheld.
+   */
+  target?: TargetName | Target;
   /**
    * In the measures kept, a face's area and perimeter by the area oracle (the result's `oracle`, where it trusts
    * them) in place of the backend's where the backend's are unsound or missing, or more than ORACLE_DISAGREE off an
@@ -196,6 +206,45 @@ export function areaMessage(ids: readonly number[]): string {
     + ids.slice(0, 10).map((i) => `#${i}`).join(', ') + (n > 10 ? ', ...' : '');
 }
 
+/**
+ * A result judged by a target (tessellateScene's `target`): each face classed by its record (classifyAll), the faces
+ * in error withheld (their triangles left out, their ranges kept with none), an error naming them with the criteria
+ * they fail, and a warning counting the faces warned of by criterion. The records stay the meshes' as judged, the
+ * withheld faces' included.
+ */
+export function judgeByTarget(r: TessellationResult, target: Target, ctx: { linearDeflection: number;
+  angularDeflection: number }): { result: TessellationResult; withheld: number[]; diagnostics: Diagnostic[] } {
+  if (!r.records) return { result: r, withheld: [], diagnostics: [] };
+  const { faces } = classifyAll(r.records, target, ctx);
+  const errors = faces.filter((f) => f.overall === 'error'), warned = faces.filter((f) => f.overall === 'warn');
+  const tally = (list: typeof faces, cls: FaceClass) => CRITERIA.map((x) => [x, list.filter((f) =>
+    f.criteria[x].class === cls).length] as const).filter(([, n]) => n).map(([x, n]) => `${x} ${n}`).join(', ');
+  const diagnostics: Diagnostic[] = [];
+  const withheld = errors.map((f) => f.entityId).sort((a, b) => a - b);
+  if (withheld.length) {
+    const n = withheld.length;
+    diagnostics.push({ severity: 'error', message: `${n} ${n === 1 ? 'face' : 'faces'} withheld, in error under the `
+      + `${target.name} target (${tally(errors, 'error')}): ${withheld.slice(0, 10).map((x) => `#${x}`).join(', ')}`
+      + (n > 10 ? ', ...' : '') });
+  }
+  if (warned.length) {
+    const n = warned.length;
+    diagnostics.push({ severity: 'warning', message: `${n} ${n === 1 ? 'face' : 'faces'} warned of under the `
+      + `${target.name} target (${tally(warned, 'warn')})` });
+  }
+  if (!withheld.length) return { result: r, withheld, diagnostics };
+  const out = new Set(withheld);
+  const kept: number[] = [];
+  const ranges = r.faces.map((f) => {
+    const start = kept.length;
+    if (f.entityId === null || !out.has(f.entityId)) for (let t = f.start; t < f.start + f.count; t++) {
+      kept.push(r.indices[t]!);
+    }
+    return { entityId: f.entityId, start, count: kept.length - start };
+  });
+  return { result: { ...r, indices: Uint32Array.from(kept), faces: ranges }, withheld, diagnostics };
+}
+
 /** How many shells use each face, by its id (faces with no id or in no shell left out). */
 export function faceUses(d: BrepData): Map<number, number> {
   const out = new Map<number, number>();
@@ -214,6 +263,12 @@ export function faceUses(d: BrepData): Map<number, number> {
 export async function tessellateScene(scene: Scene, tess: Tessellator,
   opts: TessellateOptions = {}): Promise<TessellateResult> {
   const { linearDeflection, angularDeflection } = meshDeflections(opts);
+  const target = opts.target === undefined ? undefined : resolveTarget(opts.target);
+  const minAngle = opts.minAngle ?? target?.meshing.minAngle;
+  const records = opts.records || !!target;
+  const m = target?.meshing;
+  const limits = m ? { ...(m.maxEdge !== undefined ? { maxEdge: m.maxEdge } : {}),
+    ...(m.elementaryStretchCap !== undefined ? { elementaryStretchCap: m.elementaryStretchCap } : {}), target } : {};
   const breps = (opts.parts ?? scene.parts.map((_, i) => i)).filter((i) => !!scene.parts[i]?.brep);
   const takes = tess.info.formats.includes('cad-brep');
   const todo = takes ? breps : [];
@@ -222,6 +277,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   // Which backend made each part's result: the tessellator, or the one a result names.
   const madeBy: string[] = [];
   const recordsOf: (FaceRecords | undefined)[] = [];
+  const withheldOf: (number[] | undefined)[] = [];
   // (A result may name another: FallbackTessellator's say which of its backends made them.)
   const backend = `${tess.info.name} ${tess.info.version}`;
   let done = 0;
@@ -240,21 +296,27 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
       const join = opts.join ?? true, fill = opts.fill ?? true;
       let r = await tess.tessellate({
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
-        linearDeflection, angularDeflection, ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}),
+        linearDeflection, angularDeflection, ...(minAngle !== undefined ? { minAngle } : {}), ...limits,
         ...(brep.analysis ? { analysis: new Uint8Array(brep.analysis.buffer) } : {}),
-        edges: join || fill || opts.edges, ...(measure || opts.records ? { measures: true } : {}),
-        ...(opts.records ? { records: true } : {}),
+        edges: join || fill || opts.edges, ...(measure || records ? { measures: true } : {}),
+        ...(records ? { records: true } : {}),
       });
       // (A tessellator that didn't measure them, run on this thread: measured here, before the join.)
-      if (opts.records && !r.records) r = { ...r, records: faceRecords({ linearDeflection,
-        ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}) }, r, brep.model) };
+      if (records && !r.records) r = { ...r, records: faceRecords({ linearDeflection,
+        ...(minAngle !== undefined ? { minAngle } : {}) }, r, brep.model) };
       if (join) r = joinResult(brep.model, r, linearDeflection);
       if (fill) r = fillResult(brep.model, r, linearDeflection);
       if (opts.orient ?? true) r = orientResult(brep.model, r, linearDeflection, shellsOriented(brep.analysis)
         ? { backend: r.backend ?? backend } : undefined);
       if ((join || fill) && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
       by = r.backend ?? backend;
-      if (opts.records) recordsOf[k] = r.records;
+      if (records) recordsOf[k] = r.records;
+      if (target && r.records) {
+        const judged = judgeByTarget(r, target, { linearDeflection, angularDeflection });
+        r = judged.result;
+        withheldOf[k] = judged.withheld;
+        for (const d of judged.diagnostics) diagnostics.push(source ? { ...d, source } : d);
+      }
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       // The model's wireframe curves and points the result left out: no mesh of them, so the viewer and every export
       // lack them (a backend that meshes faces alone; FallbackTessellator asks its fallback for them first).
@@ -340,14 +402,15 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   todo.forEach((i, k) => {
     const part = scene.parts[i]!;
     const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection,
-      ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}), backend: madeBy[k]!,
-      ...(recordsOf[k] ? { records: recordsOf[k] } : {}) };
+      ...(minAngle !== undefined ? { minAngle } : {}), backend: madeBy[k]!,
+      ...(target ? { target: target.name } : {}), ...(recordsOf[k] ? { records: recordsOf[k] } : {}),
+      ...(withheldOf[k]?.length ? { withheld: withheldOf[k] } : {}) };
     if (found[k]) {
       meshes.set(i, found[k]);
       addLod(part, { mesh: found[k], ...lod });
     } else part.lods = part.lods.filter((l) => !(l.from === 'tessellated' && l.backend === madeBy[k] &&
       l.linearDeflection === linearDeflection && l.angularDeflection === angularDeflection &&
-      l.minAngle === opts.minAngle));
+      l.minAngle === minAngle && l.target === target?.name));
   });
   // The model's sphere again from the meshes alone, which can shrink an estimate (decision 3); a file's kept.
   if (scene.bounds?.from !== 'source') scene.bounds = sceneBounds(scene, { meshesOnly: true }) ?? scene.bounds;

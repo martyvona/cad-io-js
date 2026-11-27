@@ -62,6 +62,8 @@ double capFloor = PartOptions{}.capFloor, capMultiple = PartOptions{}.capMultipl
 double minAngle = PartOptions{}.minAngle;
 // Deflections::maxEdge for the next calls, a fraction of each part's partSize (0: none).
 double maxEdgeFraction = 0;
+// PartOptions::elementaryStretchCap for the next calls (0: none).
+double elementaryStretchCap = 0;
 // x in JSON, round-tripping.
 std::string num(double x) {
   char b[32];
@@ -111,6 +113,7 @@ PartOptions partOptions(const Model& m, double linear, double angular, double& p
   opts.maxPointsPerFace = maxPoints;
   opts.capFloor = capFloor, opts.capMultiple = capMultiple, opts.capCeiling = capCeiling;
   opts.minAngle = minAngle;
+  opts.elementaryStretchCap = elementaryStretchCap;
   opts.countInsertions = countInsertions;
   opts.countAngles = countAngles;
   opts.countExpected = countExpected;
@@ -135,7 +138,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 12; }
+int tc_api_version() { return 13; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -172,6 +175,12 @@ void tc_set_min_angle(double radians) {
  * or not finite): no limit.
  */
 void tc_set_max_edge(double fraction) { maxEdgeFraction = std::isfinite(fraction) && fraction > 0 ? fraction : 0; }
+
+/**
+ * The next calls' PartOptions::elementaryStretchCap: elementary faces' stretch capped at this from their first
+ * meshing; 0 (or under 1, or not finite): none.
+ */
+void tc_set_elementary_stretch_cap(double cap) { elementaryStretchCap = std::isfinite(cap) && cap >= 1 ? cap : 0; }
 
 /**
  * Whether the next calls count the mesher's insertions by what queued them (PartOptions::countInsertions; default

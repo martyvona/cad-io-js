@@ -121,6 +121,13 @@ struct PartOptions {
    */
   double retryStretch = 16, retryRatio = 0.1;
   /**
+   * Elementary faces' (planes, cylinders, cones, spheres, tori) size metric's stretch capped at this from their first
+   * meshing (Deflections::stretchCap in their first criteria; the retry's stays retryStretch): fewer long, thin
+   * triangles, for consumers that need their shape (docs/triage.md's manufacturing and analysis targets). Free-form
+   * faces aren't capped, as their stretch is what lets many mesh within the point cap. 0: never.
+   */
+  double elementaryStretchCap = 0;
+  /**
    * Each face's first meshing stops at its point cap's expected count (FaceMesh::capExpected: the criteria's integral
    * over its domain, as the cap takes it), with no triangles, cause "expected count only", and nothing after it runs
    * (no cap checks, retries, split rounds or checks of the meshes): the count any backend's mesh of the face is judged

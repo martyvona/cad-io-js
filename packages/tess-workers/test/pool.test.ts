@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { TessellationError, type TessellationRequest } from 'cad-scene';
+import { FallbackTessellator, failedPart, tessellateScene, TessellationError, type Scene, type TessellationRequest }
+  from 'cad-scene';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { cube } from '../../cad-brep/test/models.ts';
 import { PoolTessellator, spawnNodeWorker, WorkerTessellator, type PoolOptions } from '../src/node.ts';
 
 const backend = { module: new URL('./fake-backend.ts', import.meta.url).href, export: 'FakeTessellator' };
@@ -500,4 +502,31 @@ test("serve: a backend module passed in `modules` is used as it is, not imported
   send({ type: 'init', backend: { module: 'no-such-module', export: 'FakeTessellator' } });
   for (let t = 0; t < 100 && posted.length < 2; t++) await new Promise((r) => setTimeout(r, 10));
   assert.equal(posted[1]?.type, 'initError');
+});
+
+test('a FallbackTessellator over two pools that both hang: each times out, and the part is a failed result with both '
+  + 'errors, not an exception; tessellateScene keeps them as the part\'s errors', async () => {
+  const a = await pool({ workers: 1, timeoutMs: 200 }), b = await pool({ workers: 1, timeoutMs: 200 });
+  try {
+    const t = new FallbackTessellator(a, b);
+    const r = await t.tessellate(req(1));
+    assert.ok(failedPart(r));
+    assert.deepEqual(r.diagnostics.map((d) => d.severity), ['error', 'error']);
+    assert.match(r.diagnostics[0]!.message, /^tessellation failed: .*timed out after 200 ms/);
+    assert.match(r.diagnostics[1]!.message, /^the fallback backend \(fake\) failed too: .*timed out after 200 ms/);
+    // Through tessellateScene: no mesh, both errors on the part, nothing thrown.
+    const step = { ...t, info: { ...t.info, formats: ['cad-brep' as const] },
+      tessellate: (q: TessellationRequest) => t.tessellate({ ...q, format: 'step', data: new Uint8Array([1]) }) };
+    const scene = { roots: [], parts: [{ name: 'p', sources: [{ id: 5 }], origin: [0, 0, 0], lods: [],
+      brep: { model: cube().finish(), format: 'cad-brep' } }], diagnostics: [], materials: [] } as
+      unknown as Scene;
+    const s = await tessellateScene(scene, step as unknown as FallbackTessellator, { join: false, fill: false,
+      orient: false, measures: false, manifold: false });
+    assert.equal(s.meshes.size, 0);
+    assert.deepEqual(s.diagnostics.map((d) => [d.severity, d.source?.id]), [['error', 5], ['error', 5]]);
+    assert.doesNotMatch(s.diagnostics.map((d) => d.message).join('\n'), /^tessellation failed: .*failed too/m);
+  } finally {
+    a.dispose();
+    b.dispose();
+  }
 });

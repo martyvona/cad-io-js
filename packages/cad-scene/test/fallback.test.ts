@@ -221,10 +221,14 @@ test('fallback: both with problems: the better kind by kind, a tie the primary\'
     if (want === 'a 1') assert.match(r.diagnostics[0]!.message, /^the fallback backend \(b\) did no better than a \(/);
     assert.equal(r.diagnostics[0]!.severity, want === 'a 1' ? 'info' : 'warning');
   }
-  // Both threw: the primary's error.
+  // Both threw: a failed part (no triangles) with both errors, the primary's first; not an exception.
   const t = new FallbackTessellator(fake('a', () => new Error('first')), fake('b', () => new Error('second')));
   await t.init();
-  await assert.rejects(t.tessellate(request()), /^Error: first$/);
+  const both = await t.tessellate(request());
+  assert.equal(both.indices.length, 0);
+  assert.equal(both.backend, 'a 1');
+  assert.deepEqual(both.diagnostics, [{ severity: 'error', message: 'tessellation failed: first' },
+    { severity: 'error', message: 'the fallback backend (b) failed too: second' }]);
 });
 
 test('fallback: info joins both; timeout the primary\'s; dispose both; tessellateScene names who meshed', async () => {

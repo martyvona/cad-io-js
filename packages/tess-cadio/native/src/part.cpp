@@ -2542,7 +2542,12 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
         I.criteriaWhy[f] = !fb.cause.empty() ? fb.cause : "its boundary gives no points in (u, v)";
         continue;
       }
-      I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, I.o.d, I.criteriaStatus[f]);
+      // (PartOptions::elementaryStretchCap: the first criteria of planes, cylinders, cones, spheres and tori.)
+      Deflections d = I.o.d;
+      int kind = m.surfaceKind(m.faceSurface(f));
+      if (I.o.elementaryStretchCap > 0 && kind >= CBR_SURFACE_PLANE && kind <= CBR_SURFACE_TORUS)
+        d.stretchCap = I.o.elementaryStretchCap;
+      I.criteria[f] = makeCriteria(m, f, *I.surfaces[f], box, d, I.criteriaStatus[f]);
       I.critBox[f] = box;
       if (I.criteria[f]) I.criteria[f]->setOutputOrigin(I.o.outputOrigin);
       if (!I.criteria[f]) I.criteriaWhy[f] = "no criteria for it (its (u, v) box not finite)";

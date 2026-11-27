@@ -1,13 +1,14 @@
 // Mesh triage's targets (docs/triage.md, "Targets"): what each consumer tolerates of a face's mesh, criterion by
-// criterion, as warn and error levels (multiples of the criterion's true limit); and classify, which classes a face's
-// triage record (records.ts) under a target. The one place the levels are defined. Nothing chooses by the classes
-// yet, and the targets' meshing limits are data only, not yet asked of the backends.
+// criterion, as warn and error levels (multiples of the criterion's true limit), the meshing limits asked of the
+// backends and when the fallback is asked; classify, which classes a face's triage record (records.ts) under a
+// target; and chooseFace, the choice between two backends' meshes of a face by their classes (docs/triage.md,
+// "Choosing a mesh"). The one place the levels are defined.
 
 import { AREA, CHECK, EXPECTED, ORIENTATION } from './records.ts';
 import type { FaceRecords } from './tessellator.ts';
 
-export type TargetName = 'rendering' | 'manifold' | 'analysis';
-export const TARGET_NAMES: readonly TargetName[] = ['rendering', 'manifold', 'analysis'];
+export type TargetName = 'rendering' | 'manufacturing' | 'analysis';
+export const TARGET_NAMES: readonly TargetName[] = ['rendering', 'manufacturing', 'analysis'];
 
 /** The criteria, in docs/triage.md's order (the tie-break's too). */
 export type Criterion = 'k' | 'a' | 'j' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'l' | 'i';
@@ -28,9 +29,15 @@ export interface Target {
   /**
    * What the target asks of the backends' meshing (docs/triage.md: "backends are told the true limits"): the smallest
    * angle (f's true limit too), the longest edge as a fraction of the part's size (g's; absent: none), elementary
-   * faces' size metric's stretch capped from the start. Not yet applied: data only.
+   * faces' size metric's stretch capped from the start; sent in each request (TessellationRequest's minAngle, maxEdge,
+   * elementaryStretchCap), which backends that can't aim at one ignore.
    */
   meshing: { minAngle: number; maxEdge?: number; elementaryStretchCap?: number };
+  /**
+   * Where FallbackTessellator asks the fallback for a part: wherever a primary face is in error under the target
+   * (`error`), or wherever one misses any true limit, warned of or in error (`warn`); and wherever the part failed.
+   */
+  fallbackOn: 'error' | 'warn';
   /** (h)'s ceiling, triangles per face: 10M on desktops, 2M on phones and tablets. */
   ceiling: number;
 }
@@ -43,15 +50,17 @@ export const H_MULTIPLE = 64;
 
 const common = { k: { error: 1 }, j: { warn: 1 }, e: { warn: 1 }, h: { error: 1 }, l: { warn: 1 }, i: {} };
 export const TARGETS: Readonly<Record<TargetName, Target>> = {
-  rendering: { name: 'rendering', ceiling: DESKTOP_CEILING, meshing: { minAngle: deg(10) }, levels: {
-    ...common, a: { warn: 1 }, b: { warn: 1, errorFraction: 0.25 }, c: { warn: 1, error: 10 }, d: { warn: 1 },
-    f: { warn: 1 }, g: { warn: 1 } } },
-  manifold: { name: 'manifold', ceiling: DESKTOP_CEILING, meshing: { minAngle: deg(10), elementaryStretchCap: 16 },
-    levels: { ...common, a: { error: 1 }, b: { warn: 1, errorFraction: 0.15 }, c: { warn: 1, error: 2 },
-      d: { warn: 1, error: 2 }, f: { warn: 1 }, g: { warn: 1 } } },
-  analysis: { name: 'analysis', ceiling: DESKTOP_CEILING, meshing: { minAngle: deg(10), maxEdge: 0.05,
-    elementaryStretchCap: 16 }, levels: { ...common, a: { error: 1 }, b: { error: 1 }, c: { warn: 1, error: 2 },
-    d: { warn: 1, error: 2 }, f: { warn: 1, error: 1.5 }, g: { warn: 1, error: 1.5 } } },
+  rendering: { name: 'rendering', ceiling: DESKTOP_CEILING, fallbackOn: 'error', meshing: { minAngle: deg(10) },
+    levels: { ...common, a: { warn: 1 }, b: { warn: 1, errorFraction: 0.25 }, c: { warn: 1, error: 10 },
+      d: { warn: 1 }, f: { warn: 1 }, g: { warn: 1 } } },
+  manufacturing: { name: 'manufacturing', ceiling: DESKTOP_CEILING, fallbackOn: 'error',
+    meshing: { minAngle: deg(10), elementaryStretchCap: 16 }, levels: { ...common, a: { error: 1 },
+      b: { warn: 1, errorFraction: 0.15 }, c: { warn: 1, error: 2 }, d: { warn: 1, error: 2 }, f: { warn: 1 },
+      g: { warn: 1 } } },
+  analysis: { name: 'analysis', ceiling: DESKTOP_CEILING, fallbackOn: 'warn',
+    meshing: { minAngle: deg(10), maxEdge: 0.05, elementaryStretchCap: 16 }, levels: { ...common, a: { error: 1 },
+      b: { error: 1 }, c: { warn: 1, error: 2 }, d: { warn: 1, error: 2 }, f: { warn: 1, error: 1.5 },
+      g: { warn: 1, error: 1.5 } } },
 };
 
 /** One criterion's class for a face: with the measured value, its true limit and their ratio where it has them. */
@@ -91,8 +100,8 @@ export function classify(records: FaceRecords, k: number, target: Target, ctx: C
   const r = <K extends keyof FaceRecords>(name: K) => (records[name] as unknown as ArrayLike<number>)[k]!;
   const c: Partial<Record<Criterion, CriterionClass>> = {};
   const triangles = r('triangles');
-  // (k) complete.
-  c.k = { class: triangles > 0 ? 'pass' : past(L.k), value: triangles };
+  // (k) complete: a warning where only the sliver fill meshed it.
+  c.k = { class: triangles > 0 ? (r('filled') ? 'warn' : 'pass') : past(L.k), value: triangles };
   // (a) manifold: within the face (a.1; holes where known) and sewn into its shell (a.2, where joined).
   const within = r('nonManifoldEdges') + Math.max(0, r('holeEdges')), unsewn = r('unsewnEdges');
   c.a = within > 0 || unsewn > 0 ? { class: past(L.a), value: within + Math.max(0, unsewn) }
@@ -168,10 +177,11 @@ export function classifyAll(records: FaceRecords, target: Target, ctx: ClassifyC
 
 /** Each criterion's true limit, as a formula, for describeTarget. */
 const FORMULAS: Readonly<Record<Criterion, string>> = {
-  k: 'complete: the face has triangles',
+  k: 'complete: the face has triangles (warned of where only the sliver fill meshed it)',
   a: 'manifold: within the face (no edge used 3+ times or twice one way, no hole) and sewn into its shell',
   j: 'oriented: a closed shell\'s mesh faces out (turned over where it faces in)',
-  b: 'area: short by more than max(3 % of A, d x P), over by more than max(10 % of A, d x P), A the oracle\'s',
+  b: 'area: short by more than max(3 % of A, d x P), over by more than max(10 % of A, d x P) (within d x P, 1.5 x '
+    + 'its boundary chords\' bulge where measured), A the oracle\'s',
   c: 'distance from the surface: max(d, the face\'s tolerance) (unchecked for foreign backends)',
   d: 'angle between normals: the angular deflection (unchecked for foreign backends)',
   e: 'turned triangles (a facet against its corners\' normals): none',
@@ -202,9 +212,61 @@ export function describeTarget(t: Target): string {
   for (const x of CRITERIA) lines.push(`  ${x}  ${FORMULAS[x]}: ${levelWords(x, t.levels[x])}`);
   const m = t.meshing;
   lines.push(`  ceiling (h): ${t.ceiling.toLocaleString('en')} triangles a face`);
-  lines.push(`  meshing limits (not yet applied): smallest angle ${+(m.minAngle * 180 / Math.PI).toFixed(2)} deg`
+  lines.push(`  meshing limits: smallest angle ${+(m.minAngle * 180 / Math.PI).toFixed(2)} deg`
     + `${m.maxEdge !== undefined ? `, longest edge ${100 * m.maxEdge} % of the part's size` : ''}`
     + `${m.elementaryStretchCap !== undefined ? `, elementary faces' stretch capped at ${m.elementaryStretchCap}`
       : ''}`);
+  lines.push(`  fallback: asked where a face ${t.fallbackOn === 'error' ? 'is in error'
+    : 'misses a true limit (warned of or in error)'}, or the part failed`);
   return lines.join('\n') + '\n';
+}
+
+/** A class's rank in the choice: passing (or not judged) before warned before in error. */
+const rank = (c: FaceClass) => (c === 'error' ? 2 : c === 'warn' ? 1 : 0);
+
+/**
+ * Two meshes of one face compared criterion by criterion in CRITERIA's order (docs/triage.md's rule 3): by class,
+ * then within the class by the measured amount past the limit (the ratio where both have one, else the value: a
+ * count of edges, triangles turned or degenerate), the first criterion that differs deciding. Negative where `a` is
+ * the better, positive where `b` is, 0 on a full tie. (k)'s value, the triangle count, is no measure of a passing mesh
+ * and isn't compared.
+ */
+export function compareFaces(a: FaceClasses, b: FaceClasses): number {
+  for (const x of CRITERIA) {
+    const p = a.criteria[x], q = b.criteria[x];
+    const d = rank(p.class) - rank(q.class);
+    if (d) return d;
+    if (x === 'k' || rank(p.class) === 0) continue;
+    const u = p.ratio !== undefined && q.ratio !== undefined ? [p.ratio, q.ratio]
+      : p.value !== undefined && q.value !== undefined ? [p.value, q.value] : undefined;
+    if (u && u[0] !== u[1]) return u[0]! - u[1]!;
+  }
+  return 0;
+}
+
+/**
+ * Which of a face's two meshes is used (docs/triage.md, "Choosing a mesh"): one passing every criterion, the
+ * primary's first; else one warned of but in error under none; else, both warned of, the better by compareFaces (the
+ * primary's on a tie); else (both in error) `withheld`, which the caller keeps the primary's for and withholds. A
+ * face the fallback has no record of is in error there.
+ */
+export function chooseFace(primary: FaceClasses, fallback: FaceClasses | undefined): 'primary' | 'fallback'
+  | 'withheld' {
+  if (primary.overall === 'pass') return 'primary';
+  if (!fallback) return primary.overall === 'warn' ? 'primary' : 'withheld';
+  if (fallback.overall === 'pass') return 'fallback';
+  if (primary.overall === 'warn' && fallback.overall === 'warn') return compareFaces(primary, fallback) <= 0
+    ? 'primary' : 'fallback';
+  if (primary.overall === 'warn') return 'primary';
+  return fallback.overall === 'warn' ? 'fallback' : 'withheld';
+}
+
+/** Whether a face of the primary's sends the part to the fallback under `target` (Target.fallbackOn). */
+export function wantsFallback(f: FaceClasses, target: Target): boolean {
+  return f.overall === 'error' || (target.fallbackOn === 'warn' && f.overall === 'warn');
+}
+
+/** A target by name, or the target itself. */
+export function resolveTarget(t: TargetName | Target): Target {
+  return typeof t === 'string' ? TARGETS[t] : t;
 }

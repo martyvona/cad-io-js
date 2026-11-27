@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { FallbackTessellator, faceRecords, oracleMeasures, RECORDS_VERSION, TessellationError, type Diagnostic, type TessellationRequest,
-  type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
+import { FallbackTessellator, faceRecords, oracleMeasures, RECORDS_VERSION, TARGETS, TessellationError,
+  type Diagnostic, type TessellationRequest, type TessellationResult, type Tessellator, type TessellatorInfo }
+  from 'cad-scene';
 import { cube } from '../../cad-brep/test/models.ts';
 import { quads } from '../../cad-scene/test/meshes.ts';
 import fs from 'node:fs';
@@ -125,6 +126,9 @@ test('the key changes with the backend, every request option and the payload, an
   assert.equal(await cacheKey(info, { ...req, edges: undefined }), k);
   // A request without a smallest angle keys as one always did (its backend's default).
   assert.equal(await cacheKey(info, { ...req, minAngle: undefined }), k);
+  // Likewise the other meshing limits; and the target, which no backend reads (its limits are those fields).
+  assert.equal(await cacheKey(info, { ...req, maxEdge: undefined, elementaryStretchCap: undefined }), k);
+  assert.equal(await cacheKey(info, { ...req, target: TARGETS.analysis }), k);
   // An analysis only for a backend that reads it (TessellatorInfo.readsAnalysis): ignored by another's, and a
   // request without one keys as before for either.
   const reads = { ...info, readsAnalysis: true };
@@ -143,6 +147,10 @@ test('the key changes with the backend, every request option and the payload, an
     [info, { ...req, angularDeflection: 0.4 }],
     [info, { ...req, minAngle: 0.2 }],
     [info, { ...req, minAngle: 0 }],
+    [info, { ...req, maxEdge: 0.05 }],
+    [info, { ...req, elementaryStretchCap: 0.05 }],
+    [info, { ...req, maxEdge: 0.05, elementaryStretchCap: 16 }],
+    [info, { ...req, minAngle: undefined, maxEdge: 0.2 }],
     [info, { ...req, data: new Uint8Array([1, 2, 4]) }],
     [info, { ...req, data: new Uint8Array([1, 2]) }],
     [reads, { ...req, analysis: new Uint8Array([9, 8]) }],
