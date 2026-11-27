@@ -190,7 +190,6 @@
       margin: 0 0 4px; border: 1px solid var(--border);
     }
     .pick-list .tree-scroller { position: absolute; inset: 0; overflow: auto; }
-    .cv-dialog.pick::backdrop { background: transparent; }
     .tree-row.alert, .tree-row.alert .tree-icon:not(.broken), .tree-row.alert .tree-override {
       color: var(--row-alert-fg, #fff);
     }
@@ -235,6 +234,8 @@
       position: fixed; inset: auto; top: 56px; left: max(16px, calc(50% - 170px)); margin: 0; z-index: 1500;
       width: 300px;
     }
+    /* Pick...'s (pick-list.ts): as wide as its list, below Override Appearance's place. */
+    .cv-dialog.floating.pick { width: auto; top: 120px; }
     .cv-dialog h2.drag { display: flex; align-items: center; gap: 8px; }
     .cv-dialog h2.drag span { flex: 1; }
     .cv-dialog h2 .close {

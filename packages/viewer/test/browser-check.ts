@@ -1725,13 +1725,15 @@ await check('view context menu', async () => {
     a.detail.selected.length === 0, `at the detail level: ${j}`);
   return undefined;
 });
-// The view's menu's Pick... (above Select parent, starting its group; not in the tree's menu) opens a movable modal
+// The view's menu's Pick... (above Select parent, starting its group; not in the tree's menu) opens a movable panel,
+// not modal (the view under the pointer while it's open, a click there selecting, the list's rows following), one at a
+// time (asked for again, the same panel, where it was, the new list in it),
 // listing everything along the line of sight at the point right-clicked, nearest first: as many as hiding the nearest
 // part and picking again peels off there (the ids' pick sees only the nearest), the rows as the tree's (icon, name).
 // The cursor on the first row from the start, outlined and in the alert colour, its node alerted in the view; the
 // arrows move it (clamped at the ends), a click moves it there. The mouse over a row marks it hovered and highlights
 // its node as the tree's row does. Clicks, shift-clicks and Space select as the tree's rows do, the rows drawn
-// selected, the tree following; recorded and replayed as those selections. Closed by Escape: no alert, no highlight.
+// selected, the tree following; recorded and replayed as those selections. Closed by its x: no alert, no highlight.
 // Long lists: only the rows in view drawn (200,000, through the module, on the dev server).
 await check('pick list', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
@@ -1786,7 +1788,7 @@ await check('pick list', async () => {
     await frame();
     await frame();
     const dialog = document.querySelector('dialog.cv-dialog[open]');
-    const scroller = dialog.querySelector('.pick-list .tree-scroller');
+    let scroller = dialog.querySelector('.pick-list .tree-scroller');
     const rows = () => [...dialog.querySelectorAll('.tree-row')].filter((x) => x.style.display !== 'none')
       .sort((a, b) => +a.dataset.index - +b.dataset.index);
     const state = () => {
@@ -1801,7 +1803,6 @@ await check('pick list', async () => {
     };
     out.title = dialog.querySelector('h2 span').textContent;
     out.modal = dialog.matches(':modal');
-    out.backdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
     out.drag = dialog.querySelector('h2').classList.contains('drag');
     out.rows = rows().map((x) => ({ id: +x.dataset.id, name: x.querySelector('.tree-name').textContent,
       icon: x.querySelector('.tree-icon')?.outerHTML }));
@@ -1860,10 +1861,42 @@ await check('pick list', async () => {
     await frame();
     out.left = state();
     out.final = [...ui.selected()];
+    // Not modal: the view under the pointer, not made inert (its drags turn it, as the browser's own input reaches it);
+    // a click on the view selecting what's there, the list's row drawn selected.
+    // (Points of the view outside the panel: one at least the view's own, not the panel's backdrop.)
+    const panelBox = dialog.getBoundingClientRect();
+    let hits = 0;
+    for (let fx = 0.05; fx < 1; fx += 0.1) for (let fy = 0.05; fy < 1; fy += 0.1) {
+      const x = rect.left + fx * rect.width, y = rect.top + fy * rect.height;
+      if (x >= panelBox.left && x <= panelBox.right && y >= panelBox.top && y <= panelBox.bottom) continue;
+      if (document.elementFromPoint(x, y) === canvas) hits++;
+    }
+    out.reachable = { hit: hits > 0, inert: !!canvas.closest('[inert]'), open: dialog.open };
+    ui.select([]);
+    send('pointerdown', spot.x, spot.y, { button: 0, buttons: 1 });
+    send('pointerup', spot.x, spot.y, { button: 0, buttons: 0 });
+    await cadViewer.idle();
+    await frame();
+    out.viewClick = state();
+    // Pick... again: the same panel, where it was moved to, the list anew (the cursor on the first row).
+    dialog.style.translate = '30px 40px';
+    await click(1);
+    send('pointerdown', spot.x, spot.y, { button: 2, buttons: 2 });
+    send('pointerup', spot.x, spot.y, { button: 2, buttons: 0 });
+    await frame();
+    [...document.querySelectorAll('.cv-menu button')].find((b) => b.textContent === 'Pick...').click();
+    await frame();
+    await frame();
+    out.again = { panels: document.querySelectorAll('dialog.cv-dialog[open]').length, same: document.querySelector(
+      'dialog.cv-dialog[open]') === dialog, moved: dialog.style.translate, connected: dialog.isConnected,
+      ...state() };
+    // (The new list's own.)
+    scroller = dialog.querySelector('.pick-list .tree-scroller');
+    out.selectedAtEnd = [...ui.selected()];
     // Closed with the mouse over a row: its highlight gone.
     await over(1);
     out.hoverBeforeClose = state().outline;
-    dialog.close();
+    dialog.querySelector('button.close').click();
     await frame();
     out.closed = { open: !!document.querySelector('dialog.cv-dialog[open]'), alerted: [...viewer.alerted],
       outline: viewer.highlights.highlight.outline.length + viewer.highlights.highlight.marks.length };
@@ -1890,7 +1923,7 @@ await check('pick list', async () => {
       out.big.last = Math.max(...shown);
       out.big.drawn = shown.length;
       out.big.cursor = cursor;
-      big.close();
+      big.querySelector('button.close').click();
       await frame();
     }
     return out;
@@ -1904,7 +1937,7 @@ await check('pick list', async () => {
   const rows = a.rows as { id: number; name: string; icon: string }[];
   const n = rows.length;
   expect(a.peeled.length >= 3 && ids(rows.map((x) => x.id)) === ids(a.peeled), `the rows, nearest first: ${j}`);
-  expect(a.title === `Pick: ${n} items` && a.modal && a.drag && a.backdrop === 'rgba(0, 0, 0, 0)' &&
+  expect(a.title === `Pick: ${n} items` && !a.modal && a.drag &&
     rows.every((x, i) => x.name === a.names[i] && !!x.icon && x.icon === a.treeIcons[i]), `the dialog, the rows as the tree's: ${j}`);
   const green = 'rgb(32, 160, 64)';
   const s = (o: any, cursor: number) => ids(o.focused) === ids([cursor]) && ids(o.alert) === ids([cursor]) &&
@@ -1930,6 +1963,11 @@ await check('pick list', async () => {
   const toggled = spanned.includes(rows[0]!.id) ? spanned.filter((x) => x !== rows[0]!.id) : [...spanned, rows[0]!.id];
   expect(s(a.ctrlClick, 0) && ids([...a.ctrlClick.picked].sort()) === ids(toggled.sort()), `a ctrl-click: ${j}`);
   expect(a.left.hovered.length === 0, `the mouse gone: ${j}`);
+  expect(a.reachable.hit && !a.reachable.inert && a.reachable.open, `the view reached while it's open: ${j}`);
+  expect(ids(a.viewClick.picked) === ids([rows[0]!.id]) && ids(a.viewClick.selected) === '[0]',
+    `a click in the view: the list's row drawn selected: ${j}`);
+  expect(a.again.panels === 1 && a.again.same && a.again.connected && a.again.moved === '30px 40px' &&
+    s(a.again, 0), `Pick... again: the same panel, where it was, the cursor on the first row: ${j}`);
   expect(!a.closed.open && a.closed.alerted.length === 0 && a.hoverBeforeClose > 0 && a.closed.outline === 0,
     `closed: ${j}`);
   if (!process.env.BUILD) {
@@ -1941,7 +1979,7 @@ await check('pick list', async () => {
     const report = await cadViewer.replay(${JSON.stringify(a.rec)});
     return { divergences: report.divergences, selected: [...ui.selected()] };
   })()`) as { after: { divergences: string[]; selected: number[] } };
-  expect(replayed.after.divergences.length === 0 && ids(replayed.after.selected) === ids(a.final),
+  expect(replayed.after.divergences.length === 0 && ids(replayed.after.selected) === ids(a.selectedAtEnd),
     `replayed: ${JSON.stringify(replayed.after)} ${j}`);
   return undefined;
 });
@@ -5706,6 +5744,31 @@ await check('key hints on touch screens', async () => {
 // zooms, Axes and the views alone; Selection, after picking and selecting, Details, hiding and showing, transparency;
 // Rendering ends with Custom background and its picker. The fullscreen button says which way it goes: pressed (as a
 // user's gesture), the page full screen and the button Exit fullscreen; pressed again, back, Enter fullscreen.
+// Every pulldown's every choice shown whole in it (lil-gui's display wraps a choice too wide out of sight: Pick's
+// "Face, edge, curve, vertex" lost "vertex"), each control's name whole too, on a desktop and on a phone.
+await check('pulldowns fit', async () => {
+  const look = `(async () => {
+    await cadViewer.ready;
+    for (const f of ui.gui.foldersRecursive()) f.open();
+    await new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const out = [];
+    for (const c of ui.gui.controllersRecursive()) {
+      if (!c.$select || !c.$display || c.domElement.offsetParent === null) continue;
+      const was = c.$display.textContent;
+      for (const o of c.$select.options) {
+        c.$display.textContent = o.textContent;
+        if (c.$display.scrollHeight > c.$display.clientHeight + 1) out.push(c._name + ': ' + o.textContent);
+      }
+      c.$display.textContent = was;
+      if (c.$name.scrollWidth > c.$name.clientWidth + 1) out.push(c._name + ' (its name)');
+    }
+    return out;
+  })()`;
+  const desktop = (await page('?check', look)).after as string[];
+  const phone = (await page('?check', look, { phone: true })).after as string[];
+  expect(desktop.length === 0 && phone.length === 0, `cut off: ${JSON.stringify({ desktop, phone })}`);
+  return undefined;
+});
 await check('control folders', async () => {
   const evaluate = async (sessionId: string, expression: string) => ((await send('Runtime.evaluate', { expression,
     returnByValue: true, awaitPromise: true, userGesture: true }, sessionId)) as { result: { value: unknown } })
