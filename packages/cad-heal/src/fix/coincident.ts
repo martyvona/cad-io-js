@@ -18,6 +18,12 @@
 // either edge cross itself in (u, v) more than before is left (crossesMore). Only pairs that leave their vertex at
 // under MAX_ANGLE and stay within the tolerance for over LENGTH times it (at any corner two edges are within the
 // tolerance of each other for about the tolerance over the angle's sine, which is no coincidence) and over MIN_LENGTH.
+// Where the curves aren't within the tolerance, a pair whose uses' images on the face retrace each other from the
+// vertex (within RETRACE x the tolerance, rounding, for over MIN_LENGTH: Albatros #832's #799, 0.25 mm off its face,
+// and #1006 leave their vertex at 5.9 degrees in space, while on the face both run along the domain's side u = 1 for
+// 0.017 mm) is merged the same way, up to where the images are PART x the tolerance apart, and that overlap puts its
+// loop in trouble. Not within the part's uncertainty: images leaving a corner at an angle stay within any distance
+// for about it over the angle, so at a part's 0.008 mm every corner under about 90 degrees would pass MIN_LENGTH.
 //
 // Healing's only fix that changes topology: rows are added, removed and renumbered, so the analysis keeps the source
 // model's buffer whole where this fix changed the model (its `source` table), and healing again starts from that. The
@@ -46,6 +52,11 @@ export const MIN_LENGTH = 0.005;
  * its sides by up to the tolerance over its length (LMP1 #172490's, 99 mm at 0.13 mm, which tess-cadio then failed).
  */
 export const PART = 0.1;
+/**
+ * Images on the face retrace each other where they're within this fraction of the tolerance: rounding (Albatros
+ * #832's run exactly along u = 1), not geometry.
+ */
+export const RETRACE = 1e-6;
 /** Samples along an edge from the vertex, before bisecting to where they part. */
 const SAMPLES = 32;
 const BISECTIONS = 40;
@@ -74,6 +85,8 @@ export interface Merged {
   grown: number;
   /** Whether the two crossed in the face's (u, v) within the stretch. */
   crossed: boolean;
+  /** Whether it was measured on the uses' images on the face (they retrace each other; the curves apart). */
+  onImages: boolean;
 }
 
 export interface CoincidentResult {
@@ -345,6 +358,9 @@ interface Stretch {
   distance: number;
   tol: number;
   crossed: boolean;
+  /** Measured on the uses' images on the face (measureImages), which retrace each other: that puts the loop in
+   * trouble. */
+  onImages: boolean;
 }
 
 /** An edge's curve parameters at its start and end as the face API takes them (or undefined). */
@@ -356,8 +372,14 @@ export function fromVertex(params: Params, d: BrepData, e: number, v: number): [
   return !r ? undefined : d.edge.start[e] === v ? r : [r[1], r[0]];
 }
 
-/** Measures one pair (rows of d): undefined where it isn't one to merge. */
+/** Measures one pair (rows of d): on the curves, else on the uses' images; undefined where it isn't one to merge. */
 function measure(g: Geometry, params: Params, d: BrepData, p: Pair, tolOf: (e: number) => number):
+  Stretch | undefined {
+  return measureCurves(g, params, d, p, tolOf) ?? measureImages(g, params, d, p, tolOf);
+}
+
+/** measure on the curves: the pair leaving v together and within the tolerance for LENGTH x it. */
+function measureCurves(g: Geometry, params: Params, d: BrepData, p: Pair, tolOf: (e: number) => number):
   Stretch | undefined {
   const ea = d.coedge.edge[p.a]!, eb = d.coedge.edge[p.b]!, ca = d.edge.curve[ea]!, cb = d.edge.curve[eb]!;
   if (ca < 0 || cb < 0) return undefined;
@@ -461,7 +483,130 @@ function measure(g: Geometry, params: Params, d: BrepData, p: Pair, tolOf: (e: n
   if (!db2 || !da2) return undefined;
   const distance = Math.max(...db2.d, ...da2.d);
   if (!(distance <= tol)) return undefined;
-  return { tA, tB, wholeA, wholeB, length, distance, tol, crossed: crossing !== undefined };
+  return { tA, tB, wholeA, wholeB, length, distance, tol, crossed: crossing !== undefined, onImages: false };
+}
+
+/**
+ * measure on the uses' images on the face, where the curves aren't within the tolerance: a pair whose images retrace
+ * each other from v (within RETRACE x the tolerance for over MIN_LENGTH), merged up to where the images are PART x the
+ * tolerance apart. Only where both uses have p-curves (else an image is a projection the face API makes on demand,
+ * too dear for every pair of every loop), and only where the images leave v within MAX_ANGLE of each other.
+ */
+function measureImages(g: Geometry, params: Params, d: BrepData, p: Pair, tolOf: (e: number) => number):
+  Stretch | undefined {
+  if (d.coedge.pcurve[p.a]! < 0 || d.coedge.pcurve[p.b]! < 0) return undefined;
+  const ea = d.coedge.edge[p.a]!, eb = d.coedge.edge[p.b]!;
+  const A = fromVertex(params, d, ea, p.v), B = fromVertex(params, d, eb, p.v);
+  if (!A || !B) return undefined;
+  const img = imageOf(g, params, d, p.f);
+  // (The directions leaving v, by a step of 1e-6 of each range: a retrace leaves within far less than MAX_ANGLE.)
+  const step = (c: number, [t0, t1]: [number, number]) => {
+    const P = img(c, [t0, t0 + (t1 - t0) * 1e-6]);
+    return P && [P[3]! - P[0]!, P[4]! - P[1]!, P[5]! - P[2]!];
+  };
+  const ua = step(p.a, A), ub = step(p.b, B);
+  if (!ua || !ub) return undefined;
+  const na = Math.hypot(...ua), nb = Math.hypot(...ub);
+  if (!(na > 0 && nb > 0)) return undefined;
+  const cos = (ua[0]! * ub[0]! + ua[1]! * ub[1]! + ua[2]! * ub[2]!) / (na * nb);
+  if (!(Math.acos(Math.min(1, cos)) < MAX_ANGLE)) return undefined;
+  const tol = Math.max(tolOf(ea), tolOf(eb));
+  const o = imageOverlap(img, p, A, B, RETRACE * tol);
+  if (!o) return undefined;
+  const x = o.wholeB ? o : imageOverlap(img, p, A, B, PART * tol);
+  if (!x) return undefined;
+  const inside = (t: number, [t0, t1]: [number, number]) => (t - t0) * (t1 - t) > 0;
+  if (!x.wholeA && !inside(x.tA, A) || !x.wholeB && !inside(x.tB, B)) return undefined;
+  return { tA: x.wholeA ? A[1] : x.tA, tB: x.wholeB ? B[1] : x.tB, wholeA: x.wholeA, wholeB: x.wholeB,
+    length: x.length, distance: x.distance, tol, crossed: false, onImages: true };
+}
+
+/** Points on face f's surface at coedges' (u, v) as the face API takes them (useUv), x, y, z each; undefined where it
+ * can't say. */
+function imageOf(g: Geometry, params: Params, d: BrepData, f: number) {
+  return (c: number, t: number[]): Float64Array | undefined => {
+    const q = useUv(g, params, d, c, t);
+    if (!q) return undefined;
+    const S = g.faceEval(f, q.flat(), 0);
+    return S.status !== 'ok' || S.statuses.some((x) => x !== 0) ? undefined : S.values;
+  };
+}
+
+/** Golden-section steps refining a point's foot on an image. */
+const FOOT_STEPS = 40;
+
+/**
+ * How far from v the uses' images stay within eps of each other, where that's past MIN_LENGTH along B's: B's
+ * parameter where its image first gets farther than eps from A's (B's far end where it doesn't: wholeB), A's at the
+ * foot there (wholeA where A's far end is within eps of it), the length along B's image, the largest distance before.
+ * Undefined where it's not past MIN_LENGTH.
+ */
+function imageOverlap(img: ReturnType<typeof imageOf>, p: Pair, A: [number, number], B: [number, number],
+  eps: number): { tA: number; tB: number; wholeA: boolean; wholeB: boolean; length: number; distance: number }
+  | undefined {
+  const arc = (P: ArrayLike<number>) => {
+    let s = 0;
+    for (let i = 3; i < P.length; i += 3) s += sub(P, i - 3, P, i);
+    return s;
+  };
+  const h = (B[1] - B[0]) * 1e-6, P0 = img(p.b, [B[0], B[0] + h]);
+  if (!P0) return undefined;
+  const speed = sub(P0, 0, P0, 3) / Math.abs(h);
+  if (!(speed > 0)) return undefined;
+  const tsA = crossTs(A[0], A[1]), PA = img(p.a, tsA);
+  if (!PA) return undefined;
+  // A point's distance from A's image and its foot's parameter: the nearest sample's neighbours, golden section.
+  const foot = (Q: ArrayLike<number>, o: number) => {
+    let k = 0, best = Infinity;
+    for (let i = 0; i < tsA.length; i++) {
+      const x = sub(PA, 3 * i, Q, o);
+      if (x < best) best = x, k = i;
+    }
+    let lo = tsA[Math.max(k - 1, 0)]!, hi = tsA[Math.min(k + 1, tsA.length - 1)]!;
+    const phi = (Math.sqrt(5) - 1) / 2;
+    for (let i = 0; i < FOOT_STEPS; i++) {
+      const a = hi - phi * (hi - lo), b = lo + phi * (hi - lo), P = img(p.a, [a, b]);
+      if (!P) return undefined;
+      if (sub(P, 0, Q, o) <= sub(P, 3, Q, o)) hi = b;
+      else lo = a;
+    }
+    const t = (lo + hi) / 2, P = img(p.a, [t]);
+    if (!P) return undefined;
+    const x = sub(P, 0, Q, o);
+    return x <= best ? { d: x, t } : { d: best, t: tsA[k]! };
+  };
+  // (A quick refusal first: B's image a little past MIN_LENGTH from v, by its speed there, within eps of A's.)
+  const tq = B[0] + Math.sign(B[1] - B[0]) * Math.min(Math.abs(B[1] - B[0]), 0.6 * MIN_LENGTH / speed);
+  const Pq = img(p.b, [tq]), fq = Pq && foot(Pq, 0);
+  if (!fq || fq.d > eps) return undefined;
+  const tsB = crossTs(B[0], B[1]), PB = img(p.b, tsB);
+  if (!PB) return undefined;
+  let k = 1, distance = 0;
+  for (; k < tsB.length; k++) {
+    const f = foot(PB, 3 * k);
+    if (!f) return undefined;
+    if (f.d > eps) break;
+    distance = Math.max(distance, f.d);
+  }
+  const wholeB = k === tsB.length;
+  let tB = B[1];
+  if (!wholeB) {
+    let lo = tsB[k - 1]!, hi = tsB[k]!;
+    for (let i = 0; i < BISECTIONS; i++) {
+      const m = (lo + hi) / 2, Q = img(p.b, [m]), f = Q && foot(Q, 0);
+      if (!f) return undefined;
+      if (f.d > eps) hi = m;
+      else lo = m, distance = Math.max(distance, f.d);
+    }
+    tB = lo;
+  }
+  const along = img(p.b, crossTs(B[0], tB)), Q = img(p.b, [tB]), fa = Q && foot(Q, 0), far = img(p.a, [A[1]]);
+  if (!along || !fa || !far) return undefined;
+  const length = arc(along);
+  if (!(length > MIN_LENGTH)) return undefined;
+  const Pa = img(p.a, [fa.t]);
+  if (!Pa) return undefined;
+  return { tA: fa.t, tB, wholeA: sub(Pa, 0, far, 0) <= eps, wholeB, length, distance };
 }
 
 /** Each face's pieces as the face API takes them (facePieces), per model's Geometry. */
@@ -510,6 +655,28 @@ export function crossTs(t0: number, t1: number): number[] {
 }
 
 /**
+ * Coedge c's (u, v) at its edge's parameters t as the face API takes them: its p-curve where that runs at the edge's
+ * parameter (pcurveRange), else the face API's projection of its curve (bare uses too). Undefined where it can't say.
+ */
+function useUv(g: Geometry, params: Params, d: BrepData, c: number, t: number[]): [number, number][] | undefined {
+  let atEdge = d.coedge.pcurve[c]! < 0;
+  if (!atEdge) {
+    const r = params(d.coedge.edge[c]!)!, [a, b] = r, span = Math.abs(r[1] - r[0]), q = pcurveRange(g, d, params, c);
+    atEdge = !!q && Math.abs(q[0] - a) <= 1e-9 * span && Math.abs(q[1] - b) <= 1e-9 * span;
+  }
+  if (atEdge) {
+    const r = g.evalCoedge(c, t, 0);
+    if (r.status !== 'ok' || r.statuses.some((x) => x !== 0)) return undefined;
+    return t.map((_, i) => [r.values[3 * i]!, r.values[3 * i + 1]!]);
+  }
+  const r = g.projectCoedge(c, NaN, t);
+  if (r.status !== 'ok' || !('uv' in r)) return undefined;
+  const q = r.takesTwin ? r.twinUv : r.uv;
+  if (q.some((x) => !Number.isFinite(x))) return undefined;
+  return t.map((_, i) => [q[2 * i]!, q[2 * i + 1]!]);
+}
+
+/**
  * Where the two uses last cross each other in the face's (u, v) within the stretch (from v to tA along A, to tB along
  * B), as B's parameter (the crossing farthest from v): their (u, v) as the face API takes them (p-curves, else
  * projections), sampled, unwrapped across the face's periods, a proper crossing of their polylines anywhere but at
@@ -517,30 +684,13 @@ export function crossTs(t0: number, t1: number): number[] {
  */
 export function lastCrossing(g: Geometry, params: Params, d: BrepData, p: Pair, A: [number, number],
   B: [number, number], tA: number, tB: number): number | undefined {
-  // A use whose p-curve doesn't run at its edge's parameter is taken as the face API's projection of its curve (its
-  // (u, v) at the edge's parameters); the rest by the face API's own (their p-curves, else projections).
-  const atEdge = (c: number) => {
-    if (d.coedge.pcurve[c]! < 0) return true;
-    const r = params(d.coedge.edge[c]!)!, [a, b] = r, span = Math.abs(r[1] - r[0]), q = pcurveRange(g, d, params, c);
-    return !!q && Math.abs(q[0] - a) <= 1e-9 * span && Math.abs(q[1] - b) <= 1e-9 * span;
-  };
   const info = g.faceInfo(p.f), pu = info.uPeriod, pv = info.vPeriod;
   const uv = (c: number, t: number[]) => {
-    let at: (i: number) => [number, number];
-    if (atEdge(c)) {
-      const r = g.evalCoedge(c, t, 0);
-      if (r.status !== 'ok' || r.statuses.some((x) => x !== 0)) return undefined;
-      at = (i) => [r.values[3 * i]!, r.values[3 * i + 1]!];
-    } else {
-      const r = g.projectCoedge(c, NaN, t);
-      if (r.status !== 'ok' || !('uv' in r)) return undefined;
-      const q = r.takesTwin ? r.twinUv : r.uv;
-      if (q.some((x) => !Number.isFinite(x))) return undefined;
-      at = (i) => [q[2 * i]!, q[2 * i + 1]!];
-    }
+    const raw = useUv(g, params, d, c, t);
+    if (!raw) return undefined;
     const out: [number, number][] = [];
     for (let i = 0; i < t.length; i++) {
-      let [u, v] = at(i);
+      let [u, v] = raw[i]!;
       const ref = out.length ? out[out.length - 1]! : undefined;
       if (ref && pu > 0) u -= pu * Math.round((u - ref[0]) / pu);
       if (ref && pv > 0) v -= pv * Math.round((v - ref[1]) / pv);
@@ -686,7 +836,7 @@ function apply(g: Geometry, params: Params, d: BrepData, p: Pair, s: Stretch, pa
   }
   // Spikes can only be where the merged edge's uses run there and back; v goes where nothing uses it.
   const merged: Merged = { face: d.face.id[p.f]!, edges: [ea, eb], length: s.length,
-    distance: s.distance, tolerance: s.tol, grown, crossed: s.crossed };
+    distance: s.distance, tolerance: s.tol, grown, crossed: s.crossed, onImages: s.onImages };
   // A shell left with no faces, or an item naming a removed face: not this fix's to make.
   for (const faces of t.shellFaces) if (faces.length && faces.every((f) => t.removedFaces.has(f))) return undefined;
   for (let i = 0; i < d.item.kind.length; i++) {
@@ -910,10 +1060,11 @@ export function mergeCoincident(module: GeomModule, given: BrepData, ranges?: Fl
       return out;
     };
     // A loop is merged in only where its boundary is in trouble: the face API sees it cross or overlap itself, or one
-    // of its pairs crosses in the face's (u, v) (the face API's own test leaves out the stretch beside each vertex,
-    // where these cusps are). Once in trouble, a loop stays so (keyed by its face's given row and its index there), so
-    // its other cusps merge too (lightarm #91488's second, which doesn't cross). Elsewhere a merge gains nothing, and
-    // can break the face or a neighbour (projector-lift #1685's #12900, which meshed).
+    // of its pairs crosses in the face's (u, v) or retraces itself there (measureImages; the face API's own test
+    // leaves out the stretch beside each vertex, where these cusps are). Once in trouble, a loop stays so (keyed by
+    // its face's given row and its index there), so its other cusps merge too (lightarm #91488's second, which doesn't
+    // cross). Elsewhere a merge gains nothing, and can break the face or a neighbour (projector-lift #1685's #12900,
+    // which meshed).
     const loopKey = (p: Pair) => `${maps ? maps.faceFrom[p.f]! : p.f}:${p.l - d.face.firstLoop[p.f]!}`;
     const askedApi = new Set<number>();
     const inTrouble = (p: Pair) => {
@@ -938,7 +1089,7 @@ export function mergeCoincident(module: GeomModule, given: BrepData, ranges?: Fl
           tried.add(key);
           continue;
         }
-        if (st.crossed) troubledLoops.add(loopKey(p));
+        if (st.crossed || st.onImages) troubledLoops.add(loopKey(p));
         candidates.push({ p, s: st, key });
       }
       for (const { p, s: st, key } of candidates) {

@@ -20,14 +20,14 @@
  * vertices; `edgeTolerance` and `vertexTolerance` grow tolerances to cover what's measured. `orientShells` turns a
  * solid's closed shell that faces into its material (fix/shells.ts: by its exact signed volume, cad-oracle's, and
  * point classification once built), last, on the healed model. `coincidentEdges` runs after the curves' fixes and
- * before orientShells: two consecutive edges of a loop leaving their vertex together and within their tolerance of
- * each other merged up to where they truly part, a face left with no area removed (fix/coincident.ts; healing's one
- * change of topology). `trimOvershoot` runs after coincidentEdges: two consecutive edges of a loop in trouble whose
- * curves cross within the part's uncertainty near their vertex and run on past it trimmed at the crossing, the
- * vertex moved there (fix/overshoot.ts). `vertexOnEdge` runs after trimOvershoot: two loops of one face meeting at a
- * point to rounding without a shared vertex there made to share one, the edge split at the other loop's vertex, or
- * two coincident vertices merged (fix/touch.ts). (The order is also the healing row's bit order: a fix added goes
- * last.)
+ * before orientShells: two consecutive edges of a loop leaving their vertex together and within their tolerance of each
+ * other (or whose images on the face retrace each other) merged up to where they truly part, a face left with no area
+ * removed (fix/coincident.ts; healing's one change of topology). `trimOvershoot` runs after coincidentEdges: two
+ * consecutive edges of a loop in trouble whose curves cross within the part's uncertainty near their vertex and run on
+ * past it trimmed at the crossing, the vertex moved there (fix/overshoot.ts). `vertexOnEdge` runs after trimOvershoot:
+ * two loops of one face meeting at a point to rounding without a shared vertex there made to share one, the edge split
+ * at the other loop's vertex, or two coincident vertices merged (fix/touch.ts). (The order is also the healing row's
+ * bit order: a fix added goes last.)
  */
 export const HEAL_FIXES = ['strayPole', 'pcurveMissingOnPlane', 'pcurveMissingOnElementary', 'pcurveMissingOnFreeForm',
   'pcurveReparam', 'pcurveReplace', 'pcurveEnds', 'edgeTolerance', 'vertexTolerance', 'orientShells', 'pcurveTight',
@@ -90,7 +90,7 @@ export const PCURVE_FIT_TOLERANCE = 0.0025;
  * The version of what healing makes: bumped when the same model and options heal to other bytes, so a model healed by
  * another version is healed again from its source's values rather than taken as healed (the analysis's healing row).
  */
-export const HEAL_VERSION = 7;
+export const HEAL_VERSION = 8;
 
 /** The fixes as the analysis's healing row holds them: a bit per fix, in HEAL_FIXES order. */
 export function fixesMask(fixes: Iterable<HealFix>): number {
