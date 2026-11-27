@@ -473,6 +473,30 @@ export function clampedCorner(uncertainty = 0.1): BrepBuilder {
 }
 
 /**
+ * A doubled strip: (2u, v^3 - 0.75 v, 2u^2) with v = 2t - 1 over u, t in [0, 1], quadratic in u (bent, so its
+ * triangles' patches are past the refinement floor) and a cubic Bezier in t. y runs back between v = -0.5 (t = 0.25, y
+ * 0.25) and v = 0.5 (t = 0.75, y -0.25): two folds (cad-geom's folds.h) 0.5 apart, the sheet three layers over that
+ * band, its normal turned back between them (S_u x S_v = (-8u y', 0, 4y'), y' = dy/dv). Its loop four lines round the
+ * box's corners (not on the surface: for the criteria, which take the box alone), under an uncertainty of 0.01.
+ */
+export function doubledStrip(): BrepBuilder {
+  const b = new BrepBuilder({ uncertainty: 0.01 });
+  const by = [-0.25, 1.25, -1.25, 0.25];
+  const s = b.addSurface({ kind: 'bspline', uDegree: 2, vDegree: 3, uKnots: [0, 1], vKnots: [0, 1],
+    uMultiplicities: [3, 3], vMultiplicities: [4, 4],
+    poles: [0, 1, 2].map((i) => by.map((y) => [i, y, i === 2 ? 2 : 0])),
+    uClosed: false, vClosed: false, selfIntersect: false, form: 'unspecified' });
+  const c = [[0, -0.25, 0], [2, -0.25, 2], [2, 0.25, 2], [0, 0.25, 0]];
+  const v = c.map((point) => b.addVertex({ point }));
+  const edges = [0, 1, 2, 3].map((k) => b.addEdge({ curve: b.addCurve({ kind: 'line', point: c[k]!,
+    direction: [0, 1, 2].map((x) => c[(k + 1) % 4]![x]! - c[k]![x]!), magnitude: 1 }), start: v[k]!,
+  end: v[(k + 1) % 4]!, sameSense: true, range: [0, 1] }));
+  sheet(b, b.addFace({ surface: s, sameSense: true, loops: [{ kind: 'edge', bound: 'outer', sense: true,
+    coedges: edges.map((edge) => ({ edge, orientation: 'forward' as const })) }] }));
+  return b;
+}
+
+/**
  * A flat bilinear B-spline patch over [0, 1]^2 on z = 0 under an uncertainty of 0.01, a square loop from u = 0.2 to
  * 0.8 whose top edge, a polyline 0.001 past v = 1 (its feet clamped onto that side), steps back along it: 0.8, 0.52,
  * 0.53 (0.0005 further out), 0.54, 0.5, 0.2 in u (LMP1 #1054461's edge #543108, its curve wandering along it).
@@ -3091,6 +3115,7 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   edgeBulge: () => edgeFarOff(false, true), edgeBulgePcurve: () => edgeFarOff(true, true),
   edgeBulgeGrown: () => edgeFarOff(false, true, 0.6),
   roofBent: () => roof(0, 1, false, 2, 0, 0.004), roofNotch, thinRing, pcurveNear,
+  doubledStrip: () => doubledStrip(),
   clampedCorner: () => clampedCorner(),
   clampedCornerTight: () => clampedCorner(0.01), sideWobble: () => sideWobble(), lineWobble: () => sideWobble(0.9),
   bandTwoSlots, poleDip, poleDipFar: () => poleDipFar(), poleDipFarLoose: () => poleDipFar(2e-3, 0.01), lensPlane,

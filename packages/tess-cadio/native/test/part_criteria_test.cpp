@@ -1303,3 +1303,60 @@ TEST_CASE("a run of knot spans each narrower than the floor in 3D that bends sha
   if (!(fm.triangles.size() / 3 <= 64)) std::printf("  rippleRun: %zu triangles\n", fm.triangles.size() / 3);
   CHECK(fm.triangles.size() / 3 <= 64);
 }
+
+TEST_CASE("a fold (cad-geom's folds.h): a triangle with a corner within the floor of it isn't judged by its normals, "
+  "its deviation still is; one away from it is; a smooth pole's fan is") {
+  // doubledStrip's folds at t = 0.25 and 0.75 (y = 0.25 and -0.25, its normal turned back between them).
+  auto criteria = [](const char* name, std::unique_ptr<cadgeom::Surface>& s, double d = 0.1) {
+    static std::vector<cadgeom::Model> keep;
+    keep.push_back(load(name));
+    cadgeom::Status st;
+    s = cadgeom::makeSurface(keep.back(), keep.back().faceSurface(0), st);
+    return makeCriteria(keep.back(), 0, *s, {{0, 1}, {0, 1}}, Deflections{d, 0.26}, st);
+  };
+  std::unique_ptr<cadgeom::Surface> s, s2;
+  auto c = criteria("doubledStrip", s);
+  REQUIRE(c);
+  // Across the fold at t = 0.25 (y 0.2494 at t = 0.24 and 0.26, 0.0006 from the fold's 0.25 in 3D): its corners'
+  // normals turned back across it, refused for them but for the fold; within the deviation (0.02 at most of 0.1).
+  // (Its corners halfway between the grid's lines u = k / 64, where the fold's crossings are, 0.016 from them in 3D:
+  // within the floor of its polyline's segments, not of its points.)
+  const Vec2 across[3] = {{26.5 / 64, 0.24}, {38.5 / 64, 0.24}, {32.5 / 64, 0.26}};
+  CHECK(c->accept(across));
+  CHECK(c->refusal(across, true, false) == Refusal::none);
+  // Its corners 0.014 mm from the fold (t = 0.2 and 0.3), past the floor (0.01): judged, refused for its normals.
+  const Vec2 wide[3] = {{0.4, 0.2}, {0.6, 0.2}, {0.5, 0.3}};
+  CHECK(!c->accept(wide));
+  CHECK(c->refusal(wide, true, false) == Refusal::normalFacet);
+  // Between the folds, wound against the layer's normal (clockwise in (u, v) where the sheet runs back): refused.
+  const Vec2 turned[3] = {{0.4, 0.45}, {0.5, 0.55}, {0.6, 0.45}};
+  CHECK(!c->accept(turned));
+  CHECK(c->refusal(turned, true, false) == Refusal::normalFacet);
+  // A smooth pole's fan is judged however near a fold.
+  CHECK(!c->acceptFan(across));
+  // With its corners the boundary's own points (setBoundaryPoints, there on the surface), judged as output too: not
+  // for its turn either, wound either way (its corners' normals' sum against one of the two facets).
+  {
+    std::unique_ptr<cadgeom::Surface> s4;
+    auto b = criteria("doubledStrip", s4);
+    REQUIRE(b);
+    std::vector<std::pair<Vec2, Vec3>> own;
+    for (Vec2 x : across) {
+      cadgeom::SurfacePoint q;
+      s4->eval(x.x, x.y, 0, q);
+      own.push_back({x, q.p});
+    }
+    b->setBoundaryPoints(own);
+    const Vec2 back[3] = {across[0], across[2], across[1]};
+    CHECK(b->accept(across));
+    CHECK(b->accept(back));
+  }
+  // At d = 1 (the floor 0.1) a long triangle across the fold, its patch past the floor and its deviation (about 0.32)
+  // within d: accepted. (A band within the face's tolerance isn't kept as a fold, foldNormal's: there the floor is at
+  // least the tolerance, so a triangle across the band is a sliver foldSliver accepts; the corpus shows the gate, LMP1
+  // #172427's pleats.)
+  auto tight = criteria("doubledStrip", s2, 1);
+  REQUIRE(tight);
+  const Vec2 longAcross[3] = {{0.1, 0.24}, {0.9, 0.24}, {0.5, 0.26}};
+  CHECK(tight->accept(longAcross));
+}
