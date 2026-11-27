@@ -65,4 +65,4 @@ export const DEFAULT_RENDER: RenderSettings = { ao: true, aoIntensity: 5, aoRadi
   smaa: true, edges: true, edgeStyle: 'fat', edgeWidth: 1.5, vertices: false, depthOffset: 0, triangleEdges: 'off',
   shininess: 30, specular: 0.2, ambient: 1, light: 2.5, capStyle: 'parts', hatchWidth: HATCH_WIDTH,
   highlightColor: '#ffe100', highlightWidth: 2.5, selectionColor: '#ff9a2e',
-  alertColor: '#ff0000', revealAlpha: 0.1 };
+  alertColor: '#ff0000', revealAlpha: 0.25 };

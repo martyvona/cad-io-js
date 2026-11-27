@@ -668,6 +668,14 @@ export class NodeModel {
   }
 
   /**
+   * Reveals the nodes covering these (`cover`), likewise: where a node is revealed anyway (an ancestor's reveal), its
+   * own is cleared rather than set.
+   */
+  setRevealed(ids: Iterable<number>): void {
+    this.change(ids, 'reveal', (id) => this.inherited(id).reveal === true ? {} : { reveal: true });
+  }
+
+  /**
    * Makes the nodes covering these transparent at `alpha`, or with 'default' back to the file's opacity, likewise.
    */
   setOpacity(ids: Iterable<number>, alpha: number | 'default'): void {

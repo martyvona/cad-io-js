@@ -9,6 +9,7 @@
 import type { InstanceOverride, Material, Scene } from 'cad-scene';
 import type { NodeModel } from './model.ts';
 import { DEFAULT_COLOR, type SceneGraph } from './scene-graph.ts';
+import { DEFAULT_RENDER } from './style.ts';
 
 export interface ShownEdits {
   /** Materials to add after the scene's (indices from its count on). */
@@ -20,7 +21,8 @@ export interface ShownEdits {
 }
 
 /** The scene's overrides and added materials that make an export draw as the viewer does. */
-export function shownEdits(scene: Scene, nodes: NodeModel, graph: SceneGraph, revealAlpha = 0.1): ShownEdits {
+export function shownEdits(scene: Scene, nodes: NodeModel, graph: SceneGraph,
+  revealAlpha = DEFAULT_RENDER.revealAlpha): ShownEdits {
   const materials: Material[] = [];
   const made = new Map<string, number>();
   // A material at an alpha (undefined, the default material's grey), each once.

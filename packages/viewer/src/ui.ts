@@ -62,6 +62,8 @@ export interface Ui {
   selection: { level: PickLevel; multi: boolean; instances: boolean };
   hideSelected(): void;
   showSelected(): void;
+  /** Reveals the selection (model.ts's Reveal), as Override Appearance's Reveal would, node by node. */
+  revealSelected(): void;
   /** Hides everything but the selection and what holds it (NodeModel.others). */
   hideOthers(): void;
   /** Shows what Hide others hides (NodeModel.others), however it was hidden. */
@@ -1127,6 +1129,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Select by ID...', action: () => void selectById() },
       { label: 'Hide selected', action: () => press(hideControl) },
       { label: 'Show selected', action: () => press(showControl) },
+      { label: 'Reveal selected', action: () => press(revealControl) },
       ...(errors + warnings ? [{ label: `${count(errors, 'Error')}, ${count(warnings, 'Warning')}...`,
         divider: true, action: () => void showProblems(name, mine, nodes.nodes[id]!.face ? name
           : `${name} and everything in it`) }] : []),
@@ -1367,6 +1370,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     selection,
     hideSelected: () => hide(true),
     showSelected: () => hide(false),
+    revealSelected: () => {
+      if (selected.length) appearance((m) => m.setRevealed(selected));
+    },
     hideOthers: () => {
       const nodes = viewer.nodes;
       if (nodes && selected.length) hideOthers(true, nodes.others(selected));
@@ -1522,6 +1528,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(selection, 'details').name('Details').onChange(describe);
   const hideControl = selFolder.add(ui, 'hideSelected').name('Hide selected');
   const showControl = selFolder.add(ui, 'showSelected').name('Show selected');
+  const revealControl = selFolder.add(ui, 'revealSelected').name('Reveal selected');
   selFolder.add(ui, 'hideOthers').name('Hide others');
   selFolder.add(ui, 'showOthers').name('Show others');
   const showAllControl = selFolder.add(ui, 'showAll').name('Show all');

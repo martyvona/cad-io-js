@@ -618,7 +618,7 @@ test("reveal: inherited, a face's own; while something's revealed, what isn't a 
   assert.ok(meshes[1]!.userData.ghost && !meshes[0]!.userData.ghost && !curves(subWire).visible);
   const twin = twinOf(meshes[1]!)!;
   assert.ok(twin && twin.geometry === meshes[1]!.geometry && twin.layers.mask === 1 << REVEAL);
-  assert.deepEqual(faces(twin, meshes[1]), '8:0.1 7:0.1');
+  assert.deepEqual(faces(twin, meshes[1]), '8:0.25 7:0.25');
   assert.ok((twin.material as THREE.Material[]).every((m) => m.transparent));
   // (The file's hidden placement, not drawn: no twin drawn either.)
   assert.equal(graph.twins.children.filter((t) => t.visible).length, 1);
@@ -626,12 +626,12 @@ test("reveal: inherited, a face's own; while something's revealed, what isn't a 
   const subFace7 = nodeIn(model, subPlate, 'face #7');
   model.setOverride(subFace7, { reveal: true });
   assert.equal(faces(meshes[1]!), `8:- ${before[1]!.split(' ')[1]}`);
-  assert.equal(faces(twinOf(meshes[1]!)!, meshes[1]), '8:0.1 7:-');
+  assert.equal(faces(twinOf(meshes[1]!)!, meshes[1]), '8:0.25 7:-');
   assert.ok(!meshes[1]!.userData.ghost);
   // Not revealed within something revealed: a ghost (`reveal: false`).
   const leftFace8 = nodeIn(model, leftPlate, 'face #8');
   model.setOverride(leftFace8, { reveal: false });
-  assert.equal(faces(twinOf(meshes[0]!)!, meshes[0]), '8:0.1 7:-');
+  assert.equal(faces(twinOf(meshes[0]!)!, meshes[0]), '8:0.25 7:-');
   // Reveal alpha; the two draws' depth settings.
   graph.setRevealAlpha(0.3);
   const ghostMaterial = (twinOf(meshes[0]!)!.material as THREE.Material[])[0]!;
@@ -659,4 +659,20 @@ test("reveal: inherited, a face's own; while something's revealed, what isn't a 
   model.setOverrides([{ path: 'asm/left/plate', reveal: false }], ['reveal']);
   assert.ok(!model.revealing && model.ownOverride(left) === undefined);
   assert.equal(faces(meshes[1]!), before[1]);
+});
+
+test('setRevealed: the nodes covering these revealed; one revealed through an ancestor left without its own', () => {
+  const { graph, model } = stepModel();
+  graph.addMesh(0, plate());
+  const [left, sub] = model.children(model.roots[0]!) as [number, number];
+  const [leftPlate, leftWire] = model.children(left) as [number, number];
+  model.setRevealed([leftPlate, leftWire]);
+  // (Both of left's parts: left itself.)
+  assert.deepEqual([model.ownOverride(left), model.ownOverride(leftPlate)], [{ reveal: true }, undefined]);
+  model.setRevealed([model.children(sub)[0]!]);
+  assert.deepEqual(model.ownOverride(model.children(sub)[0]!), { reveal: true });
+  // Within something revealed: nothing of its own.
+  model.setRevealed([leftPlate]);
+  assert.equal(model.ownOverride(leftPlate), undefined);
+  assert.ok(model.revealing && !model.ghost(leftPlate));
 });

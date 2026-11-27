@@ -995,7 +995,7 @@ await check('hide others and transparency', async () => {
 // and replayed in a fresh page with the same overrides.
 // The tree's context menu ends with Selection's actions: what's before them (else the whole menu, so it doesn't match).
 const SELECT_ITEMS = ['Select parent', 'Select children', 'Select none', 'Select all', 'Invert selection',
-  'Select by ID...', 'Hide selected', 'Show selected'];
+  'Select by ID...', 'Hide selected', 'Show selected', 'Reveal selected'];
 // (A node's problems item, last where it has any, healing's warnings among them, left out too.)
 const ownItems = (all: string[]) => {
   const items = /^\d+ Errors?, \d+ Warnings?\.\.\.$/.test(all.at(-1) ?? '') ? all.slice(0, -1) : all;
@@ -1260,7 +1260,8 @@ await check('tree menu others and selected', async () => {
   const items = a.othersSel.items as string[];
   expect(JSON.stringify(items.slice(0, 6)) === '["Hide 2","Show 2","Reveal 2","Hide others",' +
       '"Show others","Show all"]' &&
-    JSON.stringify(items.slice(-2)) === '["Hide selected","Show selected"]' && items.at(-3) === 'Select by ID...',
+    JSON.stringify(items.slice(-3)) === '["Hide selected","Show selected","Reveal selected"]' &&
+    items.at(-4) === 'Select by ID...',
   `the items: ${j}`);
   expect(same(a.othersSel, a.want.othersSel) && a.othersSel.hidden.length > 0 &&
     !a.othersSel.hidden.some((p: string) => a.paths.slice(0, 2).includes(p)), `Hide others on the selection: ${j}`);
@@ -1376,7 +1377,7 @@ await check('reveal', async () => {
       out.mix.push({ ao, ghosted, wrong, worst: Math.round(worst), unlike, covered, fronts,
         shift: Math.round(shift / fronts * 100) / 100 });
     }
-    ui.setRender({ ao: true, smaa: true, revealAlpha: 0.1 });
+    ui.setRender({ ao: true, smaa: true, revealAlpha: 0.25 });
     // Caps: none for a ghost.
     const capped = () => { viewer.sections.invalidate(); viewer.draw(); return viewer.sections.caps.length; };
     ui.setSections({ ...viewer.sections.get(), z: { on: true, at: 20, flip: false } });
@@ -1412,6 +1413,22 @@ await check('reveal', async () => {
       clears[item] = m.revealing;
     }
     out.clears = clears;
+    // Reveal selected (the menu's, as Selection's button): the selection revealed, whatever was right-clicked; a
+    // part inside a revealed assembly revealed already (no override of its own).
+    ui.select([others[1], others[2]]);
+    await menu(rod, 'Reveal selected');
+    out.revealSelected = [others[1], others[2]].map((p) => m.ownOverride(p)?.reveal ?? null);
+    out.rodAlone = m.ownOverride(rod)?.reveal ?? null;
+    ui.showAll();
+    const asm = m.nodes.find((n) => n.kind === 'assembly' && n.parent >= 0 && m.children(n.id).some((c) =>
+      m.nodes[c].kind === 'part')).id;
+    const inner = m.children(asm).find((c) => m.nodes[c].kind === 'part');
+    ui.setOverride(asm, { reveal: true });
+    ui.select([inner]);
+    control('Reveal selected').$button.click();
+    out.inner = m.ownOverride(inner) ?? null;
+    ui.showAll();
+    ui.select([]);
     ui.setOverride(rod, { reveal: true });
     control('Reveal alpha').setValue(0.3);
     control('Reveal alpha')._callOnFinishChange();
@@ -1420,7 +1437,9 @@ await check('reveal', async () => {
     return out;
   })()`) as { after: Record<string, any> };
   const a = r.after, j = JSON.stringify({ ...a, rec: undefined, final: undefined });
-  expect(a.alpha === 0.1, `Reveal alpha, 0.1 at first: ${j}`);
+  expect(a.alpha === 0.25, `Reveal alpha, 0.25 at first: ${j}`);
+  expect(JSON.stringify(a.revealSelected) === '[true,true]' && a.rodAlone === null && a.inner === null,
+    `Reveal selected: ${j}`);
   expect(JSON.stringify(a.plain) === '["Hide","-Show","Reveal","Hide others"]' &&
     JSON.stringify(a.again) === '["Hide","-Show","-Reveal","Hide others"]' && a.revealed.revealing &&
     a.revealed.own?.reveal === true, `the menu's Reveal, greyed once revealed: ${j}`);
@@ -5687,7 +5706,8 @@ await check('control folders', async () => {
     + 'Enter fullscreen,About...,Theme', `File: ${j}`);
   expect(a.view.join() === 'Zoom all,Zoom selected,Axes,Cube,Look and fit',
     `View: its zooms, Axes, Cube and Look and fit (and the views' folder): ${j}`);
-  expect(a.selection.slice(-9).join() === 'Details,Hide selected,Show selected,Hide others,Show others,Show all,'
+  expect(a.selection.slice(-10).join() === 'Details,Hide selected,Show selected,Reveal selected,Hide others,' +
+    'Show others,Show all,'
     + 'Opacity,Make transparent,Restore opacity' && a.selection[0] === 'Pick', `Selection: ${j}`);
   expect(a.rendering.join() === 'Custom background,Background', `Rendering ends with the background: ${j}`);
   expect(a.enabled && t.on.full && t.on.label === 'Exit fullscreen' && t.on.shown === 'Exit fullscreen'
