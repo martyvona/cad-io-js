@@ -16,11 +16,12 @@ export const REPOSITORY = 'https://github.com/martyvona/cad-io-js';
  * errors and warnings behind another: `problems`, problems.ts's dialog), if any, and with `updates` Check for updates
  * (only when pressed: update-check.ts), saying whether the server has another version (`updates`' state, shared with
  * the controls' badge) with Reload (`reload`, by default a plain reload); and with `demo` Load demo model..., which
- * closes it and then calls `demo`. Resolves when it's closed.
+ * closes it and then calls `demo`; with `client`, a Client details link (client-info.ts's dialog). Resolves when it's
+ * closed.
  */
 export async function showAbout(model?: { rows: [string, string][]; properties: Properties;
   stretched?: string; problems: () => void }, updates?: UpdateCheck,
-  demo?: () => void, reload: () => void = () => location.reload()): Promise<void> {
+  demo?: () => void, reload: () => void = () => location.reload(), client?: () => void): Promise<void> {
   let r: DialogResult | undefined;
   const update = document.createElement('p');
   update.className = 'update';
@@ -82,6 +83,7 @@ export async function showAbout(model?: { rows: [string, string][]; properties: 
         ...(import.meta.env.PROD ? [{ text: ' What the viewer bundles, and under which licenses: ' },
           { text: 'licenses.md', href: new URL('licenses.md', document.baseURI).href }, { text: '.' }] : [])],
         [{ text: 'Source: ' }, { text: REPOSITORY.replace('https://', ''), href: REPOSITORY }],
+        ...(client ? [[{ text: 'Client details', action: client }]] : []),
         // (A build has the README's and the STEP tutorial's PDFs beside the page too: vite.config.ts.)
         ...(import.meta.env.PROD ? [[{ text: 'PDF documentation', href: new URL('README.pdf', document.baseURI).href },
           { text: ' and ' }, { text: 'STEP tutorial', href: new URL('step_tutorial.pdf', document.baseURI).href },

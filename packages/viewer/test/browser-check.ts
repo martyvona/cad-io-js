@@ -5752,7 +5752,9 @@ await check('about', async () => {
     ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
     const d = await new Promise((res) => { const f = () => { const e = document.querySelector('dialog.cv-dialog[open]');
       if (e) res(e); else setTimeout(f, 50); }; f(); });
-    const links = [...d.querySelectorAll('a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel }));
+    // (Links that act in the page, as Client details, apart.)
+    const links = [...d.querySelectorAll('a')].filter((a) => a.getAttribute('href') !== '#').map((a) => ({
+      href: a.href, target: a.target, rel: a.rel }));
     const licenses = links.find((l) => /licenses\.md$/.test(l.href));
     const status = licenses ? (await fetch(licenses.href)).status : undefined;
     const pdfs = links.filter((l) => /\.pdf$/.test(l.href));
@@ -5786,6 +5788,69 @@ await check('about', async () => {
     JSON.stringify(a.pdf?.map((p) => p.name)) === '["README.pdf","step_tutorial.pdf"]' &&
     a.pdf!.every((p) => p.status === 200 && p.magic === '%PDF-'), `the PDFs (a build's only): ${j}`);
   expect(a.closed, `closed: ${j}`);
+  return undefined;
+});
+// Client details (About's link, client-info.ts): this browser, device and GPU as text to copy, what a recording carries
+// too (its `client`): the device class, the browser read from the user agent, the screen and window, input, WebGL's
+// version, GPU and limits, features; nothing identifying (no language, time zone or address); Copy copies it (the
+// clipboard stubbed).
+await check('client details', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    cadViewer.record(true);
+    const rec = cadViewer.record(false);
+    const frame = () => new Promise((res) => setTimeout(res, 50));
+    const open = async () => { for (let t = 0; t < 100; t++) { const all = document.querySelectorAll(
+      'dialog.cv-dialog[open]'); if (all.length) return all[all.length - 1]; await frame(); } };
+    ui.gui.controllersRecursive().find((c) => c._name === 'About...').$button.click();
+    const about = await open();
+    [...about.querySelectorAll('a')].find((a) => a.textContent === 'Client details').click();
+    await frame();
+    const d = await open();
+    const area = d.querySelector('textarea.client-info');
+    const copy = [...d.querySelectorAll('button')].find((b) => b.textContent === 'Copy');
+    // (The clipboard stubbed: a headless page has no gesture to grant it.)
+    let copied;
+    navigator.clipboard.writeText = async (t) => { copied = t; };
+    copy.click();
+    for (let t = 0; t < 40 && copy.textContent !== 'Copied'; t++) await frame();
+    const out = { title: d.querySelector('h2 span')?.textContent, text: area?.value, readOnly: area?.readOnly,
+      copied: copy.textContent, copiedText: copied, client: rec.client, language: navigator.language,
+      zone: Intl.DateTimeFormat().resolvedOptions().timeZone, ua: navigator.userAgent, dpr: devicePixelRatio,
+      threads: navigator.hardwareConcurrency, device: viewer.detectedDevice,
+      gl2: viewer.renderer.getContext() instanceof WebGL2RenderingContext, page: location.href };
+    d.querySelector('button.close').click();
+    await frame();
+    about.querySelector('.buttons button').click();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, text: undefined });
+  const lines = new Map((a.text as string).split('\n').filter((l) => !l.startsWith('  ')).map((l) => {
+    const k = l.indexOf(': ');
+    return [l.slice(0, k), l.slice(k + 2)] as const;
+  }));
+  const want: Record<string, string> = { 'device.detected': a.device, 'device.inUse': a.device,
+    'browser.name': 'Chrome', 'browser.engine': 'Blink', 'browser.userAgent': a.ua, 'screen.pixelRatio': String(a.dpr),
+    'hardware.threads': String(a.threads), 'webgl.version': a.gl2 ? 'WebGL 2.0' : 'WebGL 1.0',
+    'features.webAssembly': 'true' };
+  const wrong = Object.entries(want).filter(([k, v]) => !(lines.get(k) ?? '').startsWith(v));
+  expect(a.title === 'Client details' && a.readOnly && wrong.length === 0 && /^webgl\.limits\.maxTextureSize: \d+$/m
+    .test(a.text) && /^webgl\.extensions: \(\d+\)$/m.test(a.text) && /^webgl\.renderer: \S/m.test(a.text) &&
+    /^webgl\.gpu: \S/m.test(a.text) &&
+    /^screen\.width: \d+$/m.test(a.text) && /^input\.pointer: /m.test(a.text), `the dialog: ${JSON.stringify(wrong)} ${
+    a.text}`);
+  expect(a.copied === 'Copied' && a.copiedText === a.text, `copied: ${j}`);
+  // The recording's: the same fields.
+  const c = a.client;
+  expect(!!c && c.device?.detected === a.device && c.browser?.name === 'Chrome' && c.webgl?.version ===
+    lines.get('webgl.version') && c.webgl?.renderer === lines.get('webgl.renderer') && c.hardware?.threads ===
+    a.threads && Array.isArray(c.webgl?.extensions) && c.webgl.extensions.length > 0, `the recording's: ${j}`);
+  // Nothing identifying: no language, time zone or address, in either.
+  const json = JSON.stringify(c);
+  const keyed = /"(languages?|timeZone|timezone|locale)"/i.test(json) || /(^|\.)(languages?|timeZone|locale): /im
+    .test(a.text);
+  expect(!keyed && !json.includes(a.zone) && !a.text.includes(a.zone) && !json.includes(a.page) && !/[?&]/.test(json),
+    `nothing identifying: ${j}`);
   return undefined;
 });
 // Model Details (About's details link): the author after the file's name (a placeholder not), the file's metadata

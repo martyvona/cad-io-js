@@ -27,6 +27,7 @@ import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSetti
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { nodeLabel, TreePanel } from './tree-panel.ts';
 import { showPickList } from './pick-list.ts';
+import { clientInfo, showClientInfo } from './client-info.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
 import { contentUrl, fromFiles, fromUrl, hashOf, pickFiles, readAgain, saveFile, saveTarget, typedUrl,
@@ -417,7 +418,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       ['Objects', `${s.objects.toLocaleString()} (${s.meshes.toLocaleString()} meshes)`],
       ['Triangles', s.triangles.toLocaleString()]], properties: m.properties, stretched: m.stretched,
     problems: () => void showProblems(m.name, m.diagnostics ?? []) } : undefined,
-    updates, () => void loadDemo(), () => ui.reload ? ui.reload() : location.reload());
+    updates, () => void loadDemo(), () => ui.reload ? ui.reload() : location.reload(),
+    () => void showClientInfo(clientInfo(viewer.renderer, viewer.device)));
   };
   const loadDemo = async () => {
     const p = await askDemo();

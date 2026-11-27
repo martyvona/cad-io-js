@@ -262,6 +262,11 @@
     .cv-dialog select { display: block; margin-top: 4px; padding: 4px 6px; color: var(--input-fg);
       background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; font: inherit; }
     .cv-dialog select.wide { box-sizing: border-box; width: 100%; }
+    /* Client details (client-info.ts): the text to copy, monospace, scrolling. */
+    .cv-dialog textarea.client-info {
+      width: min(640px, 80vw); font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre;
+      resize: vertical;
+    }
     .cv-dialog p.failed { color: #ff6b6b; }
     :root[data-theme="light"] .cv-dialog p.failed { color: #b00020; }
     .cv-dialog p.warning { color: #ffb43c; }

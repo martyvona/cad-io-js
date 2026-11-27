@@ -39,6 +39,7 @@
 
 import { sha256 } from 'cad-scene';
 import { AXIS_VIEWS, interpolateCamera, upIso } from './camera.ts';
+import { clientInfo, type ClientInfo } from './client-info.ts';
 import { formatOf } from './formats.ts';
 import { nodeForPick } from './selection.ts';
 import { setSideWidth, sideWidth } from './side-handle.ts';
@@ -100,6 +101,8 @@ export interface Recording {
   view: { width: number; height: number };
   /** The tree panel's width as dragged (side-handle.ts); absent, the default. Replay sets it (the view as wide). */
   side?: number;
+  /** What it was recorded on (client-info.ts): device, browser, screen, GPU; absent in older recordings. */
+  client?: ClientInfo;
   events: RecordedEvent[];
 }
 
@@ -212,7 +215,8 @@ export class Recorder {
     this.rec = { format: RECORDING_FORMAT, version: 1, started: new Date().toISOString(),
       userAgent: navigator.userAgent, page: location.href,
       window: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
-      view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(), events: [] };
+      view: { width: canvas.clientWidth, height: canvas.clientHeight }, ...side(),
+      client: clientInfo(this.viewer.renderer, this.viewer.device), events: [] };
     // The model already open, as a load, so replay opens it first.
     // (Its size and SHA-256 as it loaded: the page keeps no copy of the file.)
     const src = this.ui.source();
