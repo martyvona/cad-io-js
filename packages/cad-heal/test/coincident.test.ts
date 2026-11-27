@@ -3,7 +3,7 @@ import test from 'node:test';
 import { analysisFor, BrepBuilder, type BrepData, validateBrep, writeBrep } from 'cad-brep';
 import { Geometry, init } from 'cad-geom';
 import { healPart } from '../src/index.ts';
-import { LENGTH, MIN_LENGTH, mergeCoincident } from '../src/fix/coincident.ts';
+import { LENGTH, MIN_LENGTH, mergeCoincident, PART, RETRACE } from '../src/fix/coincident.ts';
 
 const module = await init();
 
@@ -382,4 +382,89 @@ test('coincidentEdges: a loop not in trouble left (gate (b)): two edges leaving 
   b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
     faces: [{ face, sense: true }] }), sense: true }] }) });
   assert.equal(mergeCoincident(module, b.finish()), undefined);
+});
+
+/**
+ * One face on the plane z = 0, its loop A (the x axis from (10, 0) to V = (0, 0)), B, C (back down to (10, 0)). B's
+ * curve leaves V upward, (s, 0, 0.2 s) then (10, 3, 0.2 s), 11 degrees off A in space, its tolerance 0.25; its use's
+ * p-curve (0, 0), (s, lean), (10, 3): with no lean, on the face B's image runs along A's for s (B's parameter 0 to 0.3,
+ * of 0 to 2). A's use has a p-curve too (the x axis); `bare`: B's hasn't; `flat`: B's curve and C's on the face (B's
+ * image), the curves within the tolerance.
+ */
+function retrace(s: number, { bare = false, lean = 0, uncertainty = 1e-6, flat = false } = {}): BrepData {
+  const b = new BrepBuilder({ uncertainty });
+  const plane = b.addSurface({ kind: 'plane', position: { origin: [0, 0, 0], axis: [0, 0, 1], xDir: [1, 0, 0] } });
+  const z = flat ? 0 : 0.2 * s;
+  const V = b.addVertex({ point: [0, 0, 0] }), P0 = b.addVertex({ point: [10, 0, 0] });
+  const Q = b.addVertex({ point: [10, 3, z] });
+  const poly = (poles: number[][]) => ({ kind: 'bspline' as const, degree: 1, knots: [0, 0.3, 2],
+    multiplicities: [2, 1, 2], poles, closed: false, selfIntersect: false, form: 'unspecified' as const });
+  const A = b.addEdge({ curve: b.addCurve(line([10, 0, 0], [0, 0, 0])), start: P0, end: V, sameSense: true,
+    tolerance: 1e-6, id: 11 });
+  const B = b.addEdge({ curve: b.addCurve(poly([[0, 0, 0], [s, lean, z], [10, 3, z]])), start: V, end: Q,
+    sameSense: true, tolerance: 0.25, id: 12 });
+  const C = b.addEdge({ curve: b.addCurve({ kind: 'line', point: [10, 3, z], direction: [0, -3 / Math.hypot(3, z),
+    -z / Math.hypot(3, z)], magnitude: 1 }), start: Q, end: P0, sameSense: true, tolerance: 0.25, id: 13 });
+  const pa = b.addCurve({ kind: 'line', point: [10, 0], direction: [-1, 0], magnitude: 1 });
+  const pb = b.addCurve(poly([[0, 0], [s, lean], [10, 3]]));
+  const face = b.addFace({ surface: plane, sameSense: true, id: 1, loops: [{ kind: 'edge', bound: 'outer', coedges: [
+    { edge: A, orientation: 'forward', pcurve: pa },
+    { edge: B, orientation: 'forward', ...(bare ? {} : { pcurve: pb }) }, { edge: C, orientation: 'forward' }] }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: b.addShell({ kind: 'open',
+    faces: [{ face, sense: true }] }), sense: true }] }) });
+  return b.finish();
+}
+
+test('coincidentEdges on the images: two edges apart in space whose images on the face retrace each other, merged '
+  + 'up to where the images are PART x the tolerance apart', () => {
+  // (0.02 mm, as Albatros #832's: the face API's own test, which leaves out the stretch beside each vertex, doesn't
+  // see it; the retrace puts the loop in trouble.)
+  for (const s of [1, 0.02]) {
+    const d = retrace(s);
+    assert.deepEqual(errors(d), []);
+    const r = mergeCoincident(module, d)!;
+    assert.ok(r, `merged (${s})`);
+    assert.equal(r.merged.length, 1);
+    const m = r.merged[0]!;
+    assert.ok(m.onImages && !m.crossed && m.face === 1 && m.tolerance === 0.25, JSON.stringify(m));
+    // (Past s by where B's image, leaving A's at atan(3 / (10 - s)), is PART x 0.25 from it.)
+    const want = s + PART * 0.25 / Math.sin(Math.atan2(3, 10 - s));
+    assert.ok(Math.abs(m.length - want) < 1e-4 && m.distance <= PART * 0.25 && m.distance > 0.9 * PART * 0.25,
+      `length ${m.length} (${want}), distance ${m.distance}`);
+    assert.deepEqual(errors(r.model), []);
+    // The spike gone: A's piece from (10, 0) to the parting vertex, B's on from it, C.
+    assert.equal(r.model.loop.count[0], 3);
+  }
+});
+
+test('coincidentEdges on the images: not where they retrace each other for under MIN_LENGTH, a use is bare, or the '
+  + 'images only lean together, within the part\'s uncertainty but not rounding', () => {
+  assert.ok(MIN_LENGTH > 0.004 && RETRACE * 0.25 < 1e-6);
+  // (Leaning 0.002 over 1 mm, under MAX_ANGLE: within the part's 0.01 for 5 mm, within RETRACE x 0.25 for 1e-4 mm. And
+  // controls: no lean merges at that uncertainty, and so does a stretch just past MIN_LENGTH.)
+  for (const [what, d, merges] of [['0.004 mm', retrace(0.004), false], ['0.006 mm', retrace(0.006), true],
+    ['B bare', retrace(1, { bare: true }), false], ['leaning', retrace(1, { lean: 0.002, uncertainty: 0.01 }), false],
+    ['not leaning', retrace(1, { uncertainty: 0.01 }), true]] as const) {
+    assert.deepEqual(errors(d), [], what);
+    const r = mergeCoincident(module, d);
+    assert.equal(!!r, merges, what);
+    if (r) assert.ok(r.merged.length === 1 && r.merged[0]!.onImages, what);
+  }
+});
+
+test('coincidentEdges on the images: healPart says how many were merged by their images', async () => {
+  const h = await healPart(retrace(1), {}, module);
+  const said = h.diagnostics.find((x) => x.message.startsWith('coincidentEdges'))?.message ?? '';
+  assert.match(said,
+    /1 stretch of .*; 1 of them by their images on the face retracing each other \(the curves apart\)/);
+});
+
+test('coincidentEdges on the images: a pair the curves measure is theirs', () => {
+  // (B on the face along A's image for 3 mm, then leaving it: within 0.25 of A for about 3.9 mm, over LENGTH x it, so
+  // the curves measure it; the face API sees the 3 mm overlap. Merged as on the curves, not the images.)
+  const d = retrace(3, { flat: true });
+  assert.deepEqual(errors(d), []);
+  assert.ok(3 + 0.25 / Math.sin(Math.atan2(3, 7)) > LENGTH * 0.25);
+  const r = mergeCoincident(module, d)!;
+  assert.ok(r && r.merged.length === 1 && !r.merged[0]!.onImages, JSON.stringify(r?.merged));
 });

@@ -551,9 +551,12 @@ function coincidentSaid(r: CoincidentResult, part: number, diagnostics: Diagnost
     + `grown, up to ${most.toPrecision(3)} mm (the part's ${part.toPrecision(3)})` : '';
   const dropped = r.pcurvesDropped ? `; ${r.pcurvesDropped} split uses' p-curves dropped (not at their edge's `
     + 'parameter)' : '';
+  const images = r.merged.filter((m) => m.onImages).length;
+  const onImages = images ? `; ${images} of them by their images on the face retracing each other (the curves `
+    + 'apart)' : '';
   diagnostics.push({ severity: 'warning', message: `coincidentEdges: ${n} ${n === 1 ? 'stretch' : 'stretches'} of `
     + `consecutive edges within their tolerance of each other merged, up to ${longest.toPrecision(3)} mm long `
-    + `(${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${growth}${removed}${dropped}` });
+    + `(${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${onImages}${growth}${removed}${dropped}` });
 }
 
 /**
