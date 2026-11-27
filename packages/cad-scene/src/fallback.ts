@@ -86,7 +86,8 @@ export function judgeResult(r: TessellationResult | Error, model: BrepData | und
  * part or over their area (faceFailures; unverified ones aren't counted, as nothing tells). A face's area is the
  * oracle's where it has one (`given`, else the result's `oracle`, else made from `model` here, which reads the
  * measures its `analysis` holds where they're of it), else the result's own measure. A face over its area is judged
- * against its boundary chords' bulge where `model` lets it be measured (bulge.ts), else against d x P.
+ * against its boundary chords' bulge where `model` lets it be measured and the area is the oracle's (bulge.ts), else
+ * against d x P.
  */
 export function badFaces(r: TessellationResult, model: BrepData | undefined, deflection: number,
   given?: ReadonlyMap<number, FaceArea>, analysis?: Uint8Array): Map<number, 'failed' | 'partly' | 'excess'> {
@@ -104,8 +105,12 @@ export function badFaces(r: TessellationResult, model: BrepData | undefined, def
   for (const [id, o] of oracle ?? []) add(id, { area: o.area, perimeter: o.perimeter, valid: true });
   const mesh = { origin: r.origin, positions: r.positions, indices: r.indices,
     faces: r.faces.map((f) => ({ source: f.entityId, start: f.start, count: f.count })) };
+  // (The bulge only where the area is the oracle's: a backend's own measure can be short by half on healed faces,
+  // trj7_b1's B-splines by OCCT 10-47 % with meshes within 3 % of the oracle's, and a bound that tight makes its
+  // error a flag. d x P judges against those, as without a model.)
   const cache = model && newBulgeCache(model);
-  const excessSlack = cache ? (id: number) => chordBulge(model!, mesh, id, cache) : undefined;
+  const excessSlack = cache ? (id: number) => (oracle?.has(id) ? chordBulge(model!, mesh, id, cache) : undefined)
+    : undefined;
   const measures = faces.size ? { measures: { by: '', faces }, deflection, ...(excessSlack ? { excessSlack } : {}) }
     : undefined;
   const out = new Map<number, 'failed' | 'partly' | 'excess'>();
