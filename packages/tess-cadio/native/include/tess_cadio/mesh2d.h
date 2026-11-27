@@ -130,6 +130,13 @@ struct MeshOptions {
    * the criteria evaluated again on each refused triangle queued); false counts them all as refused alike.
    */
   bool refusalKinds = true;
+  /**
+   * A triangle the criteria accept whose longest edge is past sqrt 2 in the metric, and whose every candidate
+   * encroaches only segments that won't be split (within the size, or frozen), has that edge bisected
+   * (mesh2d.cpp's rules), so no edge stays past the size beside them: for a longest-edge limit (Deflections::maxEdge).
+   * Off, such a triangle is left as it is.
+   */
+  bool bisectLong = false;
 };
 
 /**

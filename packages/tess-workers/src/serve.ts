@@ -7,6 +7,7 @@ import { openBrep } from 'cad-brep';
 import { faceRecords, type RecordInputs, setAreaOracle, sha256, TessellationError, type TessellationRequest,
   type TessellationResult, type Tessellator, type TessellatorInfo } from 'cad-scene';
 import { AREA_ORACLE_ID, areaOracle, init as initOracle } from 'cad-oracle';
+import { CadioTessellator } from 'tess-cadio';
 import type { WorkerPort } from './protocol.ts';
 
 /**
@@ -59,14 +60,14 @@ const isHelper = (t: unknown): t is RecordHelper => typeof (t as RecordHelper | 
   === 'function' && typeof (t as RecordHelper).partSize === 'function';
 
 /**
- * tess-cadio with its defaults, for the records of another backend's results: loaded on the first request asking
- * for records (only then: it's a few MB of WebAssembly), unless the backend is tess-cadio, whose own instance gives
- * the part's size (its (h) is what it reports).
+ * tess-cadio with its defaults, for the records of another backend's results: its module instantiated on the first
+ * request asking for records (only then: it's a few MB of WebAssembly; importing the package loads none), unless
+ * the backend is tess-cadio, whose own instance gives the part's size (its (h) is what it reports). Imported
+ * statically: the viewer's worker bundles tess-cadio anyway, and a dynamic import there is a build warning.
  */
 let helper: Promise<RecordHelper> | undefined;
 const recordHelper = (tess: Tessellator) => isHelper(tess) ? Promise.resolve(tess) : helper ??= (async () => {
-  const { CadioTessellator } = await import('tess-cadio') as { CadioTessellator: new () => Tessellator };
-  const t = new CadioTessellator();
+  const t: Tessellator = new CadioTessellator();
   await t.init();
   if (!isHelper(t)) throw new Error('tess-cadio has no partSize and expectedCounts');
   return t;
