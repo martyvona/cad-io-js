@@ -13,7 +13,7 @@ import type { FaceRecords, TessellationRequest, TessellationResult } from './tes
  * Names how faceRecords measures: bumped whenever a record's values change for some result, so a cache holding
  * records (tess-cache) measures again rather than answer with old ones.
  */
-export const RECORDS_VERSION = 1;
+export const RECORDS_VERSION = 2;
 
 /** tess-cadio's smallest angle by default (its minAngle), the true limit of (f) where a request gives none. */
 export const DEFAULT_MIN_ANGLE = 10 * Math.PI / 180;
@@ -145,6 +145,7 @@ export function faceRecords(req: Pick<TessellationRequest, 'linearDeflection' | 
     const e = inputs.expected?.get(ids[k]!);
     if (e !== undefined && e > 0) out.expected[k] = e, out.expectedSource[k] = EXPECTED.firstMeshing;
   }
+  if (model) faceTolerances(out, model);
   judgeAreas(out, r, model, req.linearDeflection);
   takeReported(out, r, rowOf);
   return out;
@@ -156,11 +157,41 @@ function emptyRecords(ids: number[], partSize: number | undefined): FaceRecords 
   const f64 = (x: number) => new Float64Array(n).fill(x);
   return { entityId: Float64Array.from(ids), partSize: partSize ?? NaN, triangles: new Uint32Array(n),
     degenerate: new Uint32Array(n), nonManifoldEdges: new Uint32Array(n), openEdges: new Uint32Array(n),
-    holeEdges: new Int32Array(n).fill(-1), area: f64(0), oracleArea: f64(NaN), areaClass: new Uint8Array(n),
+    holeEdges: new Int32Array(n).fill(-1), tolerance: f64(NaN), area: f64(0), oracleArea: f64(NaN),
+    areaClass: new Uint8Array(n),
     deviation: f64(NaN), deviationCheck: new Uint8Array(n), normalAngle: f64(NaN), normalCheck: new Uint8Array(n),
     turned: new Int32Array(n).fill(-1), minAngle: f64(NaN), belowMinAngle: new Uint32Array(n), longestEdge: f64(0),
     expected: f64(NaN), expectedSource: new Uint8Array(n), unsewnEdges: new Int32Array(n).fill(-1),
     orientation: new Uint8Array(n) };
+}
+
+/**
+ * Each face's tolerance as tess-cadio's Tolerances::face (cad-geom's tolerance.h) has it: the part's, its uncertainty
+ * (else 1e-5) and at least 1e-9 x its vertices' box diagonal, widened by the face's own where that's larger. A face
+ * id on several rows of the model takes the largest.
+ */
+function faceTolerances(out: FaceRecords, model: BrepData): void {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const p = model.vertex.point;
+  let any = false;
+  for (let v = 0; v < p.length / 3; v++) {
+    const x = [p[3 * v]!, p[3 * v + 1]!, p[3 * v + 2]!];
+    if (!x.every(Number.isFinite)) continue;
+    any = true;
+    for (let c = 0; c < 3; c++) lo[c] = Math.min(lo[c]!, x[c]!), hi[c] = Math.max(hi[c]!, x[c]!);
+  }
+  const floor = any ? 1e-9 * Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!) : 0;
+  const u = model.part.uncertainty[0]!;
+  const part = Math.max(Number.isFinite(u) && u > 0 ? u : 1e-5, floor);
+  const rowOf = new Map<number, number>();
+  out.entityId.forEach((id, k) => rowOf.set(id, k));
+  for (let f = 0; f < model.face.id.length; f++) {
+    const k = rowOf.get(model.face.id[f]!);
+    if (k === undefined) continue;
+    const t = model.face.tolerance[f]!;
+    const tol = Number.isFinite(t) && t > part ? t : part;
+    out.tolerance[k] = Number.isNaN(out.tolerance[k]!) ? tol : Math.max(out.tolerance[k]!, tol);
+  }
 }
 
 /**

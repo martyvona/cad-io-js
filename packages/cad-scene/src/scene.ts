@@ -12,6 +12,7 @@
 // part, as CAD systems and 3MF show them; `leafParts`, which every importer ends with).
 
 import type { BrepAnalysis, BrepData } from 'cad-brep';
+import type { FaceRecords } from './tessellator.ts';
 
 /** A 4x4 matrix, column-major (as three.js and glTF): element (row r, column c) is m[c * 4 + r]. */
 export type Mat4 = Float64Array;
@@ -252,6 +253,11 @@ export interface Lod {
   minAngle?: number;
   /** The tessellator that made it: its name and version. */
   backend?: string;
+  /**
+   * Its faces' triage records (docs/triage.md), where tessellateScene was asked for them (`records`): as the
+   * backend's result had them, else measured on this thread (then without the part's size or expected counts).
+   */
+  records?: FaceRecords;
 }
 
 /** A triangle mesh, with any wireframe curves and points, in the part's coordinates minus `origin`. */

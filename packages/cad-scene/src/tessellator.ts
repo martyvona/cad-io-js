@@ -95,6 +95,11 @@ export interface FaceRecords {
   area: Float64Array;
   oracleArea: Float64Array;
   areaClass: Uint8Array;
+  /**
+   * (c)'s face tolerance: tess-cadio's Tolerances::face, the part's (its uncertainty, else 1e-5, at least 1e-9 x
+   * its vertices' box) widened by the face's own; NaN without the model.
+   */
+  tolerance: Float64Array;
   /** (c) and (d): the backend's own values where it reports them, as records.ts's CHECK says. */
   deviation: Float64Array;
   deviationCheck: Uint8Array;

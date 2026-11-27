@@ -13,10 +13,11 @@ import { meshBox, sceneBounds } from './bounds.ts';
 import type { BrepData } from 'cad-brep';
 import type { Diagnostic, FaceMeasures, Measures, Mesh, Part, Scene } from './scene.ts';
 import { meshDeflections, type MeshProfile } from './profiles.ts';
-import type { TessellationResult, Tessellator } from './tessellator.ts';
+import type { FaceRecords, TessellationResult, Tessellator } from './tessellator.ts';
 import { ORACLE_DISAGREE, ORACLE_REPLACE } from './area-oracle.ts';
 import { fillResult } from './fill.ts';
 import { joinResult } from './join.ts';
+import { faceRecords } from './records.ts';
 import { orientResult, shellsOriented } from './orient.ts';
 import { describeWires, missingWires, noneMissing } from './wires.ts';
 
@@ -63,6 +64,12 @@ export interface TessellateOptions {
    * measures (read from one of our exports, or measured before) aren't measured again.
    */
   measures?: boolean;
+  /**
+   * Ask for each face's triage record (TessellationRequest.records, with measures for its area) and keep it with
+   * the level (Lod.records): the backend's result's, measured where it ran (a pool's worker), else here (without the
+   * part's size or expected counts: tess-cadio isn't loaded on this thread). Default false.
+   */
+  records?: boolean;
   /**
    * In the measures kept, a face's area and perimeter by the area oracle (the result's `oracle`, where it trusts
    * them) in place of the backend's where the backend's are unsound or missing, or more than ORACLE_DISAGREE off an
@@ -214,6 +221,7 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   const found: (Mesh | undefined)[] = [];
   // Which backend made each part's result: the tessellator, or the one a result names.
   const madeBy: string[] = [];
+  const recordsOf: (FaceRecords | undefined)[] = [];
   // (A result may name another: FallbackTessellator's say which of its backends made them.)
   const backend = `${tess.info.name} ${tess.info.version}`;
   let done = 0;
@@ -234,14 +242,19 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
         format: 'cad-brep', data: new Uint8Array(brep.model.buffer), origin: part.origin,
         linearDeflection, angularDeflection, ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}),
         ...(brep.analysis ? { analysis: new Uint8Array(brep.analysis.buffer) } : {}),
-        edges: join || fill || opts.edges, ...(measure ? { measures: true } : {}),
+        edges: join || fill || opts.edges, ...(measure || opts.records ? { measures: true } : {}),
+        ...(opts.records ? { records: true } : {}),
       });
+      // (A tessellator that didn't measure them, run on this thread: measured here, before the join.)
+      if (opts.records && !r.records) r = { ...r, records: faceRecords({ linearDeflection,
+        ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}) }, r, brep.model) };
       if (join) r = joinResult(brep.model, r, linearDeflection);
       if (fill) r = fillResult(brep.model, r, linearDeflection);
       if (opts.orient ?? true) r = orientResult(brep.model, r, linearDeflection, shellsOriented(brep.analysis)
         ? { backend: r.backend ?? backend } : undefined);
       if ((join || fill) && !opts.edges) { r = { ...r }; delete r.edges; delete r.edgePositions; }
       by = r.backend ?? backend;
+      if (opts.records) recordsOf[k] = r.records;
       for (const d of r.diagnostics) diagnostics.push(source && !d.source ? { ...d, source } : d);
       // The model's wireframe curves and points the result left out: no mesh of them, so the viewer and every export
       // lack them (a backend that meshes faces alone; FallbackTessellator asks its fallback for them first).
@@ -327,7 +340,8 @@ export async function tessellateScene(scene: Scene, tess: Tessellator,
   todo.forEach((i, k) => {
     const part = scene.parts[i]!;
     const lod = { from: 'tessellated' as const, linearDeflection, angularDeflection,
-      ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}), backend: madeBy[k]! };
+      ...(opts.minAngle !== undefined ? { minAngle: opts.minAngle } : {}), backend: madeBy[k]!,
+      ...(recordsOf[k] ? { records: recordsOf[k] } : {}) };
     if (found[k]) {
       meshes.set(i, found[k]);
       addLod(part, { mesh: found[k], ...lod });

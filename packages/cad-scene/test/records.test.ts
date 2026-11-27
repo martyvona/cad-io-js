@@ -42,7 +42,7 @@ test('a sound mesh: every face its two triangles, manifold within it, its area t
     const x = of(rec, id);
     assert.deepEqual({ ...x, minAngle: Math.round(x.minAngle! * 1e9) / 1e9, longestEdge: Math.round(
       x.longestEdge! * 1e6) / 1e6 }, { entityId: id, triangles: 2, degenerate: 0, nonManifoldEdges: 0, openEdges: 4,
-      holeEdges: 0, area: 1, oracleArea: 1, areaClass: AREA.pass, deviation: NaN, deviationCheck: CHECK.unchecked,
+      holeEdges: 0, tolerance: 1e-6, area: 1, oracleArea: 1, areaClass: AREA.pass, deviation: NaN, deviationCheck: CHECK.unchecked,
       normalAngle: NaN, normalCheck: CHECK.unchecked, turned: 0, minAngle: Math.round(Math.PI / 4 * 1e9) / 1e9,
       belowMinAngle: 0, longestEdge: Math.round(Math.SQRT2 * 1e6) / 1e6, expected: NaN,
       expectedSource: EXPECTED.none, unsewnEdges: -1, orientation: ORIENTATION.asShipped }, `#${id}`);
@@ -271,3 +271,18 @@ test('(h) shared: a face without a count of its own takes the other backend\'s c
   assert.deepEqual([of(ru.records!, 23).expected, of(ru.records!, 23).expectedSource], [5, EXPECTED.backend]);
 });
 
+
+test('(c)\'s tolerance: the part\'s (its uncertainty), widened by the face\'s own where larger', () => {
+  const m = cube().finish();
+  const row = [...m.face.id].indexOf(22);
+  m.face.tolerance[row] = 0.5;
+  m.face.tolerance[[...m.face.id].indexOf(23)] = 1e-7;
+  const rec = faceRecords(req, sound(), m);
+  assert.equal(of(rec, 22).tolerance, 0.5);
+  assert.equal(of(rec, 23).tolerance, 1e-6);
+  assert.equal(of(rec, 21).tolerance, 1e-6);
+  // Without an uncertainty, 1e-5; without the model, none.
+  m.part.uncertainty[0] = NaN;
+  assert.equal(of(faceRecords(req, sound(), m), 21).tolerance, 1e-5);
+  assert.ok(Number.isNaN(faceRecords(req, sound(), undefined).tolerance[0]!));
+});
