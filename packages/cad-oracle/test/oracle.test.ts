@@ -321,7 +321,9 @@ function quarterCap(R: number, v1: number): BrepData {
 }
 
 test('a cone\'s sector beyond its apex (the other nappe)', { skip }, async () => {
-  for (const [r, a, beta, vb] of [[1, PI / 6, 1, -4], [2, 0.3, 4, -10]] as const) {
+  // Past a semi-angle of 45 degrees too, where a point on the other nappe has its foot on the near nappe's generator
+  // on that generator's own side of the apex.
+  for (const [r, a, beta, vb] of [[1, PI / 6, 1, -4], [2, 0.3, 4, -10], [1, 1.2, 1, -2], [2, PI / 3, 2, -3]] as const) {
     const rho = r + vb * Math.tan(a);
     near(await measure(coneBeyondApex(r, a, beta, vb)), beta * rho * rho / (2 * Math.sin(a)), `cone ${r} ${a} ${vb}`);
   }

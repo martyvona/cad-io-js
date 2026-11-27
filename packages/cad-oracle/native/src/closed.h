@@ -81,8 +81,26 @@ struct Elementary {
     u = std::atan2(q.y, q.x);
     du = r2 > 0 ? (q.x * dq.y - q.y * dq.x) / r2 : 0;
     const double drho = rho > 0 ? (q.x * dq.x + q.y * dq.y) / rho : 0;
-    if (kind == CBR_SURFACE_CYLINDER || kind == CBR_SURFACE_CONE) {
+    if (kind == CBR_SURFACE_CYLINDER) {
       v = q.z, dv = dq.z;
+    } else if (kind == CBR_SURFACE_CONE) {
+      // The nearest point on u's generator, not the point's height: off the surface, a shallow cone's foot at the same
+      // height is up to 1 / cos(b) times the distance away, and other kernels' boundaries follow the nearest points (on
+      // the surface, v = q.z either way). u's half-plane holds two generators, rho = a + v tanB where that's >= 0 and
+      // rho = -(a + v tanB) beyond the apex (the other nappe, eval's w = u + pi): the foot on each, held to its own
+      // side of the apex, and the nearer taken. Deciding by one foot's side alone fails past a semi-angle of 45
+      // degrees, where a point on the other nappe has its foot on the first generator on that generator's side.
+      const double c2 = 1 / (1 + tanB * tanB), apex = tanB != 0 ? -a / tanB : 0;
+      double v1 = ((rho - a) * tanB + q.z) * c2, dv1 = (drho * tanB + dq.z) * c2;
+      double v2 = (q.z - (rho + a) * tanB) * c2, dv2 = (dq.z - drho * tanB) * c2;
+      if (tanB != 0 && a + v1 * tanB < 0) v1 = apex, dv1 = 0;
+      if (tanB != 0 && a + v2 * tanB > 0) v2 = apex, dv2 = 0;
+      const double e1 = rho - (a + v1 * tanB), f1 = q.z - v1, e2 = rho + (a + v2 * tanB), f2 = q.z - v2;
+      if (tanB == 0 || e1 * e1 + f1 * f1 <= e2 * e2 + f2 * f2) {
+        v = v1, dv = dv1;
+      } else {
+        v = v2, dv = dv2;
+      }
     } else {
       const double w = kind == CBR_SURFACE_SPHERE ? rho : rho - a, d = w * w + q.z * q.z;
       v = std::atan2(q.z, w), dv = d > 0 ? (w * dq.z - q.z * drho) / d : 0;

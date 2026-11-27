@@ -14,6 +14,7 @@
 
 #include "cad_geom/surface.h"
 #include "tess_cadio/part.h"
+#include "tess_cadio/part_size.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -48,6 +49,14 @@ double capFloor = PartOptions{}.capFloor, capMultiple = PartOptions{}.capMultipl
   capCeiling = PartOptions{}.capCeiling;
 // PartOptions::minAngle for the next calls (radians).
 double minAngle = PartOptions{}.minAngle;
+// Deflections::maxEdge for the next calls, a fraction of each part's partSize (0: none).
+double maxEdgeFraction = 0;
+// x in JSON, round-tripping.
+std::string num(double x) {
+  char b[32];
+  std::snprintf(b, sizeof b, "%.17g", x);
+  return b;
+}
 // PartOptions::countInsertions for the next calls.
 bool countInsertions = false;
 // PartOptions::countAngles for the next calls.
@@ -117,6 +126,12 @@ void tc_set_min_angle(double radians) {
 }
 
 /**
+ * The next calls' longest edge (Deflections::maxEdge) as a fraction of each part's size (partSize); 0 (or negative,
+ * or not finite): no limit.
+ */
+void tc_set_max_edge(double fraction) { maxEdgeFraction = std::isfinite(fraction) && fraction > 0 ? fraction : 0; }
+
+/**
  * Whether the next calls count the mesher's insertions by what queued them (PartOptions::countInsertions; default
  * 0).
  */
@@ -177,6 +192,8 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
   PartOptions opts;
   opts.d.linear = linear;
   opts.d.angular = angular;
+  const double partLength = maxEdgeFraction > 0 ? partSize(m) : 0;
+  opts.d.maxEdge = maxEdgeFraction * partLength;
   opts.projectMissingPcurves = project;
   opts.checkDeviation = checkDeviation;
   opts.maxPointsPerFace = maxPoints;
@@ -439,8 +456,20 @@ int tc_tessellate(const uint8_t* data, int size, double linear, double angular, 
     std::to_string(pm.rounds()) + ",\"refusedTriangles\":" + std::to_string(refusedTriangles) +
     ",\"poleSlivers\":" + std::to_string(poleSlivers) + ",\"curvesLeftOut\":" + ids(curvesLeftOut) +
     ",\"curvesUnconverged\":" + ids(curvesUnconverged) + (listPoles ? ",\"poles\":" + poles : std::string()) +
-    (countExpected ? ",\"expected\":" + expected : std::string()) + "}";
+    (countExpected ? ",\"expected\":" + expected : std::string()) +
+    (opts.d.maxEdge > 0 ? ",\"maxEdge\":[" + num(opts.d.maxEdge) + "," + num(partLength) + "]" : std::string()) + "}";
   return 0;
+}
+
+/**
+ * The model's partSize (part_size.h), the length tc_set_max_edge's fraction is of: what judging another backend's
+ * mesh by the same limit takes as the part's size. -1 if the buffer isn't a model.
+ */
+double tc_part_size(const uint8_t* data, int size) {
+  std::vector<uint64_t> buf((static_cast<size_t>(size) + 7) / 8);
+  std::memcpy(buf.data(), data, static_cast<size_t>(size));
+  const Model m(reinterpret_cast<const uint8_t*>(buf.data()), static_cast<size_t>(size));
+  return m.ok() ? partSize(m) : -1;
 }
 
 int tc_num_vertices() { return static_cast<int>(result.positions.size() / 3); }
