@@ -102,7 +102,7 @@ export interface CadViewer {
 const VERSION = 5;
 
 /** The address's options that are the page's, not the model's or its view's: kept as the address follows models. */
-const PAGE_OPTIONS = ['check', 'controls', 'deterministic', 'gnomon'];
+const PAGE_OPTIONS = ['check', 'controls', 'deterministic', 'gnomon', 'cube'];
 /** Session storage: the name of the local file open, for the page after a reload. */
 const LOCAL_FILE_KEY = 'cad-viewer.localFile';
 

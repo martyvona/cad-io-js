@@ -14,8 +14,9 @@ import * as THREE from 'three';
 import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { around, chooseLod, describeStretched, meshDeflections, type Diagnostic, type Mesh, type Properties,
   type Vec3 } from 'cad-scene';
-import { clipTo, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect, smoothstep, turnOf, upIso,
-  viewCamera, VIEWS, type Leg, type LookMotion, type ViewName } from './camera.ts';
+import { AXIS_VIEWS, clipTo, cubeLook, fitCamera, fitSphere, interpolateCamera, legCamera, lookLegs, setAspect,
+  smoothstep, turnOf, upIso, viewCamera, VIEWS, type Leg, type Look, type LookMotion, type ViewName }
+  from './camera.ts';
 import type { CameraState } from './view-state.ts';
 import { formatOf, type Format } from './formats.ts';
 import { Frames } from './frames.ts';
@@ -288,6 +289,11 @@ export class Viewer {
   private gnomonDrawn?: { x: number; y: number; width: number; height: number };
   /** A click on the gnomon asks for a view (the View menu's own button, so recordings have it); else setView. */
   onGnomonView?: (view: ViewName, shift: boolean) => void;
+  /** A click on a corner or an edge of the view cube asks for a view along it (camera.ts's cubeLook); else setView. */
+  onCubeLook?: (look: { dir: readonly [number, number, number]; up: readonly [number, number, number] },
+    shift: boolean) => void;
+  /** The view cube's tooltip (cubeTip), made when first shown. */
+  private tip?: HTMLElement;
 
   /** The element that places the gnomon (its lower left corner; sized here to hold it). */
   get gnomonBox(): HTMLElement | undefined {
@@ -452,6 +458,11 @@ export class Viewer {
         if (view) {
           if (this.onGnomonView) this.onGnomonView(view, e.shiftKey);
           else this.setView(view);
+        } else if (typeof target === 'object') {
+          // A corner or an edge of the view cube.
+          const look = cubeLook(target.cube, this.gnomon.axesInWorld);
+          if (this.onCubeLook) this.onCubeLook(look, e.shiftKey);
+          else this.setView(look);
         }
         return;
       }
@@ -462,11 +473,17 @@ export class Viewer {
       down.delete(e.pointerId);
       if (press?.id === e.pointerId) stopPress();
     });
-    // A hand over the gnomon's targets.
+    // A hand over the gnomon's targets; over a face of the view cube, its view's name and key in a tooltip.
     canvas.addEventListener('pointermove', (e) => {
-      if (e.buttons) return;
-      canvas.style.cursor = this.gnomonTarget(e.clientX, e.clientY) ? 'pointer' : '';
+      if (e.buttons) return this.cubeTip();
+      const target = this.gnomonTarget(e.clientX, e.clientY);
+      canvas.style.cursor = target ? 'pointer' : '';
+      const view = typeof target === 'object' ? this.gnomonView(target) : undefined;
+      this.cubeTip(e.pointerType === 'touch' ? undefined : view, e.clientX, e.clientY);
     });
+    for (const type of ['pointerleave', 'pointerdown', 'wheel'] as const) {
+      canvas.addEventListener(type, () => this.cubeTip(), { passive: true });
+    }
     // What a mouse (or pen) is over, while no button is down: nothing while dragging, nothing for touch.
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch' || e.buttons) return this.leaveHover();
@@ -786,6 +803,7 @@ export class Viewer {
    * the view is that already (iso) or there's none.
    */
   gnomonView(target: GnomonTarget): ViewName | undefined {
+    if (typeof target === 'object') return this.gnomon.cubeView(target.cube);
     if (target !== 'iso') return axisView('xyz'.indexOf(target), this.gnomon.axesInWorld, this.back());
     const iso = upIso(this.gnomon.axesInWorld);
     const to = viewCamera(this.cameraState(), iso, this.gnomon.axesInWorld);
@@ -793,6 +811,31 @@ export class Viewer {
       new THREE.Vector3().fromArray(to.position), new THREE.Vector3().fromArray(to.target),
       new THREE.Vector3().fromArray(to.up)));
     return sameTurn(turn, this.camera.quaternion) ? undefined : iso;
+  }
+
+  /**
+   * Shows the view cube's tooltip for a face's view near a point (client pixels): the view's name and its key, the key
+   * as the controls show theirs (.cv-key); no view, hidden.
+   */
+  private cubeTip(view?: ViewName, x = 0, y = 0): void {
+    const i = view === undefined ? -1 : AXIS_VIEWS.findIndex((v) => v.view === view);
+    if (i < 0) {
+      if (this.tip) this.tip.hidden = true;
+      return;
+    }
+    if (!this.tip) {
+      this.tip = Object.assign(document.createElement('div'), { className: 'cv-tip', hidden: true });
+      this.tip.setAttribute('role', 'tooltip');
+      document.body.append(this.tip);
+    }
+    const t = this.tip;
+    t.textContent = AXIS_VIEWS[i]!.name;
+    t.append(Object.assign(document.createElement('span'), { className: 'cv-key', textContent: String(i + 1) }));
+    t.hidden = false;
+    // (Above and right of the pointer, kept in the window.)
+    const r = t.getBoundingClientRect();
+    t.style.left = `${Math.max(0, Math.min(x + 12, innerWidth - r.width))}px`;
+    t.style.top = `${Math.max(0, y - r.height - 8)}px`;
   }
 
   /** Applies rendering settings (shininess and specular to every Phong face in the model, the lights, the caps). */
@@ -1819,7 +1862,7 @@ export class Viewer {
    * Looks along a view's axis (camera.ts's VIEWS: the world's, or the file's for the iso views), turning about the
    * orbit centre (zoom and pan kept): flying there, or with `instant` (a link's or a recording's view) at once.
    */
-  setView(view: ViewName, opts: { instant?: boolean } = {}): void {
+  setView(view: Look, opts: { instant?: boolean } = {}): void {
     const to = viewCamera(this.cameraState(), view, this.gnomon.axesInWorld);
     if (!opts.instant) return this.fly(to);
     this.flight = undefined;
@@ -1833,7 +1876,7 @@ export class Viewer {
    * fit it (each step left out where the camera is there already); `together` all of it in one blend (camera.ts's
    * lookLegs). An empty sphere: setView's turn alone.
    */
-  lookAlong(view: ViewName, fit: THREE.Sphere, motion: LookMotion): void {
+  lookAlong(view: Look, fit: THREE.Sphere, motion: LookMotion): void {
     if (fit.isEmpty()) return this.setView(view);
     const from = this.cameraState();
     const to = fitCamera(viewCamera(from, view, this.gnomon.axesInWorld), fit, this.fitAspect());

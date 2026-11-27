@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { AXIS_VIEWS, type LookMotion, type ViewName } from './camera.ts';
+import { AXIS_VIEWS, type Look, type LookMotion, type ViewName } from './camera.ts';
 import { details } from './details.ts';
 import { showAbout } from './about.ts';
 import { askDemo } from './demo.ts';
@@ -126,6 +126,11 @@ export interface Ui {
   views(): { fit: boolean; motion: LookMotion };
   /** Sets them (the controls follow). */
   setViews(v: Partial<{ fit: boolean; motion: LookMotion }>): void;
+  /**
+   * Looks along a direction with an up (the world's), as a click on the view cube's corner or edge does: fitting as
+   * Fit says, the other way with `shift`; recorded.
+   */
+  lookToward(dir: readonly number[], up: readonly number[], shift: boolean): void;
   /** Mesh edge detection's values (edge-dialog.ts), for every load's detection too. */
   edgeDetection(): EdgeDetection;
   /** Mesh edge detection's values set, remembered in this browser (valid ones: edges.ts's detectionProblem). */
@@ -173,6 +178,8 @@ export type UiEvent =
   | { type: 'appearance'; id: number; override: AppearanceOverride }
   /** Mesh edge detection's values set. */
   | { type: 'detection'; detection: EdgeDetection }
+  /** A view along a corner or an edge of the view cube (Viewer.onCubeLook), shift-clicked or not. */
+  | { type: 'look'; dir: number[]; up: number[]; shift: boolean }
   /** A run of Mesh edge detection, as it begins; `done` with what it did. */
   | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; done: Promise<EdgeRun> };
 
@@ -193,6 +200,8 @@ function autoHide(el: HTMLElement): (stay?: boolean) => void {
 }
 
 const GNOMON_KEY = 'cad-viewer.gnomon';
+/** View's Cube, as remembered in this browser ('0' hidden). */
+const CUBE_KEY = 'cad-viewer.cube';
 /** '1' once a physical keyboard has been seen in this browser (shortcuts.ts's fromKeyboard): the keys' hints shown. */
 const KEYBOARD_KEY = 'cad-viewer.keyboard';
 /** Link to this view...'s Include device defaults, as remembered in this browser ('1' on; else off). */
@@ -208,10 +217,10 @@ function linkDefaultsRemembered(): boolean {
   }
 }
 
-/** What this browser remembers of View's Axes, if anything. */
-function gnomonRemembered(): string | null {
+/** What this browser remembers of View's Axes (or `key`'s: Cube), if anything. */
+function gnomonRemembered(key = GNOMON_KEY): string | null {
   try {
-    return localStorage.getItem(GNOMON_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -670,13 +679,26 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // The file's axes over the view (gnomon.ts), shown or not as remembered in this browser (gnomonShown).
   const axes = { on: gnomonShown(location.search, gnomonRemembered()) };
   viewer.showGnomon = axes.on;
+  // The view cube in the gnomon (gnomon.ts), the same way; only while the axes are shown.
+  const cube = { on: gnomonShown(location.search, gnomonRemembered(CUBE_KEY), 'cube') };
+  viewer.gnomon.showCube = cube.on;
+  let cubeControl: { enable(on: boolean): unknown } | undefined;
   view.add(axes, 'on').name('Axes').onChange((on: boolean) => {
     viewer.showGnomon = on;
+    cubeControl?.enable(on);
     try {
       localStorage.setItem(GNOMON_KEY, on ? '1' : '0');
     } catch { /* not remembered */ }
     viewer.redraw();
   });
+  cubeControl = view.add(cube, 'on').name('Cube').onChange((on: boolean) => {
+    viewer.gnomon.showCube = on;
+    try {
+      localStorage.setItem(CUBE_KEY, on ? '1' : '0');
+    } catch { /* not remembered */ }
+    viewer.redraw();
+  });
+  cubeControl.enable(axes.on);
   // How a view that fits moves (Viewer.lookAlong): zooming out to the whole model, orbiting, zooming in; or at once.
   const looking: { fit: boolean; motion: LookMotion } = { fit: true, motion: 'steps' };
   const motionControl = view.add(looking, 'motion', { 'Zoom out, turn, zoom in': 'steps', 'All at once': 'together' })
@@ -688,7 +710,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // (Whether the button's click is shifted: seen on the way down to it, before lil-gui's own handler calls it.)
   let shifted = false;
   views.domElement.addEventListener('click', (e) => { shifted = e.shiftKey; }, { capture: true });
-  const lookAlong = (v: ViewName) => {
+  const lookAlong = (v: Look) => {
     const fit = looking.fit !== shifted;
     shifted = false;
     if (!fit) return viewer.setView(v);
@@ -706,6 +728,12 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     { bubbles: true, cancelable: true, shiftKey }));
   // A click on the gnomon presses the view's button, as the user would (recorded as that control).
   viewer.onGnomonView = pressView;
+  // A click on a corner or an edge of the view cube: a view along it, as a button's (Fit, shift the other way).
+  viewer.onCubeLook = (look, shift) => {
+    hooks.onEvent?.({ type: 'look', dir: [...look.dir], up: [...look.up], shift });
+    shifted = shift;
+    lookAlong(look);
+  };
   const setTheme = (c: ThemeChoice) => {
     const t = applyTheme(c);
     viewer.setTheme(t);
@@ -1435,6 +1463,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     },
     tree: () => ({ open: tree.open, detail: tree.detail }),
     views: () => ({ ...looking }),
+    lookToward: (dir, up, shift) => viewer.onCubeLook!({ dir: [dir[0]!, dir[1]!, dir[2]!],
+      up: [up[0]!, up[1]!, up[2]!] }, shift),
     setViews: (v) => {
       Object.assign(looking, v);
       fitControl.updateDisplay();

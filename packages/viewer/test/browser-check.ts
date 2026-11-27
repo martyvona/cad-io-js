@@ -5472,8 +5472,8 @@ await check('control folders', async () => {
   const a = r.after, t = r.then, j = JSON.stringify({ a, t });
   expect(a.file.join() === 'Open file...,Load URL...,Save original...,Export...,Screenshot...,Link to this view...,'
     + 'Enter fullscreen,About...,Theme', `File: ${j}`);
-  expect(a.view.join() === 'Zoom all,Zoom selected,Axes,Look and fit',
-    `View: its zooms, Axes and Look and fit (and the views' folder): ${j}`);
+  expect(a.view.join() === 'Zoom all,Zoom selected,Axes,Cube,Look and fit',
+    `View: its zooms, Axes, Cube and Look and fit (and the views' folder): ${j}`);
   expect(a.selection.slice(-9).join() === 'Details,Hide selected,Show selected,Hide others,Show others,Show all,'
     + 'Opacity,Make transparent,Restore opacity' && a.selection[0] === 'Pick', `Selection: ${j}`);
   expect(a.rendering.join() === 'Custom background,Background', `Rendering ends with the background: ${j}`);
@@ -7129,14 +7129,14 @@ await check('axes gnomon', async () => {
     const out = {};
     await frames();
     out.iso = { ...axes(), screen: screen() };
-    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 44
-    // pixels in from #gnomon's lower left, an axis 34 pixels, a label 0.3 of one beyond its tip, its box 14 pixels;
-    // each letter's colour inside its box.
+    // The labels in the iso view (none nudged there): predicted from the main camera alone, the sphere's centre 50
+    // pixels in from #gnomon's left and 44 up from its bottom, an axis 34 pixels, a label 0.3 of one beyond its tip,
+    // its box 14 pixels; each letter's colour inside its box.
     {
       const e = viewer.camera.matrixWorld.elements, g = document.getElementById('gnomon').getBoundingClientRect();
       const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
       const c = proj([1 / 3, 1 / 3, 1 / 3]);
-      const at = (v, k) => { const p = proj(v); return [44 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
+      const at = (v, k) => { const p = proj(v); return [50 + (k * p[0] - c[0]) * 34, 44 + (k * p[1] - c[1]) * 34]; };
       const want = [...[[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((v) => at(v, 1.3)), at([0, 0, 0], 1)];
       const got = viewer.gnomon.layout;
       out.labelsPlaced = want.every((w, i) => Math.abs(w[0] - got[i].x) < 0.5 && Math.abs(w[1] - got[i].y) < 0.5);
@@ -7373,7 +7373,7 @@ await check('axes gnomon in flight', async () => {
       const e = viewer.camera.matrixWorld.elements;
       const proj = (v) => [v[0] * e[0] + v[1] * e[1] + v[2] * e[2], v[0] * e[4] + v[1] * e[5] + v[2] * e[6]];
       const c = proj([1 / 3, 1 / 3, 1 / 3]), p = proj([0, 1, 2].map((i) => i === k ? 1.3 : 0));
-      return [44 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
+      return [50 + (p[0] - c[0]) * 34, 44 + (p[1] - c[1]) * 34];
     };
     const frames = [];
     viewer.setView('front');
@@ -7620,6 +7620,262 @@ await check('axes gnomon beside the phone tree', async () => {
   expect(a.open!.open && a.open!.left >= a.open!.handle, `open: beside the panel and its handle: ${j}`);
   expect(a.wider!.left - a.open!.left === a.wider!.side - a.open!.side && a.wider!.side > a.open!.side,
     `following the panel's width: ${j}`);
+  return undefined;
+});
+// The view cube (View's Cube, after Axes, on by default and only while the axes show; off on check pages unless
+// ?cube=1, remembered as its own): drawn in the gnomon, its fill the labels' backing's colour, the labels clear of it
+// (in views where they'd fall on it without it); each face lettered for the face view facing it, upright and not
+// mirrored as that view shows it, a Y-up file's too (the cube made again for its axes); a face's
+// tooltip its view's name and key (the key as the controls show theirs), none over an edge or corner; a click on a face
+// presses that view's button (the same camera; recorded as the control), on a corner or an edge looks along it from
+// the cube's centre, the file's up axis up (a corner's camera Iso Z's where they agree; an edge's two faces symmetric),
+// fitting as the buttons do (shift the other way), the corner by the origin's box the cube's; recorded and replayed;
+// with Cube off, not drawn or clicked.
+await check('view cube', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check&gnomon=1&cube=1`, `(async () => {
+    await cadViewer.ready;
+    await cadViewer.idle();
+    const frame = () => new Promise((res) => requestAnimationFrame(() => setTimeout(res, 0)));
+    const g = viewer.gnomon, canvas = viewer.renderer.domElement;
+    const control = (name) => ui.gui.controllersRecursive().find((c) => c._name === name);
+    // A view from a direction (the world's, the file's here), Z up as seen.
+    const cubeLookOf = (d) => {
+      const n = Math.hypot(...d), dir = d.map((x) => x / n), up = [0, 0, 1].map((x, i) => x - dir[2] * dir[i]);
+      const m = Math.hypot(...up);
+      return { dir, up: up.map((x) => x / m) };
+    };
+    const out = { cubeOn: control('Cube').getValue() };
+    control('Axes').setValue(false);
+    out.disabledWithoutAxes = control('Cube')._disabled;
+    control('Axes').setValue(true);
+    out.enabledWithAxes = !control('Cube')._disabled;
+    // A point of the cube (its own coordinates, [0, 1] each) on the page, as last drawn.
+    const at = (q) => {
+      const cube = g.cube, n = cube.children[0].geometry.parameters.width;
+      const p = cube.localToWorld(new viewer.camera.position.constructor(q[0] * n, q[1] * n, q[2] * n))
+        .project(g.camera);
+      const box = viewer.gnomonDrawn, c = canvas.getBoundingClientRect();
+      return { x: c.left + box.x + (p.x + 1) / 2 * box.width, y: c.bottom - box.y - (p.y + 1) / 2 * box.height };
+    };
+    const send = (type, p, o = {}) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1,
+      isPrimary: true, pointerType: 'mouse', clientX: p.x, clientY: p.y, ...o }));
+    const click = async (q, o = {}) => {
+      await frame();
+      const p = at(q);
+      send('pointerdown', p, { button: 0, buttons: 1, ...o });
+      send('pointerup', p, { button: 0, buttons: 0, ...o });
+      await cadViewer.idle();
+      await frame();
+    };
+    const tip = async (q) => {
+      await frame();
+      send('pointermove', at(q), { button: -1, buttons: 0 });
+      const t = document.querySelector('.cv-tip');
+      return t && !t.hidden ? { text: t.firstChild.textContent, key: t.querySelector('.cv-key')?.textContent,
+        keyOpacity: getComputedStyle(t.querySelector('.cv-key')).opacity } : null;
+    };
+    const cam = () => viewer.cameraState();
+    const back = () => viewer.camera.getWorldDirection(new viewer.camera.position.constructor()).negate().toArray();
+    // The face facing the viewer: its letter, and its letter's up on the screen.
+    const facing = () => {
+      viewer.draw();
+      const b = viewer.camera.getWorldDirection(new viewer.camera.position.constructor()).negate();
+      const kids = g.cube.children;
+      for (let i = 0; i < kids.length; i++) {
+        const f = kids[i];
+        if (!f.userData.fill) continue;
+        const n = new viewer.camera.position.constructor(0, 0, 1).transformDirection(f.matrixWorld);
+        if (n.dot(b) < 0.99) continue;
+        const letter = kids[i + 1];
+        const V = viewer.camera.position.constructor, q = viewer.camera.quaternion;
+        const up = new V(0, 1, 0).transformDirection(letter.matrixWorld);
+        const right = new V(1, 0, 0).transformDirection(letter.matrixWorld);
+        // (Upright, and not mirrored: its right the screen's.)
+        return { letter: letter.material.userData.letter, upright: Math.min(up.dot(new V(0, 1, 0).applyQuaternion(q)),
+          right.dot(new V(1, 0, 0).applyQuaternion(q))) };
+      }
+      return null;
+    };
+    out.letters = {};
+    for (const v of ['front', 'back', 'left', 'right', 'top', 'bottom']) {
+      viewer.setView(v, { instant: true });
+      await cadViewer.idle();
+      out.letters[v] = facing();
+    }
+    // The labels clear the cube's outline (sampled across each box), in views where they'd fall on it without it.
+    const labelsOnCube = () => {
+      viewer.draw();
+      const box = viewer.gnomonDrawn, n = g.cube.children[0].geometry.parameters.width;
+      const pts = [0, 1, 2, 3, 4, 5, 6, 7].map((c) => {
+        const p = g.cube.localToWorld(new viewer.camera.position.constructor((c & 1) * n, (c >> 1 & 1) * n,
+          (c >> 2 & 1) * n)).project(g.camera);
+        return { x: (p.x + 1) / 2 * box.width, y: (p.y + 1) / 2 * box.height };
+      });
+      // (Inside the hull: on the inner side of every edge between hull points, found by brute force.)
+      const inside = (q) => {
+        for (const a of pts) for (const b of pts) {
+          if (a === b) continue;
+          const side = (p) => (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+          if (pts.every((p) => side(p) >= -1e-6) && side(q) < -1e-6) return false;
+        }
+        return true;
+      };
+      let on = 0;
+      for (const l of g.layout.slice(0, 3)) {
+        for (let i = 1; i < 7; i++) for (let k = 1; k < 7; k++) {
+          if (inside({ x: l.x - 7 + i * 2, y: l.y - 7 + k * 2 })) on++;
+        }
+      }
+      return on;
+    };
+    const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoX', 'isoY', 'isoZ'];
+    const looks = [[1, 1, 1], [-1, -1, -1], [1, -1, -1], [-1, 1, 0], [0, 1, -1]];
+    out.onCube = { on: 0, off: 0 };
+    for (const cubeOn of [true, false]) {
+      g.showCube = cubeOn;
+      for (const v of [...views, ...looks]) {
+        viewer.setView(typeof v === 'string' ? v : cubeLookOf(v), { instant: true });
+        await cadViewer.idle();
+        // (The labels glide to their places: settled.)
+        for (let t = 0; t < 60 && g.moving; t++) await frame();
+        out.onCube[cubeOn ? 'on' : 'off'] += labelsOnCube();
+      }
+    }
+    g.showCube = true;
+    // Iso Z: F, R and T in sight.
+    // (Through the interface, which a replay makes again.)
+    const start = () => { cadViewer.view('isoZ'); return cadViewer.idle(); };
+    await start();
+    out.tips = { front: await tip([0.5, 0, 0.5]), right: await tip([1, 0.5, 0.5]), top: await tip([0.5, 0.5, 1]),
+      corner: await tip([0.95, 0, 0.95]), edge: await tip([0.5, 0, 0.95]) };
+    send('pointerleave', at([0.5, 0, 0.5]));
+    out.tipGone = document.querySelector('.cv-tip')?.hidden ?? true;
+    // A face's click: Front's button's camera.
+    cadViewer.record(true);
+    await click([0.5, 0, 0.5]);
+    out.faceClick = cam();
+    await start();
+    control('Front').$button.click();
+    await cadViewer.idle();
+    out.frontButton = cam();
+    // A corner: Iso Z's.
+    await start();
+    cadViewer.view('front');
+    await cadViewer.idle();
+    await click([0.95, 0, 0.95]);
+    out.corner = { cam: cam(), back: back() };
+    cadViewer.view('front');
+    await cadViewer.idle();
+    control('Iso Z').$button.click();
+    await cadViewer.idle();
+    out.isoButton = cam();
+    // Edges: the vertical front-right one, the front-top one.
+    await start();
+    await click([0.95, 0, 0.5]);
+    out.vertical = { cam: cam(), back: back() };
+    await start();
+    await click([0.5, 0, 0.95]);
+    out.horizontal = { cam: cam(), back: back() };
+    // The cube's corner by the origin's box: the cube's (the corner away from every axis's tip), not Iso Z.
+    await start();
+    await click([0.03, 0, 0.03]);
+    out.originCorner = back();
+    // Shift: not fitted (Fit on), the zoom kept.
+    await start();
+    cadViewer.apply({ camera: { ...cam(), height: cam().height * 3 } });
+    await cadViewer.idle();
+    out.before = cam();
+    await click([0.95, 0, 0.95], { shiftKey: true });
+    out.shifted = cam();
+    out.final = cam();
+    out.rec = cadViewer.record(false);
+    // Cube off: no click on it.
+    await start();
+    const pixels = () => {
+      viewer.draw();
+      const gl = viewer.renderer.getContext(), box = viewer.gnomonDrawn, k = canvas.width / canvas.clientWidth;
+      const w = Math.round(box.width * k), h = Math.round(box.height * k), px = new Uint8Array(4 * w * h);
+      gl.readPixels(Math.round(box.x * k), Math.round(box.y * k), w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return px;
+    };
+    const withCube = pixels();
+    const centre = at([0.5, 0, 0.5]);
+    // A face's fill, away from its letter: the labels' backing's colour (a shade off the background).
+    {
+      const box = viewer.gnomonDrawn, k = canvas.width / canvas.clientWidth, c = canvas.getBoundingClientRect();
+      const p = at([0.12, 0, 0.5]), w = Math.round(box.width * k);
+      const x = Math.round((p.x - c.left - box.x) * k), y = Math.round((c.bottom - p.y - box.y) * k);
+      const bg = viewer.scene.background.clone(), dark = bg.getHSL({}, 'srgb').l < 0.5;
+      const want = bg.lerp(new bg.constructor(dark ? 0xffffff : 0x000000), 0.15).getHexString();
+      out.fill = { got: [0, 1, 2].map((i) => withCube[4 * (y * w + x) + i]), want: [0, 2, 4].map((i) =>
+        parseInt(want.slice(i, i + 2), 16)) };
+    }
+    const stored = () => ({ cube: localStorage.getItem('cad-viewer.cube'),
+      axes: localStorage.getItem('cad-viewer.gnomon') });
+    const storedBefore = stored();
+    control('Cube').setValue(false);
+    out.stored = { before: storedBefore, after: stored() };
+    const without = pixels();
+    let differ = 0;
+    for (let i = 0; i < withCube.length; i += 4) if (Math.abs(withCube[i] - without[i]) > 16) differ++;
+    out.drawnPixels = differ;
+    const was = cam();
+    send('pointerdown', centre, { button: 0, buttons: 1 });
+    send('pointerup', centre, { button: 0, buttons: 0 });
+    await cadViewer.idle();
+    out.offClick = JSON.stringify(cam()) === JSON.stringify(was);
+    control('Cube').setValue(true);
+    // Another model, a Y-up file: the cube made again for its axes, F still facing the front view.
+    await cadViewer.load('/content/as1.glb');
+    await cadViewer.idle();
+    viewer.setView('front', { instant: true });
+    await cadViewer.idle();
+    out.glbFront = facing();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, rec: undefined, shots: undefined });
+  expect(a.cubeOn && a.disabledWithoutAxes && a.enabledWithAxes, `the control: ${j}`);
+  expect(a.glbFront?.letter === 'F' && a.glbFront.upright > 0.99, `a Y-up file's front: ${j}`);
+  expect(a.onCube.on === 0 && a.onCube.off > 0, `the labels off the cube: ${j}`);
+  const letters = { front: 'F', back: 'K', left: 'L', right: 'R', top: 'T', bottom: 'M' } as Record<string, string>;
+  expect(Object.entries(letters).every(([v, l]) => a.letters[v]?.letter === l && a.letters[v].upright > 0.99),
+    `the letters, upright: ${j}`);
+  const t = a.tips;
+  expect(t.front?.text === 'Front' && t.front.key === '1' && t.right?.text === 'Right' && t.right.key === '4' &&
+    t.top?.text === 'Top' && t.top.key === '5' && t.front.keyOpacity === '0.45' && t.corner === null &&
+    t.edge === null && a.tipGone, `the tooltips: ${j}`);
+  const near = (p: number[], q: number[], e = 1e-6) => p.every((x, i) => Math.abs(x - q[i]!) < e);
+  const same = (p: any, q: any) => near(p.position, q.position, 1e-6 * Math.max(1, ...p.position.map(Math.abs)))
+    && near(p.target, q.target, 1e-3) && near(p.up, q.up) && Math.abs(p.height - q.height) < 1e-6 * p.height;
+  expect(same(a.faceClick, a.frontButton), `a face: its button: ${j}`);
+  const s3 = 1 / Math.sqrt(3), s2 = Math.SQRT1_2;
+  expect(near(a.corner.back, [s3, -s3, s3]) && same(a.corner.cam, a.isoButton), `a corner: ${j}`);
+  expect(near(a.originCorner, [-s3, -s3, -s3]), `the corner by the origin: ${j}`);
+  expect(near(a.vertical.back, [s2, -s2, 0]) && near(a.vertical.cam.up, [0, 0, 1]), `a vertical edge: ${j}`);
+  expect(near(a.horizontal.back, [0, -s2, s2]) && near(a.horizontal.cam.up, [0, s2, s2]),
+    `an edge across: its faces above and below: ${j}`);
+  expect(Math.abs(a.shifted.height - a.before.height) < 1e-6 * a.before.height &&
+    near(a.shifted.target, a.before.target, 1e-3), `shifted: not fitted: ${j}`);
+  expect(a.drawnPixels > 100 && a.offClick, `Cube off: not drawn, not clicked: ${j}`);
+  expect(a.fill.got.every((v: number, i: number) => Math.abs(v - a.fill.want[i]) <= 3), `a face's fill: ${j}`);
+  expect(a.stored.after.cube === '0' && a.stored.after.axes === a.stored.before.axes, `Cube remembered: ${j}`);
+  const events = (a.rec.events as { type: string; path?: string; shift?: boolean }[]);
+  expect(events.some((e) => e.type === 'control' && e.path === 'View/Look Along an Axis/Front') &&
+    events.filter((e) => e.type === 'look').length === 5 && events.filter((e) => e.type === 'look' && e.shift)
+    .length === 1, `recorded: ${JSON.stringify(events.filter((e) => e.type === 'look' || e.type === 'control'))}`);
+  const replayed = await page('?check', `(async () => {
+    await cadViewer.ready;
+    // (The looks counted: the camera events after them set the same camera.)
+    let looks = 0;
+    const look = ui.lookToward;
+    ui.lookToward = (...x) => { looks++; return look(...x); };
+    const report = await cadViewer.replay(${JSON.stringify(a.rec)});
+    return { divergences: report.divergences, camera: viewer.cameraState(), steps: report.steps,
+      applied: report.applied, looks };
+  })()`) as { after: { divergences: string[]; camera: any; steps: number; applied: number; looks: number } };
+  const b = replayed.after;
+  expect(b.divergences.length === 0 && b.steps === b.applied && b.looks === 5 && same(b.camera, a.final),
+    `replayed: ${JSON.stringify(b)} ${JSON.stringify(a.final)}`);
   return undefined;
 });
 // The lights and specular (Rendering): the ambient light's and the headlight's intensities and every Phong face's

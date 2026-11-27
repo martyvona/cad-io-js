@@ -39,9 +39,12 @@ export const AXIS_VIEWS: readonly { view: ViewName; name: string }[] = [
   { view: 'right', name: 'Right' }, { view: 'top', name: 'Top' }, { view: 'bottom', name: 'Bottom' },
   { view: 'isoX', name: 'Iso X' }, { view: 'isoY', name: 'Iso Y' }, { view: 'isoZ', name: 'Iso Z' }];
 
+/** A view by name, or by its direction (from the target to the camera) and up in the world (the view cube's). */
+export type Look = ViewName | { dir: Vec; up: Vec };
+
 /** A view's direction and up in the world, the file's axes (a rotation) under its file views. */
-export function viewAxes(view: ViewName, axes?: THREE.Matrix4): { dir: THREE.Vector3; up: THREE.Vector3 } {
-  const v = VIEWS[view];
+export function viewAxes(view: Look, axes?: THREE.Matrix4): { dir: THREE.Vector3; up: THREE.Vector3 } {
+  const v: { dir: Vec; up: Vec; file?: true } = typeof view === 'string' ? VIEWS[view] : view;
   const dir = new THREE.Vector3(...v.dir), up = new THREE.Vector3(...v.up);
   if (v.file && axes) {
     dir.transformDirection(axes);
@@ -59,6 +62,24 @@ export function upIso(axes?: THREE.Matrix4): ViewName {
   const e = axes.elements;
   const k = [0, 1, 2].reduce((a, b) => (e[b * 4 + 2]! > e[a * 4 + 2]! ? b : a), 2);
   return (['isoX', 'isoY', 'isoZ'] as const)[k]!;
+}
+
+/**
+ * The view toward a corner or an edge of the view cube (gnomon.ts): `signs` its place in the file's axes (each -1, 0
+ * or 1, two or three not 0), from the cube's centre; its up the file's axis nearest the world's up (upIso's) as the
+ * screen shows it, so a corner's three faces show alike, an edge's two faces above and below it or either side.
+ */
+export function cubeLook(signs: Vec, axes?: THREE.Matrix4): { dir: Vec; up: Vec } {
+  const m = axes ?? new THREE.Matrix4();
+  const dir = new THREE.Vector3(...signs).transformDirection(m);
+  const k = ['isoX', 'isoY', 'isoZ'].indexOf(upIso(axes));
+  const e = m.elements;
+  const up = new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!).addScaledVector(dir,
+    -dir.dot(new THREE.Vector3(e[k * 4]!, e[k * 4 + 1]!, e[k * 4 + 2]!)));
+  // (Along the up axis itself, a face's direction, not a corner's or an edge's: the next axis up.)
+  if (up.lengthSq() < 1e-12) up.set(e[(k + 1) % 3 * 4]!, e[(k + 1) % 3 * 4 + 1]!, e[(k + 1) % 3 * 4 + 2]!);
+  up.normalize();
+  return { dir: dir.toArray(), up: up.toArray() };
 }
 
 /** The fraction of the box's extent left free around it when fitting. */
@@ -112,7 +133,7 @@ export function fitSphere(camera: THREE.OrthographicCamera, target: THREE.Vector
  * same target, from the same distance, with the same height and pan (the views turn about the orbit centre, leaving
  * zoom and pan alone).
  */
-export function viewCamera(s: CameraState, view: ViewName, axes?: THREE.Matrix4): CameraState {
+export function viewCamera(s: CameraState, view: Look, axes?: THREE.Matrix4): CameraState {
   const { dir, up } = viewAxes(view, axes);
   const target = new THREE.Vector3().fromArray(s.target);
   const d = new THREE.Vector3().fromArray(s.position).distanceTo(target) || 1;

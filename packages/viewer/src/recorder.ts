@@ -63,6 +63,8 @@ export type RecordedEvent = { t: number } & (
   | { type: 'control'; path: string; value?: unknown; shift?: true }
   /** Mesh edge detection's values set (edge-dialog.ts). */
   | { type: 'detection'; detection: EdgeDetection }
+  /** A view along a corner or an edge of the view cube (its direction and up in the world), shift-clicked or not. */
+  | { type: 'look'; dir: number[]; up: number[]; shift?: true }
   /** A run of Mesh edge detection; `result`: what it did, in words, once done. */
   | { type: 'detect'; detection: EdgeDetection; selectionOnly: boolean; result?: string; error?: boolean }
   /** Older recordings' answer to a question Mesh again no longer asks (it heals again in place): ignored. */
@@ -272,6 +274,9 @@ export class Recorder {
     } else if (e.type === 'appearance') {
       if (model) this.push({ type: 'appearance', path: model.pathOf(e.id), override: e.override });
     } else if (e.type === 'detection') this.push({ type: 'detection', detection: e.detection });
+    else if (e.type === 'look') {
+      this.push({ type: 'look', dir: e.dir, up: e.up, ...(e.shift ? { shift: true as const } : {}) });
+    }
     else if (e.type === 'detect') {
       // What it did, once done, into its event (already in its place).
       const ev: Untimed<Extract<RecordedEvent, { type: 'detect' }>> = { type: 'detect', detection: e.detection,
@@ -447,6 +452,9 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
     } else if (e.type === 'detection') {
       ui.setEdgeDetection(e.detection);
       applied++;
+    } else if (e.type === 'look') {
+      ui.lookToward(e.dir, e.up, !!e.shift);
+      applied++;
     } else if (e.type === 'detect') {
       // Done before the next event, whatever the pace; what it did compared with what it did then.
       const r = await ui.detectEdges(e.detection, e.selectionOnly);
@@ -534,7 +542,7 @@ function legacyPath(path: string, viewer: Viewer): string {
 
 /** The events replay applies (and so waits for the viewer before). */
 const APPLIED = new Set<RecordedEvent['type']>(['load', 'control', 'api', 'select', 'camera', 'pick', 'state',
-  'detection', 'detect']);
+  'detection', 'detect', 'look']);
 
 /** What a replay in real time shows besides the events themselves: the pointer, and the camera turning in drags. */
 class Show {

@@ -103,7 +103,14 @@
     .lil-gui .title .update-badge[hidden] { display: none; }
     /* A control's keyboard shortcut, greyed after its name (ui.ts): shown where there's a mouse or trackpad, or once
        a physical keyboard has been seen (.cv-keyboard: a tablet's), else not. */
-    .lil-gui .cv-key { margin-left: 0.6em; opacity: 0.45; font-weight: normal; }
+    .lil-gui .cv-key, .cv-tip .cv-key { margin-left: 0.6em; opacity: 0.45; font-weight: normal; }
+    /* The view cube's tooltip (viewer.ts's cubeTip): a face's view and its key, as the controls show them. */
+    .cv-tip {
+      position: fixed; z-index: 1500; padding: 2px 7px; color: var(--panel-fg); background: var(--panel-bg);
+      border: 1px solid var(--border); border-radius: 3px; font: 12px/1.5 system-ui, -apple-system, "Segoe UI",
+      sans-serif; white-space: nowrap; pointer-events: none;
+    }
+    .cv-tip[hidden] { display: none; }
     @media not all and (any-pointer: fine) { :root:not(.cv-keyboard) .lil-gui .cv-key { display: none; } }
     .cv-dialog p.update { display: flex; align-items: baseline; gap: 0.5em; }
     .cv-dialog p.update button { flex: none; }
