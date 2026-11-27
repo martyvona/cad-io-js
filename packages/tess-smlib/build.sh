@@ -14,6 +14,10 @@ L=build/smlib-wasm/libsmlib.a
 [ -f $L ] || { echo "no SMLib build at $L: run build-smlib.sh" >&2; exit 1; }
 D=${D:-dist}
 mkdir -p "$D" build
+# The sources' hash, taken before compiling and recorded beside the module once it is built, for
+# scripts/check-dist.ts (npm test refuses a module older than its sources).
+INPUTS=$(node ../../scripts/check-dist.ts --hash smlib_tess.wasm)
+rm -f "$D"/smlib_tess.wasm.inputs
 EXPORTS='["_smlib_tessellate_model","_smlib_set_measures","_smlib_set_heal","_smlib_set_scale","_smlib_set_edges",'\
 '"_smlib_positions","_smlib_normals","_smlib_num_vertices","_smlib_indices","_smlib_num_indices","_smlib_faces",'\
 '"_smlib_num_faces",'\
@@ -31,3 +35,4 @@ em++ -Os -fwasm-exceptions build/smlib_tess.o build/smlib_build.o $L -o "$D"/sml
   -sEXPORTED_FUNCTIONS="$EXPORTS" \
   -sEXPORTED_RUNTIME_METHODS='["HEAPU8","HEAPF32","HEAPU32","HEAP32","HEAPF64","UTF8ToString"]'
 ls -la "$D"/smlib_tess.wasm "$D"/smlib_tess.mjs
+echo "$INPUTS" > "$D"/smlib_tess.wasm.inputs
