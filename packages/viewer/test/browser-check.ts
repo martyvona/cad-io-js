@@ -8208,6 +8208,85 @@ await check('lights and specular', async () => {
     `Reset lighting to defaults: ${JSON.stringify(reset)}`);
   return undefined;
 });
+// Caps tinted with the selection: a part selected, its caps drawn with as much of the selection's colour added as its
+// faces get (each pixel's linear colour up by 0.55 of it, kept within 1), the rest's not; a face of it selected alone,
+// not; nothing selected, as before.
+await check('caps tinted with the selection', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    ui.setRender({ ao: false, smaa: false });
+    ui.setSections({ ...viewer.sections.get(), z: { on: true, at: 10, flip: false } });
+    await cadViewer.idle();
+    const m = viewer.nodes, canvas = viewer.renderer.domElement, gl = viewer.renderer.getContext();
+    // A cap's point, and its part.
+    let spot;
+    for (let i = 2; i < 18 && !spot; i++) for (let j = 2; j < 18 && !spot; j++) {
+      const p = cadViewer.pickAt(i / 20, j / 20);
+      if (p?.cap) spot = { x: i / 20, y: j / 20, id: m.find(p.path) };
+    }
+    if (!spot) return { spot: null };
+    const k = canvas.width / canvas.clientWidth;
+    const px = (x, y) => [Math.round(x * canvas.clientWidth * k), Math.round((1 - y) * canvas.clientHeight * k)];
+    const [x, y] = px(spot.x, spot.y);
+    // A 5 x 5 block of pixels round the point, as drawn now.
+    const grab = async () => {
+      await cadViewer.idle();
+      viewer.draw();
+      const out = new Uint8Array(4 * 25);
+      gl.readPixels(x - 2, y - 2, 5, 5, gl.RGBA, gl.UNSIGNED_BYTE, out);
+      return [...out];
+    };
+    const out = { selection: viewer.render.selectionColor };
+    out.before = await grab();
+    ui.select([spot.id]);
+    out.selected = await grab();
+    // A dark selection colour too: no channel kept within 1.
+    ui.setRender({ selectionColor: '#204060' });
+    out.dark = await grab();
+    ui.setRender({ selectionColor: out.selection });
+    ui.select([]);
+    out.after = await grab();
+    ui.setPickLevel('detail');
+    ui.setTree({ detail: true });
+    const face = m.children(m.children(spot.id).find((g) => m.nodes[g].kind === 'faces'))[0];
+    ui.select([face]);
+    out.face = await grab();
+    return out;
+  })()`) as { after: Record<string, any> };
+  const a = r.after, j = JSON.stringify({ ...a, before: undefined, selected: undefined, after: undefined,
+    face: undefined, dark: undefined });
+  expect(a.spot !== null, `a cap found: ${j}`);
+  const lin = (c: number) => { const x = c / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  const srgb = (c: number) => 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+  // Each of a block's pixels as tinted by a colour (the check's comment).
+  const tinted = (selected: number[], colour: string) => {
+    const sel = [1, 3, 5].map((i) => lin(parseInt(colour.slice(i, i + 2), 16)));
+    // (A pixel mixes the cap's ground and its lines' ink, each tinted and kept within 1 apart: exact only in a channel
+    // where the block's brightest, the ground, stays within 1 tinted; elsewhere the tint only adds. The cap's own
+    // pixels: those the selection changes; the rest, another part's or the background, not.)
+    const own = (i: number) => [0, 1, 2].some((c) => selected[i - i % 4 + c] !== a.before[i - i % 4 + c]);
+    let wrong = 0, worst = 0, exact = 0;
+    for (let c = 0; c < 3; c++) {
+      const brightest = Math.max(...a.before.filter((_: number, i: number) => i % 4 === c && own(i)));
+      for (let i = c; i < a.before.length; i += 4) {
+        if (!own(i)) continue;
+        if (selected[i]! < a.before[i]) wrong++;
+        if (lin(brightest) + 0.55 * sel[c]! > 0.99) continue;
+        exact++;
+        const d = Math.abs(selected[i]! - srgb(lin(a.before[i]) + 0.55 * sel[c]!));
+        worst = Math.max(worst, d);
+        if (d > 2) wrong++;
+      }
+    }
+    return { wrong, worst: Math.round(worst * 100) / 100, exact };
+  };
+  const orange = tinted(a.selected, a.selection), dark = tinted(a.dark, '#204060');
+  expect(orange.wrong === 0 && orange.exact >= 20 && dark.wrong === 0 && dark.exact >= 40,
+    `tinted: ${JSON.stringify({ orange, dark })} ${j}`);
+  expect(JSON.stringify(a.after) === JSON.stringify(a.before), `untinted again: ${j}`);
+  expect(JSON.stringify(a.face) === JSON.stringify(a.before), `a face selected alone: the cap as it was: ${j}`);
+  return undefined;
+});
 // Cap hatching, at a pixel ratio of 2: the lines fixed on the model (twice as far apart on the screen zoomed in
 // twice as far) and their width on the screen (the same zoomed in, cadrender's by default, wider as set).
 type Look = { lines: number; width: number; gap: number };

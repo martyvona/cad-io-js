@@ -996,6 +996,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   let treeHovered: number | undefined;
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
+  // (The caps of a part tinted as its faces are.)
+  viewer.sections.tintOf = (mesh) => highlighter.tintOf(mesh);
   recolour = () => highlighter.setColor(parseInt(look.selectionColor.slice(1), 16));
   recolour();
   // Multi-select and Details on by default.

@@ -312,6 +312,8 @@ export class Highlighter {
   }
 
   private readonly swapped = new Map<Drawable, THREE.Material | THREE.Material[]>();
+  /** Which tint each swapped object has (0 the selection's, 1 other instances'). */
+  private readonly which = new Map<Drawable, number>();
   private readonly overlays: (THREE.Mesh | THREE.LineSegments | THREE.Points)[] = [];
   private readonly tints = [new Map<THREE.Material, THREE.Material>(), new Map<THREE.Material, THREE.Material>()];
   private readonly colors = [new THREE.Color(0xff9a2e), new THREE.Color(0x59c1ff)];
@@ -378,6 +380,7 @@ export class Highlighter {
         }
         if (this.swapped.has(object)) continue;
         this.swapped.set(object, object.material);
+        this.which.set(object, which);
         object.material = Array.isArray(object.material) ? object.material.map((m) => this.tint(m, which))
           : this.tint(object.material, which);
       }
@@ -385,9 +388,16 @@ export class Highlighter {
     this.changed();
   }
 
+  /** The tint's colour an object is drawn with whole, if any (a section cap's part's: section.ts). */
+  tintOf(object: THREE.Object3D): THREE.Color | undefined {
+    const which = this.which.get(object as Drawable);
+    return which === undefined ? undefined : this.colors[which];
+  }
+
   clear(): void {
     for (const [object, material] of this.swapped) object.material = material;
     this.swapped.clear();
+    this.which.clear();
     for (const o of this.overlays) {
       o.removeFromParent();
       o.geometry.dispose();

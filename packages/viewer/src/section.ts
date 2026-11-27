@@ -12,7 +12,7 @@
 // passes are clipped by their own plane only (a shader of ours, which the renderer's planes don't reach): clipped by
 // another plane too, a solid's far side cut away by it went uncounted, and the cap was missing there. These helpers
 // live in a group of their own outside the model (no node, no pick, no box), made again when the model's drawn meshes
-// change (`invalidate`), moved when a plane moves.
+// change (`invalidate`), moved when a plane moves. A selected part's caps take its selection tint (`tintOf`).
 
 import * as THREE from 'three';
 import { closesUp } from './closure.ts';
@@ -233,7 +233,22 @@ function capMaterial(h: Hatch, axis: Axis, shared: HatchUniforms): THREE.MeshBas
   return m;
 }
 
-interface Cap { quad: THREE.Mesh; axis: Axis; box: THREE.Box3 }
+interface Cap { quad: THREE.Mesh; axis: Axis; box: THREE.Box3; meshes: THREE.Mesh[]; hatch: Hatch }
+
+/**
+ * How much of a tint a cap takes, added to its ground and its lines (the selection's tints: selection.ts's Highlighter,
+ * which adds as much emission to a part's faces).
+ */
+export const CAP_TINT = 0.55;
+
+/** A hatching tinted (CAP_TINT of `tint` added to its ground and ink, each kept within 1). */
+export function tintedHatch(h: Hatch, tint: THREE.Color): Hatch {
+  const add = (c: THREE.Color) => {
+    const t = c.clone().add(tint.clone().multiplyScalar(CAP_TINT));
+    return t.setRGB(Math.min(1, t.r), Math.min(1, t.g), Math.min(1, t.b));
+  };
+  return { ...h, ground: add(h.ground), ink: add(h.ink) };
+}
 
 /** The planes and their caps, for a renderer and a model. */
 export class Sections {
@@ -257,6 +272,11 @@ export class Sections {
     hatchWidth: { value: HATCH_WIDTH }, hatchPixelRatio: { value: 1 } };
   /** Whether parts of several meshes close up, by their geometries and frames. */
   private readonly closedParts = new Map<string, boolean>();
+  /**
+   * The tint a part's mesh is drawn with, if any (the selection's: selection.ts's Highlighter), which its caps take
+   * too: set before each draw (`update`), so a selection needs no caps made again.
+   */
+  tintOf?: (mesh: THREE.Mesh) => THREE.Color | undefined;
 
   constructor(renderer: THREE.WebGLRenderer) {
     this.renderer = renderer;
@@ -325,6 +345,17 @@ export class Sections {
    */
   update(model: THREE.Object3D | undefined, parts?: () => Iterable<THREE.Object3D>): void {
     this.hatch.hatchPixelRatio.value = this.renderer.getPixelRatio();
+    this.build(model, parts);
+    // Each cap tinted as its part is (the first of its meshes that is), or not.
+    for (const c of this.caps) {
+      let tint: THREE.Color | undefined;
+      for (const m of c.meshes) if ((tint = this.tintOf?.(m))) break;
+      c.quad.material = this.material(tint ? tintedHatch(c.hatch, tint) : c.hatch, c.axis);
+    }
+  }
+
+  /** The caps made again, if needed (`update`'s). */
+  private build(model: THREE.Object3D | undefined, parts?: () => Iterable<THREE.Object3D>): void {
     if (!this.dirty) return;
     this.dirty = false;
     for (const c of [...this.group.children]) this.group.remove(c);
@@ -386,7 +417,7 @@ export class Sections {
         quad.userData.capOf = meshes[0];
         quad.onAfterRender = (r) => r.clearStencil();
         this.group.add(quad);
-        this.caps.push({ quad, axis, box });
+        this.caps.push({ quad, axis, box, meshes, hatch });
         order += 2;
       }
     }
