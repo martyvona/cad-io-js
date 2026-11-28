@@ -1,6 +1,6 @@
 // part.h's rounds on whole parts: split rounds and their end, verdicts reused across meshings (reuseVerdicts),
-// keepSteiner, defects kept or failed (keepDefects, keepDeviation, failTurnedOver), point caps (freezeCapped) and
-// retries (retryStretch).
+// keepSteiner, defects kept or failed (keepDefects, keepDeviation, failTurnedOver), point caps (freezeCapped),
+// retries (retryStretch) and narrow faces' areas balanced (areaBalance).
 
 #include "part_common.h"
 
@@ -665,3 +665,94 @@ TEST_CASE("retryStretch: a lantern the capped stretch doesn't mend, meshed with 
   CHECK(low.face(0).triangles.size() < fm.triangles.size() / 4);
 }
 
+
+namespace {
+double meshArea(const FaceMesh& fm) {
+  double a = 0;
+  for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+    a += 0.5 * norm(cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+      fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+  return a;
+}
+}  // namespace
+
+TEST_CASE("areaBalance (2% by default): a face narrower than its chords' sag, past the limit with it off, meshed "
+  "within it: two arcs sampled apart, an arc against a line, a face whose normal is -z beside a cylinder strip") {
+  // narrowSector: radii 18.5 and 18.54 over a quarter turn, its outer arc split at 0.3 rad; narrowSegment: an arc of
+  // radius 10 against its chord, 0.2 apart; sectorOnStrip: narrowSector with its normal -z, a cylinder strip 0.001
+  // high on its outer arcs. At d 0.1 the sector is 3% over, the segment a quarter short, the sector on the strip 9%
+  // over (its inner arc sampled at the deflection, its outer at the strip's spacing).
+  const double R = 18.5, w = 0.04, a = 2 * std::acos(1 - 0.2 / 10);
+  const double sector = M_PI / 4 * ((R + w) * (R + w) - R * R), segment = 50 * (a - std::sin(a));
+  struct Case { const char* name; int face; double exact, off; };
+  for (const Case& c : {Case{"narrowSector", 0, sector, 0.02}, Case{"narrowSegment", 0, segment, 0.2},
+         Case{"sectorOnStrip", 0, sector, 0.05}}) {
+    cadgeom::Model m = load(c.name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.1, 15 * M_PI / 180);
+    REQUIRE(o.areaBalance == 0.02);
+    o.areaBalance = 0;
+    PartMesher off(m, o);
+    REQUIRE(off.face(c.face).status == cadgeom::Status::ok);
+    const double before = meshArea(off.face(c.face)) / c.exact - 1;
+    if (!(std::fabs(before) > c.off)) std::printf("  %s off: %+.4f\n", c.name, before);
+    CHECK(std::fabs(before) > c.off);
+    // (At 2% and at half a percent, where the slivers' estimate must be close: each within its limit.)
+    for (double limit : {0.02, 0.005}) {
+      o.areaBalance = limit;
+      PartMesher on(m, o);
+      const FaceMesh& fm = on.face(c.face);
+      REQUIRE(fm.status == cadgeom::Status::ok);
+      const double after = meshArea(fm) / c.exact - 1;
+      if (!(std::fabs(after) <= limit)) std::printf("  %s at %g: %+.4f\n", c.name, limit, after);
+      CHECK(std::fabs(after) <= limit);
+      CHECK(fm.defectDeviation == 0);
+      CHECK_EQ(fm.defectTurned, 0);
+      CHECK_EQ(sharedEdges(m, on, c.name), 0);
+      // (Each face's samples on its edges only added to: none moved or dropped.)
+      for (int e = 0; e < on.edges().edgeCount(); e++) {
+        const auto& p = off.edges().edge(e).points;
+        const auto& q = on.edges().edge(e).points;
+        size_t k = 0;
+        for (const Vec3& x : q)
+          if (k < p.size() && x.x == p[k].x && x.y == p[k].y && x.z == p[k].z) k++;
+        CHECK_EQ(k, p.size());
+      }
+    }
+  }
+  // (The strip beside the sector: its area no farther off than unbalanced, its triangles no more tilted.)
+  cadgeom::Model m = load("sectorOnStrip");
+  REQUIRE(m.ok());
+  const double strip = (R + w) * M_PI / 2 * 0.001;
+  PartOptions o = options(0.1, 15 * M_PI / 180);
+  o.areaBalance = 0;
+  PartMesher off(m, o);
+  o.areaBalance = 0.02;
+  PartMesher on(m, o);
+  REQUIRE(on.face(1).status == cadgeom::Status::ok);
+  CHECK(std::fabs(meshArea(on.face(1)) / strip - 1) <= std::fabs(meshArea(off.face(1)) / strip - 1) + 1e-3);
+}
+
+TEST_CASE("areaBalance: faces within the limit (a long band, a quarter disc) and faces without edges (a whole sphere "
+  "and torus by vertex loops) meshed bit for bit as with it off") {
+  for (const char* name : {"longBand", "quarterDisc", "wholeSphereVertex", "wholeTorus"}) {
+    cadgeom::Model m = load(name);
+    REQUIRE(m.ok());
+    PartOptions o = options(0.1, 15 * M_PI / 180);
+    o.areaBalance = 0;
+    PartMesher off(m, o);
+    o.areaBalance = 0.02;
+    PartMesher on(m, o);
+    for (int f = 0; f < m.faces(); f++) {
+      const FaceMesh& a = off.face(f);
+      const FaceMesh& b = on.face(f);
+      CHECK(a.status == b.status);
+      CHECK(a.triangles == b.triangles);
+      bool same = a.points.size() == b.points.size();
+      for (size_t i = 0; same && i < a.points.size(); i++)
+        same = a.points[i].x == b.points[i].x && a.points[i].y == b.points[i].y && a.points[i].z == b.points[i].z;
+      if (!same) std::printf("  %s face %d: other points with areaBalance\n", name, f);
+      CHECK(same);
+    }
+  }
+}

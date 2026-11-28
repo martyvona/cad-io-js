@@ -14,8 +14,10 @@ import { failedCauses, keptDefects } from './cadio_causes.ts';
 // `kept`: the faces may be kept with a defect instead (tess-cadio's keepDefects), within its limits (past them where
 // `pastLimits`) and with at most `turned` triangles turned, each face's mesh area within `area` (mm^2).
 // `develop`: tess-cadio's init option (PartOptions::develop), for a case that tests what meshing in (u, v) does.
+// `area`: each face's mesh area within it (mm^2), for a face whose area alone goes wrong (areaBalance's).
 interface Case { file: string; part: number; faces: number[]; why: string; needles?: boolean;
-  kept?: { turned: number; area: [number, number]; pastLimits?: boolean }; develop?: boolean }
+  kept?: { turned: number; area: [number, number]; pastLimits?: boolean }; develop?: boolean;
+  area?: [number, number] }
 const root = path.join(import.meta.dirname, '..', 'test_corpus');
 const CASES: Case[] = [
   // A pole's ring inside an arc that, one span at the start (its two ends labelled with the edges before them), the
@@ -99,6 +101,25 @@ const CASES: Case[] = [
     why: 'crossings growing once, then mended' },
   { file: 'models/onshape/VW.step', part: 2400, faces: [293058, 293030], why: 'crossings growing, then mended' },
   { file: 'models/onshape/VW.step', part: 2391, faces: [290867], why: 'crossings growing twice 1.5 x, then mended' },
+  // Faces narrower than their chords' sag, within the deflection everywhere and 8 to 25% off their areas until their
+  // boundaries' slivers balance (part.h's areaBalance, 2%): each within 2% of the oracle's area. Two arcs sampled
+  // apart (Kuka #28709, LMP1 #1063045's cone, bug24383 #10019), an arc against a B-spline (Kuka #28140), a line
+  // against an arc (VW #291264 a single triangle, LMP1 #1095800), an arc against near-straight B-splines (LMP1
+  // #1058835's cylinder).
+  { file: 'models/onshape/Kuka.step', part: 4099, faces: [28140], why: 'a narrow face\'s slivers balanced',
+    area: [0.22289, 0.23199] },
+  { file: 'models/onshape/Kuka.step', part: 4099, faces: [28709], why: 'a narrow face\'s slivers balanced',
+    area: [2.3768, 2.4738] },
+  { file: 'models/onshape/VW.step', part: 2396, faces: [291264], why: 'a narrow face\'s slivers balanced',
+    area: [2.0010, 2.0826] },
+  { file: 'models/onshape/LMP1.step', part: 173556, faces: [1095800], why: 'a narrow face\'s slivers balanced',
+    area: [0.21432, 0.22307] },
+  { file: 'models/onshape/LMP1.step', part: 172726, faces: [1058835], why: 'a narrow face\'s slivers balanced',
+    area: [0.18328, 0.19076] },
+  { file: 'models/onshape/LMP1.step', part: 172878, faces: [1063045], why: 'a narrow face\'s slivers balanced',
+    area: [62.725, 65.285] },
+  { file: 'third_party/gkv311-opencascade-dataset/step/bug24383_224013.stp', part: 11, faces: [10019],
+    why: 'a narrow face\'s slivers balanced', area: [13.699, 14.259] },
 ];
 
 // A face's triangles past an aspect of 1000 in a result.
@@ -170,6 +191,14 @@ for (const [file, cases] of byFile) {
         const a = faceArea(r, f);
         if (!(a >= c.kept.area[0] && a <= c.kept.area[1])) still.push(`#${f} area ${a.toPrecision(4)} mm^2 outside `
           + `[${c.kept.area.join(', ')}]`);
+      }
+    }
+    if (c.area) {
+      for (const f of c.faces) {
+        if (failed.has(f)) continue;
+        const a = faceArea(r, f);
+        if (!(a >= c.area[0] && a <= c.area[1])) still.push(`#${f} area ${a.toPrecision(5)} mm^2 outside `
+          + `[${c.area.join(', ')}]`);
       }
     }
     const drop = r.diagnostics?.find((d) => d.message.includes('split requests dropped'))?.message ?? '';

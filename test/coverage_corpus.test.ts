@@ -111,7 +111,7 @@ test('coverage_corpus: HEAL=1 passes each healed part\'s analysis: faces through
 test('coverage_corpus: ROUNDS= tallies our split rounds per part and lists those from 16 up, a TSV line each',
   { timeout: 300_000, skip: MODULES.length ? `modules not built: ${MODULES.join(', ')}`
     : !fs.existsSync(path.join(THIRD_PARTY, B25415)) ? 'corpus not pulled' : false }, () => {
-  // bug25415 #418, as imported: its refinement takes 25 rounds, from 16 up, short of the cap, in a moment.
+  // bug25415 #418, as imported: its refinement takes 26 rounds, from 16 up, short of the cap, in a moment.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-rounds-'));
   try {
     const list = path.join(dir, 'list.txt');
@@ -124,13 +124,13 @@ test('coverage_corpus: ROUNDS= tallies our split rounds per part and lists those
     assert.match(r.stdout, /our split rounds per part: at the cap of 48 0, 16 to 47 1, under 16 0, over 120 s CPU /,
       said(r));
     assert.match(r.stdout, /### Parts ours split in 16 or more rounds \(1\)/, said(r));
-    assert.match(r.stdout, /bug25415\S* #418 \(14 faces\): 25 rounds, \d+ faces unsplit, 6 failed, /, said(r));
+    assert.match(r.stdout, /bug25415\S* #418 \(14 faces\): 26 rounds, \d+ faces unsplit, 6 failed, /, said(r));
     const tsv = fs.readdirSync(dir).filter((f) => /^rounds\.\d+\.tsv$/.test(f));
     assert.equal(tsv.length, 1, said(r));
     const [where, rounds, , failed, cpu, triangles, status] = fs.readFileSync(path.join(dir, tsv[0]!), 'utf8').trim()
       .split('\t');
     assert.match(where!, /bug25415.* #418$/);
-    assert.deepEqual([rounds, failed, status], ['25', '6', 'partial'], said(r));
+    assert.deepEqual([rounds, failed, status], ['26', '6', 'partial'], said(r));
     assert.ok(Number(cpu) >= 0 && Number(triangles) > 0);
     // Over a CPU cap of 1 ms: by the last round its progress named (none past the first pass), at least.
     fs.rmSync(path.join(dir, tsv[0]!));

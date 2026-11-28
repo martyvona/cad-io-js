@@ -233,6 +233,18 @@ struct PartOptions {
    * pole's ring, whose first fundamental form vanishes towards the pole: one affine map is far off near it.
    */
   bool develop = true;
+  /**
+   * The most a face's mesh area may gain or lose from its boundary's chords, as a fraction of its area (default 2%); 0
+   * for no limit. Each chord cuts off, or adds, the sliver between it and its curve; on a face narrower than the
+   * chords' sag those slivers are its area's own size, and the mesh is within the deflection everywhere and its area
+   * far off (two arcs sampled apart, a line against an arc). After the rounds, a face past the limit has the spans
+   * whose slivers point its way split at their middles, the largest first, each matched where any face using it has
+   * another side within twice the deflection (split there too: the two chords side by side), and is meshed again, a
+   * bounded number of passes, the rounds once more after. A pass's splits are undone, with their matches, where they
+   * fail a face or leave its net sliver past both the limit and what it was; a face whose net doesn't halve over a pass
+   * is left. The refinement floor still holds.
+   */
+  double areaBalance = 0.02;
 };
 
 /** FaceMesh::thinByAngle's bins: under 1, 2, 5, 8 and 10 degrees, and the rest. */

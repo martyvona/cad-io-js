@@ -919,6 +919,75 @@ export function narrowArcStrip(width = 0.001): BrepBuilder {
 }
 
 /**
+ * A quarter of an annulus on z = 0 between radii r and r + width (18.5 and 18.5 + 0.04), its outer side two arcs
+ * meeting at `split` rad (0.3) so the sides' samples don't match: at d 0.1 each side's chords sag past the strip's
+ * width, the slivers between them and their arcs don't cancel, and the mesh is far off its area, pi / 4 x
+ * ((r + width)^2 - r^2), within the deflection everywhere. With `strip` (a height), the face's normal is -z and a
+ * cylinder strip of that height (outward) stands on its outer arcs: their samples shared, the strip's top arc one edge.
+ */
+export function narrowSector(r = 18.5, width = 0.04, split = 0.3, strip = 0): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = r + width, q = Math.PI / 2;
+  const at = [[R, 0, 0], [R * Math.cos(split), R * Math.sin(split), 0], [0, R, 0], [0, r, 0], [r, 0, 0]];
+  const v = at.map((point) => b.addVertex({ point }));
+  const circle = (radius: number, z = 0) => b.addCurve({ kind: 'circle', position: { ...AXIS, origin: [0, 0, z] },
+    radius });
+  const arc = (radius: number, start: number, end: number, range: [number, number], z = 0) => b.addEdge({
+    curve: circle(radius, z), start, end, sameSense: true, range });
+  const line = (start: number[], end: number[], vs: number, ve: number) => b.addEdge({ curve: b.addCurve({
+    kind: 'line', point: start, direction: [end[0]! - start[0]!, end[1]! - start[1]!, end[2]! - start[2]!],
+    magnitude: 1 }), start: vs, end: ve, sameSense: true, range: [0, 1] });
+  const outer = [arc(R, v[0]!, v[1]!, [0, split]), arc(R, v[1]!, v[2]!, [split, q])];
+  const inner = arc(r, v[4]!, v[3]!, [0, q]);
+  // (Counter-clockwise seen from +z: the outer arcs forward, the inner one back; with a strip, the face's normal -z
+  // and the loop the other way.)
+  const loop: [number, 'forward' | 'reversed'][] = [[outer[0]!, 'forward'], [outer[1]!, 'forward'],
+    [line(at[2]!, at[3]!, v[2]!, v[3]!), 'forward'], [inner, 'reversed'], [line(at[4]!, at[0]!, v[4]!, v[0]!),
+      'forward']];
+  const flip = (o: 'forward' | 'reversed') => (o === 'forward' ? 'reversed' : 'forward');
+  const coedges = (strip ? [...loop].reverse().map(([e, o]) => [e, flip(o)] as const) : loop)
+    .map(([edge, orientation]) => ({ edge, orientation }));
+  const sector = b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: !strip,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges }] });
+  if (!strip) {
+    sheet(b, sector);
+    return b;
+  }
+  // (The strip's (u, v) the angle and z, its normal outward: counter-clockwise the outer arcs forward along the
+  // bottom, up at a quarter turn, the top arc back, down at 0.)
+  const t0 = b.addVertex({ point: [R, 0, strip] }), t1 = b.addVertex({ point: [0, R, strip] });
+  const wall = b.addFace({ surface: b.addSurface({ kind: 'cylinder', position: AXIS, radius: R }), sameSense: true,
+    loops: [{ kind: 'edge', bound: 'outer', sense: true, coedges: [
+      { edge: outer[0]!, orientation: 'forward' }, { edge: outer[1]!, orientation: 'forward' },
+      { edge: line(at[2]!, [0, R, strip], v[2]!, t1), orientation: 'forward' },
+      { edge: arc(R, t0, t1, [0, q], strip), orientation: 'reversed' },
+      { edge: line(at[0]!, [R, 0, strip], v[0]!, t0), orientation: 'reversed' }] }] });
+  const shell = b.addShell({ kind: 'open', faces: [{ face: sector, sense: true }, { face: wall, sense: true }] });
+  b.addItem({ kind: 'body', ref: b.addBody({ kind: 'sheet', members: [{ ref: shell, sense: true }] }) });
+  return b;
+}
+
+/**
+ * A circular segment on z = 0: the arc of radius 10 from angle 0 to a, where it stands 0.2 off its chord, and the
+ * chord back. At d 0.1 the arc's chords cut off slivers the chord's line has none to cancel: the mesh is short of its
+ * area, 50 (a - sin a), by about a third.
+ */
+export function narrowSegment(): BrepBuilder {
+  const b = new BrepBuilder();
+  const R = 10, a = 2 * Math.acos(1 - 0.2 / R);
+  const p0 = [R, 0, 0], p1 = [R * Math.cos(a), R * Math.sin(a), 0];
+  const v0 = b.addVertex({ point: p0 }), v1 = b.addVertex({ point: p1 });
+  const arc = b.addEdge({ curve: b.addCurve({ kind: 'circle', position: AXIS, radius: R }), start: v0, end: v1,
+    sameSense: true, range: [0, a] });
+  const chord = b.addEdge({ curve: b.addCurve({ kind: 'line', point: p1, direction: [p0[0]! - p1[0]!,
+    p0[1]! - p1[1]!, 0], magnitude: 1 }), start: v1, end: v0, sameSense: true, range: [0, 1] });
+  sheet(b, b.addFace({ surface: b.addSurface({ kind: 'plane', position: AXIS }), sameSense: true, loops: [{
+    kind: 'edge', bound: 'outer', sense: true,
+    coedges: [{ edge: arc, orientation: 'forward' }, { edge: chord, orientation: 'forward' }] }] }));
+  return b;
+}
+
+/**
  * A pentagram on z = 0 (a star polygon's loop of five line edges, radius 1), under an uncertainty of 0.2: its edges
  * cross each other five times in (u, v), which no split mends.
  */
@@ -3068,6 +3137,8 @@ export const MODELS = { longBand, longSweep, torusOuterBand, longPlate, luneAcro
   kinkStrip: () => kinkStrip(), kinkStripV: () => kinkStrip(true), pleatStrip, thinTube,
   foldSidesApart, foldOneSide, foldStepFar, pleatAtEdge, poleRowFan, poleRowShort, poleRowNear,
   sectorWall: () => sectorWall(), sectorWallSpline: () => sectorWall(0.3, true), narrowArcStrip: () => narrowArcStrip(),
+  narrowSector: () => narrowSector(), narrowSegment,
+  sectorOnStrip: () => narrowSector(18.5, 0.04, 0.3, 0.001),
   pentagramLoop, mergedCornerStrip: () => mergedCornerStrip(),
   lanternBand5: () => lanternBand(0, 5), apexSector: () => apexSector(2.5),
   mergedCornerStripTop: () => mergedCornerStrip(1.5, true),

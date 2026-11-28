@@ -10,7 +10,7 @@ import { oracleMeasures, sha256 } from 'cad-scene';
 import { CAUSES_HEAD, KEPT_HEAD } from './causes.ts';
 
 /** The module's C API version this layer speaks (tc_api_version). */
-const API_VERSION = 13;
+const API_VERSION = 14;
 
 /**
  * With countInsertions, an info diagnostic of this head then `<kind> <n>` for each of INSERTED_KINDS inserted, joined
@@ -104,6 +104,7 @@ interface CadioExports {
   _tc_set_count_expected: Fn;
   _tc_set_fail_capped: Fn;
   _tc_set_develop: Fn;
+  _tc_set_area_balance: Fn;
   _tc_set_fail_turned_over: Fn;
   _tc_set_keep_defects: Fn;
   _tc_set_fail_folded_fans: Fn;
@@ -200,6 +201,12 @@ export interface CadioInitOptions {
    */
   develop?: boolean;
   /**
+   * The most a face's mesh area may gain or lose from its boundary's chords, a fraction of its area (part.h's
+   * PartOptions::areaBalance: a face narrower than its chords' sag, past it, has the spans whose slivers point its
+   * way split, matched on its other side); default 0.02, 0 for no limit.
+   */
+  areaBalance?: number;
+  /**
    * Keep a face whose defect is small rather than fail it (part.h's PartOptions::keepDefects: a few triangles turned,
    * a little past its deflection, at its point cap), the defect said in a warning (KEPT_HEAD); default true.
    */
@@ -272,6 +279,7 @@ export class CadioTessellator implements Tessellator {
   private countExpected = false;
   private failCapped = true;
   private develop = true;
+  private areaBalance = -1;
   private failTurnedOver = true;
   private keepDefects = true;
   private failFoldedFans = true;
@@ -298,6 +306,7 @@ export class CadioTessellator implements Tessellator {
     this.countExpected = opts.countExpected ?? false;
     this.failCapped = opts.failCapped ?? true;
     this.develop = opts.develop ?? true;
+    this.areaBalance = opts.areaBalance ?? -1;
     this.failTurnedOver = opts.failTurnedOver ?? true;
     this.keepDefects = opts.keepDefects ?? true;
     this.failFoldedFans = opts.failFoldedFans ?? true;
@@ -575,6 +584,7 @@ export class CadioTessellator implements Tessellator {
     m._tc_set_count_expected(this.countExpected ? 1 : 0);
     m._tc_set_fail_capped(this.failCapped ? 1 : 0);
     m._tc_set_develop(this.develop ? 1 : 0);
+    m._tc_set_area_balance(this.areaBalance);
     m._tc_set_fail_turned_over(this.failTurnedOver ? 1 : 0);
     m._tc_set_keep_defects(this.keepDefects ? 1 : 0);
     m._tc_set_fail_folded_fans(this.failFoldedFans ? 1 : 0);
