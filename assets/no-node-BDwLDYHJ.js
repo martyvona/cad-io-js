@@ -1,0 +1,1 @@
+import{n as e,r as t}from"./model-worker-_U5z1L8A.js";var n=/* @__PURE__ */ t({default:()=>i,readFile:()=>r});function r(){throw Error(`no file system in the browser`)}var i,a=e((()=>{i={readFile:r}}));export{n,a as t};
