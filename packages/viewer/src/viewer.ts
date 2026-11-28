@@ -557,6 +557,10 @@ export class Viewer {
     this.frames = new Frames(() => this.draw(true));
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
+    // The rendering settings applied once now: the alerts' and the highlight's colours are set only here (their
+    // materials start white), and a page whose address sets none would otherwise draw a failed face's outline white
+    // until a setting changed.
+    this.setRender(this.render);
   }
 
   private aspect(): number {

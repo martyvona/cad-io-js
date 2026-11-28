@@ -1735,6 +1735,27 @@ await check('view context menu', async () => {
 // its node as the tree's row does. Clicks, shift-clicks and Space select as the tree's rows do, the rows drawn
 // selected, the tree following; recorded and replayed as those selections. Closed by its x: no alert, no highlight.
 // Long lists: only the rows in view drawn (200,000, through the module, on the dev server).
+// Alerts in the alert colour from the start: a page whose address sets no rendering settings (as it is: not even the
+// thin edges check pages ask for), nothing changed since,
+// a failed face's outline drawn red over the model (the alerts' material, white until a setting is applied, the
+// viewer's own at its making).
+await check('alerts in the alert colour', async () => {
+  const r = await page(`?url=${encodeURIComponent('/content/face-failed.stp')}&check`, `(async () => {
+    await cadViewer.ready; await cadViewer.idle();
+    viewer.draw();
+    const canvas = viewer.renderer.domElement, gl = viewer.renderer.getContext();
+    const px = new Uint8Array(4 * canvas.width * canvas.height);
+    gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let red = 0;
+    for (let i = 0; i < px.length; i += 4) if (px[i] > 200 && px[i + 1] < 60 && px[i + 2] < 60) red++;
+    return { alerts: viewer.alerts.count, line: viewer.alerts.line.color.getHexString(),
+      setting: viewer.render.alertColor, red, address: location.search };
+  })()`, { asIs: true }) as { after: { alerts: number; line: string; setting: string; red: number } };
+  const a = r.after;
+  expect(a.alerts > 0 && `#${a.line}` === a.setting && a.red > 10, `the failed face's outline in red: ${
+    JSON.stringify(a)}`);
+  return undefined;
+});
 await check('pick list', async () => {
   const r = await page(`?url=${encodeURIComponent('/content/as1.stp')}&check`, `(async () => {
     await cadViewer.ready;
