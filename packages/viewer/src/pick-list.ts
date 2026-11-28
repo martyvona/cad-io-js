@@ -1,12 +1,14 @@
 // Pick... (the 3D view's context menu: ui.ts): everything along the line of sight through the point clicked, nearest
-// first, as a flat list of the tree's rows (tree-panel.ts's drawRow) in a movable modal dialog (dialog.ts). The list
-// draws only the rows in view (a fixed row height, rows absolutely placed over a spacer, as headless-tree-view.ts
-// does), so it holds any number. Clicks, shift-clicks, ctrl/cmd-clicks and multi-select select as the tree's rows do
-// (listClick); the row under the mouse is marked `hovered`. A cursor, the tree's focus outline, starts on the first
-// row and stays on one row until the dialog closes: the arrows move it, Space and Shift+Space click and shift-click
+// first, as a flat list of the tree's rows (tree-panel.ts's drawRow) in a panel that floats over the page without
+// blocking it (the view can be turned meanwhile), dragged by its title, closed by its x or Escape; one at a time,
+// asked for again while it's open, the same panel shows the new list (where it was moved to). The list draws only the
+// rows in view (a fixed row height, rows absolutely placed over a spacer, as headless-tree-view.ts does), so it holds
+// any number. Clicks, shift-clicks, ctrl/cmd-clicks and multi-select select as the tree's rows do (listClick); the row
+// under the mouse is marked `hovered`. A cursor, the tree's focus outline, starts on the first row and stays on one
+// row until the panel closes (or shows another list): the arrows move it, Space and Shift+Space click and shift-click
 // its row, a click moves it there; its row is marked `alert` too (drawn in the alert colour: index.html).
 
-import { showDialog } from './dialog.ts';
+import { draggable } from './dialog.ts';
 import type { NodeModel } from './model.ts';
 import { drawRow, ROW_HEIGHT } from './tree-panel.ts';
 
@@ -68,7 +70,58 @@ export function listClick(ids: readonly number[], selected: readonly number[], a
   return { selected: [id], anchor: i };
 }
 
-/** Shows the list (none: nothing). Returns its redraw (the selection or the rows' appearance changed). */
+/** The panel while it's open: the list in it now, ended (`end`) when another takes its place or it closes. */
+let shown: { dialog: HTMLDialogElement; title: HTMLElement; body: HTMLElement; close(): void; end?: () => void;
+  onClose?: () => void } | undefined;
+
+/** The panel, made if it isn't open. */
+function panel(): NonNullable<typeof shown> {
+  if (shown) return shown;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'cv-dialog floating pick';
+  // (Focusable itself, as Override Appearance's: Escape there closes it.)
+  dialog.tabIndex = -1;
+  const h = document.createElement('h2');
+  h.className = 'drag';
+  const title = document.createElement('span');
+  const x = Object.assign(document.createElement('button'), { type: 'button', textContent: '\u00D7',
+    className: 'close' });
+  x.setAttribute('aria-label', 'Close');
+  h.append(title, x);
+  draggable(dialog, h);
+  const body = document.createElement('div');
+  dialog.append(h, body);
+  const close = () => {
+    const s = shown;
+    if (!s) return;
+    shown = undefined;
+    s.end?.();
+    if (dialog.open) dialog.close();
+    dialog.remove();
+    s.onClose?.();
+  };
+  x.addEventListener('click', close);
+  dialog.addEventListener('close', close);
+  dialog.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    close();
+  });
+  document.body.append(dialog);
+  dialog.show();
+  shown = { dialog, title, body, close };
+  return shown;
+}
+
+/** Closes the panel, if it's open (a new model). */
+export function closePickList(): void {
+  shown?.close();
+}
+
+/**
+ * Shows the list (none: nothing), in the panel if it's open (the list there ended, not closed: its onClose not told).
+ * Returns its redraw (the selection or the rows' appearance changed).
+ */
 export function showPickList(o: PickListOptions): { redraw(): void } {
   const { ids, model } = o;
   const box = document.createElement('div');
@@ -200,8 +253,9 @@ export function showPickList(o: PickListOptions): { redraw(): void } {
   resize.observe(scroller);
 
   const noun = ids.length === 1 ? 'item' : 'items';
-  void showDialog({ title: `Pick: ${ids.length.toLocaleString('en-US')} ${noun}`, closeButton: true,
-    body: [], content: box, buttons: [] }).then(() => {
+  const p = panel();
+  p.end?.();
+  p.end = () => {
     open = false;
     resize.disconnect();
     pointer = undefined;
@@ -209,10 +263,10 @@ export function showPickList(o: PickListOptions): { redraw(): void } {
       hovered = undefined;
       o.onHover(undefined);
     }
-    o.onClose();
-  });
-  // (The view behind not dimmed: its highlight and alert are what the list shows there.)
-  box.closest('dialog')?.classList.add('pick');
+  };
+  p.onClose = o.onClose;
+  p.title.textContent = `Pick: ${ids.length.toLocaleString('en-US')} ${noun}`;
+  p.body.replaceChildren(box);
   o.onCursor(ids[0]!);
   draw();
   scroller.focus();

@@ -98,10 +98,10 @@ export class Marks {
 
   /** Marks these pieces' lines and dots (in place of the last); their meshes aren't marked. */
   set(pieces: readonly Piece[]): void {
-    for (const { mark } of this.marks) {
-      mark.removeFromParent();
-      if (mark instanceof THREE.Points) mark.geometry.dispose();
-    }
+    // (A dots' mark draws its object's own geometry, or a sub-geometry kept for the next time: neither disposed here.
+    // Disposing it freed the attributes' GPU buffers, which the object's drawings kept binding: items.ts's
+    // disposeBorrowing.)
+    for (const { mark } of this.marks) mark.removeFromParent();
     this.marks = [];
     for (const { object, ranges } of pieces) {
       const source = object as Drawable;

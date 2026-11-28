@@ -26,7 +26,7 @@ export type Shortcut =
    */
   | { type: 'detail' };
 
-/** The views by their keys, 1 to 9, in Look Along an Axis's order. */
+/** The views by their keys, 1 to 9 then 0, in Look Along an Axis's order (AXIS_VIEWS' keys). */
 export const VIEW_KEYS: readonly ViewName[] = AXIS_VIEWS.map((v) => v.view);
 
 /** Where keys are typed (an on-screen keyboard's too). */
@@ -49,8 +49,13 @@ export function shortcutOf(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | '
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.defaultPrevented) return undefined;
   if (within(e.target, `${TEXT}, dialog`)) return undefined;
   // (Shifted, a digit is another character, layout by layout: its key's code says which.)
-  const digit = /^Digit([1-9])$/.exec(e.code ?? '')?.[1];
-  if (e.shiftKey) return digit ? { type: 'view', view: VIEW_KEYS[Number(digit) - 1]!, shift: true } : undefined;
+  // (A digit's view: AXIS_VIEWS' key, 1 to 9 then 0.)
+  const byKey = (d: string | undefined) => AXIS_VIEWS.find((v) => v.key === d)?.view;
+  const digit = /^Digit([0-9])$/.exec(e.code ?? '')?.[1];
+  if (e.shiftKey) {
+    const view = byKey(digit);
+    return view ? { type: 'view', view, shift: true } : undefined;
+  }
   const k = e.key;
   if (k === 'f') return { type: 'zoom' };
   if (k === 'h') return { type: 'hide' };
@@ -59,8 +64,8 @@ export function shortcutOf(e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | '
   if (k === 'g') return { type: 'triangleEdges' };
   if (k === 'e') return { type: 'detail' };
   if (k === 'Escape') return { type: 'selectNone' };
-  const n = /^[1-9]$/.test(k) ? Number(k) : 0;
-  return n ? { type: 'view', view: VIEW_KEYS[n - 1]!, shift: false } : undefined;
+  const view = /^[0-9]$/.test(k) ? byKey(k) : undefined;
+  return view ? { type: 'view', view, shift: false } : undefined;
 }
 
 /** Triangle edges' next value for g: selected or all to off; off to selected where anything's selected, else all. */

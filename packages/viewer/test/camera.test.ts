@@ -51,9 +51,8 @@ test('interpolateCamera: the pan straight, none at either end none between', () 
 
 // The iso views in the file's axes; the legs of a move to a view that fits; the screw motion between two cameras.
 import * as THREE from 'three';
-import { centred, cubeLook, fitCamera, heightShowing, legCamera, lookLegs, screwCamera, upIso, viewAxes, viewCamera,
-  VIEWS }
-  from '../src/camera.ts';
+import { AXIS_VIEWS, centred, cubeLook, fitCamera, heightShowing, legacyIso, legCamera, lookLegs, screwCamera, upIso,
+  viewAxes, viewCamera, VIEWS } from '../src/camera.ts';
 
 // A Y-up file's axes in the world (glTF's, turned so its Y is the world's Z): x -> x, y -> z, z -> -y.
 const Y_UP = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1),
@@ -244,4 +243,23 @@ test("the view cube's corners and edges: looking from them, the file's up axis u
   const c = viewCamera(s, cubeLook([1, -1, 1]));
   close(c.position, [10 * s3, -10 * s3, 10 * s3], 'the camera');
   close(c.up, [-s6, s6, 2 * s6], 'its up');
+});
+
+test("the isos: from above each of the top's corners, Z up, the faces they're named for in sight; older views' buttons",
+  () => {
+  // Each looks down on the top and on the two side faces its name gives (front -y, right +x, back +y, left -x).
+  const faces: Record<string, [number, number, number]> = { front: [0, -1, 0], right: [1, 0, 0], back: [0, 1, 0],
+    left: [-1, 0, 0] };
+  for (const v of AXIS_VIEWS.filter((x) => x.name.startsWith('Iso'))) {
+    const { dir, up } = viewAxes(v.view);
+    const named = /^Iso \(top, (\w+), (\w+)\)$/.exec(v.name)!.slice(1);
+    assert.ok(dir.z > 0 && up.z === 1, v.name);
+    for (const [f, n] of Object.entries(faces)) {
+      assert.equal(dir.dot(new THREE.Vector3(...n)) > 0, named.includes(f), `${v.name}: ${f}`);
+    }
+  }
+  // Older names: iso, a Z-up file's Iso Z, a Y-up file's Iso Y the first; Iso X none (its X up).
+  const yUp = new THREE.Matrix4().fromArray([1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual([legacyIso('iso'), legacyIso('isoZ'), legacyIso('isoY', yUp), legacyIso('isoX'),
+    legacyIso('isoY')], ['isoFrontRight', 'isoFrontRight', 'isoFrontRight', undefined, undefined]);
 });

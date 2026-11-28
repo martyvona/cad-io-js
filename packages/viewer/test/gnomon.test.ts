@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { axisSymbol, axisView, backingColour, bandSpan, besideSide, CUBE_GAP, CUBE_SIZE, cubeFaces, cubePart, Gnomon,
-  GNOMON_EXTENT, gnomonShown, hull, LABEL_BOX, layoutLabels, NUDGE_SPEED, TOUCH_REACH, nudgesOf, project, sameTurn,
-  stepNudges, SYMBOL } from '../src/gnomon.ts';
+import { AXIS_PIXELS, axisSymbol, axisView, backingColour, bandSpan, besideSide, CUBE_GAP, CUBE_REACH, CUBE_SIZE,
+  cubeFaces, cubeFeatureAt, Gnomon, GNOMON_EXTENT, gnomonShown, hull, LABEL_BOX, LABEL_GAP, labelsLayout,
+  layoutLabels, MAX_CUBE_NUDGE, NUDGE_SPEED, nudgesOf, project, sameTurn, stepNudges, SYMBOL, TOUCH_REACH }
+  from '../src/gnomon.ts';
 
 const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) < 1e-12, `${what}: ${a} vs ${b}`);
 
@@ -72,13 +73,29 @@ test('the gnomon starts shown, unless remembered hidden; off in check and shot p
   assert.equal(gnomonShown('?cube=0', '1', 'cube'), false);
 });
 
-test("the view cube's parts: a face's middle, CUBE_ZONE of it from each border its edges', its corners", () => {
-  assert.deepEqual(cubePart([0.5, 0, 0.5]), [0, -1, 0]);
-  assert.deepEqual(cubePart([0.26, 1, 0.74]), [0, 1, 0]);
-  assert.deepEqual(cubePart([0.24, 1, 0.5]), [-1, 1, 0]);
-  assert.deepEqual(cubePart([0.5, 0, 0.76]), [0, -1, 1]);
-  assert.deepEqual(cubePart([0.9, 0, 0.9]), [1, -1, 1]);
-  assert.deepEqual(cubePart([0, 0.1, 1]), [-1, -1, 1]);
+test("the view cube's corners and edges: within CUBE_REACH of where they're drawn, either side, seen ones alone",
+  () => {
+  // Looking down Z (its high face toward the viewer alone), the cube a 20-pixel square: the corners at z = 1 over those
+  // at z = 0, which are behind.
+  const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((c) => ({ x: (c & 1) * 20, y: (c >> 1 & 1) * 20 }));
+  const front = [false, false, false, false, false, true];
+  const at = (x: number, y: number) => cubeFeatureAt({ x, y }, corners, front);
+  // A corner: the seen one (z = 1), inside the cube or outside it alike.
+  assert.deepEqual(at(0, 0), [-1, -1, 1]);
+  assert.deepEqual(at(3, 3), [-1, -1, 1]);
+  assert.deepEqual(at(-4, -4), [-1, -1, 1]);
+  assert.deepEqual(at(20 + CUBE_REACH.corner - 0.5, 20), [1, 1, 1]);
+  // An edge: along X at y = 0 (z = 1), either side of it; along Y at x = 20.
+  assert.deepEqual(at(10, 3), [0, -1, 1]);
+  assert.deepEqual(at(10, -3), [0, -1, 1]);
+  assert.deepEqual(at(10, -CUBE_REACH.edge + 0.1), [0, -1, 1]);
+  assert.deepEqual(at(23, 10), [1, 0, 1]);
+  // Neither: a face's middle, or beyond reach.
+  assert.equal(at(10, 10), undefined);
+  assert.equal(at(10, -CUBE_REACH.edge - 0.1), undefined);
+  assert.equal(at(-6, -6), undefined);
+  // Nothing seen (every face away): nothing.
+  assert.equal(cubeFeatureAt({ x: 0, y: 0 }, corners, front.map(() => false)), undefined);
 });
 
 test("the view cube's faces: each lettered for the world's view facing it, upright as that view has it", () => {
@@ -102,12 +119,10 @@ test("the view cube's faces: each lettered for the world's view facing it, uprig
   assert.equal(g.cubeView([0, 0, -1]), 'bottom');
 });
 
-test('the view cube lies within the sphere the gnomon turns about (so within GNOMON_EXTENT)', () => {
-  const centre = new THREE.Vector3(1, 1, 1).divideScalar(3);
-  for (const c of [0, 1, 2, 3, 4, 5, 6, 7]) {
-    const p = new THREE.Vector3(c & 1, c >> 1 & 1, c >> 2 & 1).multiplyScalar(CUBE_SIZE).addScalar(CUBE_GAP);
-    assert.ok(p.distanceTo(centre) <= Math.sqrt(6) / 3, `corner ${c}`);
-  }
+test('the view cube clear of an axis\'s symbol where the axes meet, looking along that axis', () => {
+  // Its nearest corner CUBE_GAP along each other axis: past the symbol's ring and its stroke's outer half.
+  assert.ok(CUBE_GAP * AXIS_PIXELS > SYMBOL.ring + SYMBOL.stroke / 2 + 1);
+  assert.ok(CUBE_GAP + CUBE_SIZE < 1 + LABEL_GAP);
 });
 
 /**
@@ -135,13 +150,20 @@ function sampledTurns(): THREE.Matrix4[] {
   return turns.flatMap((t) => [t, t.clone().multiply(new THREE.Matrix4().makeScale(-1, 1, 1))]);
 }
 
-test('the labels: no two boxes overlap, nor the view cube, the origin\'s never moved, every layout inside '
-  + 'GNOMON_EXTENT', () => {
+test('the labels: no two boxes overlap, nor the view cube (a label it would move far hidden), the origin\'s never '
+  + 'moved, every layout inside GNOMON_EXTENT', () => {
   const reach = { left: 0, right: 0, down: 0, up: 0 };
-  let overlap = 0, rose = 0, onCube = 0;
+  let overlap = 0, rose = 0, onCube = 0, moved = 0, hiddenTurns = 0;
   for (const t of sampledTurns()) for (const withCube of [false, true]) {
-    const { tips, placements, origin, cube } = project(t);
-    const labels = layoutLabels(placements, origin, LABEL_BOX, undefined, withCube ? cube : undefined);
+    const p = project(t), { tips, placements, origin, cube } = p;
+    const { nudges, hidden } = labelsLayout(p, undefined, withCube);
+    const without = layoutLabels(placements, origin, LABEL_BOX);
+    // (The labels shown; a hidden one counts nowhere.)
+    const labels = placements.flatMap((q, k) => hidden[k] ? [] : [{ x: q.x + nudges[k]!.x, y: q.y + nudges[k]!.y,
+      k }]);
+    if (hidden.some(Boolean)) hiddenTurns++;
+    assert.ok(withCube || !hidden.some(Boolean), 'a label hidden without the cube');
+    for (const l of labels) moved = Math.max(moved, Math.hypot(l.x - without[l.k]!.x, l.y - without[l.k]!.y));
     const all = [...labels, origin];
     if (withCube) {
       for (const l of labels) {
@@ -155,12 +177,12 @@ test('the labels: no two boxes overlap, nor the view cube, the origin\'s never m
         reach.up = Math.max(reach.up, p.y);
       }
     }
-    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) {
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
       overlap = Math.max(overlap, Math.min(LABEL_BOX - Math.abs(all[i]!.x - all[j]!.x),
         LABEL_BOX - Math.abs(all[i]!.y - all[j]!.y)));
     }
     // (Labels only move sideways.)
-    for (const [k, l] of labels.entries()) rose = Math.max(rose, Math.abs(l.y - placements[k]!.y));
+    for (const l of labels) rose = Math.max(rose, Math.abs(l.y - placements[l.k]!.y));
     // The lines' ends and origin with their width, the boxes' edges.
     for (const [p, r] of [...[...tips, origin].map((q) => [q, 1] as const), ...labels.map((q) =>
       [q, LABEL_BOX / 2] as const)]) {
@@ -173,6 +195,8 @@ test('the labels: no two boxes overlap, nor the view cube, the origin\'s never m
   console.log('reach', reach);
   assert.ok(overlap <= 1e-6, `boxes overlap by ${overlap}`);
   assert.ok(onCube <= 1e-6, `a label overlaps the cube by ${onCube}`);
+  // No label shown moved far by the cube; some hidden for it.
+  assert.ok(moved <= MAX_CUBE_NUDGE + 1e-6 && hiddenTurns > 0, `moved ${moved}, hidden in ${hiddenTurns} turns`);
   assert.equal(rose, 0, 'labels moved up or down');
   for (const k of ['left', 'right', 'down', 'up'] as const) {
     assert.ok(reach[k] <= GNOMON_EXTENT[k], `${k}: ${reach[k]} past ${GNOMON_EXTENT[k]}`);
@@ -377,6 +401,10 @@ test('hits: a drawn box for a mouse, TOUCH_REACH for a finger, the nearest centr
   const [, y, z, o] = g.layout as { x: number; y: number }[];
   // Inside the drawn box, or just off it.
   assert.equal(g.hit(z!.x + 6, z!.y + 6), 'z');
+  // A label hidden (the view cube in its way): no click on it.
+  g.hiddenLabels = [false, false, true];
+  assert.notEqual(g.hit(z!.x, z!.y), 'z');
+  g.hiddenLabels = [false, false, false];
   assert.equal(g.hit(z!.x, z!.y + 8), undefined);
   // A finger reaches further, but not past TOUCH_REACH.
   assert.equal(g.hit(z!.x, z!.y + 8, TOUCH_REACH), 'z');

@@ -38,7 +38,7 @@
 // (closed again when the replay ends), scrolled to, flashed.
 
 import { sha256 } from 'cad-scene';
-import { AXIS_VIEWS, interpolateCamera, upIso } from './camera.ts';
+import { AXIS_VIEWS, interpolateCamera, legacyIso, upIso } from './camera.ts';
 import { clientInfo, type ClientInfo } from './client-info.ts';
 import { formatOf } from './formats.ts';
 import { nodeForPick } from './selection.ts';
@@ -535,13 +535,19 @@ export async function replay(rec: Recording, viewer: Viewer, ui: Ui, session: Se
 
 
 /**
- * A recorded control's path now: Look Along an Axis's Iso (recordings before 2026-11-27) is the iso view of the
- * file's axis that's up, which looks the same.
+ * A recorded control's path now: Look Along an Axis's Iso (recordings before 2026-11-27: `iso`, the world's) and
+ * Iso X, Y and Z (before 2026-11-29: the file's axis up) are the button that looks the same (legacyIso), where one
+ * does.
  */
 function legacyPath(path: string, viewer: Viewer): string {
-  if (path !== 'View/Look Along an Axis/Iso') return path;
-  const name = AXIS_VIEWS.find((v) => v.view === upIso(viewer.gnomon.axesInWorld))!.name;
-  return `View/Look Along an Axis/${name}`;
+  const old = { Iso: 'iso', 'Iso X': 'isoX', 'Iso Y': 'isoY', 'Iso Z': 'isoZ' } as const;
+  const m = /^View\/Look Along an Axis\/(Iso|Iso X|Iso Y|Iso Z)$/.exec(path);
+  if (!m) return path;
+  // (`iso` was Iso of the file's axis up: the file's Iso Z or Iso Y, as upIso has it.)
+  const view = old[m[1] as keyof typeof old], axes = viewer.gnomon.axesInWorld;
+  const now = legacyIso(view === 'iso' ? upIso(axes) : view, axes);
+  const name = AXIS_VIEWS.find((v) => v.view === now)?.name;
+  return name ? `View/Look Along an Axis/${name}` : path;
 }
 
 /** The events replay applies (and so waits for the viewer before). */

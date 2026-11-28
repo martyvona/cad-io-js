@@ -10,14 +10,16 @@ import * as THREE from 'three';
 import { screwMotion } from 'cad-kinematics';
 import type { CameraState } from './view-state.ts';
 
-export type ViewName = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'iso' | 'isoX' | 'isoY' | 'isoZ';
+export type ViewName = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'isoFrontRight' | 'isoRightBack' |
+  'isoBackLeft' | 'isoLeftFront' | 'iso' | 'isoX' | 'isoY' | 'isoZ';
 
 /**
  * Each view's direction from the target to the camera, and its up vector. Front looks along +Y, as CAD systems
- * have it with Z up; top and bottom are the front view turned about X (so bottom has the front edge at the top).
- * `file`: in the file's own axes (Scene.fileAxes in the world: the gnomon's), else the world's. Iso X, Y and Z put
- * that axis of the file up, Iso Z as a Z-up file's iso and Iso Y as a Y-up file's (glTF's): each the same as `iso`,
- * the world's (Z up), for files of that kind. `iso` is links' and the interface's, no button's.
+ * have it with Z up; top and bottom are the front view turned about X (so bottom has the front edge at the top). The
+ * four isos look down on the top from above each of its corners, Z up, named for the faces they show: from the front
+ * right (`iso`, links' and the interface's, the same), the right back, the back left, the left front. `file`: in the
+ * file's own axes (Scene.fileAxes in the world: the gnomon's), else the world's: Iso X, Y and Z, no button's now,
+ * links' and older recordings' (legacyIso), put that axis of the file up.
  */
 type Vec = readonly [number, number, number];
 export const VIEWS: Record<ViewName, { dir: Vec; up: Vec; file?: true }> = {
@@ -27,17 +29,34 @@ export const VIEWS: Record<ViewName, { dir: Vec; up: Vec; file?: true }> = {
   right: { dir: [1, 0, 0], up: [0, 0, 1] },
   top: { dir: [0, 0, 1], up: [0, 1, 0] },
   bottom: { dir: [0, 0, -1], up: [0, -1, 0] },
+  isoFrontRight: { dir: [1, -1, 1], up: [0, 0, 1] },
+  isoRightBack: { dir: [1, 1, 1], up: [0, 0, 1] },
+  isoBackLeft: { dir: [-1, 1, 1], up: [0, 0, 1] },
+  isoLeftFront: { dir: [-1, -1, 1], up: [0, 0, 1] },
   iso: { dir: [1, -1, 1], up: [0, 0, 1] },
   isoX: { dir: [1, 1, 1], up: [1, 0, 0], file: true },
   isoY: { dir: [1, 1, 1], up: [0, 1, 0], file: true },
   isoZ: { dir: [1, -1, 1], up: [0, 0, 1], file: true },
 };
 
-/** Look Along an Axis's views, in its order (the keys 1 to 9), with their buttons' names. */
-export const AXIS_VIEWS: readonly { view: ViewName; name: string }[] = [
-  { view: 'front', name: 'Front' }, { view: 'back', name: 'Back' }, { view: 'left', name: 'Left' },
-  { view: 'right', name: 'Right' }, { view: 'top', name: 'Top' }, { view: 'bottom', name: 'Bottom' },
-  { view: 'isoX', name: 'Iso X' }, { view: 'isoY', name: 'Iso Y' }, { view: 'isoZ', name: 'Iso Z' }];
+/** Look Along an Axis's views, in its order, with their buttons' names and their keys (1 to 9, then 0). */
+export const AXIS_VIEWS: readonly { view: ViewName; name: string; key: string }[] = ([
+  ['front', 'Front'], ['back', 'Back'], ['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['bottom', 'Bottom'],
+  ['isoFrontRight', 'Iso (top, front, right)'], ['isoRightBack', 'Iso (top, right, back)'],
+  ['isoBackLeft', 'Iso (top, back, left)'], ['isoLeftFront', 'Iso (top, left, front)'],
+] as const).map(([view, name], i) => ({ view, name, key: String((i + 1) % 10) }));
+
+/**
+ * The button a view of older recordings and links (`iso`, Iso X, Y and Z) looks the same as, in the file's axes
+ * (`axes`), if any: the one whose direction and up are its own in the world.
+ */
+export function legacyIso(view: ViewName, axes?: THREE.Matrix4): ViewName | undefined {
+  const a = viewAxes(view, axes);
+  return AXIS_VIEWS.map((v) => v.view).find((v) => {
+    const b = viewAxes(v);
+    return a.dir.dot(b.dir) > 1 - 1e-9 && a.up.dot(b.up) > 1 - 1e-9;
+  });
+}
 
 /** A view by name, or by its direction (from the target to the camera) and up in the world (the view cube's). */
 export type Look = ViewName | { dir: Vec; up: Vec };

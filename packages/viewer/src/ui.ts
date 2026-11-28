@@ -26,7 +26,7 @@ import { BACKEND_NAMES, defaultSettings, profileSettings, type TessellationSetti
   from './tessellation.ts';
 import { MAX_MIN_ANGLE_DEGREES } from 'tess-cadio/options';
 import { nodeLabel, TreePanel } from './tree-panel.ts';
-import { showPickList } from './pick-list.ts';
+import { closePickList, showPickList } from './pick-list.ts';
 import { clientInfo, showClientInfo } from './client-info.ts';
 import { formatOf } from './formats.ts';
 import { gnomonShown } from './gnomon.ts';
@@ -43,7 +43,7 @@ import { edgeRunShown, edgeValuesShown, showEdgeDetection, type EdgeRun } from '
 import { detectionFrom, type EdgeDetection } from './edges.ts';
 import { compact } from './compact.ts';
 import { closeMenu, showMenu } from './context-menu.ts';
-import { fromKeyboard, nextTriangleEdges, shortcutOf, VIEW_KEYS } from './shortcuts.ts';
+import { fromKeyboard, nextTriangleEdges, shortcutOf } from './shortcuts.ts';
 import { askScreenshot } from './screenshot-dialog.ts';
 import { showLink } from './link-dialog.ts';
 import { canCaptureTab, captureTab, encode, freeArea, modelRect, redrawWindow, snapped, type Rect }
@@ -62,6 +62,8 @@ export interface Ui {
   selection: { level: PickLevel; multi: boolean; instances: boolean };
   hideSelected(): void;
   showSelected(): void;
+  /** Reveals the selection (model.ts's Reveal), as Override Appearance's Reveal would, node by node. */
+  revealSelected(): void;
   /** Hides everything but the selection and what holds it (NodeModel.others). */
   hideOthers(): void;
   /** Shows what Hide others hides (NodeModel.others), however it was hidden. */
@@ -994,6 +996,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
    * The node of the tree's row under the mouse, or Pick...'s list's, if any (highlighted as the 3D view's hover is).
    */
   let treeHovered: number | undefined;
+  /** Pick...'s list, while it's open (pick-list.ts). */
+  let pickListShown: { redraw(): void } | undefined;
   // (Fat edges made again when its overlays change: a selected edge's are drawn fat too.)
   const highlighter = new Highlighter(() => viewer.fatEdges.invalidate());
   // (The caps of a part tinted as its faces are.)
@@ -1048,6 +1052,8 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     // selected alone, whichever came last; none or several selected leave it as it is.
     if (selected.length === 1 && appearanceOpen()) editAppearance(selected[0]!, false);
     hooks.onEvent?.({ type: 'select', source, ids: selected });
+    // (Pick...'s list, if open, drawing the selection as the tree does.)
+    pickListShown?.redraw();
     zoomSelected.enable(selected.length > 0);
     highlight();
     describe();
@@ -1127,6 +1133,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
       { label: 'Select by ID...', action: () => void selectById() },
       { label: 'Hide selected', action: () => press(hideControl) },
       { label: 'Show selected', action: () => press(showControl) },
+      { label: 'Reveal selected', action: () => press(revealControl) },
       ...(errors + warnings ? [{ label: `${count(errors, 'Error')}, ${count(warnings, 'Warning')}...`,
         divider: true, action: () => void showProblems(name, mine, nodes.nodes[id]!.face ? name
           : `${name} and everything in it`) }] : []),
@@ -1141,6 +1148,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     panel?.dispose();
     closeMenu();
     closeAppearance();
+    closePickList();
     highlighter.clear();
     selected = [];
     viewer.triangleEdges.select([]);
@@ -1202,7 +1210,6 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Pick...: everything along the line of sight through the point the view's menu was asked for, at the pick level
   // (pick-list.ts), the nodes there selected as the tree's rows are (recorded as the list's selections), the row
   // under the mouse highlighted as the tree's is, its cursor's node drawn as an alert until it closes.
-  let pickListShown: { redraw(): void } | undefined;
   const pickList = (clientX: number, clientY: number) => {
     const nodes = viewer.nodes;
     if (!nodes || !panel) return;
@@ -1367,6 +1374,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     selection,
     hideSelected: () => hide(true),
     showSelected: () => hide(false),
+    revealSelected: () => {
+      if (selected.length) appearance((m) => m.setRevealed(selected));
+    },
     hideOthers: () => {
       const nodes = viewer.nodes;
       if (nodes && selected.length) hideOthers(true, nodes.others(selected));
@@ -1511,6 +1521,9 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   // Selection: picking and selecting, then Details, hiding and showing, transparency. Tree: the panel.
   const pickControl = selFolder.add(selection, 'level', { 'Assembly': 'assembly', 'Part': 'part',
     'Face, edge, curve, vertex': 'detail' }).name('Pick').onChange(hover);
+  // (Its name short, its longest choice not: the pulldown more of the row than lil-gui's 55%, whose shown choice wraps
+  // out of sight past its width, so "Face, edge, curve, vertex" lost "vertex".)
+  pickControl.domElement.style.setProperty('--name-width', '30%');
   selFolder.add(selection, 'multi').name('Multi-select');
   selFolder.add(selection, 'instances').name('All instances').onChange(highlight);
   selFolder.add({ parent: () => ui.selectParent() }, 'parent').name('Select parent');
@@ -1522,6 +1535,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
   selFolder.add(selection, 'details').name('Details').onChange(describe);
   const hideControl = selFolder.add(ui, 'hideSelected').name('Hide selected');
   const showControl = selFolder.add(ui, 'showSelected').name('Show selected');
+  const revealControl = selFolder.add(ui, 'revealSelected').name('Reveal selected');
   selFolder.add(ui, 'hideOthers').name('Hide others');
   selFolder.add(ui, 'showOthers').name('Show others');
   const showAllControl = selFolder.add(ui, 'showAll').name('Show all');
@@ -1552,7 +1566,7 @@ export function buildUi(viewer: Viewer, status: HTMLElement, treeElement: HTMLEl
     document.createElement('span'), { className: 'cv-key', textContent: key }));
   hint(zoomAll, 'f');
   hint(zoomSelected, 'f');
-  VIEW_KEYS.forEach((v, i) => hint(viewControls.get(v), String(i + 1)));
+  for (const v of AXIS_VIEWS) hint(viewControls.get(v.view), v.key);
   hint(hideControl, 'h');
   hint(showControl, 's');
   hint(openControl, 't');

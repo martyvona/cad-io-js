@@ -10,7 +10,8 @@ const press = (key: string, o: Partial<Parameters<typeof shortcutOf>[0]> = {}) =
 const inside = (...starts: string[]) => ({ closest: (sel: string) => (sel.split(',').some((s) =>
   starts.some((t) => s.trim().startsWith(t))) ? {} : null) }) as unknown as EventTarget;
 
-test('shortcutOf: f, h, s, t, g, e, Escape, and 1 to 9 the views in Look Along an Axis\'s order; other keys none', () => {
+test('shortcutOf: f, h, s, t, g, e, Escape, and 1 to 9 then 0 the views in Look Along an Axis\'s order; other '
+  + 'keys none', () => {
   assert.deepEqual(press('f'), { type: 'zoom' });
   assert.deepEqual(press('h'), { type: 'hide' });
   assert.deepEqual(press('s'), { type: 'show' });
@@ -18,14 +19,16 @@ test('shortcutOf: f, h, s, t, g, e, Escape, and 1 to 9 the views in Look Along a
   assert.deepEqual(press('g'), { type: 'triangleEdges' });
   assert.deepEqual(press('e'), { type: 'detail' });
   assert.deepEqual(press('Escape'), { type: 'selectNone' });
-  const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoX', 'isoY', 'isoZ'];
-  assert.deepEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((k) => press(k)),
+  const views = ['front', 'back', 'left', 'right', 'top', 'bottom', 'isoFrontRight', 'isoRightBack', 'isoBackLeft',
+    'isoLeftFront'];
+  assert.deepEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((k) => press(k)),
     views.map((view) => ({ type: 'view', view, shift: false })));
   // (The menu's order.)
   assert.deepEqual(VIEW_KEYS, AXIS_VIEWS.map((v) => v.view));
-  assert.deepEqual(AXIS_VIEWS.map((v) => v.name), ['Front', 'Back', 'Left', 'Right', 'Top', 'Bottom', 'Iso X',
-    'Iso Y', 'Iso Z']);
-  for (const k of ['0', '12', 'a', 'x', 'F', 'Enter', 'Esc', 'ArrowUp', ' ']) {
+  assert.deepEqual(AXIS_VIEWS.map((v) => `${v.name} ${v.key}`), ['Front 1', 'Back 2', 'Left 3', 'Right 4', 'Top 5',
+    'Bottom 6', 'Iso (top, front, right) 7', 'Iso (top, right, back) 8', 'Iso (top, back, left) 9',
+    'Iso (top, left, front) 0']);
+  for (const k of ['12', 'a', 'x', 'F', 'Enter', 'Esc', 'ArrowUp', ' ']) {
     assert.equal(press(k), undefined, k);
   }
 });
@@ -38,10 +41,10 @@ test('shortcutOf: none with a modifier, repeated, already handled, or in a text 
   }
   // Shift with a view's digit (by its code: shifted, the key is another character, '!' or '"' by layout): shifted;
   // other digits and keys with shift, none; shift with ctrl, none.
-  assert.deepEqual(['!', '@', '('].map((key, i) => shortcutOf({ key, code: `Digit${[1, 2, 9][i]}`, ctrlKey: false,
-    metaKey: false, altKey: false, shiftKey: true, repeat: false, defaultPrevented: false, target: null })),
-  ['front', 'back', 'isoZ'].map((view) => ({ type: 'view', view, shift: true })));
-  assert.equal(press(')', { code: 'Digit0', shiftKey: true }), undefined);
+  assert.deepEqual(['!', '@', '(', ')'].map((key, i) => shortcutOf({ key, code: `Digit${[1, 2, 9, 0][i]}`,
+    ctrlKey: false, metaKey: false, altKey: false, shiftKey: true, repeat: false, defaultPrevented: false,
+    target: null })), ['front', 'back', 'isoBackLeft', 'isoLeftFront'].map((view) => ({ type: 'view', view,
+    shift: true })));
   assert.equal(press('1', { code: '', shiftKey: true }), undefined);
   assert.equal(press('!', { code: 'Digit1', shiftKey: true, ctrlKey: true }), undefined);
   assert.equal(press('!', { code: 'Digit1', shiftKey: true, target: inside('input') }), undefined);
