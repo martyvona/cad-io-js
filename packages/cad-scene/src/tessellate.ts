@@ -223,9 +223,15 @@ export function judgeByTarget(r: TessellationResult, target: Target, ctx: { line
   const withheld = errors.map((f) => f.entityId).sort((a, b) => a - b);
   if (withheld.length) {
     const n = withheld.length;
+    // (Where the fallback meshed some of them too, in error itself or put back: its criteria, counted alike.)
+    const fe = r.fallbackErrors, also = new Map((fe?.faces ?? []).map((x) => [x.entityId, x.criteria]));
+    const theirs = withheld.filter((x) => also.has(x)), m = theirs.length;
+    const counts = CRITERIA.map((x) => [x, theirs.filter((id) => also.get(id)!.includes(x)).length] as const)
+      .filter(([, k]) => k).map(([x, k]) => `${x} ${k}`).join(', ');
     diagnostics.push({ severity: 'error', message: `${n} ${n === 1 ? 'face' : 'faces'} withheld, in error under the `
       + `${target.name} target (${tally(errors, 'error')}): ${withheld.slice(0, 10).map((x) => `#${x}`).join(', ')}`
-      + (n > 10 ? ', ...' : '') });
+      + (n > 10 ? ', ...' : '') + (m ? `; the fallback's (${fe!.by}) mesh of ${m === 1 ? 'it' : m === n ? 'them'
+        : `${m} of them`} in error too (${counts})` : '') });
   }
   if (warned.length) {
     const n = warned.length;

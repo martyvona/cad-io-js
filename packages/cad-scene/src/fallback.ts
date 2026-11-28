@@ -10,7 +10,8 @@ import { failedPart } from './errors.ts';
 import { faceFailures } from './mesh.ts';
 import { composeResults } from './compose.ts';
 import { faceRecords, shareExpected } from './records.ts';
-import { chooseFace, classifyAll, type FaceClasses, type Target, wantsFallback } from './targets.ts';
+import { chooseFace, classifyAll, CRITERIA, type Criterion, type FaceClasses, type Target, wantsFallback }
+  from './targets.ts';
 import { fillResult } from './fill.ts';
 import { joinEdges, joinResult } from './join.ts';
 import { orientResult, shellsOriented } from './orient.ts';
@@ -357,11 +358,22 @@ export class FallbackTessellator implements Tessellator {
       return this.finish(a, this.primary, req, []);
     }
     const ra = a as TessellationResult;
-    const kept = () => this.finish(ra, this.primary, req, [{ severity: 'info', message: `the fallback backend (${f}) `
-      + `did no better than ${p} under the ${target.name} target (${why}), so ${p}'s mesh is kept` }]);
+    // (The faces kept as the primary's though the fallback meshed them, with the criteria its mesh fails: for the
+    // withheld message, tessellateScene's.)
+    const fallbackErrors = new Map<number, Criterion[]>();
+    const inError = (x: FaceClasses) => CRITERIA.filter((k) => x.criteria[k].class === 'error');
+    const noted = (r: TessellationResult): TessellationResult => (fallbackErrors.size ? { ...r, fallbackErrors: { by: f,
+      faces: [...fallbackErrors].sort(([x], [y]) => x - y).map(([entityId, criteria]) => ({ entityId, criteria })) } }
+      : r);
+    const kept = () => this.finish(noted(ra), this.primary, req, [{ severity: 'info', message: `the fallback backend `
+      + `(${f}) did no better than ${p} under the ${target.name} target (${why}), so ${p}'s mesh is kept` }]);
     if (b instanceof Error || failedPart(b)) return kept();
     const rb = b;
     const ca = classes(ra), cb = classes(rb);
+    for (const x of ca.values()) {
+      const y = cb.get(x.entityId);
+      if (y && wantsFallback(x, target) && chooseFace(x, y) === 'withheld') fallbackErrors.set(x.entityId, inError(y));
+    }
     // (Only faces the target wants replaced; one it only warns of under a trigger on errors stays the primary's.)
     let taken = [...ca.values()].filter((x) => wantsFallback(x, target) && chooseFace(x, cb.get(x.entityId))
       === 'fallback').map((x) => x.entityId).sort((x, y) => x - y);
@@ -373,14 +385,16 @@ export class FallbackTessellator implements Tessellator {
       // (A face is taken only where its own mesh isn't in error.)
       const broken = taken.filter((x) => cc.get(x)?.overall === 'error');
       if (broken.length) {
+        for (const x of broken) fallbackErrors.set(x, inError(cc.get(x)!));
         taken = taken.filter((x) => !broken.includes(x));
         c = compose();
       }
     }
     if (!c) return kept();
     const n = taken.length, ids = taken.slice(0, 10).map((x) => `#${x}`).join(', ') + (n > 10 ? ', ...' : '');
-    return this.finish({ ...c, backend: `${described(this.primary.info)}, with ${n} ${n === 1 ? 'face' : 'faces'} by `
-      + described(this.fallback.info) }, this.primary, req, [{ severity: 'warning', message: `${n} `
+    const backend = `${described(this.primary.info)}, with ${n} ${n === 1 ? 'face' : 'faces'} by `
+      + described(this.fallback.info);
+    return this.finish(noted({ ...c, backend }), this.primary, req, [{ severity: 'warning', message: `${n} `
       + `${n === 1 ? 'face' : 'faces'} meshed by the fallback backend (${f}) under the ${target.name} target, since `
       + `${p}'s mesh had problems: ${why}: ${ids}` }]);
   }

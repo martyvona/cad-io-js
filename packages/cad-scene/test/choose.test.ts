@@ -215,6 +215,34 @@ test('by target: without one, today\'s rules (no records asked)', async () => {
 const scene = (): Scene => ({ roots: [], parts: [{ name: 'cube', sources: [{ id: 7 }], origin: [0, 0, 0], lods: [],
   brep: { model, format: 'cad-brep' } }], diagnostics: [], materials: [] } as unknown as Scene);
 
+test('tessellateScene\'s target: a face withheld that the fallback meshed too names its mesh\'s criteria as well: '
+  + 'both in error, or put back in error once composed', async () => {
+  const message = async (a: () => TessellationResult, b: () => TessellationResult, target: 'rendering'
+    | 'manufacturing') => {
+    const t = new FallbackTessellator(fake('a', a), fake('b', b));
+    await t.init();
+    const out = await tessellateScene(scene(), t, { target, linearDeflection: 0.01, angularDeflection: 0.5 });
+    return out.diagnostics.find((d) => d.severity === 'error' && /withheld/.test(d.message))?.message;
+  };
+  // Both without it: (k) on each side.
+  assert.equal(await message(() => without(sound(), 23), () => without(sound(), 23), 'rendering'), '1 face withheld, '
+    + 'in error under the rendering target (k 1, b 1): #23; the fallback\'s (b) mesh of it in error too (k 1, b 1)');
+  // One face taken from the fallback, another without triangles on both: the composed result says it too.
+  assert.equal(await message(() => without(without(sound(), 23), 24), () => without(sound(), 24), 'rendering'),
+    '1 face withheld, in error under the rendering target (k 1, b 1): #24; the fallback\'s (b) mesh of it in error '
+    + 'too (k 1, b 1)');
+  // The fallback's sound in itself but meeting none of the primary's faces: taken, unsewn once composed, an error
+  // under manufacturing, so put back; the primary's has none.
+  assert.equal(await message(() => without(sound(), 23), () => moved(sound(), 0.3), 'manufacturing'), '1 face '
+    + 'withheld, in error under the manufacturing target (k 1, b 1): #23; the fallback\'s (b) mesh of it in error too '
+    + '(a 1)');
+  // Only the primary's to judge (the fallback's passing elsewhere, no part asked): its criteria alone.
+  const one = fake('a', () => without(sound(), 23));
+  const alone = await tessellateScene(scene(), one, { target: 'rendering', linearDeflection: 0.01,
+    angularDeflection: 0.5 });
+  assert.match(alone.diagnostics.find((d) => /withheld/.test(d.message))!.message, /\(k 1, b 1\): #23$/);
+});
+
 test('tessellateScene\'s target: its limits in each request, faces in error withheld with an error, warnings '
   + 'counted, the level keyed by the target', async () => {
   const b = fake('a', () => degenerate(without(sound(), 23), 22));

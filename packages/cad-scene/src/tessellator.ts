@@ -3,7 +3,7 @@
 // backend reading STEP takes through step-export's StepTessellator (the model written as STEP).
 
 import type { Diagnostic, EdgeKind, Vec3 } from './scene.ts';
-import type { Target } from './targets.ts';
+import type { Criterion, Target } from './targets.ts';
 
 /** `cad-brep`: a B-rep model's buffer (cad-brep's BrepData.buffer) as bytes. */
 export type PayloadFormat = 'cad-brep' | 'step' | 'iges' | 'brep';
@@ -184,6 +184,12 @@ export interface TessellationResult {
     expected: number }[];
   /** Each face's triage record, with TessellationRequest.records. */
   records?: FaceRecords;
+  /**
+   * With a target, FallbackTessellator's faces kept as the primary's though the fallback (`by`) meshed them, for the
+   * withheld message: each with the criteria the fallback's mesh of it is in error by (both in error; or put back, in
+   * error once composed).
+   */
+  fallbackErrors?: { by: string; faces: { entityId: number; criteria: Criterion[] }[] };
   /** B-rep edges as polylines, when requested; points coincide with mesh vertices. All polylines concatenated. */
   edgePositions?: Float32Array;
   edges?: {
