@@ -21,12 +21,12 @@ test('stepconv: GLB and .gltf with its .bin, the same as the library; hidden ins
   tess.dispose();
   const view = exportView(scene, { ...meshDeflections({}), edges: true });
   const out = path.join(tmp, 'as1.glb');
-  const r = await run([assembly, '-o', out, '--with-edges', '-j', '2']);
+  const r = await run([assembly, '-b', 'occt', '-o', out, '--with-edges', '-j', '2']);
   assert.equal(r.code, 0, r.stderr);
   assert.deepEqual(new Uint8Array(fs.readFileSync(out)), (await glb(scene, view, { name: 'as1-oc-214-mat' })).bytes);
   // .gltf: the JSON names a .bin beside it, named after the output.
   const json = path.join(tmp, 'model.gltf');
-  assert.equal((await run([assembly, '-o', json, '--with-edges', '-j', '2'])).code, 0);
+  assert.equal((await run([assembly, '-b', 'occt', '-o', json, '--with-edges', '-j', '2'])).code, 0);
   const expected = await gltfJson(scene, view, 'model.bin', { name: 'as1-oc-214-mat' });
   assert.equal(fs.readFileSync(json, 'utf8'), expected.json);
   assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(tmp, 'model.bin'))), expected.bin);

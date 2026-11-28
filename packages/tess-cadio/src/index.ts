@@ -1,7 +1,7 @@
 // tess-cadio's tessellator: our own (native/include/tess_cadio/part.h) behind cad-scene's Tessellator interface,
 // the WebAssembly module (dist/tess_cadio.wasm, build.sh's `module`) loaded by `init`. It takes B-rep models
-// (`cad-brep`) only, meshes every face whose surface cad-geom supports (planes, cylinders, spheres, B-splines) and
-// reports the rest as faces that failed to mesh. Faces sharing an edge share its points exactly, so the result is
+// (`cad-brep`) only, meshes every face whose surface cad-geom supports (all but the curve-swept and fixed-reference
+// swept surfaces) and reports the rest as faces that failed to mesh. Faces sharing an edge share its points exactly, so the result is
 // closed wherever the model is. The module's C API is native/src/tess_cadio_api.cpp.
 
 import type { EdgeKind, TessellationProgress, TessellationRequest, TessellationResult, Tessellator, TessellatorInfo }

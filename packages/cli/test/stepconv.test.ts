@@ -32,7 +32,8 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   const expected = threejsJson(scene, exportView(scene, { ...meshDeflections({}), edges: true, curves: true }),
     { name: 'as1-oc-214-mat' });
   for (const workers of ['2', '0']) {
-    const r = await run([assembly, '-o', out, '--with-edges', '--with-curves', '--target', 'none', '-j', workers]);
+    const r = await run([assembly, '-o', out, '-b', 'occt', '--with-edges', '--with-curves', '--target', 'none',
+      '-j', workers]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, `workers ${workers}`);
     // (Healed by default: healing's time; on the five parts, their tolerances grown and p-curves kept off by at most
@@ -59,7 +60,7 @@ test('stepconv: the same file as the library pipeline, in a worker pool and on t
   });
   assert.ok(noLines);
   assert.deepEqual([...sides], [THREE.FrontSide]);
-  assert.equal((await run([assembly, '-o', out, '--double-sided', '-q'])).stderr, '');
+  assert.equal((await run([assembly, '-o', out, '-b', 'occt', '--double-sided', '-q'])).stderr, '');
   sides = new Set();
   load(fs.readFileSync(out, 'utf8')).traverse(
     (x) => { if (x instanceof THREE.Mesh) for (const m of [x.material].flat()) sides.add(
@@ -84,7 +85,7 @@ test('stepconv: --coarse, --medium, --fine, each value replaced by -d or --angul
     await tessellateScene(scene, new StepTessellator(tess), opts);
     // (The scene keeps every level made: the one at these settings.)
     const expected = threejsJson(scene, exportView(scene, meshDeflections(opts)), { name: 'as1-oc-214-mat' });
-    const r = await run([assembly, '-o', out, ...flags, '-j', '2']);
+    const r = await run([assembly, '-o', out, '-b', 'occt', ...flags, '-j', '2']);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(fs.readFileSync(out, 'utf8'), expected, flags.join(' '));
     assert.ok(r.stderr.includes(`(${label})`), `${flags.join(' ')}: ${r.stderr}`);
@@ -103,10 +104,10 @@ test('stepconv: --angular-deflection in degrees', { skip }, async () => {
   await tessellateScene(scene, new StepTessellator(tess), ten);
   tess.dispose();
   const expected = threejsJson(scene, exportView(scene, ten), { name: 'as1-oc-214-mat' });
-  assert.equal((await run([assembly, '-o', out, '--angular-deflection', '10', '-j', '2'])).code, 0);
+  assert.equal((await run([assembly, '-o', out, '-b', 'occt', '--angular-deflection', '10', '-j', '2'])).code, 0);
   const fine = fs.readFileSync(out, 'utf8');
   assert.equal(fine, expected);
-  assert.equal((await run([assembly, '-o', out, '-j', '2'])).code, 0);
+  assert.equal((await run([assembly, '-o', out, '-b', 'occt', '-j', '2'])).code, 0);
   assert.ok(triangles(load(fine)) > triangles(load(fs.readFileSync(out, 'utf8'))));
 });
 
@@ -181,19 +182,19 @@ test('stepconv: the cache answers a second run', { skip }, async () => {
   const cache = path.join(tmp, 'cache');
   const out = path.join(tmp, 'cached.json');
   const first = await run([assembly, '-o', out, '--cache', cache, '-j', '1']);
-  assert.match(first.stderr, /\ncache \(occt\): 0 hits \(0 failures\), 5 misses\n/);
+  assert.match(first.stderr, /\ncache \(cadio\): 0 hits \(0 failures\), 5 misses\n/);
   const bytes = fs.readFileSync(out);
   const second = await run([assembly, '-o', out, '--cache', cache, '--cache-size', '64', '-j', '1']);
-  assert.match(second.stderr, /\ncache \(occt\): 5 hits \(0 failures\), 0 misses\n/);
+  assert.match(second.stderr, /\ncache \(cadio\): 5 hits \(0 failures\), 0 misses\n/);
   assert.deepEqual(fs.readFileSync(out), bytes);
   // A different deflection, linear or angular, is a different request.
   assert.match((await run([assembly, '-o', out, '--cache', cache, '-d', '0.05', '-j', '1'])).stderr,
-    /\ncache \(occt\): 0 hits \(0 failures\), 5 misses\n/);
+    /\ncache \(cadio\): 0 hits \(0 failures\), 5 misses\n/);
   assert.match((await run([assembly, '-o', out, '--cache', cache, '--angular-deflection', '20', '-j', '1'])).stderr,
-    /\ncache \(occt\): 0 hits \(0 failures\), 5 misses\n/);
+    /\ncache \(cadio\): 0 hits \(0 failures\), 5 misses\n/);
   // Size 0 disables the cache.
   assert.match((await run([assembly, '-o', out, '--cache', cache, '--cache-size', '0', '-j', '1'])).stderr,
-    /\ncache \(occt\): 0 hits \(0 failures\), 0 misses\n/);
+    /\ncache \(cadio\): 0 hits \(0 failures\), 0 misses\n/);
 });
 
 const opensUp = path.join(root, 'test_corpus/third_party/gkv311-opencascade-dataset/step/bug28118_18547.stp');
@@ -207,28 +208,29 @@ test('stepconv: --fallback: a part OCCT meshes badly meshed by SMLib (the defaul
   const fell = new RegExp('warning: #593: meshed by the fallback backend \\(smlib\\), since occt\'s mesh had problems: '
     + '1 face meshed over its area');
   const over = /error: #593: 1 face meshed short of or over its measured area: #314/;
-  const r = await run([overArea, '-o', out, '--target', 'none', '-j', '1']);
+  const r = await run([overArea, '-o', out, '-b', 'occt', '--target', 'none', '-j', '1']);
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stderr, fell);
   assert.doesNotMatch(r.stderr, over);
-  const none = await run([overArea, '-o', out, '--target', 'none', '-j', '1', '--fallback', 'none']);
+  const none = await run([overArea, '-o', out, '-b', 'occt', '--target', 'none', '-j', '1', '--fallback', 'none']);
   assert.match(none.stderr, over);
   assert.doesNotMatch(none.stderr, fell);
   // Its notes listed only with --verbose.
   assert.doesNotMatch(none.stderr, /\n {2}info: /);
-  const verbose = await run([overArea, '-o', out, '--target', 'none', '-j', '1', '--fallback', 'none', '-v']);
+  const verbose = await run([overArea, '-o', out, '-b', 'occt', '--target', 'none', '-j', '1', '--fallback', 'none',
+    '-v']);
   // (Healed by default: its grown tolerance among the warnings.)
   assert.match(verbose.stderr, new RegExp(String.raw`1 errors, 2 warnings, 1 notes\n {2}error: #593: .*\n`
     + String.raw` {2}warning: #593: tolerances grown: .*\n {2}warning: .*\n {2}info: .*\n$`));
   // bug28118_18547.stp #11: OCCT leaves 2 edges open that the join closes, so it isn't sent to the fallback.
-  const joined = await run([opensUp, '-o', out, '--target', 'none', '-j', '1', '-v']);
+  const joined = await run([opensUp, '-o', out, '-b', 'occt', '--target', 'none', '-j', '1', '-v']);
   assert.match(joined.stderr, /\n {2}info: #11: 2 edges joined exactly/);
   assert.doesNotMatch(joined.stderr, /error:|fallback/);
-  // SMLib's fallback is OCCT by default; a fallback that is the backend, or unknown, is refused.
+  // SMLib's fallback is tess-cadio by default; a fallback that is the backend, or unknown, is refused.
   const sm = await run([overArea, '-o', out, '--target', 'none', '-j', '1', '-b', 'smlib']);
   assert.equal(sm.code, 0, sm.stderr);
   assert.doesNotMatch(sm.stderr, /error:|fallback/);
-  for (const [args, msg] of [[['--fallback', 'occt'], /the fallback backend can't be the backend \(occt\)/],
+  for (const [args, msg] of [[['--fallback', 'cadio'], /the fallback backend can't be the backend \(cadio\)/],
     [['--fallback', 'nope'], /unknown fallback backend 'nope'/],
     [['-v', '-q'], /--verbose and --quiet together/]] as const) {
     const u = await run([cube, '-o', out, ...args]);
@@ -312,7 +314,8 @@ test('stepconv: cadio, --min-angle, --keep-failing', { skip: skip || (!cadioBuil
     assert.match(k.stderr,
       /\ndebugging \(--keep-failing\): cadio kept the faces it would fail for their mesh\n0 errors/);
     // As the fallback too: occt first, cadio keeping what it meshes.
-    const f = await run([failing, '-o', out, '-d', '1.2e-6', '--fallback', 'cadio', '--keep-failing', '--target',
+    const f = await run([failing, '-o', out, '-d', '1.2e-6', '-b', 'occt', '--fallback', 'cadio', '--keep-failing',
+      '--target',
       'none', '-j', workers]);
     assert.equal(f.code, 0, f.stderr);
   }
@@ -358,9 +361,13 @@ test('stepconv: usage errors and failures', async () => {
   await usage([cube, '-o', scratch, '--timeout=-3'], /--timeout must be a non-negative number/);
   await usage([cube, '-o', scratch, '--cache-size', '5'], /--cache-size needs --cache/);
   for (const f of [['--min-angle', '5'], ['--keep-failing']]) {
-    await usage([cube, '-o', scratch, ...f], new RegExp(`${f[0]} applies to the cadio backend`));
-    await usage([cube, '-o', scratch, '-b', 'smlib', ...f], new RegExp(`${f[0]} applies to the cadio backend`));
+    await usage([cube, '-o', scratch, '-b', 'occt', ...f], new RegExp(`${f[0]} applies to the cadio backend`));
+    // (SMLib's fallback is tess-cadio by default, which takes them.)
+    await usage([cube, '-o', scratch, '-b', 'smlib', '--fallback', 'none', ...f],
+      new RegExp(`${f[0]} applies to the cadio backend`));
   }
+  assert.equal((await run([cube, '-o', scratch, '-b', 'smlib', '--min-angle', '5', '--target', 'none', '-j', '0']))
+    .code, 0);
   await usage([cube, '-o', scratch, '-b', 'cadio', '--min-angle', '31'], /--min-angle must be at most 30 degrees/);
   await usage([cube, '-o', scratch, '-b', 'cadio', '--min-angle=-1'], /--min-angle must be a non-negative number/);
   await usage([cube, '-o', scratch, '-b', 'cadio', '--keep-failing', '--cache', tmp], /--keep-failing with --cache/);
@@ -455,7 +462,8 @@ test("stepconv: a broken file's problems are warnings, nothing printed but the o
   { skip: skip || (!fs.existsSync(noisy) && 'corpus not fetched') }, () => {
   for (const workers of ['0', '2']) {
     const r = spawnSync(process.execPath,
-      [path.join(import.meta.dirname, '../bin/stepconv.ts'), noisy, '-o', '-', '-f', 'threejs', '--target', 'none',
+      [path.join(import.meta.dirname, '../bin/stepconv.ts'), noisy, '-o', '-', '-f', 'threejs', '-b', 'occt',
+        '--target', 'none',
         '-j', workers],
       { encoding: 'utf8', maxBuffer: 2 ** 28 });
     assert.equal(r.status, 0);
@@ -511,16 +519,16 @@ test('stepconv: the target by format (glTF and three.js rendering, 3MF manufactu
   const out = path.join(tmp, 'target.glb'), plain = path.join(tmp, 'plain.glb');
   for (const workers of ['2', '0']) {
     // The cube in 2 triangles a face passes rendering: the default the same as asking for it.
-    const r = await run([cube, '-o', out, '-j', workers, '-v']);
+    const r = await run([cube, '-o', out, '-b', 'occt', '-j', workers, '-v']);
     assert.equal(r.code, 0, r.stderr);
     assert.doesNotMatch(r.stderr, /withheld|warned of/);
-    assert.equal((await run([cube, '-o', plain, '--target', 'rendering', '-j', workers])).code, 0);
+    assert.equal((await run([cube, '-o', plain, '-b', 'occt', '--target', 'rendering', '-j', workers])).code, 0);
     assert.deepEqual(fs.readFileSync(out), fs.readFileSync(plain));
     // Analysis: its 14 mm diagonals past 5 % of its size where a worker has the part's size (tess-cadio's), on
     // every face and in SMLib's mesh too: each withheld, the part failing, nothing written; on the main thread no
     // part's size, (g) unverified, passing.
     fs.rmSync(out);
-    const a = await run([cube, '-o', out, '--target', 'analysis', '-j', workers]);
+    const a = await run([cube, '-o', out, '-b', 'occt', '--target', 'analysis', '-j', workers]);
     if (workers === '0') { assert.equal(a.code, 0, a.stderr); continue; }
     assert.equal(a.code, 4, a.stderr);
     assert.ok(!fs.existsSync(out));
@@ -528,11 +536,12 @@ test('stepconv: the target by format (glTF and three.js rendering, 3MF manufactu
     assert.match(a.stderr, /error: #\d+: 6 faces withheld, in error under the analysis target \(g 6[^)]*\): #/);
     // (A foreign backend's distance and angle unchecked: never in error.)
     assert.doesNotMatch(a.stderr, /in error under the analysis target \([^)]*\b[cd] \d/);
-    const x = await run([cube, '-o', out, '--target', 'analysis', '--exclude-failing', '-j', workers]);
+    const x = await run([cube, '-o', out, '-b', 'occt', '--target', 'analysis', '--exclude-failing', '-j', workers]);
     assert.equal(x.code, 0, x.stderr);
     assert.match(x.stderr, /^1 parts \(1 of 1 brep parts tessellated\), 0 placed; 0 triangles/);
     assert.match(x.stderr, /6 faces withheld/);
-    assert.equal((await run([cube, '-o', out, '--target', 'analysis', '--exclude-failing', '--strict', '-j',
+    assert.equal((await run([cube, '-o', out, '-b', 'occt', '--target', 'analysis', '--exclude-failing', '--strict',
+      '-j',
       workers])).code, 3);
   }
   // A part with no mesh fails every target; --target none as before.
@@ -556,8 +565,8 @@ test('stepconv: the target by format (glTF and three.js rendering, 3MF manufactu
   // main thread (no part's size, so (g) unverified), each of its 5 parts with a few faces under 6.7 degrees (f past
   // 1.5 x) and the rest passing.
   const placed = (x: string) => Number(/, (\d+) placed;/.exec(x)![1]);
-  assert.equal(placed((await run([assembly, '-o', out, '--target', 'none', '-j', '0'])).stderr), 18);
-  const x = await run([assembly, '-o', out, '--target', 'analysis', '--exclude-failing', '-j', '0']);
+  assert.equal(placed((await run([assembly, '-o', out, '-b', 'occt', '--target', 'none', '-j', '0'])).stderr), 18);
+  const x = await run([assembly, '-o', out, '-b', 'occt', '--target', 'analysis', '--exclude-failing', '-j', '0']);
   assert.equal(x.code, 0, x.stderr);
   assert.equal((x.stderr.match(/error: #\d+: \d+ faces? withheld, in error under the analysis target/g) ?? [])
     .length, 5);

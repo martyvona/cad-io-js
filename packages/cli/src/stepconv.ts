@@ -179,9 +179,9 @@ ${FORMAT_LINES}
 Options:
   -o, --output <file>      the output file
   -f, --format <format>    the output format, whatever the extension
-  -b, --backend <name>     occt (default), truck, smlib or cadio (our own tessellator, tess-cadio)
+  -b, --backend <name>     cadio (our own tessellator, tess-cadio; the default), occt, truck or smlib
       --fallback <name>    the backend for parts the first fails (faces without triangles or wrong by their
-                           measures, open edges, errors): occt, truck, smlib, cadio or none (default smlib, occt
+                           measures, open edges, errors): occt, truck, smlib, cadio or none (default smlib, cadio
                            for smlib); the part keeps the better mesh (a face missing worst)
       --min-angle <deg>    cadio: the smallest angle its refinement aims for in the triangles, in degrees, 0 to
                            ${MAX_MIN_ANGLE_DEGREES} (default its own, 10; 0 none)
@@ -298,7 +298,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
       options: {
         output: { type: 'string', short: 'o' },
         format: { type: 'string', short: 'f' },
-        backend: { type: 'string', short: 'b', default: 'occt' },
+        backend: { type: 'string', short: 'b', default: 'cadio' },
         fallback: { type: 'string' },
         'min-angle': { type: 'string' },
         'keep-failing': { type: 'boolean', default: false },
@@ -411,7 +411,7 @@ export async function stepconv(argv: string[], io: Io): Promise<number> {
     `${formatName} writes a ${format.sidecar} file beside the output, so not to standard output`);
   const backend = BACKENDS[o.backend];
   if (!backend) return usage(`unknown backend '${o.backend}'`);
-  const fallbackName = o.fallback ?? (o.backend === 'smlib' ? 'occt' : 'smlib');
+  const fallbackName = o.fallback ?? (o.backend === 'smlib' ? 'cadio' : 'smlib');
   const fallback = fallbackName === 'none' ? undefined : BACKENDS[fallbackName];
   if (fallbackName !== 'none' && !fallback) return usage(`unknown fallback backend '${fallbackName}'`);
   if (fallbackName === o.backend) {

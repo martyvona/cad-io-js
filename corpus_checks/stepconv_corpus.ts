@@ -1,6 +1,6 @@
 // Phase 4 step 6: every corpus file through stepconv, with its defaults, in each format (three.js JSON, GLB, glTF with
 // its .bin, 3MF): stepconv's main in this process for every file, and the bin spawned for a sample. Each file is also
-// imported and tessellated here (as stepconv's defaults: tess-workers pools of OCCT with SMLib its fallback, each
+// imported and tessellated here (as stepconv's defaults: tess-workers pools of tess-cadio with SMLib its fallback, each
 // cached, the medium profile, no edges or curves) for the export view each output should come from; then, per format:
 //   - the exit code the format's default target asks (rendering for three.js and glTF, manufacturing for 3MF:
 //     docs/triage.md): 4 with nothing written where a part fails it (a face withheld, or no mesh), else 0; nothing on
@@ -188,7 +188,7 @@ export const check: FileCheck<{ sample: boolean }, Result> = {
     workers = meshWorkers;
     const pool = (p: string, e: string) => cachedMesher(new WorkerTessellator({ backend: {
       module: import.meta.resolve(`../packages/${p}/src/index.ts`), export: e }, workers }));
-    tess = new FallbackTessellator(pool('tess-occt', 'OcctTessellator'), pool('tess-smlib', 'SmlibTessellator'));
+    tess = new FallbackTessellator(pool('tess-cadio', 'CadioTessellator'), pool('tess-smlib', 'SmlibTessellator'));
     await tess.init();
     gltfIo = new NodeIO().registerExtensions([KHRMaterialsUnlit, KHRNodeVisibility, KHRDracoMeshCompression])
       .registerDependencies({ 'draco3d.decoder': await draco3d.createDecoderModule() });

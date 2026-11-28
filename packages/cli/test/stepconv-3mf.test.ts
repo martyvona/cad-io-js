@@ -78,7 +78,7 @@ test('stepconv: 3MF, the same as the library; --3mf-colorgroup, --3mf-assembly, 
   await tessellateScene(scene, new StepTessellator(tess));
   tess.dispose();
   const out = path.join(tmp, 'as1.3mf');
-  const r = await run([assembly, '-o', out, '-j', '2']);
+  const r = await run([assembly, '-b', 'occt', '-o', out, '-j', '2']);
   assert.equal(r.code, 0, r.stderr);
   const bytes = new Uint8Array(fs.readFileSync(out));
   assert.deepEqual(bytes, Uint8Array.from(
