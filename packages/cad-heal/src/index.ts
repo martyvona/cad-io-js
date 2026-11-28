@@ -31,6 +31,7 @@ import { curveTolerances, FAR, SPAN, strayPoles } from './fix/poles.ts';
 import { MIN_FIT, type Tight, tightFaces } from './fix/tight.ts';
 import { type CoincidentResult, mergeCoincident } from './fix/coincident.ts';
 import { type TrimResult, trimOvershoots } from './fix/overshoot.ts';
+import { type SplitResult, splitVertices } from './fix/split.ts';
 import { mendTouches, type RowsFrom, rowsFrom, type Touched, type TouchResult } from './fix/touch.ts';
 import { faceSenses, flipSenses, loopTurns, loopWinding, type ShellVerdict, shellVerdicts, turnFaces, turnShells } from
   './fix/shells.ts';
@@ -94,8 +95,18 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   const kept = before?.source ? 0 : before?.strayPoles ?? 0;
   if (kept) diagnostics.push(keptPoles(kept));
   const moved = fixes.has('strayPole') ? movePoles(given, pre, diagnostics) : 0;
-  const fixed = pre.finish(), edit = new ModelEdit(fixed);
-  const geom = module ?? await init(), g = new Geometry(geom, new Uint8Array(fixed.buffer));
+  let fixed = pre.finish();
+  const geom = module ?? await init();
+  // Vertices whose uses meet at points apart split before the curves' fixes: on the source's tolerances, before
+  // vertexTolerance grows them to cover the gap (rows change from here; the curves' fixes run on the split rows).
+  let split: SplitResult | undefined;
+  if (fixes.has('vertexSplit')) {
+    progress('vertexSplit');
+    split = splitVertices(geom, fixed);
+    if (split) splitSaid(split, diagnostics), fixed = split.model;
+  }
+  const edit = new ModelEdit(fixed);
+  const g = new Geometry(geom, new Uint8Array(fixed.buffer));
   let curves: CurvesRecord;
   try {
     // pcurveTight's faces first, on the projections the curves' fixes then reuse.
@@ -265,10 +276,10 @@ export async function healPart(model: BrepData, opts: HealOptions = {}, module?:
   progress('judging measures');
   const judged = await judgingMeasures(healed, progress);
   progress('the healed model and its analysis');
-  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!merge || !!trim || !!touch
-    || !!shells?.perm || !!shells?.flipped.length || !!shells?.turnedFaces.length;
-  const out = await analysisOf(healed, givenRows(given, rowsFrom(merge, touch)), curves, { fixes: fixesMask(fixes),
-    fit, sourceCurves, strayPoles: kept + moved }, judged, shells, merge || trim || touch ? given : undefined);
+  const changed = before ? !sameBytes(healed, model) : pre.edited || edit.edited || !!split || !!merge || !!trim
+    || !!touch || !!shells?.perm || !!shells?.flipped.length || !!shells?.turnedFaces.length;
+  const out = await analysisOf(healed, givenRows(given, rowsFrom(split, rowsFrom(merge, touch))), curves,
+    { fixes: fixesMask(fixes), fit, sourceCurves, strayPoles: kept + moved }, judged, shells, split || merge || trim || touch ? given : undefined);
   if (source) for (const x of diagnostics) x.source = source;
   return { model: changed ? healed : model, changed, analysis: out, diagnostics };
 }
@@ -518,6 +529,16 @@ function overshootSaid(r: TrimResult, diagnostics: Diagnostic[]): void {
   diagnostics.push({ severity: 'warning', message: `trimOvershoot: ${n} ${n === 1 ? 'pair' : 'pairs'} of consecutive `
     + `edges crossing near their vertex trimmed at the crossing, the vertex moved there, up to ${most.toPrecision(3)} `
     + `mm (${ex.join('; ')}${n > ex.length ? `; ${n - ex.length} more` : ''})${dropped}` });
+}
+
+/** vertexSplit's diagnostic: a warning with the vertices split, each with its new vertices' distance. */
+function splitSaid(r: SplitResult, diagnostics: Diagnostic[]): void {
+  const id = (x: number) => x ? `#${x}` : 'one without an id', n = r.split.length;
+  const ex = r.split.slice(0, 5).map((s) => `${id(s.vertex)} (${s.added === 1 ? 'a vertex' : `${s.added} vertices`} `
+    + `${s.distance.toPrecision(3)} mm from it at a tolerance of ${s.tolerance.toPrecision(3)}, for `
+    + `${s.edges.map(id).join(', ')})`);
+  diagnostics.push({ severity: 'warning', message: `vertexSplit: ${n} ${n === 1 ? 'vertex' : 'vertices'} whose `
+    + `uses meet at points apart, each given a vertex of its own: ${ex.join('; ')}${n > 5 ? `; ${n - 5} more` : ''}` });
 }
 
 /** vertexOnEdge's diagnostic: a warning with the edges split and the vertices merged, each with its gap. */
