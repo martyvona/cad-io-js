@@ -31,6 +31,8 @@ constexpr int kDeviationReport = 64;
 constexpr int kKeepSteinerFrom = 3;
 /** PartOptions::retryStretch: the split rounds after the retries past the rounds' own, at most. */
 constexpr int kRetryRounds = 16;
+/** PartOptions::areaBalance's passes over the faces at most. */
+constexpr int kAreaBalancePasses = 6;
 /** collapseAround's tries (a collapse checked) at most, a face: a needle field's hundreds of turned triangles. */
 constexpr int kCollapseTries = 2048;
 
@@ -342,6 +344,8 @@ struct PartMesher::Impl {
   int rounds = 0;
   /** In the rounds: the poles whose rings were shrunk for a split asked inside them, the faces meshed again for it. */
   int ringsShrunk = 0, ringFacesRemeshed = 0;
+  /** Faces meshed again by balanceArea, over its passes. */
+  int areaBalanced = 0, areaUndone = 0;
   /** The progress of the pass under way (PartOptions::progress). */
   PartProgress at;
   void report(const PartProgress& p) const {
@@ -845,6 +849,191 @@ struct PartMesher::Impl {
    * first past the limit: the verdict as measuring them all would give it (where inversion finds the nearest point),
    * the measure in its cause a lower bound on the worst.
    */
+  /** A face's mesh area, in 3D. */
+  double meshArea(int f) const {
+    const FaceMesh& fm = faces[f];
+    double area = 0;
+    for (size_t t = 0; t + 2 < fm.triangles.size(); t += 3)
+      area += 0.5 * norm(cross(fm.points[fm.triangles[t + 1]] - fm.points[fm.triangles[t]],
+        fm.points[fm.triangles[t + 2]] - fm.points[fm.triangles[t]]));
+    return area;
+  }
+
+  /** A span of a face's boundary (its edge, the edge's span) and the sliver between its chord and its curve. */
+  struct Sliver {
+    int edge, span;
+    double area;
+  };
+
+  /**
+   * What face f's mesh gains from its boundary's chords: per span the area between chord and curve, Simpson's rule
+   * over 8 parts of the curve's offset toward the face's inside (+ where the curve bulges in, the chord outside it),
+   * summed; each span into `spans` if given. The face's area is about its mesh's less this, its interior aside.
+   */
+  double sliverArea(int f, std::vector<Sliver>* spans) const {
+    double net = 0;
+    const double sense = m.faceSameSense(f) ? 1 : -1;
+    for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++)
+      for (int c = m.loopFirst(l); m.loopKind(l) == CBR_LOOP_EDGE && c < m.loopFirst(l) + m.loopCount(l); c++) {
+        const int e = m.coedgeEdge(c);
+        const EdgeSamples& es = em->edge(e);
+        const CoedgeSamples& cs = em->coedge(c);
+        if (cs.status != Status::ok) continue;
+        for (size_t i = 0; i + 1 < cs.index.size(); i++) {
+          const int s0 = cs.index[i], s1 = cs.index[i + 1];
+          if (std::abs(s1 - s0) != 1) continue;
+          const Vec3 p0 = es.points[s0], d = es.points[s1] - p0;
+          const double L = norm(d);
+          Vec3 n;
+          const Vec2 mid = 0.5 * (cs.uv[i] + cs.uv[i + 1]);
+          if (!(L > 0) || surfaces[f]->normal(mid.x, mid.y, n) != Status::ok) continue;
+          const Vec3 left = cross(sense * n, d) * (1 / L);
+          constexpr int K = 8;
+          double sum = 0;
+          for (int k = 1; k < K; k++) {
+            const double t = double(k) / K;
+            sum += (k % 2 ? 4 : 2) * dot(em->point(e, es.t[s0] + t * (es.t[s1] - es.t[s0])) - (p0 + t * d), left);
+          }
+          const double sliver = sum / (3.0 * K) * L;
+          net += sliver;
+          if (spans) spans->push_back({e, std::min(s0, s1), sliver});
+        }
+      }
+    return net;
+  }
+
+  /** PartOptions::areaBalance's passes: each face's net sliver area, the spans to split, the faces meshed again. */
+  void balanceArea() {
+    if (!(o.areaBalance > 0)) return;
+    const int nf = m.faces();
+    std::set<int> held, stalled;
+    std::map<int, double> lastNet;
+    std::vector<std::vector<int>> facesOf(em->edgeCount());
+    for (int f = 0; f < nf; f++)
+      for (int e : edgesOf[f]) facesOf[e].push_back(f);
+    for (int pass = 0; pass < kAreaBalancePasses; pass++) {
+      std::vector<SplitRequest> requests;
+      std::set<std::pair<int, int>> seen;
+      for (int f = 0; f < nf; f++) {
+        const FaceMesh& fm = faces[f];
+        if (fm.status != Status::ok || isFrozen(f) || !surfaces[f] || fm.triangles.empty()) continue;
+        const double area = meshArea(f);
+        // (No span's sliver is past 2/3 of its chord x its sag: a face whose perimeter at the deflection can't reach
+        // the limit is skipped without evaluating its curves.)
+        double perimeter = 0;
+        for (int l = m.faceFirstLoop(f); l < m.faceFirstLoop(f) + m.faceLoopCount(f); l++)
+          for (int c = m.loopFirst(l); m.loopKind(l) == CBR_LOOP_EDGE && c < m.loopFirst(l) + m.loopCount(l); c++) {
+            const EdgeSamples& es = em->edge(m.coedgeEdge(c));
+            for (size_t i = 0; i + 1 < es.points.size(); i++) perimeter += norm(es.points[i + 1] - es.points[i]);
+          }
+        if (!(area > 0) || perimeter * o.d.linear <= o.areaBalance * area) continue;
+        if (stalled.count(f)) continue;
+        std::vector<Sliver> spans;
+        const double net = sliverArea(f, &spans), exact = std::fabs(area - net);
+        if (std::fabs(net) <= o.areaBalance * exact) continue;
+        // (A face whose net didn't halve over the last pass is left as it is: off a plane the slivers are only about
+        // what the boundary's chords cost the mesh, and where they don't track it, splitting would go on doubling its
+        // edges, and its neighbours' through the matches, to no end.)
+        if (lastNet.count(f) && std::fabs(net) > 0.5 * std::fabs(lastNet[f])) {
+          stalled.insert(f);
+          continue;
+        }
+        lastNet[f] = net;
+        // (Splitting a span at its middle leaves about a quarter of its sliver: the largest of the net's sign first,
+        // until what they shed covers the excess over half the limit.)
+        std::sort(spans.begin(), spans.end(), [](const Sliver& a, const Sliver& b) {
+          return std::fabs(a.area) > std::fabs(b.area);
+        });
+        double shed = 0;
+        const double want = std::fabs(net) - 0.5 * o.areaBalance * exact;
+        for (const Sliver& s : spans) {
+          if (shed >= want) break;
+          if ((s.area > 0) != (net > 0) || held.count(s.edge)) continue;
+          if (seen.insert({s.edge, s.span}).second) requests.push_back({s.edge, s.span});
+          shed += 0.75 * std::fabs(s.area);
+        }
+      }
+      // (Every face using a split edge has its other side at that station split there too, where that side is within
+      // twice the deflection (a face narrower than it: its width plus the other chord's sag): on a face narrower than
+      // the chords' sag, a sample on one side alone crosses the other side's chord (in the face) or tilts the
+      // triangles across it (out of the face); matched, the chords run side by side.)
+      const size_t asked = requests.size();
+      std::map<int, std::set<int>> linked;
+      for (size_t r = 0; r < asked; r++) {
+        const SplitRequest s = requests[r];
+        const EdgeSamples& es = em->edge(s.edge);
+        const Vec3 q = em->point(s.edge, 0.5 * (es.t[s.span] + es.t[s.span + 1]));
+        for (int g : facesOf[s.edge]) {
+          double best = 2 * o.d.linear;
+          SplitRequest mirror{-1, -1};
+          for (int e : edgesOf[g]) {
+            if (e == s.edge || held.count(e) || em->isPseudo(e)) continue;
+            const EdgeSamples& os = em->edge(e);
+            for (size_t i = 0; i + 1 < os.points.size(); i++) {
+              const Vec3 a = os.points[i], d = os.points[i + 1] - a;
+              const double dd = dot(d, d);
+              if (!(dd > 0)) continue;
+              const double t = std::clamp(dot(q - a, d) / dd, 0.0, 1.0), dist = norm(q - (a + t * d));
+              if (dist < best) best = dist, mirror = {e, static_cast<int32_t>(i), t};
+            }
+          }
+          if (mirror.edge < 0 || !(mirror.fraction > 0.1 && mirror.fraction < 0.9)) continue;
+          linked[s.edge].insert(mirror.edge), linked[mirror.edge].insert(s.edge);
+          if (seen.insert({mirror.edge, mirror.span}).second) requests.push_back(mirror);
+        }
+      }
+      if (requests.empty()) return;
+      std::map<int, EdgeSamples> saved;
+      for (const SplitRequest& r : requests) saved.emplace(r.edge, em->edge(r.edge));
+      // (Each face the splits may touch: its net sliver before them, which only its edges' samples give.)
+      std::map<int, double> netWas;
+      for (const auto& [e, was] : saved)
+        for (int f : facesOf[e])
+          if (!netWas.count(f) && faces[f].status == Status::ok) netWas[f] = std::fabs(sliverArea(f, nullptr));
+      em->split(requests);
+      std::set<int> touched;
+      for (const auto& [e, was] : saved)
+        if (em->edge(e).t.size() != was.t.size()) touched.insert(e);
+      if (touched.empty()) return;
+      // (A face meshed again is worse where it fails now, or where its net sliver is past both the limit and what
+      // it was: its two sides' slivers, of opposite signs, shrunk unequally.)
+      auto remesh = [&](const std::set<int>& edges, std::vector<int>* worse) {
+        for (int f = 0; f < nf; f++) {
+          bool again = false;
+          for (int e : edges) again = again || edgesOf[f].count(e);
+          if (!again || isFrozen(f)) continue;
+          const bool wasOk = faces[f].status == Status::ok;
+          const bool judge = wasOk && worse;
+          meshFace(f), capCheck(f), areaBalanced++;
+          if (!judge) continue;
+          if (faces[f].status != Status::ok) {
+            worse->push_back(f);
+            continue;
+          }
+          const double net = sliverArea(f, nullptr), exact = std::fabs(meshArea(f) - net);
+          if (netWas.count(f) && std::fabs(net) > std::max(o.areaBalance * exact, netWas[f])) worse->push_back(f);
+        }
+      };
+      std::vector<int> worse;
+      remesh(touched, &worse);
+      // (A face the splits made worse has them undone on all its edges and on the edges matched with those, those
+      // edges held for the passes after: undone on one side alone, its match would unbalance the face between them.)
+      std::set<int> undo;
+      std::vector<int> stack;
+      for (int f : worse)
+        for (int e : touched)
+          if (edgesOf[f].count(e) && undo.insert(e).second) stack.push_back(e);
+      while (!stack.empty()) {
+        const int e = stack.back();
+        stack.pop_back();
+        for (int x : linked[e])
+          if (touched.count(x) && undo.insert(x).second) stack.push_back(x);
+      }
+      for (int e : undo) em->restore(e, saved.at(e)), held.insert(e), areaUndone++;
+      if (!undo.empty()) remesh(undo, nullptr);
+    }
+  }
+
   void checkDeviation() {
     if (!o.checkDeviation) return;
     const cadgeom::Tolerances tols(m);
@@ -2648,6 +2837,9 @@ PartMesher::PartMesher(const Model& model, const PartOptions& options) : impl_(n
       if (I.toRetry(f)) I.retryFace(f), I.capCheck(f), any = true;
     if (any) runRounds(I.rounds + kRetryRounds);
   }
+  // (The faces balanceArea meshed again may want splits of their own: the rounds once more.)
+  I.balanceArea();
+  if (I.areaBalanced) runRounds(I.rounds + kRetryRounds);
   I.meshFrozenAgain();
   I.memos.clear();
   if (I.o.collapseTurned) I.collapseTurned();

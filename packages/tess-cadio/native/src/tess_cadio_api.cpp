@@ -84,6 +84,8 @@ bool failCapped = true, failTurnedOver = true;
 bool keepDefects = PartOptions{}.keepDefects;
 // PartOptions::develop for the next calls.
 bool develop = PartOptions{}.develop;
+// PartOptions::areaBalance for the next calls (0: none).
+double areaBalance = PartOptions{}.areaBalance;
 // PartOptions::failFoldedFans for the next calls.
 bool failFoldedFans = PartOptions{}.failFoldedFans;
 // PartOptions::consistentFans and apexCorners for the next calls.
@@ -121,6 +123,7 @@ PartOptions partOptions(const Model& m, double linear, double angular, double& p
   opts.failTurnedOver = failTurnedOver;
   opts.keepDefects = keepDefects;
   opts.develop = develop;
+  opts.areaBalance = areaBalance;
   opts.failFoldedFans = failFoldedFans;
   opts.consistentFans = consistentFans, opts.apexCorners = apexCorners;
   opts.analysis = analysis, opts.analysisSize = analysisSize;
@@ -138,7 +141,7 @@ std::string ids(const std::vector<uint32_t>& v) {
 extern "C" {
 
 /** The API's version (src/index.ts's API_VERSION). */
-int tc_api_version() { return 13; }
+int tc_api_version() { return 14; }
 
 /**
  * Meshes the part in `data` (cad-brep's buffer, `size` bytes) at the deflections, positions minus (ox, oy, oz); with
@@ -211,6 +214,11 @@ void tc_set_fail_capped(int on) { failCapped = on != 0; }
 void tc_set_fail_turned_over(int on) { failTurnedOver = on != 0; }
 /** Whether the next calls mesh each face in its developed plane (PartOptions::develop); default 1. */
 void tc_set_develop(int on) { develop = on != 0; }
+/**
+ * The most a face's mesh area may gain or lose from its boundary's chords for the next calls, a fraction of its area
+ * (PartOptions::areaBalance; default 0.02); 0 for no limit, a negative value the default.
+ */
+void tc_set_area_balance(double limit) { areaBalance = limit >= 0 ? limit : PartOptions{}.areaBalance; }
 /**
  * Whether the next calls keep a face whose defect is small rather than failing it (PartOptions::keepDefects: a few
  * turned triangles, a little past its deflection, at its point cap; its defect in the diagnostics' "kept"); default 1.

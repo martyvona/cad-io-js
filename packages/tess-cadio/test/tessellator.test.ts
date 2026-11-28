@@ -379,6 +379,34 @@ test('init({develop}): false meshes each face in (u, v), true (the default) in i
   assert.notEqual(uv, developed);
 });
 
+test('init({areaBalance}): 2% by default, a narrow face\'s area within it; 0 leaves the boundary\'s chords as they are, '
+  + 'a quarter short', { skip }, async () => {
+  // (narrowSegment: an arc of radius 10 against its chord, 0.2 apart; its area 50 (a - sin a).)
+  const data = new Uint8Array(TESS_MODELS.narrowSegment().finish().buffer);
+  const a = 2 * Math.acos(1 - 0.2 / 10), exact = 50 * (a - Math.sin(a));
+  const area = async (opts: { areaBalance?: number }) => {
+    const t = new CadioTessellator();
+    await t.init(opts);
+    const r = await t.tessellate({ ...req('cube'), data, linearDeflection: 0.1, angularDeflection: Math.PI / 12,
+      edges: false });
+    assert.equal(failedCauses(r).size, 0);
+    const p = r.positions, ix = r.indices;
+    let s = 0;
+    for (let k = 0; k < ix.length; k += 3) {
+      const [i, j, l] = [ix[k]! * 3, ix[k + 1]! * 3, ix[k + 2]! * 3];
+      const u = [p[j]! - p[i]!, p[j + 1]! - p[i + 1]!, p[j + 2]! - p[i + 2]!];
+      const v = [p[l]! - p[i]!, p[l + 1]! - p[i + 1]!, p[l + 2]! - p[i + 2]!];
+      s += 0.5 * Math.hypot(u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!);
+    }
+    return s / exact - 1;
+  };
+  const byDefault = await area({}), at2 = await area({ areaBalance: 0.02 }), off = await area({ areaBalance: 0 });
+  assert.equal(byDefault, at2);
+  assert.ok(Math.abs(at2) <= 0.02, `at 2%: ${at2}`);
+  assert.ok(off < -0.2, `off: ${off}`);
+});
+
 test('an edge off its face\'s surface past max(d, tol): the face kept, the edge and its distance said, past the '
   + 'limits; with keepDefects off, failed for it', { skip }, async () => {
   // (edgeBulge: a 10 mm square whose top side is an arc 0.5 over it, its use placed on its feet: 50 x 0.01.)
